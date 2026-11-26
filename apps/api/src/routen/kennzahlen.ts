@@ -60,7 +60,8 @@ const versionSchema = definitionSchema.omit({ schluessel: true, typ: true, kateg
 const schluesselParam = z.object({ schluessel: SCHLUESSEL });
 const katalogAbfrage = z.object({ alle: z.enum(["true", "false"]).default("false") });
 
-const auswahlSchema = z.object({ schluessel: z.array(SCHLUESSEL).max(100) });
+export const MAX_FONDS_KENNZAHLEN = 100;
+const auswahlSchema = z.object({ schluessel: z.array(SCHLUESSEL).max(MAX_FONDS_KENNZAHLEN) });
 
 const neuerWertSchema = z.object({
   schluessel: SCHLUESSEL,
@@ -119,7 +120,7 @@ export async function ladeAktuellenKatalog(tx: Tx, stichtag = heuteIso()): Promi
 }
 
 /** Neueste Version je Schlüssel unabhängig von der Gültigkeit (Anzeige von Bezeichnung und Einheit alter Werte). */
-async function ladeNeueste(tx: Tx, schluessel: string[]): Promise<Map<string, KennzahlDefinition>> {
+export async function ladeNeueste(tx: Tx, schluessel: string[]): Promise<Map<string, KennzahlDefinition>> {
   if (schluessel.length === 0) return new Map();
   const zeilen = await tx.select().from(kennzahlDefinition).where(inArray(kennzahlDefinition.schluessel, schluessel)).orderBy(asc(kennzahlDefinition.katalogVersion));
   return new Map(zeilen.map((d) => [d.schluessel, d]));
@@ -611,7 +612,7 @@ export function fondsKennzahlRouten(db: Db) {
       const { schluessel } = c.req.valid("json");
       if (new Set(schluessel).size !== schluessel.length) return fehlerAntwort(c, 400, "invalid_input", "The input is invalid.", [{ feld: "metricKeys", code: "custom", meldung: "Duplicate entries" }]);
       const nachher = await schreibe(db, c, async (tx, protokoll) => {
-        await ladeFonds(tx, id);
+        await ladeFonds(tx, id, { sperren: true });
         const aktuell = new Set((await ladeAktuellenKatalog(tx)).map((d) => d.schluessel));
         const unbekannt = schluessel.filter((s) => !aktuell.has(s));
         if (unbekannt.length) throw new Fachfehler(404, "metric_not_found", `The metric "${unbekannt[0]}" does not exist in the catalog (or is no longer in effect).`, { schluessel: unbekannt });

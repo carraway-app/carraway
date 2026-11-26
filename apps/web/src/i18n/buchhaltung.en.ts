@@ -413,7 +413,7 @@ export const buchhaltungEn: BuchhaltungTexte = {
     buchungsregeln: {
       titel: "Account assignment of the export",
       hilfe: "For each transaction and movement type: which accounts the DATEV export posts to. The posting text has the placeholders {organisation}, {art}, {valuta} and {bemerkung}.",
-      quellen: { zins: "Interest", auszahlung: "Disbursement", rueckfluss: "Return of capital", tilgung: "Repayment", zusage: "Commitment", wertberichtigung: "Value adjustment", abruf: "Capital call", ausschuettung: "Distribution", zinszahlung: "Interest payment", dividende: "Dividend" },
+      quellen: { zins: "Interest", auszahlung: "Disbursement", rueckfluss: "Return of capital", tilgung: "Repayment", zusage: "Commitment", wertberichtigung: "Value adjustment", abruf: "Capital call", ausschuettung: "Distribution", interest_waiver: "Interest waiver", principal_waiver: "Principal waiver", principal_disposal: "Principal transferred to buyer", impairment_disposal: "Impairment transferred on sale", zinszahlung: "Interest payment", dividende: "Dividend" },
       nochNicht: "not set up yet",
       konto: "Account",
       gegenkonto: "Counter account",

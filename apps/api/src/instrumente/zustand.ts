@@ -12,12 +12,15 @@ import type { Tx } from "../zeitlimit";
 
 /** Die Zeilen ohne die Werte eigener Felder (Etappe 21): Die Rechenwege brauchen sie nicht, `felder` ist deshalb optional. */
 export type BeteiligungZeile = Omit<typeof beteiligung.$inferSelect, "felder" | "instrumentFelder" | "waehrung"> & { felder?: Record<string, unknown>; instrumentFelder?: Record<string, unknown>; waehrung?: string | null };
-export type VorgangDaten = Omit<typeof vorgang.$inferSelect, "felder" | "betragLokal" | "kurs" | "kursId" | "instrumentId" | "beglichenVorgangId"> & {
+export type VorgangDaten = Omit<typeof vorgang.$inferSelect, "felder" | "betragLokal" | "kurs" | "kursId" | "instrumentId" | "beglichenVorgangId" | "verzichtId" | "darlehensverkaufId" | "zinsverzichtBis"> & {
   felder?: Record<string, unknown>;
   betragLokal?: string | null;
   kurs?: string | null;
   kursId?: string | null;
   instrumentId?: string;
+  verzichtId?: string | null;
+  darlehensverkaufId?: string | null;
+  zinsverzichtBis?: string | null;
   beglichenVorgangId?: string | null;
 };
 
@@ -55,14 +58,17 @@ export interface Zustand {
   zusage: Decimal;
   investiert: Decimal;
   tilgungen: Decimal;
+  kapitalabgang: Decimal;
   rueckfluesse: Decimal;
   /** Netto: Zuführungen positiv, Auflösungen negativ. */
   wertberichtigungen: Decimal;
+  verkaufteWertberichtigung: Decimal;
   kapitalisiert: Decimal;
   /** Gebuchte Zinsen netto (auch die nicht kapitalisierten). */
   zinsen: Decimal;
   /** Eingegangene Zinsen in bar (`zinszahlung`), netto. */
   zinszahlungen: Decimal;
+  gebuchteZinsenErlassen: Decimal;
   /** Dividenden (`dividende`), netto. */
   dividenden: Decimal;
   /** Buchwertabgang früherer Teilverkäufe. */
@@ -89,6 +95,7 @@ export function berechneZustand(vorgaenge: readonly VorgangDaten[], abgang: Deci
     if (aufgehoben.has(v.id) || !new Decimal(v.betrag).greaterThan(0)) continue;
     if (v.art === "auszahlung") bewegungen.push({ datum: v.valuta, art: "auszahlung", betrag: v.betrag });
     else if (v.art === "tilgung") bewegungen.push({ datum: v.valuta, art: "tilgung", betrag: v.betrag });
+    else if (v.art === "principal_disposal") bewegungen.push({ datum: v.valuta, art: "verkauf", betrag: v.betrag });
     else if (v.art === "zins") {
       gebuchtePerioden.add(v.valuta);
       if (v.kapitalisiert) bewegungen.push({ datum: v.valuta, art: "kapitalisierung", betrag: v.betrag });
@@ -97,11 +104,14 @@ export function berechneZustand(vorgaenge: readonly VorgangDaten[], abgang: Deci
   return {
     zusage: summe("zusage"),
     investiert: summe("auszahlung"),
+    kapitalabgang: summe("principal_disposal"),
     tilgungen: summe("tilgung"),
     rueckfluesse: summe("rueckfluss"),
-    wertberichtigungen: summe("wertberichtigung"),
+    wertberichtigungen: summe("wertberichtigung").minus(summe("impairment_disposal")),
+    verkaufteWertberichtigung: summe("impairment_disposal"),
     kapitalisiert: summe("zins", (v) => v.kapitalisiert),
     zinsen: summe("zins"),
+    gebuchteZinsenErlassen: summe("interest_waiver", (v) => !v.zinsverzichtBis),
     zinszahlungen: summe("zinszahlung"),
     dividenden: summe("dividende"),
     abgang: new Decimal(abgang),
@@ -115,13 +125,14 @@ export function buchwertVon(z: Zustand) {
     investiert: z.investiert,
     kapitalisiert: z.kapitalisiert,
     tilgungen: z.tilgungen,
-    wertberichtigungen: z.wertberichtigungen,
+    // Der gebuchte Buchwertabgang des Verkaufs ist bereits netto.
+    wertberichtigungen: z.wertberichtigungen.plus(z.verkaufteWertberichtigung),
     abgang: z.abgang,
   });
 }
 
-/** Offenes Darlehenskapital: Auszahlungen plus Kapitalisierungen minus Tilgungen. */
-export const offenesKapital = (z: Zustand) => z.investiert.plus(z.kapitalisiert).minus(z.tilgungen);
+/** Offenes Darlehenskapital: Auszahlungen plus Kapitalisierungen minus Tilgungen und Kapitalabgänge an Erwerber. */
+export const offenesKapital = (z: Zustand) => z.investiert.plus(z.kapitalisiert).minus(z.tilgungen).minus(z.kapitalabgang);
 
 /** Übersetzt einen Rechenkern-Fehler (reiner `Error`) in einen Fachfehler, der die Beteiligung nennt. */
 export function alsFachfehler<T>(beteiligungId: string, fn: () => T, code: "capital_history_invalid" | "calculation_failed" = "calculation_failed"): T {

@@ -1,5 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import * as s from "@carraway/db";
+import { ladeFondsberichtDaten } from "../berichte/daten";
 import { berechneFondsUebersicht, juengsterEingang } from "../kennzahlen/fonds";
 import { leeren, oeffneTestdb } from "./hilfen";
 import { erstelleTestApp, person } from "./hilfen-auth";
@@ -24,6 +25,10 @@ const meldung = (id: string, body: Record<string, unknown>) => post(`/fonds/${DA
 
 let extern = "";
 let intern = "";
+
+function ohneZieldetails(daten: unknown) {
+  for (const privat of [intern, ZIEL, "Eigener Zielfonds", "Testfonds Eins", '"1500"', '"1500.00"']) expect(JSON.stringify(daten)).not.toContain(privat);
+}
 
 beforeEach(async () => {
   await grundbestand(db);
@@ -110,16 +115,12 @@ describe("Zielfonds eines Dachfonds", () => {
     expect(verknuepfen.status).toBe(404);
     expect((await json(verknuepfen)).error.code).toBe("fund_not_found");
     const liste = await json(await get(`/fonds/${DACH}/target-funds?asOf=${q2}`, nurDach));
-    const eigen = liste.data.find((x: { id: string }) => x.id === intern);
-    expect(eigen.targetFundName).toBeNull();
-    // Keine Durchrechnung ohne Leserecht: Anschaffungskosten (Abruf 300), nichts aus der NAV des Zielfonds.
-    expect(eigen.metrics.value).toMatchObject({ value: "300.00", method: "cost" });
-    expect(JSON.stringify(eigen)).not.toContain("1500");
-    expect(liste.totals.value).toBe("800.00");
-    const detail = await json(await get(`/fonds/${DACH}/target-funds/${intern}?asOf=${q2}`, nurDach));
-    expect(detail.metrics.value.method).toBe("cost");
-    expect(detail.navReports.every((m: { share: string | null }) => m.share === null)).toBe(true);
-    expect(JSON.stringify(detail)).not.toContain("0.1");
+    expect(liste.data.find((x: { id: string | null }) => x.id === null)).toEqual({ id: null, name: "Zielfonds", metrics: { value: { value: "150.00" } } });
+    expect(liste.totals.value).toBe("650.00");
+    ohneZieldetails(liste);
+    const detail = await get(`/fonds/${DACH}/target-funds/${intern}?asOf=${q2}`, nurDach);
+    expect(detail.status).toBe(404);
+    expect((await json(detail)).error.code).toBe("target_fund_not_found");
     // Schreiben an der Beteiligung mit eigenem Zielfonds verlangt ebenfalls Leserecht am Zielfonds.
     expect((await post(`/fonds/${DACH}/target-funds/${intern}/nav-reports`, { asOf: q2, share: "0.5" }, nurDach)).status).toBe(404);
     expect((await post(`/fonds/${DACH}/target-funds/${intern}/movements`, { type: "capital_call", valueDate: q2, amount: "10" }, nurDach)).status).toBe(404);
@@ -160,25 +161,53 @@ describe("Durchrechnung: Kreise, Tiefe und Sicht", () => {
     await buchhaltungAufsetzen(db, F3);
     await uebernehmeSalden(db, F3, q2, { "1200": "1000.00", "2000": "-1000.00" });
     // DACH → ZIEL (0,1) besteht. Dazu DACH → F3 (Anteil 0,5) und ZIEL → F3 (Anteil 0,2): F3 ist über zwei Wege erreichbar.
+    const nurDach = person("dach-raute", { rollen: { [DACH]: "betrachter" } });
     const dachF3 = (await json(await verknuepfe(DACH, F3))).id;
     expect((await meldung(dachF3, { asOf: "2025-03-31", share: "0.5" })).status).toBe(201);
+    const pfad = `/fonds/${DACH}/uebersicht?stichtag=${q2}`;
+    expect((await json(await get(pfad, nurDach))).kennzahlen.nav.wert).toBe("3150");
     const zielF3 = (await json(await post(`/fonds/${ZIEL}/target-funds`, { name: "Anteil F3", targetFundId: F3 }))).id;
     expect((await post(`/fonds/${ZIEL}/target-funds/${zielF3}/nav-reports`, { asOf: "2025-03-31", share: "0.2" })).status).toBe(201);
     // ZIEL: 1.500 + 0,2 × 1.000 = 1.700; DACH: 500 + 0,1 × 1.700 + 0,5 × 1.000 + 2.000 = 3.170
     expect((await berechneFondsUebersicht(db, ZIEL, q2)).kennzahlen.nav.wert).toBe("1700");
     expect((await berechneFondsUebersicht(db, DACH, q2)).kennzahlen.nav.wert).toBe("3170");
+    const aktuell = await json(await get(pfad, nurDach));
+    expect(aktuell.kennzahlen.nav.wert).toBe("3170");
+    expect(aktuell.kennzahlen.nav.schritte.filter((s: { bezeichnung: string }) => s.bezeichnung === "Zielfonds")).toEqual([{ zeichen: "+", bezeichnung: "Zielfonds", wert: "670.00" }]);
+    ohneZieldetails(aktuell);
+    expect(JSON.stringify(aktuell)).not.toContain(F3);
   });
 
-  it("gibt die Fondsübersicht ohne Sicht auf den Zielfonds ohne dessen Durchrechnung aus (kein geteilter Snapshot)", async () => {
+  it("zeigt dieselbe NAV im gemeinsamen Snapshot, zum Wissensstand, im Bericht und im Bewertungsszenario", async () => {
     const nurDach = person("nurdach3", { rollen: { [DACH]: "betrachter" } });
-    const fremd = await json(await get(`/fonds/${DACH}/uebersicht?stichtag=${q2}`, nurDach));
-    // 500 (fremder Zielfonds) + 300 (eigener Zielfonds zu Anschaffungskosten) + 2.000 Bank
-    expect(fremd.kennzahlen.nav.wert).toBe("2800");
-    expect(fremd.snapshot).toBeNull();
-    const voll = await json(await get(`/fonds/${DACH}/uebersicht?stichtag=${q2}`));
-    expect(voll.kennzahlen.nav.wert).toBe("2650");
-    const einzel = await json(await get(`/fonds/${DACH}/nav-einzelwerte?stichtag=${q2}&stand=${encodeURIComponent(new Date().toISOString())}`, nurDach));
-    expect(JSON.stringify(einzel)).not.toContain("1500");
+    const pfad = `/fonds/${DACH}/uebersicht?stichtag=${q2}`;
+    const voll = await json(await get(pfad));
+    const snapshot = await json(await get(pfad, nurDach));
+    expect(snapshot.snapshot).toEqual(voll.snapshot);
+    expect(snapshot.snapshot).not.toBeNull();
+    const stand = snapshot.quellenstand;
+    const live = await json(await get(`${pfad}&stand=${encodeURIComponent(stand)}`, nurDach));
+    for (const u of [snapshot, live]) {
+      expect(u.kennzahlen.nav.wert).toBe("2650");
+      expect(u.kennzahlen.nav.schritte).toContainEqual({ zeichen: "+", bezeichnung: "Zielfonds", wert: "150.00" });
+      ohneZieldetails(u);
+    }
+    expect(voll.kennzahlen.nav.schritte).toContainEqual({ zeichen: "+", bezeichnung: "Eigener Zielfonds", wert: "150.00", quellen: [intern] });
+    const einzelPfad = `/fonds/${DACH}/nav-einzelwerte?stichtag=${q2}&stand=${encodeURIComponent(stand)}`;
+    const einzel = await json(await get(einzelPfad, nurDach));
+    expect(einzel.zielfonds).toContainEqual({ id: null, name: "Zielfonds", wert: "150.00" });
+    ohneZieldetails(einzel);
+    expect((await json(await get(einzelPfad))).zielfonds).toContainEqual({ id: intern, name: "Eigener Zielfonds", wert: "150.00" });
+    const waehrung = await json(await get(`/fonds/${DACH}/waehrungssicht?stichtag=${q2}&vergleich=EUR`, nurDach));
+    expect(waehrung.navVergleich).toBe("2650.00");
+    ohneZieldetails(waehrung);
+    const bericht = await ladeFondsberichtDaten(db, DACH, q2, stand, stand);
+    expect(bericht?.kennzahlen.nav.wert).toBe(snapshot.kennzahlen.nav.wert);
+    ohneZieldetails(bericht);
+    const szenario = await json(await post(`/fonds/${DACH}/szenarien`, { name: "Dachfonds", basisStichtag: q2, annahmen: { bewertung: { beteiligungen: {} } } }));
+    const ansicht = await json(await get(`/szenarien/${szenario.id}`, nurDach));
+    expect(ansicht.ergebnis.bewertungsszenario.aktuell.nav).toBe("2650.00");
+    ohneZieldetails(ansicht);
   });
 });
 
@@ -223,12 +252,14 @@ describe("Manager-Profil und Portfolio-Dashboard", () => {
     expect(d.asOf).toBe(q2);
   });
 
-  it("zeigt ohne Sicht auf den Zielfonds auch in Allokation und Verlauf keine Durchrechnung", async () => {
+  it("zeigt den durchgerechneten Wert in Allokation und Verlauf ohne Einzelheiten zum Zielfonds", async () => {
     const nurDach = person("nurdach2", { rollen: { [DACH]: "betrachter" } });
     const d = await json(await get(`/portfolio/dashboard?asOf=${q2}&quarters=1`, nurDach));
-    // Fremder Zielfonds 500 + eigener Zielfonds zu Anschaffungskosten 300
-    expect(d.allocation.sector.find((g: { type: string }) => g.type === "target_funds")).toMatchObject({ count: 2, fairValue: "800.00" });
-    expect(d.history.funds[0].points.at(-1).portfolioValue).toBe("800.00");
+    // Fremder Zielfonds 500 + eigener Zielfonds 150
+    expect(d.allocation.sector.find((g: { type: string }) => g.type === "target_funds")).toMatchObject({ count: 2, fairValue: "650.00" });
+    expect(d.history.funds[0].points.at(-1).portfolioValue).toBe("650.00");
+    expect(d.history.total.at(-1).nav).toBe("2650.00");
+    ohneZieldetails(d);
   });
 
   it("hält Lücken der Hauswährung getrennt von den übrigen Sichten", async () => {
@@ -246,9 +277,9 @@ describe("Manager-Profil und Portfolio-Dashboard", () => {
   it("rechnet nur sichtbare Fonds und bereinigt nichts, wenn der Zielfonds nicht sichtbar ist", async () => {
     const d = await json(await get(`/manager-profile?asOf=${q2}`, person("dachsicht", { rollen: { [DACH]: "betrachter" } })));
     expect(d.funds.map((f: { fundId: string }) => f.fundId)).toEqual([DACH]);
-    // Ohne Sicht auf den Zielfonds keine Durchrechnung: 500 + 300 (Anschaffungskosten) + 2.000 Bank
-    expect(d.totals.nav.value).toBe("2800.00");
-    expect(d.internalHoldings[0].eliminated).toBe(false);
+    expect(d.totals.nav.value).toBe("2650.00");
+    expect(d.internalHoldings).toEqual([{ id: null, fundId: DACH, name: "Zielfonds", value: "150.00", eliminated: false }]);
+    ohneZieldetails(d);
   });
 
   it("liefert Allokation und Verlauf in der Hauswährung", async () => {

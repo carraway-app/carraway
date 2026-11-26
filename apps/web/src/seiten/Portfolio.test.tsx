@@ -106,7 +106,7 @@ describe("Portfolio", () => {
     spieleApi();
     rendereApp(url);
     const nutzer = userEvent.setup();
-    const knopf = await screen.findByRole("button", { name: "Herkunft von IRR anzeigen" });
+    const knopf = await screen.findByRole("button", { name: /^IRR /, description: "Herkunft von IRR anzeigen" });
 
     await nutzer.click(knopf);
 
@@ -129,18 +129,30 @@ describe("Portfolio", () => {
   it("öffnet NAV-Zeilen mit Centbeträgen und behält Datum und Wissensstand an allen Quellen", async () => {
     const stand = "2026-10-01T10:11:12.345678Z", stichtag = "2026-09-30";
     const fetch = spieleApi({
+      [`/api/v1/fonds/${FONDS_ID}/uebersicht`]: { koerper: {
+        ...uebersichtDaten, kennzahlen: { ...uebersichtDaten.kennzahlen, nav: { wert: "165.79", schritte: [
+          { zeichen: "", bezeichnung: "Portfoliowert", wert: "12.34" },
+          { zeichen: "+", bezeichnung: "Zielfonds", wert: "150" },
+          { zeichen: "+", bezeichnung: "Bankguthaben laut Saldenliste", wert: "3.45" },
+          { zeichen: "=", bezeichnung: "Fonds-NAV", wert: "165.79" },
+        ] } },
+      } },
       [`/api/v1/fonds/${FONDS_ID}/nav-einzelwerte`]: { koerper: {
         portfolio: [{ beteiligungId: BET_ID, bewertungId: "w1", datum: "2026-06-30", wert: "12.34", bezeichnung: "Beispielwert", nachweise: [{ dokumentId: "d1", dateiname: "Bewertung.pdf", seite: 3 }] }],
+        zielfonds: [{ id: null, name: "Zielfonds", wert: "150.00" }],
         salden: [{ id: "s1", laufId: "l1", gruppe: "bank", konto: "1200", bezeichnung: "Bank", saldo: "3.45" }],
       } },
       [`/api/v1/beteiligungen/${BET_ID}/bewertungen`]: { koerper: { daten: [bewertungZeile("w1", "2026-06-30", "12.34", "freigegeben")] } },
     });
     rendereApp(`${url}?stichtag=${stichtag}&stand=${stand}`);
     const nutzer = userEvent.setup();
-    await nutzer.click(await screen.findByRole("button", { name: "Herkunft von NAV anzeigen" }));
+    await nutzer.click(await screen.findByRole("button", { name: /^NAV /, description: "Herkunft von NAV anzeigen" }));
     const dialog = await screen.findByRole("dialog");
     const schalter = await within(dialog).findByText("Portfoliowert", { selector: "summary span" });
     await nutzer.click(schalter);
+    await nutzer.click(within(dialog).getByText(/Zielfonds/, { selector: "summary span" }));
+    expect(within(dialog).getByRole("cell", { name: "Zielfonds" })).toBeTruthy();
+    expect(within(dialog).queryByRole("link", { name: "Zielfonds" })).toBeNull();
     await nutzer.click(within(dialog).getByText(/Bankguthaben laut/, { selector: "summary span" }));
     expect(ohneGeschuetztesLeerzeichen(dialog.textContent)).toContain("12,34 €");
     expect(dialog.textContent).toContain("30.06.2026");
@@ -163,7 +175,7 @@ describe("Portfolio", () => {
     spieleApi();
     rendereApp(url);
     const nutzer = userEvent.setup();
-    await nutzer.click(await screen.findByRole("button", { name: "Herkunft von NAV anzeigen" }));
+    await nutzer.click(await screen.findByRole("button", { name: /^NAV /, description: "Herkunft von NAV anzeigen" }));
     const dialog = await screen.findByRole("dialog");
     const schliessen = within(dialog).getByRole("button", { name: "Schließen" });
     expect(document.activeElement).toBe(schliessen);
@@ -178,7 +190,7 @@ describe("Portfolio", () => {
     spieleApi();
     rendereApp(url);
     const nutzer = userEvent.setup();
-    await nutzer.click(await screen.findByRole("button", { name: "Show origin of NAV" }));
+    await nutzer.click(await screen.findByRole("button", { name: /^NAV /, description: "Show origin of NAV" }));
     const dialog = await screen.findByRole("dialog");
     expect(dialog.textContent).toContain("Fund NAV");
     expect(dialog.textContent).toContain("25,796,900");

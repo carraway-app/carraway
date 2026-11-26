@@ -148,6 +148,7 @@ describe("Wandlung", () => {
 describe("Verkauf, Kaufpreisanpassung, Insolvenz", () => {
   it("zeigt nach dem Buchen die Auswertung des Servers als Erfolgsansicht", async () => {
     const auswertung = {
+      principalDisposed: "1100000.00",
       buchwertVorher: "1012000.00",
       buchwertAbgang: "1012000.00",
       erloes: "1500000.00",
@@ -187,6 +188,7 @@ describe("Verkauf, Kaufpreisanpassung, Insolvenz", () => {
     await nutzer.type(d.getByLabelText("Freigabe des Treuhandbetrags am"), "2027-06-30");
     await nutzer.click(d.getByRole("button", { name: "Vorschau berechnen" }));
     expect(await d.findByRole("group", { name: "Vorschau des Verkaufs" })).toBeTruthy();
+    expect(d.getByText("Kapitalabgang an den Erwerber")).toBeTruthy();
     expect(api.anfragen("POST", `/api/v1/beteiligungen/${BET_ID}/verkauf`)).toHaveLength(0);
     await nutzer.click(d.getByRole("button", { name: "Verkauf buchen" }));
 

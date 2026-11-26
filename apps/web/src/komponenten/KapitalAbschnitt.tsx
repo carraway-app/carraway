@@ -154,9 +154,9 @@ export function KapitalAbschnitt({ beteiligungId, organisationId, fondsId, stich
 
   return (
     <>
-      <section className="app-karte" aria-labelledby="kapital-titel">
+      <section className="app-karte" aria-label={k.bereich}>
         <div className="app-karte__kopf">
-          <h2 id="kapital-titel" className="cw-t-untertitel app-karte__titel">
+          <h2 className="cw-t-untertitel app-karte__titel">
             {k.titel}
           </h2>
           {data && data.letzteRunde ? (

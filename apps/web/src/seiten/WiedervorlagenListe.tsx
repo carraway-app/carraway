@@ -46,7 +46,7 @@ export function WiedervorlagenSeite() {
   const [stellen, setStellen] = useState<{ id: string; titel: string; datum: string } | null>(null);
   const zeilen = abfrage.data ?? [];
   const name = useNamen(zeilen.map((z) => z.zustaendigId));
-  const schreiben = darf("bearbeiter");
+  const schreiben = darf("bearbeiter", null, "kontakte");
 
   const spalten: TabelleSpalte<WiedervorlageZeile>[] = [
     {
@@ -112,7 +112,7 @@ export function WiedervorlagenSeite() {
         </h2>
         {abfrage.isPending ? (
           <div className="app-skelett app-skelett--zeile" aria-hidden="true" />
-        ) : zeilen.length === 0 ? (
+        ) : !abfrage.data ? null : zeilen.length === 0 ? (
           <Leer zeichen="W" titel={w.keine} beschreibung="" />
         ) : (
           <Tabelle beschriftung={w.titel} spalten={spalten} zeilen={zeilen} zeilenSchluessel={(z) => z.id} />

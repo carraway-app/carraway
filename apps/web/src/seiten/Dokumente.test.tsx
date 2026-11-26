@@ -198,7 +198,7 @@ describe("Herkunft mit Fundstelle", () => {
     expect(quelle.getAttribute("href")).toBe(`/dokumente/${DOK_ID}?seite=2`);
     const nutzer = userEvent.setup();
     const kennzahlen = screen.getByRole("region", { name: "Kennzahlen" });
-    await nutzer.click(within(kennzahlen).getAllByRole("button", { name: /Herkunft/ })[2]!);
+    await nutzer.click(within(kennzahlen).getByRole("button", { name: "Herkunft von Bewertung anzeigen" }));
     const dialog = await screen.findByRole("dialog");
     const link = within(dialog).getByRole("link", { name: "Aus Dokument vertrag.pdf, Seite 2" });
     expect(link.getAttribute("href")).toBe(`/dokumente/${DOK_ID}?seite=2`);

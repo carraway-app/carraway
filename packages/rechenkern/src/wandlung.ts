@@ -1,8 +1,9 @@
+import { zinsenNachVerzicht, type Zinsdarlehen } from "./zinslauf.js";
+import { aufCent } from "./zins.js";
 import { Decimal } from "./decimal.js";
 import { vergleiche, zerlege, type Datum } from "./datum.js";
 import type { Rechenschritt } from "./herkunft.js";
 import { ersteAuszahlung, kapitalAm, kapitalverlauf, type Kapitalbewegung } from "./kapitalverlauf.js";
-import { aufCent } from "./zins.js";
 import { zinsenAufVerlauf, type Zinsbedingungen } from "./zinsrechnung.js";
 
 /**
@@ -26,6 +27,7 @@ export interface WandlungEingabe {
   preisregel: Wandlungspreisregel;
   nennwertJeAnteil: Decimal.Value;
   /** Beginn der noch nicht gebuchten Zinsen (z. B. letztes Periodenende); Standard: erste Auszahlung. */
+  zinsverzichte?: Zinsdarlehen["zinsverzichte"];
   zinsenAb?: Datum;
   /**
    * Vertraglich abweichend gewandeltes Darlehen (0 bis Restkapital); ohne Angabe das ganze Restkapital. Der Rest ist nicht Teil der
@@ -98,7 +100,8 @@ export function wandlung(eingabe: WandlungEingabe): Wandlungsergebnis {
   const zinsen = eingabe.bedingungen
     ? zinsenAufVerlauf(verlauf, zinsenAb, cutoff, eingabe.bedingungen)
     : { betragGesamt: new Decimal(0), schritte: [{ zeichen: "" as const, bezeichnung: "Keine Zinsbedingungen (SAFE): keine Zinsen", wert: "0" }] };
-  const zinsenGebucht = aufCent(zinsen.betragGesamt);
+  const aufgelaufeneZinsen = zinsenNachVerzicht(eingabe.zinsverzichte, zinsenAb, cutoff, zinsen.betragGesamt, zinsen.schritte);
+  const zinsenGebucht = aufCent(aufgelaufeneZinsen);
 
   const nennwert = new Decimal(eingabe.nennwertJeAnteil);
   if (!nennwert.greaterThan(0)) throw new Error("Nennwert je Anteil muss größer als null sein");
@@ -168,7 +171,7 @@ export function wandlung(eingabe: WandlungEingabe): Wandlungsergebnis {
   return {
     cutoff,
     restkapital,
-    aufgelaufeneZinsen: zinsen.betragGesamt,
+    aufgelaufeneZinsen,
     zinsenGebucht,
     darlehenGewandelt,
     zinsenGewandelt,

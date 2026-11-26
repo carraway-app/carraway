@@ -278,10 +278,10 @@ export function AufgabenAbschnitt({ bezug, fondsId }: { bezug: Bezug; fondsId?: 
       </div>
       <FehlerHinweis fehler={offen.error ?? anlegen.error} />
       {schreiben ? (
-        <form className="app-aufgabenformular" onSubmit={senden} noValidate aria-label={t.crm.aufgabeNeu}>
+        <form className="cw-aufgabenformular" onSubmit={senden} noValidate aria-label={t.crm.aufgabeNeu}>
           <Eingabe label={t.crm.aufgabeTitel} value={titel} onChange={(e) => setTitel(e.target.value)} />
           <Eingabe label={t.crm.aufgabeFaellig} type="date" value={faellig} onChange={(e) => setFaellig(e.target.value)} />
-          <div className="app-aufgabenformular__wer">
+          <div className="cw-aufgabenformular__wer">
             <span className="cw-t-beschriftung">{t.crm.zustaendig}</span>
             <ZustaendigWahl name={gewaehlterName} beschriftung={`${gewaehlterName ?? t.crm.nichtZugewiesen}: ${t.crm.zustaendigWaehlen}`} {...(bezug.dealId ? { dealId: bezug.dealId } : {})} onWaehlen={setWer} />
           </div>

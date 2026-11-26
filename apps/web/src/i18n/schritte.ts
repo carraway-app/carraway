@@ -271,6 +271,7 @@ const englischPai: Record<string, string> = {
 
 /** Rechenschritte der Dachfonds und der fondsübergreifenden Summen (Rechenkern `dachfonds.ts`). */
 const englischDachfonds: Record<string, string> = {
+  "Zielfonds": "Target funds",
   "Anteile an Zielfonds (durchgerechnet oder fortgeschriebene NAV-Meldung)": "Interests in target funds (look-through or reported NAV rolled forward)",
   "Wert des Anteils (auf Cent gerundet)": "Value of the interest (rounded to cents)",
   "Fortgeschriebene NAV des Anteils": "NAV of the interest rolled forward",

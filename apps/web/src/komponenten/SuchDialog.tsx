@@ -53,7 +53,9 @@ export default function SuchDialog({ onSchliessen }: { onSchliessen: () => void 
   ];
 
   const { darf } = useRechte();
-  const listen = useQuery(crmListen());
+  const kontakteLesen = darf("betrachter", null, "kontakte");
+  const dealsLesen = darf("betrachter", null, "dealflow");
+  const listen = useQuery({ ...crmListen(), enabled: kontakteLesen });
   const b = t.suche.befehle;
   // Die Zielseite kann ein neues Formular öffnen, das als einzige Überlagerung den Fokus übernimmt.
   const geheZu: typeof navigate = (optionen) => {
@@ -61,21 +63,23 @@ export default function SuchDialog({ onSchliessen }: { onSchliessen: () => void 
     return navigate(optionen);
   };
   const alleBefehle: { schluessel: string; label: string; aktion: () => void }[] = [
-    ...(darf("bearbeiter")
+    ...(darf("bearbeiter", null, "kontakte")
       ? [
           { schluessel: "neu-o", label: b.neuUnternehmen, aktion: () => geheZu({ to: "/kontakte", search: { neu: "1" } }) },
           { schluessel: "neu-p", label: b.neuKontakt, aktion: () => geheZu({ to: "/kontakte", search: { objekt: "person", neu: "1" } }) },
-          { schluessel: "neu-d", label: b.neuDeal, aktion: () => geheZu({ to: "/dealflow", search: { neu: "1" } }) },
           { schluessel: "import", label: b.importieren, aktion: () => geheZu({ to: "/kontakte/import" }) },
         ]
       : []),
+    ...(darf("bearbeiter", null, "dealflow") ? [{ schluessel: "neu-d", label: b.neuDeal, aktion: () => geheZu({ to: "/dealflow", search: { neu: "1" } }) }] : []),
     { schluessel: "fonds", label: b.fonds, aktion: () => geheZu({ to: "/fonds", search: {} }) },
-    { schluessel: "o", label: b.unternehmen, aktion: () => geheZu({ to: "/kontakte", search: {} }) },
-    { schluessel: "p", label: b.kontakte, aktion: () => geheZu({ to: "/kontakte", search: { objekt: "person" } }) },
-    { schluessel: "dt", label: b.dealTabelle, aktion: () => geheZu({ to: "/kontakte", search: { objekt: "deal" } }) },
-    { schluessel: "db", label: b.board, aktion: () => geheZu({ to: "/dealflow", search: {} }) },
-    { schluessel: "h", label: b.heute, aktion: () => geheZu({ to: "/kontakte", search: { objekt: "heute" } }) },
-    ...(listen.data ?? []).map((l) => ({ schluessel: `l${l.id}`, label: b.liste(l.name), aktion: () => geheZu({ to: "/kontakte", search: { liste: l.id, ...(l.objekt === "organisation" ? {} : { objekt: l.objekt }) } }) })),
+    ...(kontakteLesen ? [
+      { schluessel: "o", label: b.unternehmen, aktion: () => geheZu({ to: "/kontakte", search: {} }) },
+      { schluessel: "p", label: b.kontakte, aktion: () => geheZu({ to: "/kontakte", search: { objekt: "person" } }) },
+      { schluessel: "h", label: b.heute, aktion: () => geheZu({ to: "/kontakte", search: { objekt: "heute" } }) },
+      ...(dealsLesen ? [{ schluessel: "dt", label: b.dealTabelle, aktion: () => geheZu({ to: "/kontakte", search: { objekt: "deal" } }) }] : []),
+      ...(listen.data ?? []).filter((l) => l.objekt !== "deal" || dealsLesen).map((l) => ({ schluessel: `l${l.id}`, label: b.liste(l.name), aktion: () => geheZu({ to: "/kontakte", search: { liste: l.id, ...(l.objekt === "organisation" ? {} : { objekt: l.objekt }) } }) })),
+    ] : []),
+    ...(dealsLesen ? [{ schluessel: "db", label: b.board, aktion: () => geheZu({ to: "/dealflow", search: {} }) }] : []),
   ];
   const befehle = alleBefehle.filter((x) => x.label.toLowerCase().includes(normalisiert)).slice(0, 14);
 

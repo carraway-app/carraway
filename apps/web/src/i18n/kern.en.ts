@@ -5,6 +5,7 @@ export const kernEn: Kern = {
   marke: "Carraway",
   version: "Version 0.1 · sample data",
   uebersprungLink: "Skip to content",
+  portalFehlt: "The investor portal is unavailable in this installation.",
   portalWeiche: "Redirecting to the portal …",
   nav: {
     beschriftung: "Main navigation",

@@ -107,7 +107,7 @@ export function Kapitalbewegungen({ fondsId, waehrung, stand, stichtag }: { fond
       <div className="cw-formularraster"><Feld type="date" label={k.stichtag} value={tag} onChange={(e) => { if (e.target.value) setTag(e.target.value); }} /></div>
       <FehlerHinweis fehler={kapital.error} />
       {kapital.data && <>
-        <KennzahlenReihe aria-label={k.kapitalstand}>
+        <KennzahlenReihe aria-label={k.kapitalstandFonds}>
           {(["abgerufen", "eingezahlt", "offen", "ueberfaellig", "ungeklaert"] as const).filter((feld) => feld !== "ungeklaert" || Number(kapital.data.fonds.ungeklaert) > 0).map((feld) =>
             <Kennzahl key={feld} titel={k[feld]} onHerkunft={feld === "abgerufen" || feld === "eingezahlt" ? () => setHerkunft(feld) : undefined} wert={formatBetragCent(kapital.data.fonds[feld], sprache, waehrung)} />)}
         </KennzahlenReihe>

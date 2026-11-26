@@ -17,6 +17,7 @@ const TrancheAnlegenDialog = lazy(() => import("./TrancheDialoge").then((m) => (
 const TrancheBearbeitenDialog = lazy(() => import("./TrancheDialoge").then((m) => ({ default: m.TrancheBearbeitenDialog })));
 const InstrumentAnlegenDialog = lazy(() => import("./TrancheDialoge").then((m) => ({ default: m.InstrumentAnlegenDialog })));
 const InstrumentBearbeitenDialog = lazy(() => import("./TrancheDialoge").then((m) => ({ default: m.InstrumentBearbeitenDialog })));
+const VerzichtDialog = lazy(() => import("./VerzichtDialog"));
 const AusuebungDialog = lazy(() => import("./OptionsscheinDialoge").then((m) => ({ default: m.AusuebungDialog })));
 const AusuebungStornoDialog = lazy(() => import("./OptionsscheinDialoge").then((m) => ({ default: m.AusuebungStornoDialog })));
 const WandlungDialog = lazy(() => import("./WandlungDialog").then((m) => ({ default: m.WandlungDialog })));
@@ -29,6 +30,7 @@ type Offen =
   | { art: "tranche"; instrumentId: string }
   | { art: "bearbeiten"; instrument: InstrumentZeile }
   | { art: "kondition"; instrument: InstrumentZeile }
+  | { art: "verzicht"; instrument: InstrumentZeile }
   | { art: "wandlung"; instrument: InstrumentZeile }
   | { art: "ausueben"; instrument: InstrumentZeile }
   | { art: "ausuebungStorno"; instrumentId: string; ausuebung: AusuebungZeile }
@@ -73,6 +75,7 @@ export function InstrumenteAbschnitt({ beteiligungId, organisationId, runden, sc
         {data && offen?.art === "tranche" ? <TrancheAnlegenDialog instrumente={data.instrumente} instrumentId={offen.instrumentId} onSchliessen={schliessen} /> : null}
         {offen?.art === "bearbeiten" ? <InstrumentBearbeitenDialog instrument={offen.instrument} organisationId={organisationId} artGesperrt={data ? artGesperrt(offen.instrument, data.konditionen) : true} waehrung={data?.beteiligung.waehrung} onSchliessen={schliessen} /> : null}
         {offen?.art === "trancheBearbeiten" ? <TrancheBearbeitenDialog tranche={offen.tranche} onSchliessen={schliessen} /> : null}
+        {offen?.art === "verzicht" ? <VerzichtDialog instrument={offen.instrument} beteiligungId={beteiligungId} onSchliessen={schliessen} /> : null}
         {offen?.art === "wandlung" ? <WandlungDialog beteiligungId={beteiligungId} organisationId={organisationId} instrumentId={offen.instrument.id} vorbelegung={offen.instrument} safe={offen.instrument.art === "safe"} runden={runden} onSchliessen={schliessen} /> : null}
         {offen?.art === "ausueben" ? <AusuebungDialog instrument={offen.instrument} onSchliessen={schliessen} /> : null}
         {offen?.art === "ausuebungStorno" ? <AusuebungStornoDialog instrumentId={offen.instrumentId} ausuebung={offen.ausuebung} onSchliessen={schliessen} /> : null}
@@ -105,6 +108,9 @@ function InstrumentKarte({ instrument: i, konditionen, schreiben, waehrung, onWa
         <Button variante="sekundaer" groesse="s" aria-label={fuer(a.aktionen.konditionen)} onClick={() => onWahl({ art: "kondition", instrument: i })}>
           {a.aktionen.konditionen}
         </Button>
+      ) : null}
+      {aktiv && i.darlehensartig ? (
+        <Button variante="sekundaer" groesse="s" aria-label={fuer(t.verzicht.titel)} onClick={() => onWahl({ art: "verzicht", instrument: i })}>{t.verzicht.titel}</Button>
       ) : null}
       {aktiv && i.art === "wandeldarlehen" ? (
         <Button variante="sekundaer" groesse="s" aria-label={fuer(a.aktionen.wandlung)} onClick={() => onWahl({ art: "wandlung", instrument: i })}>

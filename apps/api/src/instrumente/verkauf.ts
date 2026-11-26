@@ -13,7 +13,7 @@ import {
   zinsperiodeGebucht,
   type Db,
 } from "@carraway/db";
-import { Decimal, verkaufsergebnis } from "@carraway/rechenkern";
+import { Decimal, berichtigungBeiVerkauf, kapitalAnErwerber, verteileBuchwertabgang, verkaufsergebnis } from "@carraway/rechenkern";
 import type { Rechenschritt } from "@carraway/rechenkern";
 import { Fachfehler } from "../fehler";
 import { heute, ladeOrganisation, type Protokollant } from "../schreiben";
@@ -22,10 +22,12 @@ import { letzteBewertung, nimmBewertungZurueck, setzeBewertung } from "./bewertu
 import { hauptinstrumentId, legeHauptinstrumentAn } from "./hauptinstrument";
 import { pruefeNachBuchung } from "./buchen";
 import { instrumenteVon, legeInstrumentAn, loeseInstrument, setzeInstrumentStatus, type InstrumentZeile } from "./instrumente";
+import { korrigiereNullperioden } from "./zinsperioden";
+import { berechneAbgrenzung, ladeZinskontexte } from "./zinsen";
 import { alsJson } from "./wandlung";
 import { pruefeDatumsfenster, pruefeStichtag } from "./stichtag";
-import { ladeBuchwertabgang } from "./verkaeufe";
-import { berechneZustand, buchwertVon, ladeVorgaenge, pruefePeriodensperre, sperreBeteiligung, verlangeAktiv, vorgaengeDesInstruments, alsFachfehler, type BeteiligungZeile, type VorgangDaten } from "./zustand";
+import { ladeBuchwertabgang, ladeBuchwertabgangJeInstrument } from "./verkaeufe";
+import { berechneZustand, buchwertVon, istDarlehensartig, offenesKapital, ladeVorgaenge, pruefePeriodensperre, sperreBeteiligung, verlangeAktiv, vorgaengeDesInstruments, alsFachfehler, type BeteiligungZeile, type VorgangDaten } from "./zustand";
 import { ordneRundeZu } from "./vorgang-runde";
 
 /**
@@ -48,6 +50,7 @@ export interface VerkaufsEingabe {
 }
 
 export interface Verkaufsauswertung {
+  principalDisposed: string;
   buchwertVorher: string;
   buchwertAbgang: string;
   erloes: string;
@@ -57,6 +60,9 @@ export interface Verkaufsauswertung {
 }
 
 export interface Verkaufsplan {
+  berichtigungen: { instrumentId: string; betrag: string }[];
+  schlusszinsen: { instrumentId: string; betrag: string }[];
+  kapitalabgaenge: { instrumentId: string; betrag: string }[];
   auswertung: Verkaufsauswertung;
   buchwert: Decimal;
   buchwertAbgang: Decimal;
@@ -90,11 +96,39 @@ export async function planeVerkauf(tx: Tx, b: BeteiligungZeile, e: VerkaufsEinga
     verkauftes = await loeseInstrument(tx, b, e.instrumentId);
     if (verkauftes.status !== "aktiv") throw new Fachfehler(409, "instrument_not_active", "The instrument is not active.", { instrumentId: verkauftes.id, status: verkauftes.status });
   }
+  const darlehen = (verkauftes ? [verkauftes] : await instrumenteVon(tx, b.id)).filter((i) => i.status === "aktiv" && istDarlehensartig(i.art));
+  const abgaenge = darlehen.map((i) => {
+    const eigene = vorgaengeDesInstruments(vorgaenge, i.id);
+    const aufgehoben = new Set(eigene.map((v) => v.storniertVorgangId));
+    if (eigene.some((v) => !v.storniertVorgangId && !aufgehoben.has(v.id) && v.valuta > e.datum && ["tilgung", "auszahlung", "zins", "principal_disposal", "wertberichtigung", "interest_waiver"].includes(v.art))) {
+      throw new Fachfehler(409, "loan_event_dependent", "Later loan transactions must be resolved before the sale.");
+    }
+    return { id: i.id, abgang: kapitalAnErwerber(offenesKapital(berechneZustand(eigene)), e.anteilVerkauft, i.id) };
+  });
+  const schlusszinsen: { instrumentId: string; betrag: string }[] = [];
+  if (new Decimal(e.anteilVerkauft).eq(1) && darlehen.length) {
+    for (const k of await ladeZinskontexte(tx, { instrumentIds: darlehen.map((i) => i.id) })) {
+      const a = berechneAbgrenzung(k, e.datum);
+      if (a && new Decimal(a.gesamt).gt(0)) schlusszinsen.push({ instrumentId: k.instrument.id, betrag: a.gesamt });
+    }
+  }
   const z = verkauftes
     ? berechneZustand(vorgaengeDesInstruments(vorgaenge, verkauftes.id), await ladeBuchwertabgang(tx, b.id, verkauftes.id))
     : berechneZustand(vorgaenge, await ladeBuchwertabgang(tx, b.id));
   const buch = buchwertVon(z);
   const rechnung = alsFachfehler(b.id, () => verkaufsergebnis({ buchwert: buch.wert, anteilVerkauft: e.anteilVerkauft, kaufpreis: e.kaufpreis, kosten: e.kosten ?? 0 }));
+  const berichtigungen: { instrumentId: string; betrag: string }[] = [];
+  if (abgaenge.length) {
+    const bisher = await ladeBuchwertabgangJeInstrument(tx, b.id, {}, vorgaenge);
+    const ids = [...new Set(vorgaenge.map((v) => v.instrumentId).filter((id): id is string => !!id))].sort();
+    const staende = new Map(ids.map((id) => [id, berechneZustand(vorgaengeDesInstruments(vorgaenge, id), bisher.get(id))]));
+    const buchwerte = [...staende].map(([id, stand]) => ({ id, buchwert: buchwertVon(stand).wert }));
+    const anteile = verkauftes ? [{ id: verkauftes.id, abgang: rechnung.wert.buchwertAbgang }] : verteileBuchwertabgang(rechnung.wert.buchwertAbgang, buchwerte).wert;
+    for (const a of abgaenge) {
+      const betrag = berichtigungBeiVerkauf(a.abgang.wert, anteile.find((i) => i.id === a.id)?.abgang ?? new Decimal(0), staende.get(a.id)?.wertberichtigungen ?? new Decimal(0));
+      if (betrag.gt(0)) berichtigungen.push({ instrumentId: a.id, betrag: betrag.toFixed(2) });
+    }
+  }
   const treuhand = new Decimal(e.treuhand?.betrag ?? 0);
   const vkd = new Decimal(e.verkaeuferdarlehen?.betrag ?? 0);
   const bar = rechnung.wert.erloes.minus(treuhand).minus(vkd);
@@ -121,13 +155,17 @@ export async function planeVerkauf(tx: Tx, b: BeteiligungZeile, e: VerkaufsEinga
     }
   }
   return {
+    berichtigungen,
+    schlusszinsen,
+    kapitalabgaenge: abgaenge.filter((a) => a.abgang.wert.gt(0)).map((a) => ({ instrumentId: a.id, betrag: a.abgang.wert.toFixed(2) })),
     auswertung: {
+      principalDisposed: abgaenge.reduce((s, x) => s.plus(x.abgang.wert), new Decimal(0)).toFixed(2),
       buchwertVorher: buch.wert.toFixed(2),
       buchwertAbgang: rechnung.wert.buchwertAbgang.toFixed(2),
       erloes: rechnung.wert.erloes.toFixed(2),
       ergebnis: rechnung.wert.ergebnis.toFixed(2),
       barzufluss: bar.toFixed(2),
-      schritte: [...buch.schritte, ...rechnung.schritte],
+      schritte: [...buch.schritte, ...rechnung.schritte, ...abgaenge.flatMap((a) => a.abgang.schritte), ...berichtigungen.map((s) => ({ zeichen: "=" as const, bezeichnung: "Abgegangene Wertberichtigung", wert: s.betrag, quellen: [s.instrumentId] })), ...schlusszinsen.map((s) => ({ zeichen: "=" as const, bezeichnung: "Offene Zinsen bis zum Verkaufstag", wert: s.betrag, quellen: [s.instrumentId] }))],
     },
     buchwert: buch.wert,
     buchwertAbgang: rechnung.wert.buchwertAbgang,
@@ -149,7 +187,7 @@ export async function storniereVorgang(tx: Tx, protokoll: Protokollant, b: Betei
   const vorhandene = await ladeVorgaenge(tx, b.id);
   if (original.storniertVorgangId || vorhandene.some((v) => v.storniertVorgangId === original.id)) return null;
   const heutigerTag = heute();
-  const valuta = heutigerTag > original.valuta ? heutigerTag : original.valuta;
+  const valuta = original.verzichtId || original.darlehensverkaufId ? original.valuta : (heutigerTag > original.valuta ? heutigerTag : original.valuta);
   await pruefePeriodensperre(tx, b.fondsId, valuta);
   const neu = {
     beteiligungId: b.id,
@@ -161,6 +199,9 @@ export async function storniereVorgang(tx: Tx, protokoll: Protokollant, b: Betei
     storniertVorgangId: original.id,
     instrumentId: original.instrumentId ?? (await hauptinstrumentId(tx, b.id)),
     trancheId: original.trancheId,
+    verzichtId: original.verzichtId,
+    darlehensverkaufId: original.darlehensverkaufId,
+    zinsverzichtBis: original.zinsverzichtBis,
     felder: original.felder ?? {},
     betragLokal: original.betragLokal == null ? null : new Decimal(original.betragLokal).neg().toFixed(2),
     kurs: original.kurs ?? null,
@@ -233,13 +274,21 @@ export async function storniereVerkauf(tx: Tx, protokoll: Protokollant, verkaufI
   // Rückflüsse: Barzufluss, Kaufpreisanpassungen, erfüllte Forderungen
   const anpassungen = await tx.select().from(kaufpreisanpassung).where(eq(kaufpreisanpassung.verkaufId, v.id)).orderBy(asc(kaufpreisanpassung.datum));
   const forderungen = await tx.select().from(forderung).where(eq(forderung.verkaufId, v.id)).orderBy(asc(forderung.faelligAm));
-  const vorgangIds = [v.rueckflussVorgangId, ...anpassungen.map((a) => a.vorgangId), ...forderungen.map((f) => f.vorgangId)].filter((x): x is string => x !== null);
+  const eigeneBuchungen = await ladeVorgaenge(tx, b.id);
+  const aufgehoben = new Set(eigeneBuchungen.map((g) => g.storniertVorgangId));
+  const abgehendeInstrumente = new Set(eigeneBuchungen.filter((g) => g.darlehensverkaufId === v.id).map((g) => g.instrumentId));
+  if (eigeneBuchungen.some((g) => abgehendeInstrumente.has(g.instrumentId) && g.darlehensverkaufId !== v.id && g.erfasstAm > v.erfasstAm && !g.storniertVorgangId && !aufgehoben.has(g.id) && (g.verzichtId || g.art === "zins" || g.art === "zinszahlung"))) {
+    throw new Fachfehler(409, "reversal_not_allowed", "Reverse dependent loan interest or waivers before reversing the sale.");
+  }
+  const abgaenge = await tx.select({ id: vorgang.id }).from(vorgang).where(eq(vorgang.darlehensverkaufId, v.id));
+  const vorgangIds = [...abgaenge.map((a) => a.id), v.rueckflussVorgangId, ...anpassungen.map((a) => a.vorgangId), ...forderungen.map((f) => f.vorgangId)].filter((x): x is string => x !== null);
   const originale = vorgangIds.length ? await tx.select().from(vorgang).where(inArray(vorgang.id, vorgangIds)) : [];
   const stornos: string[] = [];
   for (const o of originale) {
     const s = await storniereVorgang(tx, protokoll, b, o, `Storno des Verkaufs zum ${v.datum}: ${grund}`);
     if (s) stornos.push(s.id);
   }
+  for (const id of abgehendeInstrumente) if (id) await korrigiereNullperioden(tx, id, v.erfasstAm);
   const jetzt = new Date();
   for (const f of forderungen) {
     const [nachher] = await tx.update(forderung).set({ storniertAm: jetzt }).where(eq(forderung.id, f.id)).returning();
@@ -399,6 +448,16 @@ export async function bucheVerkauf(tx: Tx, protokoll: Protokollant, id: string, 
     .returning();
   await protokoll("anlegen", "verkauf", zeile!.id, null, zeile);
 
+  const darlehensbuchungen = [
+    ...plan.kapitalabgaenge.map((a) => ({ ...a, art: "principal_disposal" as const, bemerkung: "Abgang des Darlehenskapitals an den Erwerber" })),
+    ...plan.berichtigungen.map((a) => ({ ...a, art: "impairment_disposal" as const, bemerkung: "Abgang der Wertberichtigung beim Darlehensverkauf" })),
+    ...plan.schlusszinsen.map((a) => ({ ...a, art: "zins" as const, bemerkung: "Offene Zinsen bis zum Verkaufstag" })),
+  ];
+  for (const a of darlehensbuchungen) {
+    const [abgang] = await tx.insert(vorgang).values({ beteiligungId: id, ...a, valuta: e.datum, darlehensverkaufId: zeile!.id }).returning();
+    await protokoll("anlegen", "vorgang", abgang!.id, null, abgang);
+    await ordneRundeZu(tx, protokoll, abgang!);
+  }
   let forderungZeile = null;
   if (e.treuhand) {
     [forderungZeile] = await tx.insert(forderung).values({ beteiligungId: id, instrumentId: erloesInstrumentId, verkaufId: zeile!.id, art: "treuhand", betrag: treuhand.toFixed(2), faelligAm: e.treuhand.freigabeAm }).returning();

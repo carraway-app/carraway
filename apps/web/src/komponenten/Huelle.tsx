@@ -8,7 +8,7 @@ let anwendungsHuelle: ComponentType | undefined;
 
 /**
  * Der Rahmen der Anwendung (Seitenleiste, Navigation, Kopfzeile, Symbole) lädt als eigener Abschnitt, nicht mit dem Start: Anmelde- und Einrichtungsseiten brauchen ihn nicht.
- * Der Wächter der Wurzel lädt ihn parallel zur Sitzungsprüfung und wartet darauf, bevor etwas gezeichnet wird; so gibt es weder Aufblitzen noch Sprünge.
+ * Der Wächter der Wurzel lädt ihn nach der Sitzungsprüfung und wartet darauf, bevor etwas gezeichnet wird; so gibt es weder Aufblitzen noch Sprünge.
  */
 export function ladeAnwendungsHuelle(): Promise<void> {
   return import("./AnwendungsHuelle").then((m) => {

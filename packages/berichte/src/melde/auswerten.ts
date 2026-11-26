@@ -9,7 +9,7 @@ import { S } from "./schritte";
  * zu Stichtag und Wissensstand macht die API (`apps/api/src/melde/quellen.ts`). Ein fehlender Wert ist `null` („k. A.“), nie 0.
  */
 
-export type Vorgangsart = "zusage" | "auszahlung" | "rueckfluss" | "zins" | "tilgung" | "wertberichtigung" | "zinszahlung" | "dividende";
+export type Vorgangsart = "zusage" | "auszahlung" | "rueckfluss" | "zins" | "tilgung" | "wertberichtigung" | "zinszahlung" | "dividende" | "impairment_disposal" | "principal_disposal" | "interest_waiver";
 
 export interface VorgangZeile {
   id: string;
@@ -350,14 +350,14 @@ function auswerteVorgang(q: Extract<Quelle, { art: "vorgang" }>, format: Feldfor
   const p = k.eingabe.periode;
   h.schritte.push({ zeichen: "", bezeichnung: S.vorgangsarten, wert: q.vorgangsarten.join(", ") });
   h.schritte.push({ zeichen: "", bezeichnung: S.zeitraumVorgaenge, wert: q.zeitraum === "kumuliert" ? `bis ${p.ende}` : `${p.beginn} bis ${p.ende}` });
-  const zeilen = k.beteiligungen.flatMap((b) => b.vorgaenge.filter((v) => !v.ohneGeldfluss && q.vorgangsarten.includes(v.art) && imZeitraum(v.valuta, q.zeitraum, p)));
+  const zeilen = k.beteiligungen.flatMap((b) => b.vorgaenge.filter((v) => !v.ohneGeldfluss && q.vorgangsarten.some((art) => art === v.art) && imZeitraum(v.valuta, q.zeitraum, p)));
   h.vorgaenge = zeilen.map((v) => v.id);
   h.schritte.push({ zeichen: "", bezeichnung: S.anzahlVorgaenge, wert: String(zeilen.length), quellen: h.vorgaenge });
   let wert: Decimal;
   if (q.aggregation === "anzahl") {
     const gueltig = k.beteiligungen.flatMap((b) => {
       const ok = new Set(gueltigeVorgaenge(b).map((v) => v.id));
-      return b.vorgaenge.filter((v) => ok.has(v.id) && !v.ohneGeldfluss && q.vorgangsarten.includes(v.art) && imZeitraum(v.valuta, q.zeitraum, p));
+      return b.vorgaenge.filter((v) => ok.has(v.id) && !v.ohneGeldfluss && q.vorgangsarten.some((art) => art === v.art) && imZeitraum(v.valuta, q.zeitraum, p));
     });
     wert = new Decimal(gueltig.length);
     h.schritte.push({ zeichen: "=", bezeichnung: S.anzahlGueltig, wert: wert.toString() });

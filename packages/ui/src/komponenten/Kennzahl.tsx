@@ -12,7 +12,7 @@ export interface KennzahlProps extends Omit<HTMLAttributes<HTMLElement>, "title"
   hervorgehoben?: boolean;
   /** Öffnet die Herkunft beim Aktivieren der Kachel; mit `onZiel` steht dafür ein eigener Symbolknopf in der Kachel. */
   onHerkunft?: () => void;
-  /** Zugänglicher Name für die Herkunftsaktion. */
+  /** Beschreibt den Rechenweg der Kachel oder benennt den eigenen Symbolknopf. */
   herkunftLabel?: string;
   /** Die Kachel springt zur passenden Stelle (die Seite entscheidet, wohin). */
   onZiel?: () => void;
@@ -27,10 +27,12 @@ export function Kennzahl({ titel, wert, delta, hervorgehoben, onHerkunft, herkun
   const inhalt = (
     <>
       <span className="cw-kennzahl__kopf">{titel}</span>
-      <span id={id} className="cw-kennzahl__wert" style={typeof wert === "string" ? ({ "--zeichen": Math.max(1, Array.from(wert).length) } as CSSProperties) : undefined}>
+      {" "}
+      <span className="cw-kennzahl__wert" style={typeof wert === "string" ? ({ "--zeichen": Math.max(1, Array.from(wert).length) } as CSSProperties) : undefined}>
         {wert}
       </span>
-      {delta && onHerkunft ? <span id={id + "-delta"}>{delta}</span> : delta}
+      {" "}
+      {delta && onHerkunft ? <span>{delta}</span> : delta}
     </>
   );
 
@@ -57,14 +59,14 @@ export function Kennzahl({ titel, wert, delta, hervorgehoben, onHerkunft, herkun
       {...rest}
       type="button"
       className={klassen(klasse, "cw-kennzahl--rechenweg")}
-      aria-label={herkunftLabel ?? t.herkunftAnzeigen(titel)}
-      aria-describedby={[id, delta && id + "-delta", rest["aria-describedby"]].filter(Boolean).join(" ")}
+      aria-describedby={[id, rest["aria-describedby"]].filter(Boolean).join(" ")}
       onClick={(event) => {
         onHerkunft();
         rest.onClick?.(event);
       }}
     >
       {inhalt}
+      <span id={id} hidden>{herkunftLabel ?? t.herkunftAnzeigen(titel)}</span>
       {/* Dasselbe Zeichen wie bei Kacheln mit Sprung: Es zeigt, dass ein Rechenweg da ist; hier öffnet ihn die ganze Kachel. */}
       <span className="cw-kennzahl__rechenweg cw-kennzahl__rechenweg--zeichen" aria-hidden="true">
         <CalculatorIcon size={16} />

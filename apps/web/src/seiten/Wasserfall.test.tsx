@@ -17,8 +17,13 @@ describe("Captable", () => {
   it("zeigt Inhaber, Klassen und die Position des Fonds hervorgehoben", async () => {
     spieleApi();
     rendereApp(kapitalUrl);
-    const abschnitt = within(await letzteRegion("Captable"));
-    const tabelle = within(await abschnitt.findByRole("region", { name: "Captable nach Inhaber und Klasse" }));
+    const karte = await screen.findByRole("region", { name: "Beteiligungsverhältnisse" });
+    expect(screen.getByRole("region", { name: "Captable" }).contains(karte)).toBe(true);
+    const abschnitt = within(karte);
+    expect(abschnitt.getByRole("heading", { name: "Captable" })).toBeTruthy();
+    const tabellenbereich = await abschnitt.findByRole("region", { name: "Captable nach Inhaber und Klasse" });
+    expect(tabellenbereich.tabIndex).toBe(0);
+    const tabelle = within(tabellenbereich);
     // Standard voll verwässert: Kopf + Gründer + 3 Positionen + Pool (zugeteilt, frei)
     const zeilen = tabelle.getAllByRole("row");
     expect(zeilen).toHaveLength(7);
@@ -66,7 +71,7 @@ describe("Captable", () => {
       [`/api/v1/beteiligungen/${BET_ID}/kapitaltabelle`]: (a) => ({ koerper: a.query.get("offeneWandlungen") === "true" ? mitDaten : { ...kapitalDaten, offeneWandlungen: offene } }),
     });
     rendereApp(kapitalUrl);
-    const abschnitt = within(await letzteRegion("Captable"));
+    const abschnitt = within(await screen.findByRole("region", { name: "Beteiligungsverhältnisse" }));
     const schalter = await abschnitt.findByRole("checkbox", { name: "inkl. offener Wandlungen" });
     expect(abschnitt.queryByText(/Offene Wandlung:/)).toBeNull();
     await userEvent.setup().click(schalter);
@@ -238,6 +243,7 @@ describe("Captable", () => {
     rendereApp(kapitalUrl);
     await screen.findByRole("heading", { level: 1, name: "Alpha Energie" });
     expect(screen.queryByRole("region", { name: "Captable" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Beteiligungsverhältnisse" })).toBeNull();
     expect(screen.queryByRole("region", { name: "Exit-Szenario" })).toBeNull();
   });
 });

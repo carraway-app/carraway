@@ -248,7 +248,7 @@ export const useMeldedatenSetzen = (organisationId: string) =>
   });
 
 /** Quellen der Kontenzuordnung des Exports (Vorgangsarten und Bewegungsarten des Fonds). */
-export const BUCHUNGSQUELLEN = ["zins", "auszahlung", "rueckfluss", "tilgung", "zusage", "wertberichtigung", "abruf", "ausschuettung", "zinszahlung", "dividende"] as const;
+export const BUCHUNGSQUELLEN = ["zins", "auszahlung", "rueckfluss", "tilgung", "zusage", "wertberichtigung", "abruf", "ausschuettung", "zinszahlung", "dividende", "impairment_disposal", "principal_disposal", "principal_waiver", "interest_waiver"] as const;
 export type Buchungsquelle = (typeof BUCHUNGSQUELLEN)[number];
 export type SachkontoArt = "aktiv" | "passiv" | "aufwand" | "ertrag";
 export const SACHKONTOARTEN: readonly SachkontoArt[] = ["aktiv", "passiv", "aufwand", "ertrag"];

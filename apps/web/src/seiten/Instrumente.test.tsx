@@ -66,6 +66,27 @@ describe("Bereich Instrumente", () => {
     expect(inst.getByRole("button", { name: "Instrument anlegen" })).toBeTruthy();
   });
 
+  it("zeigt den Verzicht nur am Darlehen und verlangt nach geänderten Beträgen eine neue Vorschau", async () => {
+    const pfad = `/api/v1/instruments/${INSTR_ID}/waivers`;
+    const antwort = { result: { remainingPrincipal: "750.00", remainingCarryingAmount: "600.00", impairmentUsed: "50.00", loss: "200.00", steps: [] } };
+    const api = spieleApi({ ...zweiInstrumente, [pfad]: { koerper: { data: [] } }, [`POST ${pfad}/preview`]: { koerper: antwort }, [`POST ${pfad}`]: { status: 201, koerper: antwort } });
+    rendereApp(instrumenteUrl);
+    const nutzer = userEvent.setup();
+    await nutzer.click(await screen.findByRole("button", { name: "Verzicht: Wandeldarlehen 2021" }));
+    expect(screen.queryByRole("button", { name: "Verzicht: Seed-Anteile" })).toBeNull();
+    const d = within(await screen.findByRole("dialog"));
+    await nutzer.type(d.getByLabelText("Verzicht auf Kapital"), "250");
+    await nutzer.type(d.getByLabelText("Grund"), "Vertragsänderung");
+    await nutzer.click(d.getByRole("button", { name: "Vorschau" }));
+    expect(await d.findByText("Verbrauchte Wertberichtigung")).toBeTruthy();
+    await nutzer.type(d.getByLabelText("Verzicht auf Zinsen"), "10");
+    expect(d.queryByRole("button", { name: "Verzicht buchen" })).toBeNull();
+    await nutzer.click(d.getByRole("button", { name: "Vorschau" }));
+    await nutzer.click(await d.findByRole("button", { name: "Verzicht buchen" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(api.anfragen("POST", pfad)).toHaveLength(1);
+  });
+
   it("legt ein Instrument mit erster Tranche an: erst das Instrument, dann die Tranche samt Zusage; ein Fehler bei der Tranche legt kein zweites Instrument an", async () => {
     let versuche = 0;
     const api = spieleApi({

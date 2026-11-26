@@ -24,7 +24,7 @@ import { berechneZustand, type VorgangDaten } from "./zustand";
  *   offenen Buchungen der Reihe nach.
  */
 
-export type PeriodenStatus = "gebucht" | "offen" | "gezahlt" | "aufgelaufen" | "gewandelt";
+export type PeriodenStatus = "gebucht" | "offen" | "gezahlt" | "aufgelaufen" | "gewandelt" | "erlassen";
 
 export interface ZinsPeriode {
   von: string | null;
@@ -189,7 +189,7 @@ export async function ladeZinsansicht(tx: Tx, auswahl: { fondsId: string } | { b
     const kapitalisiert = z.kapitalisiert;
     const gezahlt = z.zinszahlungen;
     const gewandelt = gewandelteZinsen(k.vorgaenge, gewandelteIds);
-    const offen = gebucht.minus(kapitalisiert).minus(gewandelt).minus(gezahlt);
+    const offen = gebucht.minus(kapitalisiert).minus(gewandelt).minus(gezahlt).minus(z.gebuchteZinsenErlassen);
     const kopf = {
       beteiligungId: k.beteiligung.id,
       instrumentId: k.instrument.id,
@@ -227,10 +227,14 @@ export async function ladeZinsansicht(tx: Tx, auswahl: { fondsId: string } | { b
     }
 
     const perioden: ZinsPeriode[] = [];
+    let erlassen = z.gebuchteZinsenErlassen;
     let vorigesEnde: string | null = null;
     for (const b of buchungen) {
       const betrag = D(b.v.betrag);
       const bezahlt = b.v.kapitalisiert || b.gewandeltDurch ? D(0) : betrag.minus(b.rest);
+      const verzicht = Decimal.min(erlassen, b.rest);
+      b.rest = b.rest.minus(verzicht);
+      erlassen = erlassen.minus(verzicht);
       perioden.push({
         von: b.pos?.von ?? vorigesEnde,
         bis: b.v.valuta,
@@ -240,7 +244,7 @@ export async function ladeZinsansicht(tx: Tx, auswahl: { fondsId: string } | { b
         gewandelt: cent(b.gewandeltDurch ? betrag : D(0)),
         offen: cent(b.rest),
         kapitalisiert: b.v.kapitalisiert,
-        status: b.v.kapitalisiert ? "gebucht" : b.gewandeltDurch ? "gewandelt" : b.rest.lessThanOrEqualTo(0) ? "gezahlt" : "offen",
+        status: b.v.kapitalisiert ? "gebucht" : b.gewandeltDurch ? "gewandelt" : b.rest.isZero() && verzicht.gt(0) ? "erlassen" : b.rest.lessThanOrEqualTo(0) ? "gezahlt" : "offen",
         laufend: false,
         vorgangId: b.v.id,
       });
@@ -276,7 +280,7 @@ export async function ladeZinsansicht(tx: Tx, auswahl: { fondsId: string } | { b
 
     // Nächste Fälligkeit: früheste Fälligkeit ab dem Stichtag unter den noch nicht gezahlten, nicht kapitalisierten Perioden.
     const faellige = perioden
-      .filter((p) => !p.kapitalisiert && p.status !== "gezahlt" && p.faellig !== null && p.faellig >= stichtag)
+      .filter((p) => !p.kapitalisiert && p.status !== "gezahlt" && p.status !== "erlassen" && p.faellig !== null && p.faellig >= stichtag)
       .map((p) => p.faellig as string)
       .sort();
     return {

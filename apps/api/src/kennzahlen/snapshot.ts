@@ -3,7 +3,7 @@ import { sql } from "drizzle-orm";
 import type { Db } from "@carraway/db";
 import { berechneFondsUebersicht, bewertungsAenderung, juengsterEingang, standardStichtag, type FondsUebersicht } from "./fonds";
 import { schreibe } from "../schreiben";
-import { zielfondsEingang } from "./zielfonds";
+import { hatZielfonds, ZIELFONDS_SCHRITT, zielfondsEingang } from "./zielfonds";
 import { lese, type Tx } from "../zeitlimit";
 
 /**
@@ -85,6 +85,8 @@ export async function ladeSnapshot(tx: Abfrage, fondsId: string, stichtag: strin
         AND greatest(l.uebernommen_am, l.ersetzt_am) > coalesce(s.stand_bis, '-infinity'::timestamptz))`);
   const zeile = rows[0];
   if (!zeile?.daten.kennzahlen.eingezahlt) return null;
+  // Ältere Dachfonds-Snapshots enthalten nur die Summe und die ungekürzte Liste der Quellen.
+  if (!zeile.daten.zielfonds && zeile.daten.kennzahlen.nav.schritte.some((s) => s.bezeichnung === ZIELFONDS_SCHRITT)) return null;
   return { quellenstand: zeile.quellenstand, uebersicht: zeile.daten, snapshot: { berechnetAm: new Date(zeile.berechnet_am).toISOString(), veraltet: zeile.veraltet } };
 }
 
@@ -114,7 +116,8 @@ export async function holeSnapshot(db: Db, akteur: Parameters<typeof schreibe>[1
   const gelesen = await lese(db, async (tx) => {
     const stichtag = stichtagVorgabe ?? (await standardStichtag(tx, fondsId));
     const vorhanden = await ladeSnapshot(tx, fondsId, stichtag);
-    if (vorhanden) return { stichtag, vorhanden, live: null };
+    // Beim Dachfonds beziehen auch Excel, Bericht und Dashboard die aktuelle NAV aus den zugrunde liegenden Fonds.
+    if (vorhanden && (!vorhanden.snapshot?.veraltet || !(await hatZielfonds(tx, fondsId)))) return { stichtag, vorhanden, live: null };
     if (await wirdGespeichert(tx, fondsId, stichtag)) return { stichtag, vorhanden: null, live: null };
     const { rows } = await tx.execute<{ stand: string }>(sql`SELECT to_json(now()) #>> '{}' AS stand`);
     const quellenstand = rows[0]!.stand;

@@ -92,6 +92,7 @@ export const rundenBereichDe = {
   },
   kapital: {
     titel: "Captable",
+    bereich: "Beteiligungsverhältnisse",
     beschreibung: (stichtag: string) => `Anteile am Unternehmen nach den Finanzierungsrunden bis zum ${stichtag}. Die Positionen dieses Fonds sind hervorgehoben.`,
     sicht: "Sicht der Captable",
     sichten: { unverwaessert: "Unverwässert", voll_verwaessert: "Voll verwässert" } as Record<string, string>,

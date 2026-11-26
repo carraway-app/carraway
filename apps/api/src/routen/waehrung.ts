@@ -11,8 +11,6 @@ import { lese } from "../zeitlimit";
 import { leseKursdatei } from "../waehrung/kursdatei";
 import { ladeBeteiligungSicht, ladeFondsSicht } from "../waehrung/sicht";
 import { feldArray } from "../crm/felder";
-import { aktuellerAkteur } from "../anmeldung/akteur";
-import { portfolioSicht } from "../rechte/sichtbarkeit";
 
 /**
  * Währungen (Etappe 21): Kurstabelle (nur anhängend, Korrektur als neuer Eintrag), Kursimport aus einer Datei (kein Abruf aus dem Netz), lokale Währung einer
@@ -220,7 +218,7 @@ export function fondsWaehrungRouten(db: Db) {
     const q = c.req.valid("query");
     const sicht = await lese(db, async (tx) => {
       const [f] = await tx.select({ id: fonds.id }).from(fonds).where(eq(fonds.id, id));
-      return f ? ladeFondsSicht(tx, id, { ...q, sieht: portfolioSicht(aktuellerAkteur(c)) }) : null;
+      return f ? ladeFondsSicht(tx, id, q) : null;
     });
     if (!sicht) return fehlerAntwort(c, 404, "fund_not_found", "Fund not found.");
     return c.json(fondsAnApi(sicht), 200);

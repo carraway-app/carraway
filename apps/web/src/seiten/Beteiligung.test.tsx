@@ -199,7 +199,7 @@ describe("Beteiligung", () => {
     spieleApi();
     rendereApp(url);
     const nutzer = userEvent.setup();
-    await nutzer.click(await screen.findByRole("button", { name: "Herkunft von IRR anzeigen" }));
+    await nutzer.click(await screen.findByRole("button", { name: /^IRR /, description: "Herkunft von IRR anzeigen" }));
     const dialog = await screen.findByRole("dialog", { name: "Herkunft von IRR" });
     const schritte = within(dialog).getAllByRole("listitem");
     expect(schritte).toHaveLength(3);
@@ -232,7 +232,7 @@ describe("Beteiligung", () => {
     await nutzer.keyboard("{Escape}");
 
     // Multiple und IRR haben keine eigene Stelle: die Kachel öffnet den Rechenweg und lässt den Bereich stehen
-    await nutzer.click(kennzahlen.getByRole("button", { name: "Herkunft von Multiple anzeigen" }));
+    await nutzer.click(kennzahlen.getByRole("button", { name: /^Multiple /, description: "Herkunft von Multiple anzeigen" }));
     expect(await screen.findByRole("dialog", { name: "Herkunft von Multiple" })).toBeTruthy();
     expect(aktiv()).toEqual(["Transaktionen"]);
   });
@@ -290,7 +290,7 @@ describe("Beteiligung", () => {
     expect(dialog.textContent).toContain("Latest valuation on 30/09/2026 (Last round)");
     expect(dialog.textContent).not.toContain("Letzte Bewertung");
     await nutzer.keyboard("{Escape}");
-    await nutzer.click(screen.getByRole("button", { name: "Show origin of IRR" }));
+    await nutzer.click(screen.getByRole("button", { name: /^IRR /, description: "Show origin of IRR" }));
     const irr = await screen.findByRole("dialog");
     expect(irr.textContent).toContain("Valuation as terminal value on 30/09/2026");
     expect(irr.textContent).toContain("Disbursements (1 payments, excluding cancelled pairs)");

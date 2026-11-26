@@ -13,7 +13,7 @@ import { Skelettzeilen } from "./Skelett";
 type Zins = BeteiligungZinsen["instrumente"][number];
 type Periode = Zins["perioden"][number];
 
-const PERIODE_STATUS: Record<string, StatusVariante> = { aufgelaufen: "entwurf", gebucht: "pruefung", offen: "pruefung", gezahlt: "freigegeben", gewandelt: "freigegeben" };
+const PERIODE_STATUS: Record<string, StatusVariante> = { aufgelaufen: "entwurf", gebucht: "pruefung", offen: "pruefung", gezahlt: "freigegeben", erlassen: "freigegeben", gewandelt: "freigegeben" };
 const zahl = (wert: string) => <span className="app-zahl">{wert}</span>;
 
 /**

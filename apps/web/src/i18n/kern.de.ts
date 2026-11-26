@@ -9,6 +9,7 @@ export const kernDe = {
   marke: "Carraway",
   version: "Version 0.1 · Beispieldaten",
   uebersprungLink: "Zum Inhalt springen",
+  portalFehlt: "Das Investorenportal ist in dieser Installation nicht verfügbar.",
   portalWeiche: "Weiterleitung ins Portal …",
   nav: {
     beschriftung: "Hauptnavigation",

@@ -51,20 +51,20 @@ export function ZielfondsSeite() {
     {
       schluessel: "name",
       kopf: z.name,
-      zelle: (r) => (
+      zelle: (r) => r.id === null ? z.name : (
         <Button variante="ruhig" groesse="s" onClick={() => setOffen(r.id)} title={r.targetFundName ? z.eigenerFonds(r.targetFundName) : undefined}>
           {r.name}
         </Button>
       ),
     },
-    { schluessel: "zusage", kopf: z.zusage, zahl: true, zelle: (r) => betrag(r.metrics.commitment.value) },
-    { schluessel: "abgerufen", kopf: z.abgerufen, zahl: true, zelle: (r) => betrag(r.metrics.called.value) },
-    { schluessel: "offen", kopf: z.offen, zahl: true, zelle: (r) => betrag(r.metrics.unfunded.value) },
-    { schluessel: "ausgeschuettet", kopf: z.ausgeschuettet, zahl: true, zelle: (r) => betrag(r.metrics.distributed.value) },
+    { schluessel: "zusage", kopf: z.zusage, zahl: true, zelle: (r) => r.id === null ? t.gemeinsam.keinWert : betrag(r.metrics.commitment.value) },
+    { schluessel: "abgerufen", kopf: z.abgerufen, zahl: true, zelle: (r) => r.id === null ? t.gemeinsam.keinWert : betrag(r.metrics.called.value) },
+    { schluessel: "offen", kopf: z.offen, zahl: true, zelle: (r) => r.id === null ? t.gemeinsam.keinWert : betrag(r.metrics.unfunded.value) },
+    { schluessel: "ausgeschuettet", kopf: z.ausgeschuettet, zahl: true, zelle: (r) => r.id === null ? t.gemeinsam.keinWert : betrag(r.metrics.distributed.value) },
     { schluessel: "wert", kopf: z.wert, zahl: true, zelle: (r) => betrag(r.metrics.value.value) },
-    { schluessel: "methode", kopf: z.methode, zelle: (r) => z.methoden[r.metrics.value.method] },
-    { schluessel: "tvpi", kopf: z.tvpi, zahl: true, zelle: (r) => multiple(r.metrics.tvpi.value) },
-    { schluessel: "irr", kopf: z.irr, zahl: true, zelle: (r) => (r.metrics.irr.value === null ? t.gemeinsam.keinWert : formatProzent(Number(r.metrics.irr.value) * 100, sprache)) },
+    { schluessel: "methode", kopf: z.methode, zelle: (r) => r.id === null ? t.gemeinsam.keinWert : z.methoden[r.metrics.value.method] },
+    { schluessel: "tvpi", kopf: z.tvpi, zahl: true, zelle: (r) => r.id === null ? t.gemeinsam.keinWert : multiple(r.metrics.tvpi.value) },
+    { schluessel: "irr", kopf: z.irr, zahl: true, zelle: (r) => (r.id === null || r.metrics.irr.value === null ? t.gemeinsam.keinWert : formatProzent(Number(r.metrics.irr.value) * 100, sprache)) },
   ];
 
   return (
@@ -86,7 +86,7 @@ export function ZielfondsSeite() {
           <p className="app-leer-text">{z.leer}</p>
         ) : (
           <>
-            <Tabelle beschriftung={z.titel} spalten={spalten} zeilen={data.data} zeilenSchluessel={(r) => r.id} />
+            <Tabelle beschriftung={z.titel} spalten={spalten} zeilen={data.data} zeilenSchluessel={(r) => r.id ?? "summary"} />
             <p className="app-zahl">
               {z.summe}: {z.zusage} {betrag(data.totals.commitment)} · {z.abgerufen} {betrag(data.totals.called)} · {z.ausgeschuettet} {betrag(data.totals.distributed)} · {z.wert} {betrag(data.totals.value)}
             </p>

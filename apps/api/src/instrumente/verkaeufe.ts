@@ -76,6 +76,7 @@ export async function ladeBuchwertabgangJeInstrument(
 /** Verkäufe (mit Anpassungen), Forderungen und Wandlung einer Beteiligung für die Lesesicht. */
 export interface Verkaufsdaten {
   verkaeufe: (typeof verkauf.$inferSelect & {
+    principalDisposed: string;
     /** Der Verkauf mindert den Buchwert späterer Verkäufe (nicht storniert zum Stand der Sicht). */
     zaehltBuchwertabgang: boolean;
     anpassungen: (typeof kaufpreisanpassung.$inferSelect)[];
@@ -93,6 +94,8 @@ export async function ladeVerkaufsdaten(tx: Tx, beteiligungId: string, sicht: { 
   const verkaeufe = (await tx.select().from(verkauf).where(eq(verkauf.beteiligungId, beteiligungId)).orderBy(asc(verkauf.datum), asc(verkauf.erfasstAm), asc(verkauf.id))).filter(
     (v) => bisTag(v.datum) && bisStand(v.erfasstAm),
   );
+  const abgaenge = verkaeufe.length ? await tx.select({ saleId: vorgang.darlehensverkaufId, amount: vorgang.betrag }).from(vorgang)
+    .where(and(inArray(vorgang.darlehensverkaufId, verkaeufe.map((v) => v.id)), eq(vorgang.art, "principal_disposal"), isNull(vorgang.storniertVorgangId))) : [];
   const anpassungen = (
     verkaeufe.length
       ? await tx.select().from(kaufpreisanpassung).where(inArray(kaufpreisanpassung.verkaufId, verkaeufe.map((v) => v.id))).orderBy(asc(kaufpreisanpassung.datum), asc(kaufpreisanpassung.erfasstAm))
@@ -105,7 +108,8 @@ export async function ladeVerkaufsdaten(tx: Tx, beteiligungId: string, sicht: { 
   return {
     verkaeufe: verkaeufe.map((v) => {
       const eigene = anpassungen.filter((a) => a.verkaufId === v.id);
-      return { ...v, zaehltBuchwertabgang: v.storniertAm === null || !bisStand(v.storniertAm), anpassungen: eigene, ergebnisMitAnpassungen: eigene.reduce((s, a) => s.plus(a.betrag), new Decimal(v.ergebnis)).toFixed(2) };
+      const principalDisposed = abgaenge.filter((a) => a.saleId === v.id).reduce((s, a) => s.plus(a.amount), new Decimal(0)).toFixed(2);
+      return { ...v, principalDisposed, zaehltBuchwertabgang: v.storniertAm === null || !bisStand(v.storniertAm), anpassungen: eigene, ergebnisMitAnpassungen: eigene.reduce((s, a) => s.plus(a.betrag), new Decimal(v.ergebnis)).toFixed(2) };
     }),
     forderungen,
     wandlung: gewandelt ?? null,

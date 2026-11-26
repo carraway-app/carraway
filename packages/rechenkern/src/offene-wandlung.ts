@@ -1,9 +1,10 @@
+import { zinsenNachVerzicht, type Zinsdarlehen } from "./zinslauf.js";
+import { aufCent } from "./zins.js";
 import { Decimal } from "./decimal.js";
 import { vergleiche, type Datum } from "./datum.js";
 import type { Rechenschritt } from "./herkunft.js";
 import { ersteAuszahlung, kapitalAm, kapitalverlauf, type Kapitalbewegung } from "./kapitalverlauf.js";
 import type { MassgeblichePreisregel } from "./wandlung.js";
-import { aufCent } from "./zins.js";
 import { zinsenAufVerlauf, type Zinsbedingungen } from "./zinsrechnung.js";
 
 /**
@@ -27,6 +28,7 @@ export interface OffeneWandlungEingabe {
   /** Zinsbedingungen am Stichtag; fehlen sie, bleiben die Zinsen außen vor (Hinweis `ohne_zinsen`). */
   bedingungen?: Zinsbedingungen | undefined;
   /** Beginn der noch nicht gebuchten Zinsen (letztes gebuchtes Periodenende); Standard: erste Auszahlung. */
+  zinsverzichte?: Zinsdarlehen["zinsverzichte"];
   zinsenAb?: Datum | undefined;
   /** Zinsen wandeln mit (Annahme, solange der Vertrag es nicht anders festhält). */
   zinsenWandeln: boolean;
@@ -100,7 +102,7 @@ export function schaetzeOffeneWandlung(e: OffeneWandlungEingabe): OffeneWandlung
       const ab = e.zinsenAb && vergleiche(e.zinsenAb, erste) > 0 ? e.zinsenAb : erste;
       if (vergleiche(ab, e.stichtag) < 0) {
         try {
-          zinsen = aufCent(zinsenAufVerlauf(verlauf, ab, e.stichtag, e.bedingungen).betragGesamt);
+          zinsen = aufCent(zinsenNachVerzicht(e.zinsverzichte, ab, e.stichtag, zinsenAufVerlauf(verlauf, ab, e.stichtag, e.bedingungen).betragGesamt, schritte));
         } catch {
           hinweise.push("ohne_zinsen");
         }

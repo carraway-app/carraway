@@ -30,7 +30,7 @@ export function dealSichtbar(c: Context): SQL | undefined {
   return fonds.length ? or(isNull(deal.fondsId), inArray(deal.fondsId, fonds)) : isNull(deal.fondsId);
 }
 
-/** Sicht der Person auf Fonds im Bereich Portfolio als Prüffunktion (Durchrechnung von Zielfonds, fondsübergreifende Summen). */
+/** Sicht der Person auf Fonds im Bereich Portfolio als Prüffunktion (Einzelheiten eigener Zielfonds). */
 export function portfolioSicht(akteur: Parameters<typeof sichtbareFonds>[0]): (fondsId: string) => boolean {
   const fonds = sichtbareFonds(akteur, "betrachter", "portfolio");
   return (fondsId) => fonds === "alle" || fonds.includes(fondsId);

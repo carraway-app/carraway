@@ -171,7 +171,7 @@ describe("Optionsschein bearbeiten und Captable-Zeilen", () => {
       },
     });
     rendereApp(kapitalUrl);
-    const abschnitt = within(await letzteRegion("Captable"));
+    const abschnitt = within(await screen.findByRole("region", { name: "Beteiligungsverhältnisse" }));
     const tabelle = within(await abschnitt.findByRole("region", { name: "Captable nach Inhaber und Klasse" }));
     const zeilen = tabelle.getAllByRole("row");
     const verdeckt = zeilen.find((r) => r.textContent?.includes("Andere Fonds"))!;

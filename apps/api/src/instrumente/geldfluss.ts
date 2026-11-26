@@ -29,7 +29,7 @@ const GELDLOSE_IDS = sql`(
 export function geldlos(alias: string): SQL {
   const a = sql.raw(alias);
   // coalesce: ohne Storno ist `storniert_vorgang_id` NULL, und `NOT (… OR NULL)` würde sonst jede Zeile aus den Summen nehmen.
-  return sql`(${a}.id IN ${GELDLOSE_IDS} OR coalesce(${a}.storniert_vorgang_id IN ${GELDLOSE_IDS}, false))`;
+  return sql`(${a}.verzicht_id IS NOT NULL OR ${a}.art IN ('principal_disposal', 'impairment_disposal', 'interest_waiver') OR ${a}.id IN ${GELDLOSE_IDS} OR coalesce(${a}.storniert_vorgang_id IN ${GELDLOSE_IDS}, false))`;
 }
 
 /** Ids der geldlosen Wandlungsbuchungen (samt Stornos) der Beteiligungen; ohne Angabe aller Beteiligungen des Fonds bzw. aller. */

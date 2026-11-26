@@ -12,6 +12,25 @@ const vorschau = { verteilungsquelle: "berechnet", fondsId: FONDS_ID, art: "abru
 const knopf = "Mitteilungen freigeben: Kapitalabruf vom 15.03.2026";
 
 describe("Kapitalbewegungen und Mitteilungen", () => {
+  it("benennt Fondskennzahlen und Investorentabelle getrennt und hält die Tabelle fokussierbar", async () => {
+    const kapitalstand = { abgerufen: "500.00", eingezahlt: "400.00", offen: "100.00", ueberfaellig: "0.00", ungeklaert: "0.00" };
+    spieleApi({
+      [`/api/v1/fonds/${FONDS_ID}/bewegungen/kapitalstand`]: {
+        koerper: {
+          quellenstand: "2026-10-01T10:11:12.345678Z",
+          fonds: kapitalstand,
+          konten: [{ organisationId: "investor-1", investor: "Investor Am Park", ...kapitalstand }],
+        },
+      },
+    });
+    rendereApp(url);
+    const tabelle = await screen.findByRole("region", { name: "Kapitalstand je Investor" });
+    expect(within(tabelle).getByRole("cell", { name: "Investor Am Park" })).toBeTruthy();
+    expect(tabelle.tabIndex).toBe(0);
+    const kennzahlen = screen.getByRole("region", { name: "Kapitalstand des Fonds" });
+    expect(within(kennzahlen).getByText("Eingezahlt")).toBeTruthy();
+  });
+
   it("listet die Bewegungen mit Status; offene bieten die Freigabe an, freigegebene nicht", async () => {
     spieleApi();
     rendereApp(url);
@@ -260,7 +279,7 @@ it.each([
   });
   rendereApp(`${url}&stichtag=${stichtag}&stand=${stand}`);
   const nutzer = userEvent.setup();
-  await nutzer.click(await screen.findByRole("button", { name: `Herkunft von ${kennzahl} anzeigen` }));
+  await nutzer.click(await screen.findByRole("button", { description: `Herkunft von ${kennzahl} anzeigen` }));
   const dialog = within(await screen.findByRole("dialog"));
   await nutzer.click(await dialog.findByText(`= ${kennzahl}`, { selector: "summary span" }));
   const einzelwert = dialog.getByRole("link", { name: `${art} · Investor Am Park` });

@@ -54,7 +54,7 @@ export const ABSCHNITTE: Record<Bereich, readonly string[]> = {
   verwaltung: ["verwaltung"],
   berichte: ["bericht", "vorlagen", "berichte"],
   runden: ["finanzierungsrunden", "runde", "wasserfall", "kapital", "uebertragung", "mitarbeiter", "bewertungen"],
-  instrumente: ["zinslauf", "zinslaeufe", "inst", "zinsmethode", "zinsperiode", "massgeblich", "vorgangForm", "stornoForm", "konditionForm", "instrumentForm", "trancheForm", "instrumenteAbschnitt", "zinsenAbschnitt", "fondsZinsen", "erfuelltForm", "ueberschussForm", "forderungForm", "wandlungForm", "optionsschein", "verkaufForm", "verkaufStorno", "anpassungForm", "insolvenzForm", "geplanteBeteiligung", "abgrenzung"],
+  instrumente: ["zinslauf", "zinslaeufe", "inst", "zinsmethode", "zinsperiode", "massgeblich", "vorgangForm", "stornoForm", "konditionForm", "instrumentForm", "trancheForm", "instrumenteAbschnitt", "zinsenAbschnitt", "fondsZinsen", "erfuelltForm", "ueberschussForm", "forderungForm", "wandlungForm", "optionsschein", "verkaufForm", "verzicht", "verkaufStorno", "anpassungForm", "insolvenzForm", "geplanteBeteiligung", "abgrenzung"],
   kontaktimport: ["kontaktimport", "zusammenfuehren"],
   journal: ["journal"],
   konto: ["anmeldung", "zweiFaktor", "passwort", "einrichtung"],

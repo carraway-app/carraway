@@ -118,7 +118,7 @@ describe("Vollexport", () => {
   it("Werte stehen exakt: Beträge als Dezimalzahl, Datum als Text, Kopfzeile mit Spaltennamen, Schema dokumentiert die Spalten", () => {
     const zeilen = parseCsv(zip.get("tabellen/vorgang.csv")!.toString("utf8"), ",");
     const kopf = zeilen[0]!;
-    expect([...kopf].sort()).toEqual(["art", "beglichen_vorgang_id", "beteiligung_id", "betrag", "bemerkung", "betrag_lokal", "erfasst_am", "felder", "id", "instrument_id", "kapitalisiert", "kurs", "kurs_id", "storniert_vorgang_id", "tranche_id", "valuta"].sort());
+    expect([...kopf].sort()).toEqual(["art", "beglichen_vorgang_id", "beteiligung_id", "betrag", "bemerkung", "betrag_lokal", "erfasst_am", "felder", "id", "instrument_id", "kapitalisiert", "kurs", "kurs_id", "storniert_vorgang_id", "tranche_id", "valuta", "darlehensverkauf_id", "verzicht_id", "zinsverzicht_bis"].sort());
     const erste = zeilen[1]!;
     expect(erste[kopf.indexOf("betrag")]).toMatch(/^-?\d+\.\d{2}$/);
     expect(erste[kopf.indexOf("valuta")]).toMatch(/^\d{4}-\d{2}-\d{2}$/);

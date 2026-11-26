@@ -4,14 +4,13 @@ import { dokumentSichtbar } from "../dokumente/ziele";
 import { hatBereich } from "../rechte/bereiche";
 import { portfolioSicht } from "../rechte/sichtbarkeit";
 import type { Tx } from "../zeitlimit";
-import { ladeNavBestandteile } from "./fonds";
+import { ladeNavBestandteile, zielfondsEinzelwerte } from "./fonds";
 
 type Nachweis = { bewertungId: string; dokumentId: string; dateiname: string; seite: number | null };
 
 /** Verweise sind personenbezogen und werden deshalb erst beim Öffnen der Herkunft gelesen. */
 export async function ladeNavEinzelwerte(tx: Tx, akteur: Akteur, fondsId: string, stichtag: string, stand: string) {
-  // Durchrechnung nur für Zielfonds, die die Person sieht (gleiche Zahl wie ihre Fondsübersicht).
-  const { portfolio, salden, nav } = await ladeNavBestandteile(tx, fondsId, stichtag, stand, new Set(), { sieht: portfolioSicht(akteur) });
+  const { portfolio, salden, nav, zielfonds } = await ladeNavBestandteile(tx, fondsId, stichtag, stand);
   const ids = portfolio.map((p) => p.bewertungId);
   const nachweise = new Map<string, Nachweis[]>();
   if (ids.length && hatBereich(akteur, "dokumente") && hatRolle(akteur, fondsId, "betrachter", "dokumente")) {
@@ -35,6 +34,7 @@ export async function ladeNavEinzelwerte(tx: Tx, akteur: Akteur, fondsId: string
     }
   }
   return {
+    zielfonds: zielfondsEinzelwerte(zielfonds, portfolioSicht(akteur)),
     portfolio: portfolio.map((p) => ({ ...p, nachweise: nachweise.get(p.bewertungId) ?? [] })),
     salden: nav !== null && hatBereich(akteur, "finanzen") && hatRolle(akteur, fondsId, "betrachter", "finanzen")
       ? salden.filter((p) => p.gruppe === "bank" || p.gruppe === "sonstiges" || p.gruppe === "schulden")

@@ -7,7 +7,7 @@ import { ladeKapitalstand } from "../instrumente/kapitalstand";
 import { geldlos } from "../instrumente/geldfluss";
 import { ermittleNavBestandteile, NAV_LUECKE, type PortfolioPosition } from "./nav";
 import { ermittleBeteiligungsstatus } from "./beteiligungsstatus";
-import { hatZielfonds, ladeZielfonds, zielfondsEingang, zielfondsSchritt, type Durchsicht, type ZielfondsPosition } from "./zielfonds";
+import { hatZielfonds, ladeZielfonds, zielfondsEingang, zielfondsSchritt, type NavCache, gruppiereZielfonds, ZIELFONDS_SCHRITT, type ZielfondsPosition } from "./zielfonds";
 
 /**
  * Kennzahlen eines Fonds zu einem Stichtag. Beteiligungswerte, Abrufe, tatsächliche Zahlungsströme und übernommene Bilanzsalden
@@ -49,6 +49,8 @@ export interface BeteiligungZeile {
 }
 
 export interface FondsUebersicht {
+  /** Interne Einzelwerte für die rechteabhängige Ausgabe aus einem gemeinsamen Snapshot. */
+  zielfonds?: ZielfondsEinzelwert[];
   stichtag: string;
   portfoliowert: string;
   kennzahlen: { abgerufen: Kennzahl; eingezahlt: Kennzahl; offen: Kennzahl; ueberfaellig: Kennzahl; ungeklaert: Kennzahl; ausschuettungen: Kennzahl; nav: Kennzahl; tvpi: Kennzahl; dpi: Kennzahl; rvpi: Kennzahl; irr: Kennzahl };
@@ -217,33 +219,50 @@ async function ladeBeteiligungswerte(tx: Abfrage, fondsId: string, stichtag: str
  * Zielfondsbeteiligungen des Fonds zum Stichtag (Dachfonds), mit Durchrechnung der Zielfonds derselben Installation; `null`, wenn der Fonds keine hat.
  * `besucht` sind die Fonds, deren NAV gerade gerechnet wird (Schutz vor Kreisen).
  */
-export async function ladeZielfondsZum(tx: Abfrage, fondsId: string, stichtag: string, stand: string | undefined, besucht: ReadonlySet<string> = new Set(), durchsicht: Durchsicht = {}): Promise<ZielfondsPosition[] | null> {
+export async function ladeZielfondsZum(tx: Abfrage, fondsId: string, stichtag: string, stand: string | undefined, besucht: ReadonlySet<string> = new Set(), cache: NavCache = new Map()): Promise<ZielfondsPosition[] | null> {
   if (!(await hatZielfonds(tx, fondsId, stand))) return null;
-  const d: Durchsicht = { ...durchsicht, cache: durchsicht.cache ?? new Map() };
   const navVon = (ziel: string, kette: ReadonlySet<string>) => {
     const schluessel = `${ziel}|${stichtag}|${stand ?? ""}|${kette.size}`;
-    let wert = d.cache!.get(schluessel);
+    let wert = cache.get(schluessel);
     if (!wert) {
-      wert = ladeNavBestandteile(tx, ziel, stichtag, stand, kette, d).then((b) => b.nav);
-      d.cache!.set(schluessel, wert);
+      wert = ladeNavBestandteile(tx, ziel, stichtag, stand, kette, cache).then((b) => b.nav);
+      cache.set(schluessel, wert);
     }
     return wert;
   };
-  return ladeZielfonds(tx, fondsId, stichtag, stand, navVon, besucht, d);
+  return ladeZielfonds(tx, fondsId, stichtag, stand, navVon, besucht);
 }
 
 /** Interne Herkunft mit Bewertungs-IDs, Saldo-IDs und Konten am selben Schnitt wie die Fondsübersicht. */
-export async function ladeNavBestandteile(tx: Abfrage, fondsId: string, stichtag: string, stand?: string, besucht: ReadonlySet<string> = new Set(), durchsicht: Durchsicht = {}) {
+export async function ladeNavBestandteile(tx: Abfrage, fondsId: string, stichtag: string, stand?: string, besucht: ReadonlySet<string> = new Set(), cache: NavCache = new Map()) {
   const { portfolio } = await ladeBeteiligungswerte(tx, fondsId, stichtag, stand);
-  const zielfonds = await ladeZielfondsZum(tx, fondsId, stichtag, stand, besucht, durchsicht);
-  return ermittleNavBestandteile(tx, fondsId, stichtag, stand, portfolio, zielfonds ? zielfondsSchritt(zielfonds) : null);
+  const zielfonds = await ladeZielfondsZum(tx, fondsId, stichtag, stand, besucht, cache);
+  const nav = await ermittleNavBestandteile(tx, fondsId, stichtag, stand, portfolio, zielfonds ? zielfondsSchritt(zielfonds) : null);
+  return { ...nav, zielfonds: (zielfonds ?? []).map(zielfondsEinzelwert) };
 }
 
-/**
- * `durchsicht.sieht`: nur Zielfonds durchrechnen, die die anfragende Person sehen darf (für Antworten an Personen, deren Sicht nicht alle erreichbaren
- * Zielfonds umfasst; Snapshots rechnen ohne Einschränkung).
- */
-export async function berechneFondsUebersicht(tx: Pick<Tx, "execute" | "select">, fondsId: string, stichtagVorgabe?: string, stand?: string, durchsicht: Durchsicht = {}): Promise<FondsUebersicht> {
+type ZielfondsEinzelwert = Pick<ZielfondsPosition, "id" | "name" | "zielfondsId"> & { wert: string };
+const zielfondsEinzelwert = (p: ZielfondsPosition): ZielfondsEinzelwert => ({ id: p.id, name: p.name, zielfondsId: p.zielfondsId, wert: p.kennzahlen.wert.wert.toFixed(2) });
+
+export function zielfondsEinzelwerte(positionen: readonly ZielfondsEinzelwert[], sieht: (id: string) => boolean) {
+  const { sichtbar, sammelwert } = gruppiereZielfonds(positionen, sieht, (p) => p.wert);
+  const zeilen: { id: string | null; name: string; wert: string }[] = sichtbar.map(({ id, name, wert }) => ({ id, name, wert }));
+  if (sammelwert !== null) zeilen.push({ id: null, name: "Zielfonds", wert: sammelwert.toFixed(2) });
+  return zeilen;
+}
+
+/** Die interne Aufschlüsselung des gemeinsamen Snapshots wird erst für die Antwort in NAV-Schritte übersetzt. */
+export function uebersichtFuerAnsicht({ zielfonds, ...uebersicht }: FondsUebersicht, sieht: (id: string) => boolean) {
+  if (!zielfonds?.length) return uebersicht;
+  const nav = uebersicht.kennzahlen.nav;
+  const anteile: Rechenschritt[] = zielfondsEinzelwerte(zielfonds, sieht).map((z) => ({
+    zeichen: "+", bezeichnung: z.name, wert: z.wert, ...(z.id !== null && { quellen: [z.id] }),
+  }));
+  const schritte = nav.schritte.flatMap((s) => s.bezeichnung === ZIELFONDS_SCHRITT ? anteile : [s]);
+  return { ...uebersicht, kennzahlen: { ...uebersicht.kennzahlen, nav: { ...nav, schritte } } };
+}
+
+export async function berechneFondsUebersicht(tx: Pick<Tx, "execute" | "select">, fondsId: string, stichtagVorgabe?: string, stand?: string, cache: NavCache = new Map()): Promise<FondsUebersicht> {
   const stichtag = stichtagVorgabe ?? (await standardStichtag(tx, fondsId, stand));
 
   const { zeilen, portfolio } = await ladeBeteiligungswerte(tx, fondsId, stichtag, stand);
@@ -288,7 +307,7 @@ export async function berechneFondsUebersicht(tx: Pick<Tx, "execute" | "select">
   const verteilungen = kapital.bewegungen.filter((b) => b.art === "ausschuettung");
   const ausschuettungen = verteilungen.reduce((s, b) => s.plus(b.betrag), new Decimal(0));
 
-  const zielfonds = await ladeZielfondsZum(tx, fondsId, stichtag, stand, new Set(), durchsicht);
+  const zielfonds = await ladeZielfondsZum(tx, fondsId, stichtag, stand, new Set(), cache);
   const { nav, schritte, portfoliowert } = await ermittleNavBestandteile(tx, fondsId, stichtag, stand, portfolio, zielfonds ? zielfondsSchritt(zielfonds) : null);
   const m = multiples({ eingezahlt, ausschuettungen, nav });
 
@@ -298,6 +317,7 @@ export async function berechneFondsUebersicht(tx: Pick<Tx, "execute" | "select">
 
   return {
     stichtag,
+    ...(zielfonds && { zielfonds: zielfonds.map(zielfondsEinzelwert) }),
     portfoliowert: portfoliowert.toFixed(2),
     kennzahlen: {
       abgerufen: {

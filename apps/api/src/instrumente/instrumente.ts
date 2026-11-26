@@ -389,7 +389,7 @@ export async function ladeInstrumentUebersicht(tx: Tx, beteiligungId: string, si
       /** Durch Wandlung beglichene Zinsen (in Anteile gewandelt). */
       gewandelteZinsen: gewandelt.toFixed(2),
       /** Offene Zinsen: gebucht ohne kapitalisierte und gewandelte, minus gezahlt. */
-      offeneZinsen: z.zinsen.minus(z.kapitalisiert).minus(gewandelt).minus(z.zinszahlungen).toFixed(2),
+      offeneZinsen: z.zinsen.minus(z.kapitalisiert).minus(gewandelt).minus(z.zinszahlungen).minus(z.gebuchteZinsenErlassen).toFixed(2),
       buchwertabgang: z.abgang.toFixed(2),
       buchwert: buchwertVon(z).wert.toFixed(2),
       tranchen: tranchen.filter((t) => t.instrumentId === i.id),

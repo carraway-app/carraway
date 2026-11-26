@@ -31,9 +31,10 @@ const VERKAUF_FELDER = [
   "verkaeuferdarlehen.faelligAm",
 ];
 
-type VerkaufWerte = Record<"datum" | "kaufpreis" | "kosten" | "anteil" | "treuhand" | "treuhandFreigabe" | "darlehen" | "satz" | "methode" | "faellig", string>;
+type VerkaufWerte = Record<"instrumentId" | "datum" | "kaufpreis" | "kosten" | "anteil" | "treuhand" | "treuhandFreigabe" | "darlehen" | "satz" | "methode" | "faellig", string>;
 
 interface Auswertung {
+  principalDisposed?: string;
   buchwertVorher: string;
   buchwertAbgang: string;
   erloes: string;
@@ -67,6 +68,7 @@ function AuswertungAnsicht({ ergebnis, status, datum }: { ergebnis: Auswertung; 
       <dl className="app-fakten">
         <Fakt titel={f.buchwertVorher} wert={formatBetragCent(ergebnis.buchwertVorher, sprache)} />
         <Fakt titel={f.buchwertAbgang} wert={formatBetragCent(ergebnis.buchwertAbgang, sprache)} />
+        {ergebnis.principalDisposed && ergebnis.principalDisposed !== "0.00" ? <Fakt titel={t.verzicht.kapitalabgang} wert={formatBetragCent(ergebnis.principalDisposed, sprache)} /> : null}
         <Fakt titel={f.erloes} wert={formatBetragCent(ergebnis.erloes, sprache)} />
         <Fakt titel={ergebnis.ergebnis.startsWith("-") ? f.verlust : f.gewinn} wert={formatBetragCent(ergebnis.ergebnis, sprache)} />
         <Fakt titel={f.barzufluss} wert={formatBetragCent(ergebnis.barzufluss, sprache)} />
@@ -81,7 +83,7 @@ function AuswertungAnsicht({ ergebnis, status, datum }: { ergebnis: Auswertung; 
  * Verkauf mit Vorschau: Der Server rechnet die Auswertung (Buchwertabgang, Erlös, Ergebnis) über die Vorschau, ohne zu buchen
  * (Entscheidung 118, ändert Nr. 80). Gebucht wird nur mit den Eingaben der letzten Vorschau; die Oberfläche rechnet nichts.
  */
-export function VerkaufDialog({ beteiligungId, onSchliessen }: { beteiligungId: string; onSchliessen: () => void }) {
+export function VerkaufDialog({ beteiligungId, instrumente, onSchliessen }: { beteiligungId: string; instrumente: Instrumentdaten["instrumente"]; onSchliessen: () => void }) {
   const t = useT();
   const sprache = useSprache();
   const f = t.verkaufForm;
@@ -91,6 +93,7 @@ export function VerkaufDialog({ beteiligungId, onSchliessen }: { beteiligungId: 
   const wennGesetzt = (partner: keyof VerkaufWerte, regel: (pflicht: boolean) => Regel<VerkaufWerte>): Regel<VerkaufWerte> => (wert, alle, k) => regel(alle[partner].trim() !== "")(wert, alle, k);
   const { werte, feld, pruefeAlle } = useFormular<VerkaufWerte>(
     {
+      instrumentId: "",
       datum: heuteIso(),
       kaufpreis: "",
       kosten: "",
@@ -121,6 +124,7 @@ export function VerkaufDialog({ beteiligungId, onSchliessen }: { beteiligungId: 
   const vorschau = vorschauen.data as unknown as VorschauAntwort | undefined;
 
   const eingabe = (): VerkaufEingabe => ({
+    ...(werte.instrumentId ? { instrumentId: werte.instrumentId } : {}),
     datum: werte.datum,
     kaufpreis: betragOderNichts(werte.kaufpreis, sprache) ?? "",
     anteilVerkauft: prozentZuAnteil(werte.anteil),
@@ -182,6 +186,10 @@ export function VerkaufDialog({ beteiligungId, onSchliessen }: { beteiligungId: 
           >
             <FehlerHinweis fehler={aktiverFehler} bekannt={VERKAUF_FELDER} />
             <div className="app-feldgruppe">
+              {instrumente.length > 1 ? <Auswahl label={f.instrument} {...feld("instrumentId")}>
+                <option value="">{f.ganzeBeteiligung}</option>
+                {instrumente.filter((i) => i.status === "aktiv").map((i) => <option key={i.id} value={i.id}>{i.bezeichnung}</option>)}
+              </Auswahl> : null}
               <Feld label={f.datum} type="date" {...feld("datum", fehler("datum"))} />
               <BetragFeld label={f.anteil} hilfe={f.anteilHilfe} {...feld("anteil", fehler("anteilVerkauft"))} />
               <BetragFeld label={f.kaufpreis} {...feld("kaufpreis", fehler("kaufpreis"))} />

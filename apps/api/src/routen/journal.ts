@@ -63,13 +63,13 @@ const KOEPFE = {
   en: ["Value date", "Recorded at", "Type", "Company", "Instrument", "Amount", "Cash effect", "Direction", "Reversal of", "Reversed by", "Origin", "Recorded by", "Note"],
 } as const;
 const TYPEN = {
-  de: { zusage: "Zusage", auszahlung: "Auszahlung", rueckfluss: "Rückfluss", zins: "Zins", zinszahlung: "Zinszahlung", dividende: "Dividende", tilgung: "Tilgung", wertberichtigung: "Wertberichtigung", abruf: "Abruf", ausschuettung: "Ausschüttung", bewertung: "Bewertung", wandlung: "Wandlung", verkauf: "Verkauf", insolvenz: "Insolvenz" },
-  en: { zusage: "Commitment", auszahlung: "Disbursement", rueckfluss: "Proceeds", zins: "Interest", zinszahlung: "Interest payment", dividende: "Dividend", tilgung: "Repayment", wertberichtigung: "Write-down", abruf: "Capital call", ausschuettung: "Distribution", bewertung: "Valuation", wandlung: "Conversion", verkauf: "Sale", insolvenz: "Insolvency" },
+  de: { principal_disposal: "Kapitalabgang an den Erwerber", impairment_disposal: "Abgang der Wertberichtigung", principal_waiver: "Kapitalverzicht", interest_waiver: "Zinsverzicht", zusage: "Zusage", auszahlung: "Auszahlung", rueckfluss: "Rückfluss", zins: "Zins", zinszahlung: "Zinszahlung", dividende: "Dividende", tilgung: "Tilgung", wertberichtigung: "Wertberichtigung", abruf: "Abruf", ausschuettung: "Ausschüttung", bewertung: "Bewertung", wandlung: "Wandlung", verkauf: "Verkauf", insolvenz: "Insolvenz" },
+  en: { principal_disposal: "Principal transferred to buyer", impairment_disposal: "Impairment transferred on sale", principal_waiver: "Principal waiver", interest_waiver: "Interest waiver", zusage: "Commitment", auszahlung: "Disbursement", rueckfluss: "Proceeds", zins: "Interest", zinszahlung: "Interest payment", dividende: "Dividend", tilgung: "Repayment", wertberichtigung: "Write-down", abruf: "Capital call", ausschuettung: "Distribution", bewertung: "Valuation", wandlung: "Conversion", verkauf: "Sale", insolvenz: "Insolvency" },
 } as const;
 const RICHTUNG = { de: { zufluss: "Zufluss", abfluss: "Abfluss" }, en: { zufluss: "Inflow", abfluss: "Outflow" } } as const;
 const HERKUNFT = {
-  de: { manuell: "Manuell", import: "Import", zinslauf: "Zinslauf", wandlung: "Wandlung", verkauf: "Verkauf", runde: "Finanzierungsrunde" },
-  en: { manuell: "Manual", import: "Import", zinslauf: "Interest run", wandlung: "Conversion", verkauf: "Sale", runde: "Financing round" },
+  de: { waiver: "Verzicht", manuell: "Manuell", import: "Import", zinslauf: "Zinslauf", wandlung: "Wandlung", verkauf: "Verkauf", runde: "Finanzierungsrunde" },
+  en: { waiver: "Waiver", manuell: "Manual", import: "Import", zinslauf: "Interest run", wandlung: "Conversion", verkauf: "Sale", runde: "Financing round" },
 } as const;
 const SUMMEN_KOPF = { de: ["Typ", "Anzahl", "Summe", "Kassenwirkung"], en: ["Type", "Count", "Total", "Cash effect"] } as const;
 const GESAMT = { de: "Gesamt (Kassenwirkung)", en: "Total (cash effect)" } as const;

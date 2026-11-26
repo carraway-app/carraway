@@ -167,7 +167,7 @@ Spalte „Pfad“ nennt den Namen als Pfadsegment, „Feld“ den Namen als Feld
 | Annahme | | | `assumptions` |
 | Reserve | `…/reserve`, `…/reserven` | `…/reserve`, `…/reserves` | `reserve` |
 | festschreiben | `…/festschreiben` | `…/lock` | `locked` |
-| Zielfonds (Dachfonds), Zielfondsbeteiligung | `…/target-funds` (neu, schon englisch) | `…/target-funds` | `targetFundId`, `targetFundName` |
+| Zielfonds (Dachfonds), Zielfondsbeteiligung | `…/target-funds` (neu, schon englisch) | `…/target-funds` | `targetFundId`, `targetFundName`. Verdeckte Positionen erscheinen gemeinsam mit `id: null` und dem Anteilswert unter `metrics.value.value`. Die NAV-Einzelwerte führen die Anteile unter `targetFunds`. |
 | Bewegung eines Zielfonds: Zusage, Kapitalabruf, Ausschüttung | `…/movements` (neu, schon englisch) | `…/movements` | `type` (`commitment`, `capital_call`, `distribution`), `valueDate`, `amount`, `reversesId` |
 | Meldung eines Zielfonds (NAV, Anteil) | `…/nav-reports` (neu, schon englisch) | `…/nav-reports` | `asOf`, `nav`, `share` |
 | Wertansatz eines Zielfonds | | | `method` (`look_through`, `reported_nav`, `cost`), `called`, `unfunded`, `distributed` |
@@ -239,6 +239,8 @@ Spalte „Pfad“ nennt den Namen als Pfadsegment, „Feld“ den Namen als Feld
 | Kondition | `…/konditionen` | `…/terms` | `terms` |
 | Wandlung | `…/wandlung` | `…/conversion` | `conversion` |
 | Verkauf | `…/verkauf`, **`/verkaeufe`** | `…/sale`, `/sales` | `sale`, `saleId` |
+| Abgang des offenen Darlehenskapitals | | `…/sale/preview`, `…/sale` | `principalDisposed` (Journalart `principal_disposal`) |
+| Darlehensverzicht, Vorschau, Storno | | `/instruments/{id}/waivers`, `…/waivers/preview`, `…/waivers/{waiverId}/reverse` | `date`, `principal`, `interest`, `reason`, `documentId`, `waiverId`, `remainingPrincipal`, `impairmentUsed`, `remainingCarryingAmount`, `loss`, `steps` (Journalarten `principal_waiver`, `interest_waiver`) |
 | Kaufpreis, Kaufpreisanpassung | `…/kaufpreisanpassung` | `…/purchase-price-adjustment` | `purchasePrice` |
 | Insolvenz | `…/insolvenz` | `…/insolvency` | |
 | Jahresüberschuss | `…/jahresueberschuss` | `…/net-income` | `netIncome` |
@@ -269,6 +271,7 @@ Spalte „Pfad“ nennt den Namen als Pfadsegment, „Feld“ den Namen als Feld
 | Kennzahlenwert, Auswahl, Übersicht | `…/werte`, `…/auswahl`, `…/uebersicht` | `…/values`, `…/selection`, `…/overview` | `value`, `valueType`, `frequency` |
 | Kennzahlenanfrage bestätigen, widerrufen, erneuern, versenden | `…/bestaetigen`, `…/widerrufen`, `…/neuer-link`, `…/per-mail` | `…/confirm`, `…/revoke`, `…/renew-link`, `…/send-email` | `confirmedAt`, `revokedAt`, `link` |
 | ESG-Zeitreihe und Fragebogen zur Beteiligung | `…/esg`, `…/esg/abfragen` | `…/esg`, `…/esg/metric-requests` | `dataPoints`, `completeness`, `metricRequest` |
+| ESG-Kennzahlenvorlage je Fonds ansehen und anwenden | | `GET /funds/{id}/esg/metric-template`, `POST /funds/{id}/esg/metric-template/apply` | `metrics`, `metricKeys`, `catalogStatus`, `sources`, `addedMetricKeys`, `createdMetricKeys` |
 | Registereintrag, Beobachtung und Meldungen | `…/eintraege`, `…/beobachtung`, `…/meldungen` | `…/entries`, `…/monitoring`, `…/notifications` | `registerType`, `registerEntryId` |
 
 Instrumentarten sind `direct_equity`, `silent_participation`, `loan`, `convertible_loan`, `venture_debt`, `shareholder_loan`, `safe` und `warrant`.

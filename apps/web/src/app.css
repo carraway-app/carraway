@@ -355,6 +355,7 @@ body > .cw-ueberlagerung { inset-block-start: var(--umgebung-h, 0px); }
 .app-diagramm__achse { stroke: var(--cw-line-strong); stroke-width: 1; }
 /* Exit-Wasserfall: Liniendiagramm als SVG, Farben und Linien nur aus Tokens */
 .app-kurve { overflow-x: auto; }
+.cw-portfolio-verlauf:focus-visible { outline: 2px solid var(--cw-focus); outline-offset: 2px; }
 .app-kurve__svg { display: block; width: 100%; min-width: 360px; height: auto; max-height: calc(var(--s-8) * 4); }
 .app-kurve__raster { stroke: var(--cw-line); stroke-width: 1; }
 .app-kurve__achse { stroke: var(--cw-line-strong); stroke-width: 1; }

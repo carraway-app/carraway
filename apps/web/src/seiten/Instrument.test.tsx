@@ -27,7 +27,7 @@ describe("Instrument: Anzeige", () => {
 
     const kennzahlen = inst.getByRole("region", { name: "Buchwert" });
     expect(schmal(kennzahlen.textContent)).toContain("1.012.000,00 €");
-    await nutzer.click(within(kennzahlen).getByRole("button", { name: "Herkunft von Buchwert anzeigen" }));
+    await nutzer.click(within(kennzahlen).getByRole("button", { name: /^Buchwert /, description: "Herkunft von Buchwert anzeigen" }));
     expect(within(screen.getByRole("dialog")).getByText("Kapitalisierte Zinsen")).toBeTruthy();
     await nutzer.click(dialog().getByRole("button", { name: "Schließen" }));
 
@@ -73,7 +73,7 @@ describe("Instrument: Anzeige", () => {
     rendereApp(url);
     const nutzer = userEvent.setup();
     const inst = await abschnitt();
-    await nutzer.click(await inst.findByRole("button", { name: "Show origin of Carrying amount" }));
+    await nutzer.click(await inst.findByRole("button", { name: /^Carrying amount /, description: "Show origin of Carrying amount" }));
     expect(within(screen.getByRole("dialog")).getByText("Capitalised interest")).toBeTruthy();
     await nutzer.click(screen.getByRole("button", { name: "Instruments" }));
     expect(await screen.findByRole("button", { name: "Terms: Wandeldarlehen 2021" })).toBeTruthy();

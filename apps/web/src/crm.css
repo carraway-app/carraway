@@ -22,12 +22,6 @@
 .app-crm { display: flex; flex-direction: column; gap: var(--s-2); }
 .app-crm__listenzeile { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--s-1) var(--s-2); }
 .app-crm__listenwahl { min-width: 220px; }
-.app-werkzeuge { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--s-1) var(--s-3); }
-.app-werkzeuge > .cw-hinweis { flex-basis: 100%; }
-.app-werkzeuge__zeile { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--s-1); }
-.app-werkzeuge__suche { flex: 1 1 240px; max-width: 360px; }
-.app-ansichten { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--s-1); }
-.app-ansichten__wahl { min-width: 220px; }
 .app-massen { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-1); padding: var(--s-1) var(--s-2); border-radius: var(--r-l); background: var(--cw-surface-2); }
 .app-massen__anzahl { font-weight: 600; }
 .app-massen__ergebnis { flex-basis: 100%; font-size: var(--fs-klein); color: var(--cw-text-muted); }
@@ -144,7 +138,11 @@ span.app-gitter__sortieren { cursor: default; }
 .app-attribute__bearbeiten:focus-visible { outline: 2px solid var(--cw-focus); outline-offset: -2px; }
 .app-attribute .app-zelleneingabe { height: var(--h-s); }
 .app-attribute .app-zellenmehrfach { position: static; }
-.app-aufgabenformular { display: grid; grid-template-columns: minmax(160px, 2fr) minmax(130px, 1fr) minmax(130px, 1fr) auto; align-items: end; gap: var(--s-1); margin-bottom: var(--s-2); }
+.cw-aufgabenformular { display: flex; flex-wrap: wrap; align-items: end; gap: var(--s-1); margin-bottom: var(--s-2); }
+.cw-aufgabenformular > :is(.cw-feld, .cw-aufgabenformular__wer) { flex: 1 1 calc(3 * var(--s-5)); min-inline-size: 0; }
+.cw-aufgabenformular > .cw-feld:first-child { flex: 2 1 calc(2 * var(--s-8)); }
+.cw-aufgabenformular .cw-feld__eingabe { min-inline-size: 0; }
+.cw-aufgabenformular > .cw-button { margin-inline-start: auto; }
 .app-aufgaben { display: flex; flex-direction: column; gap: var(--s-1); margin: 0; padding: 0; list-style: none; }
 .app-aufgaben li { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-1) var(--s-2); padding: var(--s-1) 0; border-bottom: 1px solid var(--cw-line); }
 .app-aufgaben label { display: inline-flex; align-items: center; gap: var(--s-1); }
@@ -157,32 +155,25 @@ span.app-gitter__sortieren { cursor: default; }
   .app-datensatz { grid-template-columns: minmax(0, 1fr); }
   .app-attribute { position: static; max-height: none; }
   .app-fed__bedingung { grid-template-columns: 1fr 1fr; }
-  .app-aufgabenformular { grid-template-columns: 1fr 1fr; }
 }
 
 /* Feinschliff (19b auf CRM): eine Werkzeugleiste je Ansicht, Tabelle und Board ohne Rahmen um den Rahmen, Beschriftungen neben dem Feld */
 .app-crm.app-karte { padding: 0; background: transparent; gap: var(--s-1h); }
-.app-crm__listenzeile, .app-werkzeuge, .app-werkzeuge__zeile, .app-ansichten { align-items: center; gap: var(--s-1); }
-.app-werkzeuge .cw-feld, .app-crm__listenzeile .cw-feld { flex-direction: row; align-items: center; gap: var(--s-1); }
-.app-werkzeuge .cw-feld__label, .app-crm__listenzeile .cw-feld__label { flex: none; margin: 0; color: var(--cw-text-muted); white-space: nowrap; }
-.app-werkzeuge .cw-feld__eingabe, .app-crm__listenzeile .cw-feld__eingabe { height: var(--h-xs); }
-.app-crm__listenwahl, .app-ansichten__wahl { min-width: 0; }
+.app-crm__listenzeile { align-items: center; gap: var(--s-1); }
+.cw-crm-werkzeuge, .cw-crm-werkzeuge__zeile, .cw-crm-ansichten { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-1); }
+.cw-crm-werkzeuge > .cw-hinweis { flex-basis: 100%; }
+.cw-crm-werkzeuge .cw-feld, .app-crm__listenzeile .cw-feld { flex-direction: row; align-items: center; gap: var(--s-1); }
+.cw-crm-werkzeuge .cw-feld__label, .app-crm__listenzeile .cw-feld__label { flex: none; margin: 0; color: var(--cw-text-muted); white-space: nowrap; }
+.cw-crm-werkzeuge .cw-feld__eingabe, .app-crm__listenzeile .cw-feld__eingabe { height: var(--h-xs); }
+.app-crm__listenwahl { min-width: 0; }
 .app-gitter { max-height: max(276px, calc(100vh - var(--umgebung-h, 0px) - 314px)); }
-.app-werkzeuge { flex-wrap: wrap; }
-.app-werkzeuge__zeile { flex: 1 1 auto; flex-wrap: nowrap; min-width: 0; }
-/* Das Suchfeld startet schmal und wächst mit dem Platz; seine Eingabe bestimmt die Grundbreite der Zeile, sonst bricht die Ansichtsleiste schon bei 1280 px um. */
-.app-werkzeuge__suche { flex: 1 1 120px; min-width: 120px; max-width: 240px; }
-.app-werkzeuge__suche .cw-feld__eingabe { flex: 1 1 auto; width: 80px; min-width: 0; }
-.app-ansichten { flex: 1 1 auto; flex-wrap: wrap; justify-content: flex-end; min-width: 0; }
-.app-crm__listenzeile .cw-button, .app-werkzeuge .cw-button { height: var(--h-xs); }
+.cw-crm-werkzeuge__zeile, .cw-crm-ansichten { flex: 1 1 auto; min-inline-size: 0; }
+.cw-crm-werkzeuge__suche { flex: 1 1 calc(3 * var(--s-5)); min-inline-size: min(100%, calc(3 * var(--s-5))); max-inline-size: calc(3 * var(--s-8)); }
+.cw-crm-werkzeuge__suche .cw-feld__eingabe { flex: 1 1 var(--s-8); inline-size: var(--s-8); min-inline-size: 0; }
+.cw-crm-ansichten { justify-content: flex-end; }
+.cw-crm-ansichten__wahl .cw-feld__eingabe { min-inline-size: 0; max-inline-size: calc(2 * var(--s-8)); }
+.app-crm__listenzeile .cw-button { height: var(--h-xs); }
 .app-massen { padding: var(--s-0) var(--s-1h); }
-@media (max-width: 1200px) {
-  .app-werkzeuge, .app-werkzeuge__zeile, .app-ansichten { flex-wrap: wrap; }
-  .app-ansichten { margin-left: 0; }
-}
-@media (max-width: 700px) {
-  .app-werkzeuge .cw-feld, .app-crm__listenzeile .cw-feld { flex: 1 1 100%; }
-}
 
 /* Datensatzseiten: Karten einer Übersicht nebeneinander statt untereinander; die erste (Tabelle) nimmt die ganze Breite */
 .app-kartenraster { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); align-items: start; gap: var(--s-1h); }
@@ -195,9 +186,9 @@ span.app-gitter__sortieren { cursor: default; }
 .app-attribute__bearbeiten { position: absolute; right: 0; top: 0; background: var(--cw-surface); }
 .app-attribute__liste { gap: var(--s-1); }
 @media (max-width: 700px) {
-  .app-ansichten, .app-werkzeuge__zeile, .app-crm__listenzeile { width: 100%; }
-  .app-ansichten__wahl, .app-crm__listenwahl, .app-werkzeuge__suche { flex: 1 1 100%; max-width: none; }
-  .app-ansichten__wahl .cw-feld__eingabe, .app-crm__listenwahl .cw-feld__eingabe { flex: 1 1 auto; min-width: 0; width: 100%; }
+  .cw-crm-ansichten, .cw-crm-werkzeuge__zeile, .app-crm__listenzeile { width: 100%; }
+  .cw-crm-werkzeuge .cw-feld, .app-crm__listenzeile .cw-feld { flex: 1 1 100%; max-inline-size: none; }
+  .cw-crm-ansichten__wahl .cw-feld__eingabe, .app-crm__listenwahl .cw-feld__eingabe { flex: 1 1 auto; min-inline-size: 0; max-inline-size: none; inline-size: 100%; }
 }
 
 /* Suchfeld mit Trefferliste (Combobox) und Zuständigkeit */
@@ -211,7 +202,9 @@ span.app-gitter__sortieren { cursor: default; }
 .app-zustaendig { display: inline-flex; align-items: center; height: var(--h-xs); padding: 0 var(--s-1); border: 1px solid var(--cw-line); border-radius: var(--r-voll); background: transparent; color: var(--cw-text-muted); font: inherit; font-size: var(--fs-klein); cursor: pointer; }
 .app-zustaendig:hover { border-color: var(--cw-line-strong); color: var(--cw-text); }
 .app-zustaendig:focus-visible { outline: 2px solid var(--cw-focus); outline-offset: 2px; }
-.app-aufgabenformular__wer { display: flex; flex-direction: column; gap: var(--s-0); align-items: flex-start; }
+.cw-aufgabenformular__wer { display: flex; flex-direction: column; gap: var(--s-0); align-items: flex-start; }
+.cw-aufgabenformular__wer .cw-popover { max-inline-size: 100%; }
+.cw-aufgabenformular__wer .app-zustaendig { display: block; max-inline-size: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .app-zellenanker { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; color: var(--cw-text); }
 .app-zellenpopover { position: fixed; z-index: 60; width: 280px; padding: var(--s-1h); border: 1px solid var(--cw-line-strong); border-radius: var(--r-m); background: var(--cw-raised); }
 

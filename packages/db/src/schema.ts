@@ -503,7 +503,19 @@ export const instrument = pgTable(
   ],
 );
 
-export const vorgangArt = pgEnum("vorgang_art", ["zusage", "auszahlung", "rueckfluss", "zins", "tilgung", "wertberichtigung", "zinszahlung", "dividende"]);
+/** Vertraglicher Verzicht. Die zugehörigen Hauptbuchzeilen werden gemeinsam storniert. */
+export const darlehenVerzicht = pgTable("darlehen_verzicht", {
+  id: id(),
+  instrumentId: uuid("instrument_id").notNull().references(() => instrument.id),
+  datum: date("datum").notNull(),
+  grund: text("grund").notNull(),
+  dokumentId: uuid("dokument_id").references((): AnyPgColumn => dokument.id),
+  schritte: jsonb("schritte").notNull(),
+  storniertAm: timestamp("storniert_am", { withTimezone: true }),
+  erfasstAm: timestamp("erfasst_am", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [index("darlehen_verzicht_instrument_idx").on(t.instrumentId)]);
+
+export const vorgangArt = pgEnum("vorgang_art", ["zusage", "auszahlung", "rueckfluss", "zins", "tilgung", "wertberichtigung", "zinszahlung", "dividende", "principal_disposal", "impairment_disposal", "interest_waiver"]);
 
 /**
  * Vorgänge werden nie geändert oder gelöscht (Trigger in der Migration). Eine Korrektur ist ein Storno:
@@ -517,6 +529,10 @@ export const vorgang = pgTable(
     beteiligungId: uuid("beteiligung_id").notNull().references(() => beteiligung.id),
     /** Das Instrument, auf dem der Vorgang bucht (aus der Beteiligung befüllt; die Beteiligung bleibt vorerst maßgeblich für die Logik). */
     instrumentId: uuid("instrument_id").notNull().references(() => instrument.id),
+    verzichtId: uuid("verzicht_id").references(() => darlehenVerzicht.id),
+    darlehensverkaufId: uuid("darlehensverkauf_id").references((): AnyPgColumn => verkauf.id),
+    /** Bei noch ungebuchten Zinsen der Tag, bis zu dem sie erlassen wurden. */
+    zinsverzichtBis: date("zinsverzicht_bis"),
     art: vorgangArt("art").notNull(),
     valuta: date("valuta").notNull(),
     betrag: betrag("betrag").notNull(),
@@ -545,6 +561,8 @@ export const vorgang = pgTable(
     index("vorgang_beteiligung_erfasst_idx").on(t.beteiligungId, t.erfasstAm),
     index("vorgang_instrument_valuta_idx").on(t.instrumentId, t.valuta),
     uniqueIndex("vorgang_storno_uq").on(t.storniertVorgangId),
+    index("vorgang_verzicht_idx").on(t.verzichtId).where(sql`${t.verzichtId} IS NOT NULL`),
+    index("vorgang_darlehensverkauf_idx").on(t.darlehensverkaufId).where(sql`${t.darlehensverkaufId} IS NOT NULL`),
     index("vorgang_valuta_idx").on(t.valuta, t.erfasstAm, t.id),
   ],
 );
@@ -2660,7 +2678,7 @@ export const saldo = pgTable(
   (t) => [uniqueIndex("saldo_lauf_konto_uq").on(t.laufId, t.kontoNummer)],
 );
 
-export const buchungsquelle = pgEnum("buchungsquelle", ["zins", "auszahlung", "rueckfluss", "tilgung", "zusage", "wertberichtigung", "abruf", "ausschuettung", "zinszahlung", "dividende"]);
+export const buchungsquelle = pgEnum("buchungsquelle", ["zins", "auszahlung", "rueckfluss", "tilgung", "zusage", "wertberichtigung", "abruf", "ausschuettung", "zinszahlung", "dividende", "principal_disposal", "impairment_disposal", "interest_waiver", "principal_waiver"]);
 
 /** Kontenzuordnung des DATEV-Exports je Fonds und Vorgangsart. `richtung` ist die Seite des Kontos (S oder H); das Gegenkonto steht gegenüber. */
 export const buchungsregel = pgTable(

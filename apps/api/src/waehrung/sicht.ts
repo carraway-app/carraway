@@ -310,7 +310,7 @@ export interface Fondssicht {
 
 type Summe = { fonds: string; vergleich: string | null; haus: string | null };
 
-export async function ladeFondsSicht(tx: Tx, fondsId: string, o: { stichtag?: string | undefined; stand?: string | undefined; vergleich?: string | null | undefined; sieht?: ((fondsId: string) => boolean) | undefined }): Promise<Fondssicht> {
+export async function ladeFondsSicht(tx: Tx, fondsId: string, o: { stichtag?: string | undefined; stand?: string | undefined; vergleich?: string | null | undefined }): Promise<Fondssicht> {
   const stichtag = o.stichtag ?? (await standardStichtag(tx, fondsId, o.stand));
   const vergleich = o.vergleich ?? null;
   const haus = await hauswaehrung(tx);
@@ -351,7 +351,7 @@ export async function ladeFondsSicht(tx: Tx, fondsId: string, o: { stichtag?: st
   let navVergleich: string | null = null;
   let navHaus: string | null = null;
   // Die NAV nur rechnen, wenn eine Umrechnung gefragt ist (Vergleich oder Hauswährung ungleich Fondswährung).
-  const { nav } = vergleich !== null || haus !== fonds ? await ladeNavBestandteile(tx, fondsId, stichtag, o.stand, new Set(), { sieht: o.sieht }) : { nav: null };
+  const { nav } = vergleich !== null || haus !== fonds ? await ladeNavBestandteile(tx, fondsId, stichtag, o.stand) : { nav: null };
   if (nav !== null) {
     if (vergleich !== null) {
       const kurs = await kursFuer(tx, fonds, vergleich, stichtag, o.stand);

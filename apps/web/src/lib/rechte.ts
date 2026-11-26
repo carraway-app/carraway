@@ -57,12 +57,18 @@ export interface Rechte {
   hatBereich: (bereich: string) => boolean;
 }
 
+/** Prüft Bereich und Mindeststufe aus derselben Sitzung in Navigation und Seiten. */
+export function darf(ich: Ich | undefined, mindest: FondsRolle, fondsId?: string | null, bereich?: string): boolean {
+  if (!ich || !hatBereich(ich, bereich)) return false;
+  return fondsId ? hatRolle(ich, fondsId, mindest, bereich) : hatIrgendwoRolle(ich, mindest, bereich);
+}
+
 /** Rechte der angemeldeten Person aus `/ich`. Solange `/ich` fehlt, ist nichts erlaubt. */
 export function useRechte(): Rechte {
   const { data: ich } = useQuery(ichAbfrage());
   return {
     ich,
-    darf: (mindest, fondsId, bereich) => (!ich || !hatBereich(ich, bereich) ? false : fondsId ? hatRolle(ich, fondsId, mindest, bereich) : hatIrgendwoRolle(ich, mindest, bereich)),
+    darf: (mindest, fondsId, bereich) => darf(ich, mindest, fondsId, bereich),
     hatBereich: (bereich) => !!ich && hatBereich(ich, bereich),
   };
 }

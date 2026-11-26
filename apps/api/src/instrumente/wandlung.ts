@@ -9,7 +9,7 @@ import { letzteBewertung, setzeBewertung } from "./bewertung";
 import { instrumenteVon, legeInstrumentAn, setzeInstrumentStatus, WANDELBARE_ARTEN, type InstrumentZeile } from "./instrumente";
 import { pruefeStichtag } from "./stichtag";
 import { ordneRundeZu } from "./vorgang-runde";
-import { gebuchtePerioden, ladeZinskontexte, tagVor, versionAm } from "./zinsen";
+import { gebuchtePerioden, ladeZinskontexte, tagVor, versionAm, zinsverzichteZum } from "./zinsen";
 import { alsFachfehler, berechneZustand, buchwertVon, ladeVorgaenge, verlangeAktiv, vorgaengeDesInstruments, type BeteiligungZeile } from "./zustand";
 
 /**
@@ -214,6 +214,7 @@ export async function planeWandlung(tx: Tx, b: BeteiligungZeile, eingabe: Wandlu
           }
         : {}),
       cutoff: eingabe.cutoff,
+      zinsverzichte: zinsverzichteZum(quellVorgaenge, eingabe.cutoff),
       zinsenWandeln: eingabe.zinsenWandeln,
       preisregel: {
         rundenpreisJeAnteil: rundenpreis,

@@ -121,7 +121,7 @@ async function plane(tx: Tx, fondsId: string, e: Deutsch<z.infer<typeof auswahl>
   if (unbekannt.length) throw new Fachfehler(404, "transaction_not_found", "Transaction not found.");
   // Einheitliche Buchungen, nach Valuta und Erfassung geordnet.
   const einheiten = [
-    ...vorgaenge.map(({ v, organisation: name }) => ({ id: v.id, istVorgang: true, art: v.art as string, valuta: v.valuta, betrag: v.betrag, bemerkung: v.bemerkung, erfasstAm: v.erfasstAm.getTime(), name })),
+    ...vorgaenge.map(({ v, organisation: name }) => ({ id: v.id, istVorgang: true, art: v.verzichtId && v.art === "tilgung" ? "principal_waiver" : v.art as string, valuta: v.valuta, betrag: v.betrag, bemerkung: v.bemerkung, erfasstAm: v.erfasstAm.getTime(), name })),
     ...bewegungen.map((b) => ({ id: b.id, istVorgang: false, art: b.art as string, valuta: b.valuta, betrag: b.betrag, bemerkung: b.bemerkung, erfasstAm: b.erfasstAm.getTime(), name: fz.name })),
   ].sort((a, b) => a.valuta.localeCompare(b.valuta) || a.erfasstAm - b.erfasstAm || a.id.localeCompare(b.id));
   const regeln = new Map((await tx.select().from(buchungsregel).where(eq(buchungsregel.fondsId, fondsId))).map((r) => [r.quelle as string, r]));

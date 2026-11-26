@@ -101,7 +101,7 @@ export function InstrumentAktionen({ beteiligungId, schreibgeschuetzt }: { betei
         {offen === "tranche" ? <TrancheAnlegenDialog instrumente={data.instrumente} onSchliessen={schliessen} /> : null}
       </Suspense>
       {offen === "beleg" ? <BelegPanel art="vertragsanlage" bezugArt="beteiligung" bezugId={data.beteiligung.id} fondsId={data.beteiligung.fondsId} onSchliessen={schliessen} /> : null}
-      {offen === "verkauf" ? <VerkaufDialog beteiligungId={beteiligungId} onSchliessen={schliessen} /> : null}
+      {offen === "verkauf" ? <VerkaufDialog beteiligungId={beteiligungId} instrumente={data.instrumente} onSchliessen={schliessen} /> : null}
       {offen === "anpassung" ? <AnpassungDialog beteiligungId={beteiligungId} verkaeufe={data.verkaeufe} onSchliessen={schliessen} /> : null}
       {offen === "insolvenz" ? <InsolvenzDialog beteiligungId={beteiligungId} onSchliessen={schliessen} /> : null}
     </>
@@ -321,6 +321,7 @@ function VerkaufKarte({ daten, verkauf: x, schreibgeschuetzt, onWahl }: { daten:
           { label: v.anteil, wert: zahl(formatSatz(x.anteilVerkauft, sprache)) },
           { label: v.kaufpreis, wert: zahl(formatBetragCent(x.kaufpreis, sprache)) },
           { label: v.kosten, wert: zahl(formatBetragCent(x.kosten, sprache)) },
+          ...(Number(x.principalDisposed) > 0 ? [{ label: t.verzicht.kapitalabgang, wert: zahl(formatBetragCent(x.principalDisposed, sprache)) }] : []),
           { label: v.buchwertAbgang, wert: zahl(formatBetragCent(x.buchwertAbgang, sprache)) },
           { label: v.ergebnis, wert: zahl(formatBetragCent(x.ergebnis, sprache)) },
           ...(x.anpassungen.length > 0 ? [{ label: v.ergebnisMitAnpassungen, wert: zahl(formatBetragCent(x.ergebnisMitAnpassungen, sprache)) }] : []),

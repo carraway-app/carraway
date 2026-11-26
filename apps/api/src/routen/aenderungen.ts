@@ -46,7 +46,14 @@ function rundeSichtbar(fonds: string[] | "alle", rundeId: ReturnType<typeof sql>
  */
 export function feedSichtbar(fonds: string[] | "alle") {
   if (fonds === "alle") return sql`TRUE`;
-  return sql`(a.fonds_id = ANY(${liste(fonds, "uuid")}) OR (a.fonds_id IS NULL AND a.tabelle = ANY(${liste(OHNE_FONDS, "text")}) AND aenderung_fonds_aus_staenden(a.vorher, a.nachher) IS NULL)
+  const ids = liste(fonds, "uuid");
+  // Änderungen an Zielfondspositionen enthalten auch im Metadaten-Feed die Kennungen ihrer Einzelbuchungen.
+  return sql`(CASE WHEN a.tabelle IN ('zielfonds_beteiligung', 'zielfonds_meldung', 'zielfonds_bewegung') THEN
+      EXISTS (SELECT 1 FROM zielfonds_beteiligung z
+        WHERE z.id = CASE WHEN a.tabelle = 'zielfonds_beteiligung' THEN a.datensatz_id
+                          ELSE coalesce(a.nachher->>'beteiligungId', a.vorher->>'beteiligungId')::uuid END
+          AND z.fonds_id = ANY(${ids}) AND (z.zielfonds_id IS NULL OR z.zielfonds_id = ANY(${ids})))
+    ELSE a.fonds_id = ANY(${ids}) END OR (a.fonds_id IS NULL AND a.tabelle = ANY(${liste(OHNE_FONDS, "text")}) AND aenderung_fonds_aus_staenden(a.vorher, a.nachher) IS NULL)
             OR (a.tabelle = 'finanzierungsrunde' AND ${rundeSichtbar(fonds, sql`a.datensatz_id`, sql`coalesce(a.nachher->>'organisationId', a.vorher->>'organisationId')::uuid`)})
             OR (a.tabelle = 'rundenposition_zahlung' AND EXISTS (SELECT 1 FROM rundenposition zp JOIN finanzierungsrunde zr ON zr.id = zp.runde_id
               WHERE zp.id::text = coalesce(a.nachher->>'positionId', a.vorher->>'positionId') AND ${rundeSichtbar(fonds, sql`zr.id`, sql`zr.organisation_id`)}))

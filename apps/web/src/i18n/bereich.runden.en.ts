@@ -93,6 +93,7 @@ export const rundenBereichEn: typeof rundenBereichDe = {
   },
   kapital: {
     titel: "Cap table",
+    bereich: "Ownership breakdown",
     beschreibung: (stichtag: string) => `Ownership of the company after the financing rounds up to ${stichtag}. This fund's positions are highlighted.`,
     sicht: "Cap table view",
     sichten: { unverwaessert: "Non-diluted", voll_verwaessert: "Fully diluted" } as Record<string, string>,

@@ -4,7 +4,7 @@ import { Decimal, schaetzeOffeneWandlung, type MassgeblichePreisregel, type Offe
 import { sichtbareFonds, type Akteur } from "../anmeldung/akteur";
 import { dokumentSichtbar } from "../dokumente/ziele";
 import { berechneZustand } from "../instrumente/zustand";
-import { gebuchtePerioden, ladeZinskontexte, tagVor, versionAm } from "../instrumente/zinsen";
+import { gebuchtePerioden, ladeZinskontexte, tagVor, versionAm, zinsverzichteZum } from "../instrumente/zinsen";
 import type { Tx } from "../zeitlimit";
 import type { Kapital } from "./wasserfall";
 
@@ -157,14 +157,14 @@ export async function ladeOffeneWandlungen(tx: Tx, akteur: Akteur, k: Kapital, f
       }
       zinsenAb = gebuchtePerioden(kontext).filter((d) => d <= stichtag).at(-1);
     }
-    return { x, bewegungen, bedingungen, zinsenAb };
+    return { x, bewegungen, bedingungen, zinsenAb, zinsverzichte: zinsverzichteZum(kontext?.vorgaenge ?? [], stichtag) };
   });
   // Erst das Kapital am Stichtag (ohne Parameter), damit die Zuordnung der Fundstellen nur offene Wandeldarlehen zählt.
   const mitKapital = vorlaeufig.filter((v) => schaetzeOffeneWandlung({ bewegungen: v.bewegungen, stichtag, zinsenWandeln: false, anteileVorWandlung: 0 }).kapital.greaterThan(0));
   const jeBeteiligung = new Map<string, number>();
   for (const v of mitKapital) jeBeteiligung.set(v.x.beteiligungId, (jeBeteiligung.get(v.x.beteiligungId) ?? 0) + 1);
 
-  const liste: OffeneWandlung[] = mitKapital.map(({ x, bewegungen, bedingungen, zinsenAb }) => {
+  const liste: OffeneWandlung[] = mitKapital.map(({ x, bewegungen, bedingungen, zinsenAb, zinsverzichte }) => {
     // Je Feld zuerst das Instrument; nur was dort fehlt, kommt aus den Fundstellen (Rückfall).
     const werte: { abschlag: string | null; bewertungsobergrenze: string | null } = { abschlag: x.abschlag === null ? null : zahl(x.abschlag), bewertungsobergrenze: x.obergrenze === null ? null : zahl(x.obergrenze) };
     let mehrdeutig = false;
@@ -186,6 +186,7 @@ export async function ladeOffeneWandlungen(tx: Tx, akteur: Akteur, k: Kapital, f
       stichtag,
       bedingungen,
       zinsenAb,
+      zinsverzichte,
       zinsenWandeln,
       referenzpreis,
       abschlag: mehrdeutig ? null : werte.abschlag,

@@ -28,15 +28,8 @@ export type NavVon = (fondsId: string, besucht: ReadonlySet<string>) => Promise<
 /** Höchstens so viele Ebenen werden durchgerechnet (Dachfonds → Zielfonds → … ); tiefer gilt die fortgeschriebene Meldung. */
 export const MAX_DURCHRECHNUNG = 3;
 
-/**
- * Wie weit durchgerechnet wird: `sieht` beschränkt die Durchrechnung auf Zielfonds, die die anfragende Person sehen darf (ohne Angabe: alle, für Snapshots,
- * Berichte und den Worker). `cache` merkt sich die NAV je Zielfonds, Stichtag, Wissensstand und Tiefe innerhalb einer Anfrage (verzweigte Ketten rechnen
- * jeden Zielfonds nur einmal).
- */
-export interface Durchsicht {
-  sieht?: ((fondsId: string) => boolean) | undefined;
-  cache?: Map<string, Promise<Decimal | null>>;
-}
+/** NAV je Zielfonds, Stichtag, Wissensstand und Tiefe innerhalb einer Anfrage. */
+export type NavCache = Map<string, Promise<Decimal | null>>;
 
 type PositionRoh = { id: string; name: string; zielfonds_id: string | null; zielfonds_name: string | null; organisation_id: string | null; investor_organisation_id: string | null };
 type BewegungRoh = { id: string; beteiligung_id: string; art: ZielfondsBewegung["art"]; valuta: string; betrag: string };
@@ -50,7 +43,7 @@ export async function hatZielfonds(tx: Abfrage, fondsId: string, stand?: string)
   return rows[0]?.da === true;
 }
 
-export async function ladeZielfonds(tx: Abfrage, fondsId: string, stichtag: string, stand: string | undefined, navVon: NavVon | null, besucht: ReadonlySet<string> = new Set(), durchsicht: Durchsicht = {}): Promise<ZielfondsPosition[]> {
+export async function ladeZielfonds(tx: Abfrage, fondsId: string, stichtag: string, stand: string | undefined, navVon: NavVon | null, besucht: ReadonlySet<string> = new Set()): Promise<ZielfondsPosition[]> {
   const { rows: roh } = await tx.execute<PositionRoh>(sql`
     SELECT z.id, z.name, z.zielfonds_id, f.name AS zielfonds_name, z.organisation_id, z.investor_organisation_id
     FROM zielfonds_beteiligung z LEFT JOIN fonds f ON f.id = z.zielfonds_id
@@ -77,7 +70,6 @@ export async function ladeZielfonds(tx: Abfrage, fondsId: string, stichtag: stri
       navVon !== null &&
       !kette.has(r.zielfonds_id) &&
       kette.size <= MAX_DURCHRECHNUNG &&
-      (durchsicht.sieht === undefined || durchsicht.sieht(r.zielfonds_id)) &&
       m.some((x) => x.anteil !== null);
     const zielNav = durchrechenbar ? await navVon(r.zielfonds_id!, kette) : null;
     aus.push({
@@ -95,37 +87,22 @@ export async function ladeZielfonds(tx: Abfrage, fondsId: string, stichtag: stri
   return aus;
 }
 
-/**
- * Kennzahlen aus Sicht einer Person: Darf sie einen Zielfonds derselben Installation nicht sehen, gibt es keine Durchrechnung (sie verriete dessen NAV); dann
- * gilt die fortgeschriebene NAV-Meldung bzw. die Anschaffungskosten, gerechnet ohne gemeldete Anteile.
- */
-export function kennzahlenFuer(p: ZielfondsPosition, stichtag: string, zielSichtbar: boolean): ZielfondsKennzahlen {
-  if (zielSichtbar || p.zielfondsId === null) return p.kennzahlen;
-  return zielfondsKennzahlen({ bezeichnung: p.name, stichtag, bewegungen: p.bewegungen, meldungen: p.meldungen.map((m) => ({ ...m, anteil: null })), zielNav: null });
+/** Nur der Anteilswert verdeckter Positionen gehört in die Ansicht des Dachfonds. */
+export function gruppiereZielfonds<T extends { zielfondsId: string | null }>(positionen: readonly T[], sieht: (id: string) => boolean, wert: (p: T) => Decimal.Value) {
+  const sichtbar: T[] = [];
+  let sammelwert: Decimal | null = null;
+  for (const p of positionen) {
+    if (p.zielfondsId === null || sieht(p.zielfondsId)) sichtbar.push(p);
+    else sammelwert = new Decimal(sammelwert ?? 0).plus(wert(p));
+  }
+  return { sichtbar, sammelwert };
 }
 
-/** Summe der Zielfondswerte als Schritt der NAV-Herkunft (Quellen: die Zielfondsbeteiligungen). */
+export const ZIELFONDS_SCHRITT = "Anteile an Zielfonds (durchgerechnet oder fortgeschriebene NAV-Meldung)";
+
 export function zielfondsSchritt(positionen: readonly ZielfondsPosition[]): { wert: Decimal; schritt: Rechenschritt } {
   const wert = positionen.reduce((s, p) => s.plus(p.kennzahlen.wert.wert), new Decimal(0));
-  return { wert, schritt: { zeichen: "+", bezeichnung: "Anteile an Zielfonds (durchgerechnet oder fortgeschriebene NAV-Meldung)", wert: wert.toString(), quellen: positionen.map((p) => p.id) } };
-}
-
-/** Zielfonds derselben Installation, die von einem Fonds aus über höchstens `MAX_DURCHRECHNUNG` Ebenen erreichbar sind (ohne den Fonds selbst). */
-export async function erreichbareZielfonds(tx: Abfrage, fondsId: string): Promise<string[]> {
-  const { rows } = await tx.execute<{ id: string }>(sql`
-    WITH RECURSIVE kette(id, tiefe) AS (
-      SELECT zielfonds_id, 1 FROM zielfonds_beteiligung WHERE fonds_id = ${fondsId} AND zielfonds_id IS NOT NULL
-      UNION
-      SELECT z.zielfonds_id, k.tiefe + 1 FROM zielfonds_beteiligung z JOIN kette k ON z.fonds_id = k.id
-      WHERE z.zielfonds_id IS NOT NULL AND k.tiefe < ${MAX_DURCHRECHNUNG}
-    )
-    SELECT DISTINCT id FROM kette WHERE id <> ${fondsId}`);
-  return rows.map((x) => x.id);
-}
-
-/** Gibt es einen erreichbaren Zielfonds, den die Person nicht sehen darf? Dann darf sie keinen Snapshot mit Durchrechnung bekommen. */
-export async function durchrechnungVerdeckt(tx: Abfrage, fondsId: string, sieht: (fondsId: string) => boolean): Promise<boolean> {
-  return (await erreichbareZielfonds(tx, fondsId)).some((id) => !sieht(id));
+  return { wert, schritt: { zeichen: "+", bezeichnung: ZIELFONDS_SCHRITT, wert: wert.toString() } };
 }
 
 /**
@@ -159,12 +136,22 @@ export async function pruefeVerknuepfung(tx: Abfrage, fondsId: string, zielfonds
  * SQL-Ausdruck: jüngster Erfassungszeitpunkt der Zielfondsdaten eines Fonds und, bei Zielfonds derselben Installation, der Eingangsdaten dieser Zielfonds
  * (deren NAV geht über die Durchrechnung ein). `fonds` ist der SQL-Ausdruck der Fonds-ID.
  */
-export const zielfondsEingang = (fonds: SQL) => sql`(SELECT greatest(
-    (SELECT max(z.erstellt_am) FROM zielfonds_beteiligung z WHERE z.fonds_id = ${fonds}),
-    (SELECT max(w.erfasst_am) FROM zielfonds_bewegung w JOIN zielfonds_beteiligung z ON z.id = w.beteiligung_id WHERE z.fonds_id = ${fonds}),
-    (SELECT max(m.erfasst_am) FROM zielfonds_meldung m JOIN zielfonds_beteiligung z ON z.id = m.beteiligung_id WHERE z.fonds_id = ${fonds}),
-    (SELECT max(fb.erfasst_am) FROM fonds_bewegung fb JOIN zielfonds_beteiligung z ON z.zielfonds_id = fb.fonds_id WHERE z.fonds_id = ${fonds}),
-    (SELECT max(v.erfasst_am) FROM vorgang v JOIN beteiligung b ON b.id = v.beteiligung_id JOIN zielfonds_beteiligung z ON z.zielfonds_id = b.fonds_id WHERE z.fonds_id = ${fonds}),
-    (SELECT greatest(max(w.erfasst_am), max(w.freigegeben_am), max(w.ersetzt_am)) FROM bewertung w JOIN beteiligung b ON b.id = w.beteiligung_id JOIN zielfonds_beteiligung z ON z.zielfonds_id = b.fonds_id WHERE z.fonds_id = ${fonds}),
-    (SELECT greatest(max(l.uebernommen_am), max(l.ersetzt_am)) FROM saldenlauf l JOIN zielfonds_beteiligung z ON z.zielfonds_id = l.fonds_id WHERE z.fonds_id = ${fonds})
+export const zielfondsEingang = (fonds: SQL) => sql`(
+  WITH RECURSIVE kette(id, tiefe) AS (
+    SELECT ${fonds}, 0
+    UNION
+    SELECT z.zielfonds_id, k.tiefe + 1 FROM kette k JOIN zielfonds_beteiligung z ON z.fonds_id = k.id
+    WHERE z.zielfonds_id IS NOT NULL AND k.tiefe < ${MAX_DURCHRECHNUNG}
+  ), positionen AS (
+    SELECT z.id, z.erstellt_am FROM zielfonds_beteiligung z WHERE z.fonds_id IN (SELECT id FROM kette)
+  ), ziele AS (SELECT DISTINCT id FROM kette WHERE tiefe > 0)
+  SELECT greatest(
+    (SELECT max(erstellt_am) FROM positionen),
+    (SELECT max(erfasst_am) FROM zielfonds_bewegung WHERE beteiligung_id IN (SELECT id FROM positionen)),
+    (SELECT max(erfasst_am) FROM zielfonds_meldung WHERE beteiligung_id IN (SELECT id FROM positionen)),
+    (SELECT max(erfasst_am) FROM fonds_bewegung WHERE fonds_id IN (SELECT id FROM ziele)),
+    (SELECT max(v.erfasst_am) FROM vorgang v JOIN beteiligung b ON b.id = v.beteiligung_id WHERE b.fonds_id IN (SELECT id FROM ziele)),
+    (SELECT greatest(max(v.erfasst_am), max(v.storniert_am)) FROM verkauf v JOIN beteiligung b ON b.id = v.beteiligung_id WHERE b.fonds_id IN (SELECT id FROM ziele)),
+    (SELECT greatest(max(w.erfasst_am), max(w.freigegeben_am), max(w.ersetzt_am)) FROM bewertung w JOIN beteiligung b ON b.id = w.beteiligung_id WHERE b.fonds_id IN (SELECT id FROM ziele)),
+    (SELECT greatest(max(uebernommen_am), max(ersetzt_am)) FROM saldenlauf WHERE fonds_id IN (SELECT id FROM ziele))
   ))`;

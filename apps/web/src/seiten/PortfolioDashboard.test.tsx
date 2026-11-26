@@ -41,7 +41,12 @@ describe("Portfolio-Dashboard", () => {
     const allokation = screen.getByRole("list", { name: "Balkendiagramm: Allokation nach Sektor in 2 Gruppen" });
     expect(within(allokation).getByText("Software")).toBeTruthy();
     expect(within(allokation).getByText("Zielfonds")).toBeTruthy();
-    expect(screen.getByRole("img", { name: /Liniendiagramm: Portfoliowert von 1 Fonds/ })).toBeTruthy();
+    const verlauf = within(screen.getByRole("region", { name: "Verlauf" }));
+    const diagramm = verlauf.getByRole("group", { name: "Verlauf" });
+    expect(within(diagramm).getByRole("img", { name: /Liniendiagramm: Portfoliowert von 1 Fonds/ })).toBeTruthy();
+    verlauf.getByRole("button", { name: "Tabelle" }).focus();
+    await nutzer.tab();
+    expect(document.activeElement).toBe(diagramm);
     const karte = screen.getByRole("region", { name: "Allokation" });
     await nutzer.click(within(karte).getByRole("button", { name: "Tabelle" }));
     await waitFor(() => expect(within(karte).getByRole("table")).toBeTruthy());
@@ -59,13 +64,16 @@ describe("Zielfonds eines Dachfonds", () => {
       [`/api/v1/fonds/${FONDS_ID}/target-funds`]: {
         koerper: {
           fundId: FONDS_ID, currency: "EUR", asOf: "2026-09-30", knowledgeDate: null,
-          data: [{ id: "z1", name: "Fremder Zielfonds", targetFundId: null, targetFundName: null, organizationId: null, metrics: { commitment: metrik("1000.00"), called: metrik("500.00"), unfunded: metrik("500.00"), distributed: metrik("50.00"), value: { value: "500.00", steps: [], method: "reported_nav", reportId: "m1" }, dpi: metrik("0.1"), tvpi: metrik("1.1"), irr: metrik(null) } }],
-          totals: { commitment: "1000.00", called: "500.00", unfunded: "500.00", distributed: "50.00", value: "500.00" },
+          data: [{ id: "z1", name: "Fremder Zielfonds", targetFundId: null, targetFundName: null, organizationId: null, metrics: { commitment: metrik("1000.00"), called: metrik("500.00"), unfunded: metrik("500.00"), distributed: metrik("50.00"), value: { value: "500.00", steps: [], method: "reported_nav", reportId: "m1" }, dpi: metrik("0.1"), tvpi: metrik("1.1"), irr: metrik(null) } }, { id: null, name: "Zielfonds", metrics: { value: { value: "150.00" } } }],
+          totals: { commitment: "1000.00", called: "500.00", unfunded: "500.00", distributed: "50.00", value: "650.00" },
         },
       },
     });
     rendereApp(`/fonds/${FONDS_ID}/zielfonds`);
     expect(await screen.findByRole("button", { name: "Fremder Zielfonds" })).toBeTruthy();
+    const sammel = screen.getByRole("cell", { name: "Zielfonds" }).closest("tr")!;
+    expect(sammel.textContent).toContain("150");
+    expect(within(sammel).queryByRole("button")).toBeNull();
     expect(screen.getByText("NAV-Meldung fortgeschrieben")).toBeTruthy();
   });
 });

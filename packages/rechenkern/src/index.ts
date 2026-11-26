@@ -28,3 +28,4 @@ export * from "./optionsschein.js";
 export * from "./anteilsuebertragung.js";
 export * from "./dachfonds.js";
 export * from "./allokation.js";
+export * from "./darlehensabgang.js";

@@ -6,6 +6,8 @@ import type { Halter, Kapital, KapitalZeile } from "./wasserfall";
  * Sichtbarkeit der Zeilen aus Optionsscheinen, Ausübungen und Anteilsübertragungen nach Fondsrechten (wie `ladeOffeneWandlungen`): Details eines Fonds
  * sieht nur, wer an ihm den Bereich Portfolio sieht (`sichtbareFonds(akteur, "betrachter", "portfolio")`). Für alle anderen Fonds bleiben nur
  * zusammengefasste Anteilszahlen ohne Id, Name, Instrument, Preis, Kaufpreis und Laufzeit, damit Summen, Anteile und der Wasserfall weiter aufgehen.
+ * Rundenpositionen zeigen den Fonds als Gesellschafter mit Klasse und Anteilen. Ihr Rundenbetrag stammt aus der Finanzierungsrunde.
+ * Fondsinterne Bewertungen, Buchwerte und Kosten gehören zu den geschützten Fondsdaten.
  * Gerechnet wird immer mit allen Zeilen (`ladeKapital`, `kernEingabe`); verdeckt wird erst in der Antwort.
  */
 

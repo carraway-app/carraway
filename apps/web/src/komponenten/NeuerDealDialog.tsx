@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { Auswahl, Button, Feld, Segment } from "@carraway/ui";
 import { fondsListe, organisationSuche, type OrganisationArt } from "../api/abfragen";
+import { useRechte } from "../lib/rechte";
 import { heuteIso } from "../api/datum";
 import { useDealAnlegen, type NeuerDeal } from "../api/mutationen";
 
@@ -31,6 +32,7 @@ export function NeuerDealDialog({ onSchliessen, phase, onAngelegt, initialerDeal
   const t = useT();
   const navigate = useNavigate();
   const anlegen = useDealAnlegen();
+  const { darf } = useRechte();
   const fonds = useQuery(fondsListe());
   const [modus, setModus] = useState<Modus>("bestehend");
   const [gewaehlt, setGewaehlt] = useState<{ id: string; name: string } | null>(null);
@@ -190,7 +192,7 @@ export function NeuerDealDialog({ onSchliessen, phase, onAngelegt, initialerDeal
         <Feld label={f.quelle} {...feld("quelle")} fehler={feldText(t, anlegen.error, "quelle")} />
         <Auswahl label={f.fonds} {...feld("fondsId")} fehler={feldText(t, anlegen.error, "fondsId")}>
           <option value="">{f.keinFonds}</option>
-          {fonds.data?.map((x) => (
+          {fonds.data?.filter((f) => darf("bearbeiter", f.id, "dealflow")).map((x) => (
             <option key={x.id} value={x.id}>
               {x.name}
             </option>

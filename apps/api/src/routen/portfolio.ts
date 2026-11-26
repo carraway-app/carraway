@@ -3,7 +3,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { fonds, managerProfil, organisation, zielfondsBeteiligung, zielfondsBewegung, zielfondsMeldung, type Db } from "@carraway/db";
 import { Decimal, type ZielfondsKennzahlen } from "@carraway/rechenkern";
-import { kennzahlenFuer, pruefeVerknuepfung, type ZielfondsPosition } from "../kennzahlen/zielfonds";
+import { gruppiereZielfonds, pruefeVerknuepfung } from "../kennzahlen/zielfonds";
 import { aktuellerAkteur, sichtbareFonds } from "../anmeldung/akteur";
 import { fondsEnumAnApi } from "../fonds-vertrag";
 import { Fachfehler } from "../fehler";
@@ -72,7 +72,7 @@ export function managerProfilRouten(db: Db) {
         const profil = await ladeManagerProfil(tx);
         const ids = await sichtbar(tx, c);
         const stichtag = await gemeinsamerStichtag(tx, ids, q.asOf, q.knowledgeDate);
-        const { intern: _intern, ...summen } = await ladePortfolioSummen(tx, ids, stichtag, q.knowledgeDate, profil.hauswaehrung, darfSehen(c));
+        const summen = await ladePortfolioSummen(tx, ids, stichtag, q.knowledgeDate, profil.hauswaehrung);
         return { ...profilAntwort(profil), knowledgeDate: q.knowledgeDate ?? null, ...summen, gaps: summen.gaps.map(kursluecke) };
       });
       return c.json(daten, 200);
@@ -104,10 +104,9 @@ export function portfolioRouten(db: Db) {
         const profil = await ladeManagerProfil(tx);
         const ids = await sichtbar(tx, c);
         const stichtag = await gemeinsamerStichtag(tx, ids, q.asOf, q.knowledgeDate);
-        const { intern: _intern, ...summen } = await ladePortfolioSummen(tx, ids, stichtag, q.knowledgeDate, profil.hauswaehrung, darfSehen(c));
-        const sieht = darfSehen(c);
-        const allocation = await ladeAllokation(tx, ids, stichtag, q.knowledgeDate, profil.hauswaehrung, sieht);
-        const history = await ladeVerlauf(tx, ids, stichtag, q.knowledgeDate, profil.hauswaehrung, q.quarters, sieht);
+        const summen = await ladePortfolioSummen(tx, ids, stichtag, q.knowledgeDate, profil.hauswaehrung);
+        const allocation = await ladeAllokation(tx, ids, stichtag, q.knowledgeDate, profil.hauswaehrung);
+        const history = await ladeVerlauf(tx, ids, stichtag, q.knowledgeDate, profil.hauswaehrung, q.quarters);
         return { managerName: profil.name, knowledgeDate: q.knowledgeDate ?? null, ...summen, gaps: summen.gaps.map(kursluecke), allocation, history };
       });
       return c.json(daten, 200);
@@ -167,16 +166,16 @@ async function verlangeFonds(tx: Tx, id: string) {
 }
 
 /**
- * Die Zielfondsbeteiligung des Fonds. Mit `c` (Schreibwege) zusätzlich Leserecht am eigenen Zielfonds: Meldungen (Anteil) und Bewegungen gehören zu dessen
+ * Die Zielfondsbeteiligung des Fonds. Einzelansicht und Schreibwege verlangen Leserecht am eigenen Zielfonds: Meldungen und Bewegungen gehören zu dessen
  * Durchrechnung; ohne Recht 404 wie eine unbekannte Beteiligung.
  */
-async function verlangeZielfonds(tx: Tx, fondsId: string, id: string, c?: Parameters<typeof aktuellerAkteur>[0]) {
+async function verlangeZielfonds(tx: Tx, fondsId: string, id: string, c: Parameters<typeof aktuellerAkteur>[0]) {
   const [z] = await tx.select().from(zielfondsBeteiligung).where(and(eq(zielfondsBeteiligung.id, id), eq(zielfondsBeteiligung.fondsId, fondsId)));
-  if (!z || (c && z.zielfondsId !== null && !darfSehen(c)(z.zielfondsId))) throw new Fachfehler(404, "target_fund_not_found", "Target fund holding not found in this fund.");
+  if (!z || (z.zielfondsId !== null && !darfSehen(c)(z.zielfondsId))) throw new Fachfehler(404, "target_fund_not_found", "Target fund holding not found in this fund.");
   return z;
 }
 
-/** Darf die Person den Fonds im Bereich Portfolio sehen? Nur dann gibt es die Durchrechnung und den Namen eines eigenen Zielfonds. */
+/** Darf die Person den Fonds im Bereich Portfolio sehen? Nur dann gibt es die Einzelheiten eines eigenen Zielfonds. */
 function darfSehen(c: Parameters<typeof aktuellerAkteur>[0]): (fondsId: string) => boolean {
   return portfolioSicht(aktuellerAkteur(c));
 }
@@ -184,7 +183,7 @@ function darfSehen(c: Parameters<typeof aktuellerAkteur>[0]): (fondsId: string) 
 async function pruefeVerweise(tx: Tx, c: Parameters<typeof aktuellerAkteur>[0], fondsId: string, e: { targetFundId?: string | null | undefined; organizationId?: string | null | undefined; investorOrganizationId?: string | null | undefined }) {
   if (e.targetFundId) {
     if (e.targetFundId === fondsId) throw new Fachfehler(409, "target_fund_self", "A fund cannot hold an interest in itself.");
-    // Ein Zielfonds derselben Installation nur mit Leserecht an ihm: sonst gäbe die Durchrechnung seine NAV preis (404 wie ein unbekannter Fonds).
+    // Ein Zielfonds derselben Installation nur mit Leserecht an ihm: bei fehlendem Recht folgt dieselbe Antwort wie bei einem unbekannten Fonds.
     if (!darfSehen(c)(e.targetFundId)) throw new Fachfehler(404, "fund_not_found", "Fund not found.");
     await verlangeFonds(tx, e.targetFundId);
   }
@@ -207,17 +206,17 @@ export function zielfondsRouten(db: Db) {
       const daten = await lese(db, async (tx) => {
         const f = await verlangeFonds(tx, id);
         const stichtag = q.asOf ?? (await standardStichtag(tx, id, q.knowledgeDate));
-        const positionen = (await ladeZielfondsZum(tx, id, stichtag, q.knowledgeDate, new Set(), { sieht: darfSehen(c) })) ?? [];
-        const sieht = darfSehen(c);
-        const sichtbarZiel = (p: ZielfondsPosition) => p.zielfondsId === null || sieht(p.zielfondsId);
-        const kennzahlen = new Map(positionen.map((p) => [p.id, kennzahlenFuer(p, stichtag, sichtbarZiel(p))]));
-        const summe = (wahl: (k: ZielfondsKennzahlen) => Decimal) => positionen.reduce((s, p) => s.plus(wahl(kennzahlen.get(p.id)!)), new Decimal(0)).toFixed(2);
+        const positionen = (await ladeZielfondsZum(tx, id, stichtag, q.knowledgeDate)) ?? [];
+        const { sichtbar, sammelwert } = gruppiereZielfonds(positionen, darfSehen(c), (p) => p.kennzahlen.wert.wert);
+        const einzeln = sichtbar.map((p) => ({ id: p.id, name: p.name, targetFundId: p.zielfondsId, targetFundName: p.zielfondsName, organizationId: p.organisationId, investorOrganizationId: p.investorOrganisationId, metrics: kennzahlenAntwort(p.kennzahlen) }));
+        const sammelzeile = sammelwert === null ? [] : [{ id: null, name: "Zielfonds", metrics: { value: { value: sammelwert.toFixed(2) } } }];
+        const summe = (wahl: (k: ZielfondsKennzahlen) => Decimal) => positionen.reduce((s, p) => s.plus(wahl(p.kennzahlen)), new Decimal(0)).toFixed(2);
         return {
           fundId: id,
           currency: f.waehrung,
           asOf: stichtag,
           knowledgeDate: q.knowledgeDate ?? null,
-          data: positionen.map((p) => ({ id: p.id, name: p.name, targetFundId: p.zielfondsId, targetFundName: sichtbarZiel(p) ? p.zielfondsName : null, organizationId: p.organisationId, investorOrganizationId: p.investorOrganisationId, metrics: kennzahlenAntwort(kennzahlen.get(p.id)!) })),
+          data: [...einzeln, ...sammelzeile],
           totals: { commitment: summe((k) => k.zusage.wert), called: summe((k) => k.abgerufen.wert), unfunded: summe((k) => k.offeneZusage.wert), distributed: summe((k) => k.ausgeschuettet.wert), value: summe((k) => k.wert.wert) },
         };
       });
@@ -248,10 +247,9 @@ export function zielfondsRouten(db: Db) {
       const { id, targetFundId } = c.req.valid("param");
       const q = c.req.valid("query");
       const daten = await lese(db, async (tx) => {
-        const z = await verlangeZielfonds(tx, id, targetFundId);
-        const zielSichtbar = z.zielfondsId === null || darfSehen(c)(z.zielfondsId);
+        const z = await verlangeZielfonds(tx, id, targetFundId, c);
         const stichtag = q.asOf ?? (await standardStichtag(tx, id, q.knowledgeDate));
-        const p = ((await ladeZielfondsZum(tx, id, stichtag, q.knowledgeDate, new Set(), { sieht: darfSehen(c) })) ?? []).find((x) => x.id === targetFundId);
+        const p = ((await ladeZielfondsZum(tx, id, stichtag, q.knowledgeDate)) ?? []).find((x) => x.id === targetFundId);
         const stand = q.knowledgeDate;
         const bewegungen = await tx.select().from(zielfondsBewegung).where(and(eq(zielfondsBewegung.beteiligungId, targetFundId), stand ? sql`${zielfondsBewegung.erfasstAm} <= ${stand}::timestamptz` : undefined)).orderBy(asc(zielfondsBewegung.valuta), asc(zielfondsBewegung.erfasstAm));
         const meldungen = await tx.select().from(zielfondsMeldung).where(and(eq(zielfondsMeldung.beteiligungId, targetFundId), stand ? sql`${zielfondsMeldung.erfasstAm} <= ${stand}::timestamptz` : undefined)).orderBy(asc(zielfondsMeldung.stichtag), asc(zielfondsMeldung.erfasstAm));
@@ -260,9 +258,9 @@ export function zielfondsRouten(db: Db) {
           ...zeile(z),
           asOf: stichtag,
           knowledgeDate: stand ?? null,
-          metrics: p ? kennzahlenAntwort(kennzahlenFuer(p, stichtag, zielSichtbar)) : null,
+          metrics: p ? kennzahlenAntwort(p.kennzahlen) : null,
           movements: bewegungen.map((b) => ({ id: b.id, type: ART_EN[b.art], valueDate: b.valuta, amount: b.betrag, remark: b.bemerkung, reversesId: b.storniertBewegungId, reversed: storniert.has(b.id), recordedBy: b.erfasstVon, recordedAt: b.erfasstAm.toISOString() })),
-          navReports: meldungen.filter((m) => zielSichtbar || m.nav !== null).map((m) => ({ id: m.id, asOf: m.stichtag, nav: m.nav, share: m.anteil === null || !zielSichtbar ? null : new Decimal(m.anteil).toString(), remark: m.bemerkung, recordedBy: m.erfasstVon, recordedAt: m.erfasstAm.toISOString() })),
+          navReports: meldungen.map((m) => ({ id: m.id, asOf: m.stichtag, nav: m.nav, share: m.anteil === null ? null : new Decimal(m.anteil).toString(), remark: m.bemerkung, recordedBy: m.erfasstVon, recordedAt: m.erfasstAm.toISOString() })),
         };
       });
       return c.json(daten, 200);

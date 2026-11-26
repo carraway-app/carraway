@@ -220,7 +220,7 @@ export async function ladeBeteiligungDetail(tx: Abfrage, id: string, stichtagVor
   const stichtag = stichtagVorgabe ?? (await standardStichtag(tx, b.fonds_id, stand));
 
   const { rows: vorgangRoh } = await tx.execute<VorgangRoh>(sql`
-    SELECT v.id, v.art::text AS art, v.valuta::text AS valuta, v.betrag::text AS betrag, v.bemerkung, (to_json(v.erfasst_am) #>> '{}') AS erfasst_am, v.storniert_vorgang_id,
+    SELECT v.id, CASE WHEN v.verzicht_id IS NOT NULL AND v.art = 'tilgung' THEN 'principal_waiver' ELSE v.art::text END AS art, v.valuta::text AS valuta, v.betrag::text AS betrag, v.bemerkung, (to_json(v.erfasst_am) #>> '{}') AS erfasst_am, v.storniert_vorgang_id,
            v.instrument_id, i.bezeichnung AS instrument_bezeichnung, v.tranche_id, v.kapitalisiert, v.beglichen_vorgang_id,
            fr.id AS runde_id, fr.bezeichnung AS runde_bezeichnung, fr.art::text AS runde_art, fr.datum::text AS runde_datum
     FROM vorgang v

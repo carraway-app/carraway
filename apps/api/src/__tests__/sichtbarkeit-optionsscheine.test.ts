@@ -71,6 +71,25 @@ describe("Sichtbarkeit von Optionsscheinen und Übertragungen nach Fondsrechten"
     expect(d.diesesFonds).toEqual(voll.diesesFonds);
   });
 
+  it("zeigt Rundenpositionen anderer Fonds wie Gesellschafter und schützt deren eigene Bewertung", async () => {
+    const [runde] = await db.insert(s.finanzierungsrunde).values({ organisationId: ID.orgA, bezeichnung: "Serie B", datum: "2026-08-01", anteileGesamtNach: "810000", preisJeAnteil: "12.50", preMoney: "10000000", postMoney: "10125000" }).returning();
+    const [position] = await db.insert(s.rundenposition).values({ rundeId: runde!.id, fondsId: ID.anderer, rolle: "co", anteilsklasseId: klasseId, anteile: "10000", betrag: "125000.00" }).returning();
+    await db.insert(s.bewertung).values({ beteiligungId: ANDERE_BETEILIGUNG, stichtag: "2026-08-01", wert: "184321.09", methode: "sonstige", status: "freigegeben", freigegebenAm: new Date() });
+    const beide = person("leser-beide", { rollen: { [ID.fonds]: "betrachter", [ID.anderer]: "betrachter" } });
+    for (const als of [leser, beide]) {
+      const d = await json(await get(`/beteiligungen/${ID.eigen}/kapitaltabelle?stichtag=2026-08-01`, als));
+      expect(d.zeilen.find((z: { id: string }) => z.id === position!.id)).toMatchObject({ halter: { name: "Testfonds Zwei" }, klasseName: "Vorzug", anteile: "10000", diesesFonds: false });
+      expect(JSON.stringify(d)).not.toContain("184321.09");
+    }
+    const pfad = `/beteiligungen/${ANDERE_BETEILIGUNG}/bewertungen`;
+    expect((await get(pfad, leser)).status).toBe(403);
+    expect(await (await get(pfad, beide)).text()).toContain("184321.09");
+    for (const intern of [`/beteiligungen/${ANDERE_BETEILIGUNG}/instrumentdaten`, `/fonds/${ID.anderer}/kosten`]) {
+      expect((await get(intern, leser)).status).toBe(403);
+      expect((await get(intern, beide)).status).toBe(200);
+    }
+  });
+
   it("Wasserfall: gleicher Rückfluss des Fonds, keine Angaben zum anderen Fonds", async () => {
     const eingabe = { exitwert: "41000000", exitdatum: "2026-07-01" };
     const voll = await json(await post(`/beteiligungen/${ID.eigen}/wasserfall`, eingabe));

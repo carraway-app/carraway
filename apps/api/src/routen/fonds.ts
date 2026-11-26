@@ -9,8 +9,7 @@ import { abgerufen, sperreFonds } from "../instrumente/fondsbewegung";
 import { pruefeStichtag } from "../instrumente/stichtag";
 import { berechneAbgrenzung, ladeZinskontexte } from "../instrumente/zinsen";
 import { ladeZinsansicht } from "../instrumente/zinsansicht";
-import { berechneFondsUebersicht, juengsterEingang, standardStichtag } from "../kennzahlen/fonds";
-import { durchrechnungVerdeckt } from "../kennzahlen/zielfonds";
+import { berechneFondsUebersicht, uebersichtFuerAnsicht, standardStichtag } from "../kennzahlen/fonds";
 import { ladeNavEinzelwerte } from "../kennzahlen/nav-herkunft";
 import { aktuellerAkteur } from "../anmeldung/akteur";
 import { holeSnapshot, wirdGespeichert } from "../kennzahlen/snapshot";
@@ -123,20 +122,13 @@ export function fondsRouten(db: Db) {
       const vorhanden = await lese(db, async (tx) => (await tx.select({ id: fonds.id }).from(fonds).where(eq(fonds.id, id))).length > 0);
       if (!vorhanden) return fehlerAntwort(c, 404, "fund_not_found", "Fund not found.");
 
-      // Snapshots rechnen alle Zielfonds durch. Sieht die Person einen erreichbaren Zielfonds nicht, rechnet die Übersicht für sie live ohne dessen Durchrechnung.
       const sieht = portfolioSicht(aktuellerAkteur(c));
       if (stand !== undefined) {
-        const uebersicht = await lese(db, async (tx) => berechneFondsUebersicht(tx, id, stichtag, stand, { sieht }));
-        return c.json(fondsAnApi({ ...uebersicht, quellenstand: stand, snapshot: null }), 200);
+        const uebersicht = await lese(db, async (tx) => berechneFondsUebersicht(tx, id, stichtag, stand));
+        return c.json(fondsAnApi({ ...uebersichtFuerAnsicht(uebersicht, sieht), quellenstand: stand, snapshot: null }), 200);
       }
-      const persoenlich = await lese(db, async (tx) => {
-        if (!(await durchrechnungVerdeckt(tx, id, sieht))) return null;
-        const quellenstand = (await juengsterEingang(tx, id)) ?? new Date().toISOString();
-        return { quellenstand, uebersicht: await berechneFondsUebersicht(tx, id, stichtag, quellenstand, { sieht }) };
-      });
-      if (persoenlich) return c.json(fondsAnApi({ ...persoenlich.uebersicht, snapshot: null, quellenstand: persoenlich.quellenstand }), 200);
       const { uebersicht, snapshot, quellenstand } = await holeSnapshot(db, c, id, stichtag);
-      return c.json(fondsAnApi({ ...uebersicht, snapshot, quellenstand }), 200);
+      return c.json(fondsAnApi({ ...uebersichtFuerAnsicht(uebersicht, sieht), snapshot, quellenstand }), 200);
     })
     .get("/:id/nav-components", pruefeFonds("param", idSchema), pruefeFonds("query", uebersichtAbfrage.required()), async (c) => {
       const { id } = c.req.valid("param");

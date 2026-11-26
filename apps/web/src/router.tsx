@@ -27,7 +27,7 @@ import { standAusUrl } from "./lib/zeit";
 import { ladeSeitentexte, useT } from "./i18n";
 import { letzterFonds } from "./zustand";
 import { Leer } from "@carraway/ui";
-import { hatBereich, hatIrgendwoRolle } from "./lib/rechte";
+import { darf, hatBereich, hatIrgendwoRolle } from "./lib/rechte";
 import { alle, erweiterungen } from "./erweiterung";
 
 export function erstelleQueryClient(optionen: { wiederholen?: boolean } = {}) {
@@ -79,10 +79,9 @@ const wurzel = createRootRouteWithContext<RouterKontext>()({
       return;
     }
     // Die Texte der Seite (große Bereiche des Wörterbuchs) stehen vor dem Zeichnen bereit, parallel zur Umgebung.
-    // Der Rahmen der Anwendung lädt parallel (nicht auf Anmeldeseiten und Seiten weiterer Einstiege wie dem LP-Portal, die ihn nicht brauchen).
+    // Erst nach der Sitzungsprüfung steht fest, ob der interne Rahmen gebraucht wird.
     const weitererEinstieg = alle("einstiege").some((e) => e.passt(pfad));
-    const braucheRahmen = !AUTH_SEITEN.includes(pfad) && !weitererEinstieg;
-    await Promise.all([ladeSeitentexte(pfad), qc.ensureQueryData(umgebungAbfrage()).catch(() => undefined), braucheRahmen ? ladeAnwendungsHuelle() : undefined]);
+    await Promise.all([ladeSeitentexte(pfad), qc.ensureQueryData(umgebungAbfrage()).catch(() => undefined)]);
     const ich = await qc.fetchQuery(ichAbfrage()).catch((fehler: unknown) => {
       if (fehler instanceof ApiFehler && fehler.status === 401) return null;
       throw fehler;
@@ -97,14 +96,15 @@ const wurzel = createRootRouteWithContext<RouterKontext>()({
       return;
     }
     // Investor-Benutzer gehören ins LP-Portal (Erweiterung, eigener Einstieg): jede andere Seite der Anwendung führt dorthin, noch bevor sie Daten lädt.
-    // Ohne Portal gibt es für sie keine Seite; die API sperrt alle internen Routen (403 `portal_only`).
+    // Ohne Erweiterung erklärt eine Seite im Anmelderahmen den Portalzugang.
     if (ich.investor) {
-      const portalStart = alle("einstiege").find((e) => e.fuerInvestoren)?.fuerInvestoren;
-      if (portalStart && !weitererEinstieg) throw redirect({ to: portalStart as never, replace: true });
+      const portalStart = alle("einstiege").find((e) => e.fuerInvestoren)?.fuerInvestoren ?? "/portal-hinweis";
+      if (!weitererEinstieg && pfad !== portalStart) throw redirect({ to: portalStart as never, replace: true });
       return;
     }
     // Wer angemeldet und frei ist, braucht die Anmelde- und Einrichtungsseiten nicht.
     if (AUTH_SEITEN.includes(pfad)) throw redirect({ to: "/", replace: true });
+    if (!weitererEinstieg) await ladeAnwendungsHuelle();
   },
   component: Huelle,
   notFoundComponent: NichtGefunden,
@@ -140,6 +140,7 @@ const start = createRoute({
     if (!hatBereich(ich, "portfolio") && hatBereich(ich, "kontakte")) throw redirect({ to: "/kontakte", replace: true });
     const fonds = await context.queryClient.ensureQueryData(fondsListe());
     const ziel = fonds.find((f) => f.id === letzterFonds()) ?? fonds[0];
+    if (ziel && !darf(ich, "betrachter", ziel.id, "portfolio")) throw redirect({ to: "/fonds", search: { fondsId: ziel.id }, replace: true });
     if (ziel) throw redirect({ to: "/fonds/$fondsId", params: { fondsId: ziel.id }, search: {}, replace: true });
   },
   component: lazyRouteComponent(() => import("./seiten/Platzhalter"), "KeinFonds"),
@@ -435,6 +436,11 @@ const kontakte = createRoute({
     ...ansichtSuche(suche.ansicht),
     ...textSuche(suche.suche),
   }),
+  beforeLoad: async ({ context, search }) => {
+    if (search.objekt !== "deal") return;
+    const ich = await context.queryClient.ensureQueryData(ichAbfrage());
+    if (!darf(ich, "betrachter", null, "dealflow")) throw redirect({ to: "/kontakte", search: {}, replace: true });
+  },
   component: lazyRouteComponent(() => import("./seiten/Kontakte"), "KontaktePage"),
 });
 
@@ -471,6 +477,10 @@ const wiedervorlagen = createRoute({
     ...(suche.zustaendig === "ich" || suche.zustaendig === "alle" ? { zustaendig: suche.zustaendig } : {}),
     ...(istKalendertag(suche.bis) ? { bis: suche.bis } : {}),
   }),
+  beforeLoad: async ({ context }) => {
+    const ich = await context.queryClient.ensureQueryData(ichAbfrage());
+    if (!darf(ich, "betrachter", null, "kontakte")) throw redirect({ to: "/fonds", search: {}, replace: true });
+  },
   loaderDeps: ({ search }) => ({ zustaendig: search.zustaendig ?? "ich", bis: search.bis }),
   // Nicht warten: Filteränderungen sollen die Seite nicht durch den Ladezustand ersetzen; die Seite zeigt ihn selbst.
   loader: async ({ context, deps }) => {
@@ -685,6 +695,12 @@ const datenuebernahmeLauf = createRoute({
   component: lazyRouteComponent(() => import("./seiten/ImportLauf"), "ImportLaufSeite"),
 });
 
+const portalHinweis = createRoute({
+  getParentRoute: () => wurzel,
+  path: "/portal-hinweis",
+  component: lazyRouteComponent(() => import("./seiten/PortalHinweis"), "PortalHinweis"),
+});
+
 const anmelden = createRoute({
   getParentRoute: () => wurzel,
   path: "/anmelden",
@@ -774,7 +790,7 @@ const verwaltung = createRoute({
 });
 
 const fondsKinder = [portfolio, kennzahlenabfragen, szenarien, reserven, fondsZinsenRoute, bewertungsrunde, zielfondsRoute];
-const wurzelKinder = [start, fondsVerwaltung, portfolioDashboardRoute, fondsRahmen.addChildren(fondsKinder), meldungen, meldelauf, journalRoute, dealflow, auswertung, deal, organisation, person, beteiligung, kapitalQuelle, dokumentRoute, kontakte, kontaktImport, kontaktVorschlaege, registerUebersicht, wiedervorlagen, beschlussvorlagen, berichte, vorlagen, bericht, zinslaeufe, zinslauf, belege, beleg, buchhaltung, datenuebernahme, datenuebernahmeLauf, anmelden, einrichtung, passwortVergessen, passwortSetzen, passwortAendern, zweiFaktor, verwaltung, einstellungenPostfach, mailversand];
+const wurzelKinder = [start, fondsVerwaltung, portfolioDashboardRoute, fondsRahmen.addChildren(fondsKinder), meldungen, meldelauf, journalRoute, dealflow, auswertung, deal, organisation, person, beteiligung, kapitalQuelle, dokumentRoute, kontakte, kontaktImport, kontaktVorschlaege, registerUebersicht, wiedervorlagen, beschlussvorlagen, berichte, vorlagen, bericht, zinslaeufe, zinslauf, belege, beleg, buchhaltung, datenuebernahme, datenuebernahmeLauf, portalHinweis, anmelden, einrichtung, passwortVergessen, passwortSetzen, passwortAendern, zweiFaktor, verwaltung, einstellungenPostfach, mailversand];
 /** Der Baum des Kerns (Typ aller Adressen der Anwendung). */
 const kernBaum = () => wurzel.addChildren(wurzelKinder);
 

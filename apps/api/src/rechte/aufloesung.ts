@@ -26,7 +26,8 @@ export interface WirksameRechte {
 export function hatBereichSql(benutzerId: unknown, bereich: Bereich, fonds?: { fondsId: unknown; mindest?: FondsRolle }): SQL {
   const global = sql`EXISTS (SELECT 1 FROM benutzer b WHERE b.id = ${benutzerId} AND b.global_verwalter)`;
   if (fonds) {
-    return sql`(${global} OR EXISTS (SELECT 1 FROM ${wirksamesBereichsrecht} w WHERE w.benutzer_id = ${benutzerId} AND w.fonds_id = ${fonds.fondsId}
+    // Die Rechte für den Fonds einmal ermitteln. Ein korreliertes EXISTS kann die komplexe Sicht je Empfänger erneut auswerten.
+    return sql`(${global} OR ${benutzerId} IN (SELECT w.benutzer_id FROM ${wirksamesBereichsrecht} w WHERE w.fonds_id = ${fonds.fondsId}
       AND (w.bereich IS NULL OR w.bereich = ${bereich}) AND w.rolle >= ${fonds.mindest ?? "betrachter"}::fonds_rolle))`;
   }
   return sql`(${global}

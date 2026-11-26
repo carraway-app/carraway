@@ -229,6 +229,7 @@ export function vorgangRouten(db: Db) {
       const [original] = await tx.select().from(vorgang).where(eq(vorgang.id, id));
       if (!original) throw new Fachfehler(404, "transaction_not_found", "Transaction not found.");
       const b = await sperreBeteiligung(tx, original.beteiligungId);
+      if (original.verzichtId || original.darlehensverkaufId) throw new Fachfehler(409, "reversal_not_allowed", "Reverse the entire waiver or sale.");
       if (original.storniertVorgangId) throw new Fachfehler(409, "reversal_not_allowed", "A reversal cannot itself be reversed.");
       const ereignis = await ereignisZuVorgang(tx, id);
       if (ereignis) {

@@ -5,6 +5,7 @@ import { JOURNAL_TYPEN_AN_API } from "./journal-vertrag";
  * Datenbank und Änderungsprotokoll verwenden ihre gespeicherten Namen.
  */
 const FELDER = {
+  zielfonds: "targetFunds",
   ab: "since",
   abgedeckt: "covered",
   abgerufen: "calledCapital",

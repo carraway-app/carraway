@@ -59,6 +59,9 @@ export function KontaktePage() {
   const ansichtTab = suche.objekt ?? "organisation";
   const heute = ansichtTab === "heute";
   const objekt: Objekt = heute ? "organisation" : ansichtTab;
+  const darfDealsLesen = darf("betrachter", null, "dealflow");
+  const darfBearbeiten = darf("bearbeiter", null, "kontakte");
+  const darfAnlegen = objekt === "deal" ? darf("bearbeiter", null, "dealflow") : darfBearbeiten;
   const listeId = suche.liste;
   const [eingabe, setEingabe] = useState(suche.suche ?? "");
   const entprellt = useEntprellt(eingabe.trim(), 250);
@@ -76,7 +79,7 @@ export function KontaktePage() {
   // „Neu“ aus der Befehlsleiste: Dialog öffnen und den Parameter aus der Adresse nehmen.
   useEffect(() => {
     if (suche.neu === "1" && !heute) {
-      setOffen("neu");
+      if (darfAnlegen) setOffen("neu");
       void navigate({ search: (alt) => ({ ...alt, neu: undefined }), replace: true });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -166,7 +169,6 @@ export function KontaktePage() {
       setAuswahl(new Set());
     }).catch((e: unknown) => setSchreibFehler(e));
   };
-  const darfBearbeiten = darf("bearbeiter");
   const istVerwalter = Boolean(ich?.globalVerwalter);
   const darfListenfelder = Boolean(aktuelleListe && (istVerwalter || aktuelleListe.besitzerId === ich?.id));
   // Felder des Datensatzes darf ändern, wer schreiben darf; Listenfelder nur Besitzerin oder Besitzer der Liste und Verwalter (Regel der API).
@@ -193,7 +195,7 @@ export function KontaktePage() {
                 {t.crm.importieren}
               </Button>
             ) : null}
-            {darfBearbeiten ? <Button onClick={() => setOffen("neu")}>{neuKnopf}</Button> : null}
+            {darfAnlegen ? <Button onClick={() => setOffen("neu")}>{neuKnopf}</Button> : null}
           </>
         }
       />
@@ -204,7 +206,7 @@ export function KontaktePage() {
         aria-label={t.crm.objekte.beschriftung}
         aktiv={ansichtTab}
         onWechsel={(id) => void navigate({ search: (alt) => ({ suche: alt.suche, objekt: id === "organisation" ? undefined : (id as "person" | "deal" | "heute") }), replace: false })}
-        tabs={[...OBJEKTE.map((o) => ({ id: o as string, icon: OBJEKT_ICON[o], label: t.crm.objekte[o] })), { id: "heute", icon: CalendarCheckIcon, label: t.crm.tabHeute }]}
+        tabs={[...OBJEKTE.filter((o) => o !== "deal" || darfDealsLesen).map((o) => ({ id: o as string, icon: OBJEKT_ICON[o], label: t.crm.objekte[o] })), { id: "heute", icon: CalendarCheckIcon, label: t.crm.tabHeute }]}
       >
         {heute ? (
           <HeuteTab />
@@ -357,7 +359,7 @@ export function KontaktePage() {
 
       {offen === "neu" && objekt === "organisation" ? <OrganisationNeuDialog onSchliessen={() => setOffen(null)} /> : null}
       {offen === "neu" && objekt === "person" ? <PersonDialog onSchliessen={() => setOffen(null)} /> : null}
-      {offen === "neu" && objekt === "deal" ? <NeuerDealDialog onSchliessen={() => setOffen(null)} /> : null}
+      {offen === "neu" && darfAnlegen && objekt === "deal" ? <NeuerDealDialog onSchliessen={() => setOffen(null)} /> : null}
       {offen === "import" && objekt !== "deal" ? <ImportDialog vorgabe={objekt} onSchliessen={() => setOffen(null)} /> : null}
       {offen === "felder" ? <FelderDialog objekt={objekt} {...(listeId && darfListenfelder && !istVerwalter ? { listeId } : {})} onSchliessen={() => setOffen(null)} /> : null}
       {offen === "liste" ? (

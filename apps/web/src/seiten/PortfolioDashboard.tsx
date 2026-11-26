@@ -213,7 +213,7 @@ function Verlauf({ daten }: { daten: Dashboard }) {
       {ansicht === "tabelle" ? (
         <Tabelle beschriftung={`${d.verlauf} · ${label}`} spalten={spalten} zeilen={h.dates.map((asOf, i) => ({ asOf, i }))} zeilenSchluessel={(z) => z.asOf} />
       ) : (
-        <div className="app-kurve">
+        <div className="app-kurve cw-portfolio-verlauf" role="group" aria-labelledby="verlauf-titel" tabIndex={0}>
           <svg className="app-kurve__svg" viewBox={`0 0 ${B} ${H}`} role="img" aria-label={d.verlaufAlternative(label, h.funds.length)} preserveAspectRatio="xMidYMid meet">
             {teilungen.map((w) => (
               <g key={w} aria-hidden="true">
@@ -268,9 +268,9 @@ function FondsTabelle({ daten }: { daten: Dashboard }) {
     { schluessel: "dpi", kopf: d.dpi, zahl: true, zelle: (f) => multiple(f.dpi) },
   ];
   return (
-    <section className="app-karte" aria-labelledby="fonds-titel">
-      <h2 id="fonds-titel" className="cw-t-untertitel app-karte__titel">{d.fondsTabelle}</h2>
+    <div className="app-karte">
+      <h2 className="cw-t-untertitel app-karte__titel">{d.fondsTabelle}</h2>
       <Tabelle beschriftung={d.fondsTabelle} spalten={spalten} zeilen={daten.funds} zeilenSchluessel={(f) => f.fundId} />
-    </section>
+    </div>
   );
 }

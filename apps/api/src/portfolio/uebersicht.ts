@@ -14,7 +14,7 @@ import {
   type Wechselkurs,
 } from "@carraway/rechenkern";
 import { berechneFondsUebersicht, ladeNavBestandteile, ladeZielfondsZum } from "../kennzahlen/fonds";
-import { durchrechnungVerdeckt, kennzahlenFuer } from "../kennzahlen/zielfonds";
+import { gruppiereZielfonds, type NavCache } from "../kennzahlen/zielfonds";
 import { ladeSnapshot } from "../kennzahlen/snapshot";
 import { ladeKapitalstand } from "../instrumente/kapitalstand";
 import { ladeVerteilungsgrundlagen } from "../instrumente/lp-verteilung";
@@ -135,22 +135,22 @@ export interface PortfolioSummenAntwort {
   asOf: string;
   homeCurrency: string;
   funds: FondsZeile[];
-  internalHoldings: InterneZeile[];
+  internalHoldings: (InterneZeile | { id: null; fundId: string; name: string; value: string; eliminated: false })[];
   totals: { commitment: Kennzahl; paidIn: Kennzahl; distributions: Kennzahl; nav: Kennzahl; tvpi: Kennzahl; dpi: Kennzahl; rvpi: Kennzahl };
   gaps: Luecke[];
 }
 
 /** Summen über die Fonds (Kennzahlen je Fonds in Fonds- und Hauswährung, Summen ohne Doppelzählung). */
-export async function ladePortfolioSummen(tx: Abfrage, fondsIds: readonly string[], stichtag: string, stand: string | undefined, haus: string, sieht: (fondsId: string) => boolean): Promise<PortfolioSummenAntwort & { intern: InterneBeteiligung[] }> {
-  const durchsicht = { sieht, cache: new Map() };
+export async function ladePortfolioSummen(tx: Abfrage, fondsIds: readonly string[], stichtag: string, stand: string | undefined, haus: string): Promise<PortfolioSummenAntwort> {
+  const cache: NavCache = new Map();
   const stamm = await ladeStamm(tx, fondsIds);
   const u = await umrechner(tx, stamm.map((f) => f.waehrung), haus, "1990-01-01", stichtag, stand);
   const fonds: FondsZeile[] = [];
   const summanden: FondsSummand[] = [];
   const intern: InterneBeteiligung[] = [];
-  const zeilenIntern: InterneZeile[] = [];
+  const zeilenIntern: PortfolioSummenAntwort["internalHoldings"] = [];
   for (const f of stamm) {
-    const ue = await berechneFondsUebersicht(tx, f.id, stichtag, stand, durchsicht);
+    const ue = await berechneFondsUebersicht(tx, f.id, stichtag, stand, cache);
     const { zeichnungen } = (await ladeVerteilungsgrundlagen(tx, f.id, stand)).zum(stichtag);
     const zusage = zeichnungen.reduce((s, z) => s.plus(z.zusage), new Decimal(0));
     const eingezahlt = new Decimal(ue.kennzahlen.eingezahlt.wert ?? 0);
@@ -182,8 +182,10 @@ export async function ladePortfolioSummen(tx: Abfrage, fondsIds: readonly string
     });
     summanden.push({ fondsId: f.id, bezeichnung: f.name, zusage: hausZusage, eingezahlt: hausEingezahlt, ausschuettungen: hausAusschuettungen, nav: hausNav });
     // Anteile an Zielfonds derselben Installation: Kandidaten für die Bereinigung der Doppelzählung.
-    const positionen = (await ladeZielfondsZum(tx, f.id, stichtag, stand, new Set(), durchsicht)) ?? [];
-    for (const p of positionen.filter((x) => x.zielfondsId !== null)) {
+    const positionen = (await ladeZielfondsZum(tx, f.id, stichtag, stand, new Set(), cache)) ?? [];
+    const { sichtbar, sammelwert } = gruppiereZielfonds(positionen, (id) => fondsIds.includes(id), (p) => p.kennzahlen.wert.wert);
+    if (sammelwert !== null) zeilenIntern.push({ id: null, fundId: f.id, name: "Zielfonds", value: sammelwert.toFixed(2), eliminated: false });
+    for (const p of sichtbar.filter((x) => x.zielfondsId !== null)) {
       const k = p.kennzahlen;
       const flows = (art: string) => p.bewegungen.filter((b) => b.art === art).map((b) => ({ betrag: b.betrag, datum: b.valuta }));
       // Als Investor erfasst: Die verknüpfte Organisation hat im Zielfonds gezeichnet; nur dann stecken die Zahlungen auch in dessen Investorenzahlen.
@@ -201,7 +203,7 @@ export async function ladePortfolioSummen(tx: Abfrage, fondsIds: readonly string
         ausgeschuettet: u.summe(flows("ausschuettung"), f.waehrung),
         wert: u.um(k.wert.wert, f.waehrung, stichtag),
       });
-      zeilenIntern.push({ id: p.id, fundId: f.id, targetFundId: p.zielfondsId!, name: p.name, eliminated: fondsIds.includes(p.zielfondsId!), investorRecord: erfasst });
+      zeilenIntern.push({ id: p.id, fundId: f.id, targetFundId: p.zielfondsId!, name: p.name, eliminated: true, investorRecord: erfasst });
     }
   }
   const s = portfolioSummen(summanden, intern);
@@ -212,7 +214,6 @@ export async function ladePortfolioSummen(tx: Abfrage, fondsIds: readonly string
     internalHoldings: zeilenIntern,
     totals: { commitment: kennzahl(s.zusage, 2), paidIn: kennzahl(s.eingezahlt, 2), distributions: kennzahl(s.ausschuettungen, 2), nav: kennzahl(s.nav, 2), tvpi: kennzahl(s.tvpi), dpi: kennzahl(s.dpi), rvpi: kennzahl(s.rvpi) },
     gaps: u.luecken,
-    intern,
   };
 }
 
@@ -269,12 +270,12 @@ function gruppen(positionen: readonly Position[], wahl: (p: Position) => { art: 
  * Fonds, der selbst in der Auswahl steht, zählen nicht (dessen Beteiligungen stehen schon darin). Phase = Bezeichnung der letzten abgeschlossenen
  * Finanzierungsrunde bis zum Stichtag, Land = Sitzland aus den Meldedaten.
  */
-export async function ladeAllokation(tx: Abfrage, fondsIds: readonly string[], stichtag: string, stand: string | undefined, haus: string, sieht: (fondsId: string) => boolean): Promise<AllokationsAntwort> {
+export async function ladeAllokation(tx: Abfrage, fondsIds: readonly string[], stichtag: string, stand: string | undefined, haus: string): Promise<AllokationsAntwort> {
   const stamm = await ladeStamm(tx, fondsIds);
   const positionen: Position[] = [];
   const u = await umrechner(tx, stamm.map((f) => f.waehrung), haus, "1990-01-01", stichtag, stand);
   for (const f of stamm) {
-    const sicht = await ladeFondsSicht(tx as Tx, f.id, { stichtag, stand, sieht });
+    const sicht = await ladeFondsSicht(tx as Tx, f.id, { stichtag, stand });
     const orgs = [...new Set(sicht.zeilen.map((z) => z.organisation.id))];
     const merkmale = new Map<string, { sektor: string | null; land: string | null; phase: string | null }>();
     if (orgs.length) {
@@ -291,11 +292,11 @@ export async function ladeAllokation(tx: Abfrage, fondsIds: readonly string[], s
       const leer = (x: string | null | undefined) => (x === null || x === undefined || x.trim() === "" ? null : x.trim());
       positionen.push({ fondsId: f.id, fondsName: f.name, sektor: leer(m?.sektor), land: leer(m?.land), phase: leer(m?.phase), zielfonds: false, investiert: z.investiert.haus === null ? null : new Decimal(z.investiert.haus), zeitwert: z.bewertung.haus === null ? null : new Decimal(z.bewertung.haus) });
     }
-    const ziele = (await ladeZielfondsZum(tx, f.id, stichtag, stand, new Set(), { sieht })) ?? [];
+    const ziele = (await ladeZielfondsZum(tx, f.id, stichtag, stand)) ?? [];
     for (const p of ziele) {
       if (p.zielfondsId !== null && fondsIds.includes(p.zielfondsId)) continue;
       const abrufe = p.bewegungen.filter((b) => b.art === "abruf").map((b) => ({ betrag: b.betrag, datum: b.valuta }));
-      positionen.push({ fondsId: f.id, fondsName: f.name, sektor: null, land: null, phase: null, zielfonds: true, investiert: u.summe(abrufe, f.waehrung), zeitwert: u.um(kennzahlenFuer(p, stichtag, p.zielfondsId === null || sieht(p.zielfondsId)).wert.wert, f.waehrung, stichtag) });
+      positionen.push({ fondsId: f.id, fondsName: f.name, sektor: null, land: null, phase: null, zielfonds: true, investiert: u.summe(abrufe, f.waehrung), zeitwert: u.um(p.kennzahlen.wert.wert, f.waehrung, stichtag) });
     }
   }
   const merkmal = (feld: "sektor" | "land" | "phase") => (p: Position) => (p.zielfonds ? { art: "target_funds" as const, key: null } : p[feld] === null ? { art: "unknown" as const, key: null } : { art: "value" as const, key: p[feld] });
@@ -356,35 +357,35 @@ export function verlaufsStichtage(stichtag: string, anzahl: number): string[] {
  * NAV und Portfoliowert je Fonds an den Stichtagen des Verlaufs. Ohne Wissensstand liest es gespeicherte, aktuelle Snapshots (Quartalsenden) und rechnet nur
  * den Rest; mit Wissensstand rechnet es alles nach.
  */
-export async function ladeVerlauf(tx: Abfrage, fondsIds: readonly string[], stichtag: string, stand: string | undefined, haus: string, quartale: number, sieht: (fondsId: string) => boolean): Promise<VerlaufAntwort> {
+export async function ladeVerlauf(tx: Abfrage, fondsIds: readonly string[], stichtag: string, stand: string | undefined, haus: string, quartale: number): Promise<VerlaufAntwort> {
   const stamm = await ladeStamm(tx, fondsIds);
   const tage = verlaufsStichtage(stichtag, quartale);
   const u = await umrechner(tx, stamm.map((f) => f.waehrung), haus, tage[0]!, stichtag, stand);
   const funds: VerlaufAntwort["funds"] = [];
   const internJeTag = new Map<string, Decimal | null>(tage.map((t) => [t, new Decimal(0)]));
-  const durchsicht = { sieht, cache: new Map() };
+  const cache: NavCache = new Map();
   for (const f of stamm) {
     const points: VerlaufPunkt[] = [];
-    // Snapshots rechnen alle Zielfonds durch; sieht die Person einen erreichbaren nicht, rechnet der Verlauf für sie.
-    const snapshotErlaubt = stand === undefined && !(await durchrechnungVerdeckt(tx, f.id, sieht));
     for (const tag of tage) {
+      const snap = stand === undefined ? await ladeSnapshot(tx, f.id, tag) : null;
       let nav: string | null;
       let portfolio: Decimal;
-      const snap = snapshotErlaubt ? await ladeSnapshot(tx, f.id, tag) : null;
-      const ziele = await ladeZielfondsZum(tx, f.id, tag, stand, new Set(), durchsicht);
-      // Ohne Sicht auf einen eigenen Zielfonds zählt dessen Anteil ohne Durchrechnung (die NAV des Fonds selbst enthält sie, siehe Doku).
-      const zielwert = (ziele ?? []).reduce((s, p) => s.plus(kennzahlenFuer(p, tag, p.zielfondsId === null || sieht(p.zielfondsId)).wert.wert), new Decimal(0));
-      if (snap && snap.snapshot && !snap.snapshot.veraltet) {
+      let ziele;
+      if (snap?.snapshot && !snap.snapshot.veraltet) {
         nav = snap.uebersicht.kennzahlen.nav.wert;
-        portfolio = new Decimal(snap.uebersicht.portfoliowert).plus(zielwert);
+        portfolio = new Decimal(snap.uebersicht.portfoliowert);
+        ziele = snap.uebersicht.zielfonds ?? [];
       } else {
-        const b = await ladeNavBestandteile(tx, f.id, tag, stand, new Set(), durchsicht);
+        const b = await ladeNavBestandteile(tx, f.id, tag, stand, new Set(), cache);
         nav = b.nav === null ? null : b.nav.toString();
-        portfolio = b.portfoliowert.plus(zielwert);
+        portfolio = b.portfoliowert;
+        ziele = b.zielfonds;
       }
-      // Anteile an sichtbaren eigenen Zielfonds: ihr Wert steckt schon in der NAV des Zielfonds.
-      for (const p of (ziele ?? []).filter((x) => x.zielfondsId !== null && fondsIds.includes(x.zielfondsId))) {
-        const w = u.um(p.kennzahlen.wert.wert, f.waehrung, tag);
+      for (const p of ziele) {
+        portfolio = portfolio.plus(p.wert);
+        // Bei sichtbarem Zielfonds steckt der Anteilswert bereits in dessen NAV.
+        if (p.zielfondsId === null || !fondsIds.includes(p.zielfondsId)) continue;
+        const w = u.um(p.wert, f.waehrung, tag);
         const bisher = internJeTag.get(tag) ?? null;
         internJeTag.set(tag, bisher === null || w === null ? null : bisher.plus(w));
       }

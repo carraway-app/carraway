@@ -49,15 +49,15 @@ export function Werkzeuge({ z, objekt, listeId, suche, onSuche, onAnsicht, istVe
   const bedingungen = zaehleBedingungen(z.konfig.filter);
 
   return (
-    <div className="app-werkzeuge">
+    <div className="cw-crm-werkzeuge">
       <FehlerHinweis fehler={(speichern.error ?? aendern.error ?? loeschen.error ?? exportFehler) as Error | null} />
-      <div className="app-werkzeuge__zeile">
-        <Feld type="search" label={t.crm.suche} value={suche} autoComplete="off" onChange={(e) => onSuche(e.target.value)} className="app-werkzeuge__suche" />
-        <Button variante="sekundaer" icon={<FunnelIcon />} onClick={() => setOffen("filter")}>
+      <div className="cw-crm-werkzeuge__zeile">
+        <Feld type="search" label={t.crm.suche} value={suche} autoComplete="off" onChange={(e) => onSuche(e.target.value)} className="cw-crm-werkzeuge__suche" />
+        <Button variante="sekundaer" groesse="s" icon={<FunnelIcon />} onClick={() => setOffen("filter")}>
           {bedingungen ? t.crm.filterMitAnzahl(bedingungen) : t.crm.filter}
         </Button>
         {mitSpalten ? (
-          <Button variante="sekundaer" icon={<ListIcon />} onClick={() => setOffen("spalten")}>
+          <Button variante="sekundaer" groesse="s" icon={<ListIcon />} onClick={() => setOffen("spalten")}>
             {t.crm.spalten}
           </Button>
         ) : null}
@@ -65,6 +65,7 @@ export function Werkzeuge({ z, objekt, listeId, suche, onSuche, onAnsicht, istVe
         {/* Nur Symbol (Name und Tooltip „Als CSV exportieren“), damit die Werkzeugleiste bei 1440 px in einer Zeile bleibt. */}
         <Button
           variante="sekundaer"
+          groesse="s"
           icon={<DownloadSimpleIcon />}
           aria-label={t.crm.exportCsv}
           title={t.crm.exportCsv}
@@ -135,7 +136,7 @@ function GruppierenWahl({ felder, wert, board, onChange }: { felder: CrmFeld[]; 
       }
       aria-label={board ? t.crm.darstellungBoard : t.crm.gruppieren}
       ausloeserLabel={text}
-      ausloeserKlasse="cw-button cw-button--sekundaer"
+      ausloeserKlasse="cw-button cw-button--s cw-button--sekundaer"
       aktiv={Boolean(gewaehlt)}
       kante="links"
     >

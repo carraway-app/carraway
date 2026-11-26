@@ -142,7 +142,7 @@ describe("Kennzahl", () => {
   it("öffnet die Herkunft über die gesamte Kachel, wenn ein Rechenweg verfügbar ist", () => {
     const onHerkunft = vi.fn();
     const { rerender } = render(<Kennzahl titel="TVPI" wert="1,42x" hervorgehoben onHerkunft={onHerkunft} delta={<Delta wert={2} />} />);
-    const kachel = screen.getByRole("button", { name: "Herkunft von TVPI anzeigen" });
+    const kachel = screen.getByRole("button", { name: /^TVPI 1,42x .*2,0\s%$/, description: "Herkunft von TVPI anzeigen" });
     expect(kachel.contains(screen.getByText("TVPI"))).toBe(true);
     expect(kachel.contains(screen.getByText("1,42x"))).toBe(true);
     fireEvent.click(screen.getByText("1,42x"));
@@ -172,9 +172,14 @@ describe("Kennzahl", () => {
     render(<Kennzahl titel="TVPI" wert="1,42x" onZiel={() => {}} />);
     expect(screen.getAllByRole("button")).toHaveLength(1);
   });
-  it("Herkunfts-Label auf Englisch", () => {
-    render(<UiSprache sprache="en"><Kennzahl titel="TVPI" wert="1.42x" onHerkunft={() => {}} /></UiSprache>);
-    expect(screen.getByRole("button", { name: "Show origin of TVPI" })).toBeTruthy();
+  it("nennt Titel und Wert auf Englisch und erhält zusätzliche Beschreibungen", () => {
+    render(
+      <UiSprache sprache="en">
+        <Kennzahl titel="TVPI" wert={<strong>1.42x</strong>} onHerkunft={() => {}} aria-describedby="stichtag" />
+        <p id="stichtag">As of 30/09/2026</p>
+      </UiSprache>,
+    );
+    expect(screen.getByRole("button", { name: "TVPI 1.42x", description: "Show origin of TVPI As of 30/09/2026" })).toBeTruthy();
   });
 });
 

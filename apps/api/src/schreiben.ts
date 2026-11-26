@@ -145,8 +145,9 @@ export async function ladeDeal(tx: Tx, id: string) {
   return zeile;
 }
 
-export async function ladeFonds(tx: Tx, id: string) {
-  const [zeile] = await tx.select().from(fonds).where(eq(fonds.id, id));
+export async function ladeFonds(tx: Tx, id: string, optionen?: { sperren: boolean }) {
+  const abfrage = tx.select().from(fonds).where(eq(fonds.id, id));
+  const [zeile] = await (optionen?.sperren ? abfrage.for("update") : abfrage);
   if (!zeile) throw new Fachfehler(404, "fund_not_found", "Fund not found.");
   return zeile;
 }

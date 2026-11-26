@@ -104,8 +104,8 @@ export function Ansichtenleiste({ ansichten, aktuell, geaendert, istVerwalter, o
   }
 
   return (
-    <div className="app-ansichten" role="group" aria-label={t.crm.ansichten}>
-      <Auswahl label={t.crm.ansicht} className="app-ansichten__wahl" value={aktuell?.id ?? ""} onChange={(e) => onWaehlen(e.target.value || null)}>
+    <div className="cw-crm-ansichten" role="group" aria-label={t.crm.ansichten}>
+      <Auswahl label={t.crm.ansicht} className="cw-crm-ansichten__wahl" value={aktuell?.id ?? ""} onChange={(e) => onWaehlen(e.target.value || null)}>
         <option value="">{t.crm.standardAnsicht}</option>
         {ansichten.map((a) => (
           <option key={a.id} value={a.id}>
@@ -115,25 +115,25 @@ export function Ansichtenleiste({ ansichten, aktuell, geaendert, istVerwalter, o
         ))}
       </Auswahl>
       {aktuell?.bearbeitbar && geaendert ? (
-        <Button variante="sekundaer" onClick={() => void onSpeichern()}>
+        <Button variante="sekundaer" groesse="s" onClick={() => void onSpeichern()}>
           {t.crm.ansichtAktualisieren}
         </Button>
       ) : null}
-      <Button variante="sekundaer" onClick={() => setDialog("neu")}>
+      <Button variante="sekundaer" groesse="s" onClick={() => setDialog("neu")}>
         {t.crm.ansichtSpeichern}
       </Button>
       {aktuell?.bearbeitbar ? (
         <>
-          <Button variante="ruhig" onClick={() => void onTeilen(!aktuell.geteilt)}>
+          <Button variante="ruhig" groesse="s" onClick={() => void onTeilen(!aktuell.geteilt)}>
             {aktuell.geteilt ? t.crm.ansichtPrivat : t.crm.ansichtTeilen}
           </Button>
-          <Button variante="ruhig" onClick={() => setDialog("loeschen")}>
+          <Button variante="ruhig" groesse="s" onClick={() => setDialog("loeschen")}>
             {t.crm.ansichtLoeschen}
           </Button>
         </>
       ) : null}
       {aktuell && istVerwalter ? (
-        <Button variante="ruhig" onClick={() => void onStandard(!aktuell.standard)}>
+        <Button variante="ruhig" groesse="s" onClick={() => void onStandard(!aktuell.standard)}>
           {aktuell.standard ? t.crm.standardAufheben : t.crm.standardSetzen}
         </Button>
       ) : null}

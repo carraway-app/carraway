@@ -16,7 +16,7 @@ import type { Tx } from "../zeitlimit";
  * der Seite die Anreicherung (Namen, Herkunft, Erfasser, Storno-Gegenstück). Die Summen laufen als eigene Abfrage über den ganzen Filter.
  */
 
-export const VORGANG_TYPEN = ["zusage", "auszahlung", "rueckfluss", "zins", "zinszahlung", "dividende", "tilgung", "wertberichtigung"] as const;
+export const VORGANG_TYPEN = ["zusage", "auszahlung", "rueckfluss", "zins", "zinszahlung", "dividende", "tilgung", "wertberichtigung", "impairment_disposal", "principal_disposal", "interest_waiver", "principal_waiver"] as const;
 export const BEWEGUNG_TYPEN = ["abruf", "ausschuettung"] as const;
 export const EREIGNIS_TYPEN = ["wandlung", "verkauf", "insolvenz"] as const;
 export const JOURNAL_TYPEN = [...VORGANG_TYPEN, ...BEWEGUNG_TYPEN, "bewertung", ...EREIGNIS_TYPEN] as const;
@@ -87,9 +87,10 @@ function zweige(f: JournalFilter, o: Optionen): SQL[] {
   const beteiligung = (alias: string) => sql`${f.beteiligungId ? sql` AND ${sql.raw(alias)}.id = ${f.beteiligungId}::uuid` : sql``}${f.organisationId ? sql` AND ${sql.raw(alias)}.organisation_id = ${f.organisationId}::uuid` : sql``}`;
   const aus: SQL[] = [];
 
+  const vorgangTyp = "CASE WHEN v.verzicht_id IS NOT NULL AND v.art = 'tilgung' THEN 'principal_waiver' ELSE v.art::text END";
   if (q.vorgang) {
-    const w = bedingungen(f, { valuta: "v.valuta", erfasst: "v.erfasst_am", typ: "v.art::text", id: "v.id" }, o.nach, o.richtung);
-    aus.push(sql`(SELECT 'vorgang'::text AS quelle, v.id, v.valuta, v.erfasst_am, v.art::text AS typ, v.beteiligung_id, b.organisation_id, v.betrag, v.storniert_vorgang_id AS storno_von,
+    const w = bedingungen(f, { valuta: "v.valuta", erfasst: "v.erfasst_am", typ: vorgangTyp, id: "v.id" }, o.nach, o.richtung);
+    aus.push(sql`(SELECT 'vorgang'::text AS quelle, v.id, v.valuta, v.erfasst_am, ${sql.raw(vorgangTyp)} AS typ, v.beteiligung_id, b.organisation_id, v.betrag, v.storniert_vorgang_id AS storno_von,
         v.kapitalisiert, v.bemerkung, NULL::uuid AS ereignis_id, NULL::boolean AS ereignis_storniert, ${geldlos("v")} AS geldlos
       FROM vorgang v JOIN beteiligung b ON b.id = v.beteiligung_id
       WHERE b.fonds_id = ${f.fondsId}::uuid${beteiligung("b")}${w}
@@ -177,7 +178,7 @@ export function kassenrichtung(typ: string, _kapitalisiert: boolean): Richtung |
 }
 
 export type Herkunft = {
-  art: "manuell" | "import" | "zinslauf" | "wandlung" | "verkauf" | "runde";
+  art: "manuell" | "import" | "zinslauf" | "wandlung" | "verkauf" | "waiver" | "runde";
   id: string | null;
 }
 
@@ -305,6 +306,12 @@ async function reichere(tx: Tx, f: JournalFilter, zeilen: readonly Roh[]): Promi
   if (vorgangIds.length) {
     const vIds = liste(vorgangIds, "uuid");
     const bIds = liste(beteiligungIds, "uuid");
+    const { rows: darlehen } = await tx.execute<{ id: string; verzicht_id: string | null; darlehensverkauf_id: string | null }>(sql`
+      SELECT id, verzicht_id, darlehensverkauf_id FROM vorgang WHERE id = ANY(${vIds}) AND (verzicht_id IS NOT NULL OR darlehensverkauf_id IS NOT NULL)`);
+    for (const v of darlehen) {
+      if (v.verzicht_id) setze(v.id, { art: "waiver", id: v.verzicht_id });
+      else if (v.darlehensverkauf_id) setze(v.id, { art: "verkauf", id: v.darlehensverkauf_id });
+    }
     for (const r of (await tx.execute<{ vorgang_id: string; runde_id: string }>(sql`SELECT vorgang_id, runde_id FROM runde_buchung WHERE vorgang_id = ANY(${vIds})`)).rows) setze(r.vorgang_id, { art: "runde", id: r.runde_id });
     for (const r of (await tx.execute<{ vorgang_id: string; zinslauf_id: string }>(sql`SELECT p.vorgang_id, p.zinslauf_id FROM zinslauf_position p WHERE p.beteiligung_id = ANY(${bIds}) AND p.vorgang_id = ANY(${vIds})`)).rows) setze(r.vorgang_id, { art: "zinslauf", id: r.zinslauf_id });
     for (const r of (await tx.execute<{ vorgang_id: string; wandlung_id: string }>(sql`

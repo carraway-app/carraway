@@ -63,6 +63,7 @@ export const EXPORT_TABELLEN: readonly Tabelle[] = [
   { name: "beschluss", ordnung: ["id"] },
   { name: "beteiligung", ordnung: ["id"] },
   { name: "instrument", ordnung: ["id"] },
+  { name: "darlehen_verzicht", ordnung: ["id"] },
   { name: "vorgang", ordnung: ["id"] },
   { name: "bewertungsrunde", ordnung: ["id"] },
   { name: "bewertung", ordnung: ["id"] },

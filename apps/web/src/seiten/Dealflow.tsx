@@ -37,7 +37,7 @@ export function DealflowSeite() {
   const { bereich = "pipeline", neu: neuParam } = route.useSearch();
   const navigate = route.useNavigate();
   const { darf } = useRechte();
-  const darfAnlegen = darf("bearbeiter");
+  const darfAnlegen = darf("bearbeiter", null, "dealflow");
   const [neu, setNeu] = useState<DealAnlage | null>(null);
   const arbeitsliste = useQuery(dealArbeitsliste());
   const deals = arbeitsliste.data?.deals ?? [];

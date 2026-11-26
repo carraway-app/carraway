@@ -2,7 +2,7 @@ import { Decimal } from "./decimal.js";
 import { vergleiche, zerlege, type Datum } from "./datum.js";
 import type { MitHerkunft, Rechenschritt } from "./herkunft.js";
 
-export type Kapitalbewegungsart = "auszahlung" | "tilgung" | "kapitalisierung";
+export type Kapitalbewegungsart = "auszahlung" | "tilgung" | "verkauf" | "kapitalisierung";
 
 /** Eine Bewegung des Darlehenskapitals. Der Betrag ist immer positiv; die Art bestimmt die Richtung. */
 export interface Kapitalbewegung {
@@ -29,7 +29,7 @@ export interface Kapitalverlauf {
   staende: Kapitalstand[];
 }
 
-const RICHTUNG: Record<Kapitalbewegungsart, 1 | -1> = { auszahlung: 1, kapitalisierung: 1, tilgung: -1 };
+const RICHTUNG: Record<Kapitalbewegungsart, 1 | -1> = { auszahlung: 1, kapitalisierung: 1, tilgung: -1, verkauf: -1 };
 
 /**
  * Leitet aus den Bewegungen das offene Kapital je Zeitraum ab.

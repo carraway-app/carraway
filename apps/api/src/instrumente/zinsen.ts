@@ -85,7 +85,11 @@ export function versionAm(konditionen: readonly Kondition[], tag: string): Kondi
   return gefunden ?? konditionen[0];
 }
 
-function alsZinsdarlehen(k: Zinskontext, bewegungen: Kapitalbewegung[], v: Kondition, gebucht: string[]): Zinsdarlehen {
+export function zinsverzichteZum(vorgaenge: readonly VorgangDaten[], stichtag: string) {
+  return vorgaenge.flatMap((x) => x.art === "interest_waiver" && x.zinsverzichtBis && x.valuta <= stichtag ? [{ bis: x.zinsverzichtBis, betrag: x.betrag }] : []);
+}
+
+function alsZinsdarlehen(k: Zinskontext, bewegungen: Kapitalbewegung[], v: Kondition, gebucht: string[], stichtag: string): Zinsdarlehen {
   const d: Zinsdarlehen = {
     id: k.instrument.id,
     bewegungen,
@@ -94,6 +98,7 @@ function alsZinsdarlehen(k: Zinskontext, bewegungen: Kapitalbewegung[], v: Kondi
     anker: v.anker,
     kapitalisieren: v.kapitalisieren,
     gebuchtePerioden: gebucht,
+    zinsverzichte: zinsverzichteZum(k.vorgaenge, stichtag),
   };
   if (v.gewinnabhaengigSatz !== null && v.kappungSatz !== null) {
     d.bedingungen.gewinnabhaengig = { satz: v.gewinnabhaengigSatz, kappungSatz: v.kappungSatz, bemessung: k.ueberschuesse };
@@ -150,7 +155,7 @@ export function berechneZinsstand(k: Zinskontext, stichtag: string): Zinsstand {
       const schaetzung = geschaetztePerioden(v.zinsperiode, erste, obergrenze);
       if (schaetzung > MAX_PERIODEN_JE_DARLEHEN) throw zuVieleFehler(k.beteiligung.id, schaetzung);
     }
-    const d = alsZinsdarlehen(k, [...basis, ...extra], v, [...uebersprungen]);
+    const d = alsZinsdarlehen(k, [...basis, ...extra], v, [...uebersprungen], stichtag);
     const gerechnet = alsFachfehler(k.beteiligung.id, () => rechneZinslauf([d], obergrenze));
     for (const p of gerechnet) {
       if (versionAm(k.konditionen, tagVor(p.bis)) !== v) continue;
@@ -180,7 +185,7 @@ export function berechneAbgrenzung(k: Zinskontext, stichtag: string): Abgrenzung
   if (k.konditionen.length === 0) return null;
   const stand = berechneZinsstand(k, stichtag);
   const v = versionAm(k.konditionen, tagVor(stichtag)) as Kondition;
-  const d = alsZinsdarlehen(k, stand.bewegungen, v, stand.uebersprungen);
+  const d = alsZinsdarlehen(k, stand.bewegungen, v, stand.uebersprungen, stichtag);
   const a: Abgrenzung = alsFachfehler(k.beteiligung.id, () => rechneAbgrenzung(d, stichtag));
   const offen = stand.positionen.reduce((s, p) => s.plus(p.position.betragGebucht), new Decimal(0));
   const gesamt = offen.plus(a.betragGebucht);

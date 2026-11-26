@@ -411,7 +411,7 @@ export const buchhaltungDe = {
     buchungsregeln: {
       titel: "Kontenzuordnung des Exports",
       hilfe: "Je Vorgangs- und Bewegungsart: auf welche Konten der DATEV-Export bucht. Im Buchungstext gibt es die Platzhalter {organisation}, {art}, {valuta} und {bemerkung}.",
-      quellen: { zins: "Zinsen", auszahlung: "Auszahlung", rueckfluss: "Rückfluss", tilgung: "Tilgung", zusage: "Zusage", wertberichtigung: "Wertberichtigung", abruf: "Kapitalabruf", ausschuettung: "Ausschüttung", zinszahlung: "Zinszahlung", dividende: "Dividende" } as Record<string, string>,
+      quellen: { zins: "Zinsen", auszahlung: "Auszahlung", rueckfluss: "Rückfluss", tilgung: "Tilgung", zusage: "Zusage", wertberichtigung: "Wertberichtigung", abruf: "Kapitalabruf", ausschuettung: "Ausschüttung", interest_waiver: "Verzicht auf Zinsen", principal_waiver: "Verzicht auf Kapital", principal_disposal: "Kapitalabgang an den Erwerber", impairment_disposal: "Abgang der Wertberichtigung", zinszahlung: "Zinszahlung", dividende: "Dividende" } as Record<string, string>,
       nochNicht: "noch nicht eingerichtet",
       konto: "Konto",
       gegenkonto: "Gegenkonto",

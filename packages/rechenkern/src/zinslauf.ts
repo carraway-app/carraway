@@ -26,6 +26,8 @@ export interface Zinsdarlehen {
    * Kapitalisierung bereits in `bewegungen` stehen, sie wird nicht noch einmal erzeugt.
    */
   gebuchtePerioden?: Datum[];
+  /** Erlassene, damals noch ungebuchte Zinsen, zugeordnet zur betroffenen Periode (von exklusiv, bis inklusiv). */
+  zinsverzichte?: { bis: Datum; betrag: Decimal.Value }[];
 }
 
 export interface Zinsposition {
@@ -102,6 +104,13 @@ interface Lauf {
   bewegungen: Kapitalbewegung[];
 }
 
+export function zinsenNachVerzicht(verzichte: Zinsdarlehen["zinsverzichte"], von: Datum, bis: Datum, brutto: Decimal, schritte: Rechenschritt[]) {
+  const erlassen = (verzichte ?? []).filter((v) => v.bis > von && v.bis <= bis).reduce((s, v) => s.plus(v.betrag), new Decimal(0));
+  if (erlassen.isZero()) return brutto;
+  schritte.push({ zeichen: "−", bezeichnung: "Verzicht auf aufgelaufene Zinsen", wert: erlassen.toFixed(2) });
+  return Decimal.max(0, brutto.minus(erlassen));
+}
+
 function laufe(darlehen: Zinsdarlehen, stichtag: Datum): Lauf {
   zerlege(stichtag);
   const erste = ersteAuszahlung(kapitalverlauf(darlehen.bewegungen).wert);
@@ -114,7 +123,8 @@ function laufe(darlehen: Zinsdarlehen, stichtag: Datum): Lauf {
   for (const ende of periodenenden(darlehen.zinsperiode, darlehen.anker, erste, stichtag)) {
     if (!gebucht.has(ende)) {
       const ergebnis = zinsenAufVerlauf(kapitalverlauf(bewegungen).wert, start, ende, darlehen.bedingungen);
-      const betragGebucht = aufCent(ergebnis.betragGesamt);
+      const betragGesamt = zinsenNachVerzicht(darlehen.zinsverzichte, start, ende, ergebnis.betragGesamt, ergebnis.schritte);
+      const betragGebucht = aufCent(betragGesamt);
       const kapitalisiert = darlehen.kapitalisieren === true && betragGebucht.greaterThan(0);
       if (kapitalisiert) bewegungen.push({ datum: ende, art: "kapitalisierung", betrag: betragGebucht });
       const gestundet = darlehen.stundungBis !== undefined && vergleiche(darlehen.stundungBis, ende) > 0;
@@ -127,7 +137,7 @@ function laufe(darlehen: Zinsdarlehen, stichtag: Datum): Lauf {
         kapitalien: ergebnis.segmente.map(({ von, bis, kapital }) => ({ von, bis, kapital })),
         betragFix: ergebnis.betragFix,
         betragGewinn: ergebnis.betragGewinn,
-        betragGesamt: ergebnis.betragGesamt,
+        betragGesamt,
         betragGebucht,
         kapitalisiert,
         schritte: [
@@ -152,7 +162,8 @@ export function abgrenzung(darlehen: Zinsdarlehen, stichtag: Datum): Abgrenzung 
   const lauf = laufe(darlehen, stichtag);
   const von = lauf.grenze !== undefined && vergleiche(lauf.grenze, stichtag) < 0 ? lauf.grenze : stichtag;
   const ergebnis = zinsenAufVerlauf(kapitalverlauf(lauf.bewegungen).wert, von, stichtag, darlehen.bedingungen);
-  const betragGebucht = aufCent(ergebnis.betragGesamt);
+  const betragGesamt = zinsenNachVerzicht(darlehen.zinsverzichte, von, stichtag, ergebnis.betragGesamt, ergebnis.schritte);
+  const betragGebucht = aufCent(betragGesamt);
   return {
     darlehenId: darlehen.id,
     von,
@@ -160,7 +171,7 @@ export function abgrenzung(darlehen: Zinsdarlehen, stichtag: Datum): Abgrenzung 
     kapitalien: ergebnis.segmente.map(({ von: v, bis: b, kapital }) => ({ von: v, bis: b, kapital })),
     betragFix: ergebnis.betragFix,
     betragGewinn: ergebnis.betragGewinn,
-    betragGesamt: ergebnis.betragGesamt,
+    betragGesamt,
     betragGebucht,
     schritte: [...ergebnis.schritte, { zeichen: "=", bezeichnung: "Abgrenzung (auf Cent, kaufmännisch)", wert: betragGebucht.toString() }],
   };

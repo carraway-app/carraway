@@ -5,6 +5,7 @@ import type { HerkunftProps } from "@carraway/ui";
 import { api } from "../api/client";
 import { formatBetragCent } from "../lib/zahl";
 import { useSprache, useT } from "../i18n";
+import { uebersetzeSchritt } from "../i18n/schritte";
 import { EinzelwertTabelle, type EinzelwertZeile } from "./EinzelwertTabelle";
 import { FehlerHinweis } from "./FehlerHinweis";
 import { HerkunftDialog } from "./HerkunftDialog";
@@ -31,7 +32,10 @@ export default function NavHerkunft({ fondsId, waehrung, stichtag, stand, schrit
       </div>)}
     </>,
   }));
-  const gruppen = [portfolio, ...["bank", "sonstiges", "schulden"].map((gruppe) =>
+  const zielfonds = (data?.zielfonds ?? []).map((z) => [{
+    id: z.id ?? "summary", datum: stichtag, betrag: z.wert, quelle: z.id === null ? uebersetzeSchritt("Zielfonds", sprache) : z.name,
+  }]);
+  const gruppen = [portfolio, ...zielfonds, ...["bank", "sonstiges", "schulden"].map((gruppe) =>
     (data?.salden ?? []).filter((s) => s.gruppe === gruppe).map((s) => ({
       id: s.id, datum: stichtag, betrag: s.saldo,
       quelle: <Link to="/buchhaltung" search={{ ...schnitt, fondsId, laufId: s.laufId, konto: s.konto }}>{s.konto} {s.bezeichnung}</Link>,

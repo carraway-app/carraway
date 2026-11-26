@@ -1,3 +1,9 @@
+import { and, desc, eq, isNull } from "drizzle-orm";
+import { darlehenVerzicht } from "@carraway/db";
+import { verzichte, storniereVerzicht } from "../instrumente/verzicht";
+import { aktuellerAkteur } from "../anmeldung/akteur";
+import { sichtbareDokumentIds } from "../dokumente/ziele";
+import { pruefe } from "../pruefung";
 import { pruefeFonds } from "../fonds-pruefung";
 import { fondsAnApi } from "../fonds-vertrag";
 import { portfolioAnApi } from "../portfolio-vertrag";
@@ -63,7 +69,10 @@ const instrumentAenderung = z
   })
   .refine(mindestensEins, MINDESTENS_EIN_FELD);
 
-/** Neue Route nach den Konventionen der englischen API (`docs/api-glossar.md`); `amount` nur bei abweichender Währung der Beteiligung (in der Fondswährung). */
+const verzichtBetrag = z.string().regex(/^\d{1,16}(\.\d{1,2})?$/);
+const verzicht = z.object({ date: z.iso.date(), principal: verzichtBetrag.default("0"), interest: verzichtBetrag.default("0"), reason: textEingabe(500), documentId: z.uuid().optional() });
+const verzichtParam = z.object({ id: z.uuid(), waiverId: z.uuid() });
+/** Bei abweichender Währung der Beteiligung enthält `amount` den Betrag in Fondswährung. */
 const neueAusuebung = z.object({ date: z.iso.date(), shares: anzahlEingabe, amount: betragEingabe.optional(), note: optionalerText(2000) });
 
 /** Storno einer Ausübung als Ganzes. */
@@ -125,6 +134,28 @@ export function instrumentRouten(db: Db) {
         return (await ladeInstrumentUebersicht(tx, zeile.beteiligungId))?.find((x) => x.id === id);
       });
       return c.json(portfolioAnApi(nachher), 200);
+    })
+    .get("/:id/waivers", pruefe("param", idParam), async (c) => {
+      const { id } = c.req.valid("param");
+      const data = await lese(db, async (tx) => {
+        const zeilen = await tx.select({ id: darlehenVerzicht.id, date: darlehenVerzicht.datum, reason: darlehenVerzicht.grund, documentId: darlehenVerzicht.dokumentId, steps: darlehenVerzicht.schritte })
+          .from(darlehenVerzicht).where(and(eq(darlehenVerzicht.instrumentId, id), isNull(darlehenVerzicht.storniertAm))).orderBy(desc(darlehenVerzicht.datum), desc(darlehenVerzicht.erfasstAm));
+        const sichtbar = await sichtbareDokumentIds(tx, aktuellerAkteur(c), zeilen.flatMap((w) => w.documentId ? [w.documentId] : []));
+        return zeilen.map((w) => ({ ...w, documentId: w.documentId && sichtbar.has(w.documentId) ? w.documentId : null }));
+      });
+      return c.json({ data }, 200);
+    })
+    .post("/:id/waivers/preview", pruefe("param", idParam), pruefe("json", verzicht), async (c) => {
+      const { id } = c.req.valid("param");
+      return c.json(await lese(db, (tx) => verzichte(tx, id, c.req.valid("json"), aktuellerAkteur(c))), 200);
+    })
+    .post("/:id/waivers", pruefe("param", idParam), pruefe("json", verzicht), async (c) => {
+      const { id } = c.req.valid("param");
+      return c.json(await schreibe(db, c, (tx, protokoll) => verzichte(tx, id, c.req.valid("json"), aktuellerAkteur(c), protokoll)), 201);
+    })
+    .post("/:id/waivers/:waiverId/reverse", pruefe("param", verzichtParam), pruefe("json", ausuebungStorno), async (c) => {
+      const { id, waiverId } = c.req.valid("param");
+      return c.json(await schreibe(db, c, (tx, protokoll) => storniereVerzicht(tx, protokoll, id, waiverId, c.req.valid("json").reason)), 201);
     })
     /** Ausübung von Optionsscheinen: Zusage und Auszahlung des Ausübungsbetrags auf dem Instrument, die Anteile stehen ab dem Datum in der Kapitaltabelle. */
     .post("/:id/exercises", pruefePortfolio("param", idParam), pruefePortfolio("json", neueAusuebung), async (c) => {

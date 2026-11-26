@@ -17,7 +17,7 @@ export async function starteServer(erweiterungen: readonly ApiErweiterung[] = []
   await verlangeMigrationsstandBeimStart(db, "api", logger);
   const konfig = ladeKonfiguration();
   const app = erstelleApp(db, { ...konfig, logger, pool, erweiterungen });
-  const server = serve({ fetch: app.fetch, port }, (info) => {
+  const server = serve({ fetch: app.fetch, port, hostname: process.env.API_HOST || undefined }, (info) => {
     logger("info", "API gestartet", { port: info.port, umgebung: konfig.umgebung, weboberflaeche: konfig.webVerzeichnis !== undefined, metriken: konfig.metrikenToken !== undefined });
   });
   // Live-Aktualisierung über WebSocket (#161) unter `/api/v1/live`; Anmeldung und Rechte über die Route `GET /live` der App.

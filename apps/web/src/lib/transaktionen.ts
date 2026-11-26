@@ -29,7 +29,8 @@ export const gruppeWert = (wert: string | undefined): TxGruppe => (TX_GRUPPEN as
 
 /** Die Filter (außer Alle), unter denen eine Zeile steht; eine Zinszahlung steht unter Rückflüsse und unter Zinsen. */
 export function filterVon(z: TxZeile): Exclude<TxFilter, "alle">[] {
-  if (z.ohneGeldfluss) return ["wandlung"];
+  if (z.art === "interest_waiver") return ["zinsen"];
+  if (z.ohneGeldfluss) return ["principal_waiver", "impairment_disposal", "principal_disposal", "wertberichtigung"].includes(z.art) ? ["sonstige"] : ["wandlung"];
   const r: Exclude<TxFilter, "alle">[] = [];
   if (z.art === "auszahlung") r.push("auszahlungen");
   if (RUECKFLUESSE.includes(z.art)) r.push("rueckfluesse");

@@ -52,7 +52,7 @@ function useSchmalesFenster(): boolean {
 /** Rahmen der Anwendung: Seitenleiste mit Fondsauswahl, Navigation und Konto; Kopfzeile mit Pfad und Suche; Inhalt. */
 export function AnwendungsHuelle() {
   const t = useT();
-  const { ich } = useRechte();
+  const { ich, darf } = useRechte();
   const router = useRouter();
   const pfad = useRouterState({ select: (s) => s.location.pathname });
   const fondsRoute = useRouterState({ select: (s) => s.matches.at(-1)?.routeId });
@@ -102,15 +102,24 @@ export function AnwendungsHuelle() {
   const aktuellerFonds = fondsAusPfad ?? fondsAusDetail ?? wirksamerFonds(fonds.data ?? [], fondsSeite ? fondsAusSuche : undefined)?.id;
 
   const fondsInAuswahl = fondsSeite === "/fonds" ? fondsAusSuche : aktuellerFonds;
-  const portfolio: NavigateOptions = aktuellerFonds ? { to: "/fonds/$fondsId", params: { fondsId: aktuellerFonds }, search: {} } : { to: "/" };
+  const portfolioFonds = wirksamerFonds((fonds.data ?? []).filter((f) => darf("betrachter", f.id, "portfolio")), aktuellerFonds);
+  const portfolio: NavigateOptions = portfolioFonds ? { to: "/fonds/$fondsId", params: { fondsId: portfolioFonds.id }, search: {} } : { to: "/" };
 
   function fondsZiel(id: string | undefined): NavigateOptions {
     if (fondsSeite) return { to: fondsSeite, search: { fondsId: id, ...(fondsSeite === "/fonds" ? { tab: roh.tab } : {}) } };
-    if (id && fondsRoute === "/meldungen/$id") return { to: "/fonds/$fondsId/meldungen", params: { fondsId: id }, search: {} };
-    if (id && fondsAusPfad && fondsRoute !== "__root__" && fondsRoute?.startsWith("/fonds/$fondsId")) {
+    if (!id) return { to: "/" };
+    const stammdaten: NavigateOptions = { to: "/fonds", search: { fondsId: id } };
+    if (fondsRoute === "/meldungen/$id" || fondsRoute === "/fonds/$fondsId/meldungen") {
+      return darf("betrachter", id, "meldewesen") ? { to: "/fonds/$fondsId/meldungen", params: { fondsId: id }, search: {} } : stammdaten;
+    }
+    if (fondsRoute === "/fonds/$fondsId/journal") {
+      return darf("betrachter", id, "finanzen") ? { to: fondsRoute, params: { fondsId: id }, search: {} } : stammdaten;
+    }
+    if (!darf("betrachter", id, "portfolio")) return stammdaten;
+    if (fondsAusPfad && fondsRoute !== "__root__" && fondsRoute?.startsWith("/fonds/$fondsId")) {
       return { to: fondsRoute === "/fonds/$fondsId/" ? "/fonds/$fondsId" : fondsRoute, params: { fondsId: id }, search: {} };
     }
-    return id ? { to: "/fonds/$fondsId", params: { fondsId: id }, search: {} } : { to: "/" };
+    return { to: "/fonds/$fondsId", params: { fondsId: id }, search: {} };
   }
 
   const auswahlZiel = fondsZiel(aktuellerFonds);
@@ -222,7 +231,7 @@ export function AnwendungsHuelle() {
             <kbd>{/Mac|iPhone|iPad/i.test(navigator.platform) ? "⌘ K" : t.suche.kuerzel}</kbd>
           </button>
           <div className="app-kopf__gruppe">
-            <WiedervorlagenZaehler />
+            {darf("betrachter", null, "kontakte") && <WiedervorlagenZaehler />}
           </div>
         </header>
         <main id="inhalt" tabIndex={-1}>
