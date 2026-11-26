@@ -38,6 +38,7 @@ const TAB_DER_ROUTE: Record<string, FondsTab> = {
   "/fonds/$fondsId/reserven": "reserven",
   "/fonds/$fondsId/zinsen": "zinsen",
   "/fonds/$fondsId/bewertungsrunde": "bewertungsrunde",
+  "/fonds/$fondsId/zielfonds": "zielfonds",
 };
 
 /** Reiter zur Route: die des Kerns oder einer Erweiterung (Route `/fonds/$fondsId/<pfad>`). */
@@ -108,7 +109,9 @@ export function Fondsrahmen() {
     // Die API liefert den IRR als Bruch ("0.12"), die Anzeige in Prozent.
     irr: k.irr.wert === null ? keinWert : formatProzent(Number(k.irr.wert) * 100, sprache),
   };
-  const summeVergleich = ws && sicht === "vergleich" && ws.navVergleich != null && ws.waehrungen.vergleich ? formatBetrag(ws.navVergleich, sprache, { kompakt: true, waehrung: ws.waehrungen.vergleich }) : null;
+  // NAV in der Vergleichs- oder Hauswährung (Kurs des Stichtags); sonst die Fondswährung.
+  const navSicht = !ws ? null : sicht === "vergleich" && ws.waehrungen.vergleich ? { wert: ws.navVergleich, waehrung: ws.waehrungen.vergleich } : sicht === "haus" && ws.waehrungen.haus !== ws.waehrungen.fonds ? { wert: ws.navHaus, waehrung: ws.waehrungen.haus } : null;
+  const summeVergleich = navSicht && navSicht.wert != null ? formatBetrag(navSicht.wert, sprache, { kompakt: true, waehrung: navSicht.waehrung }) : null;
   const navImVergleich = k.nav.wert === null ? t.portfolio.navLuecke : summeVergleich ?? (!ws ? keinWert : t.waehrung.luecke);
   const titel = (name: KennzahlName) => t.portfolio[name];
   const offen = herkunft ? k[herkunft] : null;
@@ -153,7 +156,7 @@ export function Fondsrahmen() {
       <KennzahlenReihe aria-label={t.portfolio.kennzahlen}>
         <Kennzahl titel={t.portfolio.portfoliowert} wert={formatBetrag(u.portfoliowert, sprache, { kompakt: true, waehrung: fonds?.waehrung })} />
         {REIHENFOLGE.map((name) => (
-          <Kennzahl key={name} titel={name === "nav" && summeVergleich && ws?.waehrungen.vergleich ? t.waehrung.kennzahlIn(titel(name), ws.waehrungen.vergleich) : titel(name)} wert={name === "nav" && sicht === "vergleich" ? navImVergleich : werte[name]} hervorgehoben={name === "tvpi"} onHerkunft={() => setHerkunft(name)} />
+          <Kennzahl key={name} titel={name === "nav" && summeVergleich && navSicht ? t.waehrung.kennzahlIn(titel(name), navSicht.waehrung) : titel(name)} wert={name === "nav" && navSicht ? navImVergleich : werte[name]} hervorgehoben={name === "tvpi"} onHerkunft={() => setHerkunft(name)} />
         ))}
       </KennzahlenReihe>
 

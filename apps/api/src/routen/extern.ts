@@ -1,3 +1,4 @@
+import { kontaktJson, pruefeKontakt } from "../kontakte/http";
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { Hono, type MiddlewareHandler } from "hono";
 import { bodyLimit } from "hono/body-limit";
@@ -7,13 +8,12 @@ import { clientIp } from "../anmeldung/schutz";
 import { Fachfehler } from "../fehler";
 import { kanonischerWert } from "../kpi/wert";
 import type { Konfiguration } from "../konfiguration";
-import { pruefe } from "../pruefung";
 import { schreibe } from "../schreiben";
 import { lese, type Tx } from "../zeitlimit";
 import { tokenHash } from "./kennzahlen";
 
 /**
- * Öffentliche Abfrage bei den Unternehmen: `/extern/abfragen/:token`, ohne Konto. Das Token (256 Bit, nur als SHA-256 gespeichert) gehört zu
+ * Öffentliche Abfrage bei den Unternehmen: `/external/requests/:token`, ohne Konto. Das Token (256 Bit, nur als SHA-256 gespeichert) gehört zu
  * genau einer Anfrage; daraus ergibt sich alles andere (Unternehmen, Zeitraum, angeforderte Kennzahlen). Es gibt keinen Weg zu anderen Daten.
  *
  * - Kein Cookie, keine Sitzung: Die Anfrage wird nie einem angemeldeten Benutzer zugeordnet (Hülle und Rechteprüfung lassen sie als öffentlich
@@ -54,7 +54,7 @@ export const merke = async (db: Db, schluessel: string) => {
   if (Math.random() < 0.02) await db.execute(sql`DELETE FROM abfrage_zugriff WHERE am < now() - interval '1 hour'`);
 };
 
-export const zuViele = () => new Fachfehler(429, "ZU_VIELE_ANFRAGEN", "Zu viele Anfragen. Bitte in einer Minute erneut versuchen.");
+export const zuViele = () => new Fachfehler(429, "too_many_requests", "Too many requests. Please try again in a minute.");
 
 export function externRouten(db: Db, konfig: Pick<Konfiguration, "externLimit" | "proxyVertrauen">) {
   const limit = konfig.externLimit;
@@ -73,7 +73,7 @@ export function externRouten(db: Db, konfig: Pick<Konfiguration, "externLimit" |
     const token = c.req.param("token") ?? "";
     const nichtGefunden = async () => {
       await merke(db, `fehl:${ip}`);
-      return new Fachfehler(404, "ABFRAGE_NICHT_GEFUNDEN", "Diesen Link gibt es nicht.");
+      return new Fachfehler(404, "metric_request_not_found", "This link does not exist.");
     };
     if (!TOKEN_FORM.test(token)) throw await nichtGefunden();
     const hash = tokenHash(token);
@@ -89,9 +89,9 @@ export function externRouten(db: Db, konfig: Pick<Konfiguration, "externLimit" |
   };
 
   const pruefeZustand = (a: KennzahlAbfrage, schreibend: boolean) => {
-    if (a.status === "widerrufen") throw new Fachfehler(410, "ABFRAGE_WIDERRUFEN", "Diese Anfrage wurde zurückgezogen.");
-    if (a.tokenAblauf.getTime() < Date.now()) throw new Fachfehler(410, "ABFRAGE_ABGELAUFEN", "Dieser Link ist abgelaufen.");
-    if (schreibend && a.status !== "offen") throw new Fachfehler(409, "ABFRAGE_EINGEREICHT", "Die Angaben sind eingereicht und lassen sich nicht mehr ändern.");
+    if (a.status === "widerrufen") throw new Fachfehler(410, "metric_request_revoked", "This request has been withdrawn.");
+    if (a.tokenAblauf.getTime() < Date.now()) throw new Fachfehler(410, "metric_request_expired", "This link has expired.");
+    if (schreibend && a.status !== "offen") throw new Fachfehler(409, "metric_request_submitted", "The data has been submitted and can no longer be changed.");
   };
 
   /** Inhalt der Seite: genau das, was die Person sehen darf. */
@@ -130,7 +130,7 @@ export function externRouten(db: Db, konfig: Pick<Konfiguration, "externLimit" |
           regelwerk: d.regelwerk,
           erlaeuterungDe: d.erlaeuterungDe,
           erlaeuterungEn: d.erlaeuterungEn,
-          wert: w?.wert ?? null,
+          wert: d.typ === "ja_nein" && w?.wert ? (w.wert === "ja" ? "yes" : "no") : (w?.wert ?? null),
           kommentar: w?.kommentar ?? null,
           geschaetzt: w?.geschaetzt ?? false,
           quellenangabe: w?.quellenangabe ?? null,
@@ -145,25 +145,25 @@ export function externRouten(db: Db, konfig: Pick<Konfiguration, "externLimit" |
       bodyLimit({
         maxSize: MAX_KOERPER,
         onError: () => {
-          throw new Fachfehler(413, "ANFRAGE_ZU_GROSS", "Die Anfrage ist zu groß.");
+          throw new Fachfehler(413, "request_too_large", "The request is too large.");
         },
       }),
     )
     // `/*` gilt in Hono auch für den Pfad ohne Anhang; eine einzige Zuordnung, damit die Begrenzung nicht doppelt zählt.
-    .use("/abfragen/:token/*", zugang)
-    .get("/abfragen/:token", pruefe("param", tokenParam), async (c) => {
+    .use("/requests/:token/*", zugang)
+    .get("/requests/:token", pruefeKontakt("param", tokenParam), async (c) => {
       const a = c.get("abfrage");
       pruefeZustand(a, false);
-      return c.json(await lese(db, (tx) => inhalt(tx, a)), 200);
+      return kontaktJson(c, await lese(db, (tx) => inhalt(tx, a)), 200);
     })
     /** Speichert Entwürfe (ersetzt die Werte der genannten Kennzahlen; `null` entfernt einen Entwurf). */
-    .put("/abfragen/:token", pruefe("param", tokenParam), pruefe("json", speichernSchema), async (c) => {
+    .put("/requests/:token", pruefeKontakt("param", tokenParam), pruefeKontakt("json", speichernSchema), async (c) => {
       const { werte } = c.req.valid("json");
       const a0 = c.get("abfrage");
       pruefeZustand(a0, true);
       const antwort = await schreibe(db, `extern:${a0.id}`, async (tx, protokoll) => {
         const [a] = await tx.select().from(kennzahlAbfrage).where(eq(kennzahlAbfrage.id, a0.id)).for("update");
-        if (!a) throw new Fachfehler(404, "ABFRAGE_NICHT_GEFUNDEN", "Diesen Link gibt es nicht.");
+        if (!a) throw new Fachfehler(404, "metric_request_not_found", "This link does not exist.");
         pruefeZustand(a, true);
         const positionen = await tx
           .select({ d: kennzahlDefinition })
@@ -171,10 +171,10 @@ export function externRouten(db: Db, konfig: Pick<Konfiguration, "externLimit" |
           .innerJoin(kennzahlDefinition, eq(kennzahlDefinition.id, kennzahlAbfragePosition.definitionId))
           .where(eq(kennzahlAbfragePosition.abfrageId, a.id));
         const nachSchluessel = new Map(positionen.map(({ d }) => [d.schluessel, d]));
-        if (new Set(werte.map((w) => w.schluessel)).size !== werte.length) throw new Fachfehler(400, "EINGABE_UNGUELTIG", "Die Eingabe ist ungültig.", { felder: [{ feld: "werte", code: "custom", meldung: "Kennzahlen doppelt" }] });
+        if (new Set(werte.map((w) => w.schluessel)).size !== werte.length) throw new Fachfehler(400, "invalid_input", "The input is invalid.", { felder: [{ feld: "werte", code: "custom", meldung: "Duplicate metrics" }] });
         for (const e of werte) {
           const d = nachSchluessel.get(e.schluessel);
-          if (!d) throw new Fachfehler(400, "KENNZAHL_NICHT_ANGEFORDERT", `Die Kennzahl „${e.schluessel}“ ist in dieser Anfrage nicht enthalten.`, { schluessel: e.schluessel });
+          if (!d) throw new Fachfehler(400, "metric_not_requested", `The metric "${e.schluessel}" is not part of this request.`, { schluessel: e.schluessel });
           const [vorhanden] = await tx.select().from(kennzahlWert).where(and(eq(kennzahlWert.abfrageId, a.id), eq(kennzahlWert.definitionId, d.id), isNull(kennzahlWert.verworfenAm))).for("update");
           if (e.wert === null || e.wert.trim() === "") {
             if (vorhanden) {
@@ -183,7 +183,10 @@ export function externRouten(db: Db, konfig: Pick<Konfiguration, "externLimit" |
             }
             continue;
           }
-          const wert = kanonischerWert(d.typ, e.wert);
+          if (d.typ === "ja_nein" && e.wert !== "yes" && e.wert !== "no") {
+            throw new Fachfehler(400, "metric_value_invalid", "The value must be yes or no.", { grund: "yes or no" });
+          }
+          const wert = kanonischerWert(d.typ, d.typ === "ja_nein" ? (e.wert === "yes" ? "ja" : "nein") : e.wert);
           const kommentar = e.kommentar && e.kommentar !== "" ? e.kommentar : null;
           const geschaetzt = e.geschaetzt ?? false;
           const quellenangabe = e.quellenangabe && e.quellenangabe !== "" ? e.quellenangabe : null;
@@ -201,15 +204,15 @@ export function externRouten(db: Db, konfig: Pick<Konfiguration, "externLimit" |
         }
         return inhalt(tx, a);
       });
-      return c.json(antwort, 200);
+      return kontaktJson(c, antwort, 200);
     })
     /** Reicht ein: alle Pflichtkennzahlen müssen einen Wert haben; danach ist der Link nur noch lesbar. */
-    .post("/abfragen/:token/einreichen", pruefe("param", tokenParam), async (c) => {
+    .post("/requests/:token/submit", pruefeKontakt("param", tokenParam), async (c) => {
       const a0 = c.get("abfrage");
       pruefeZustand(a0, true);
       const antwort = await schreibe(db, `extern:${a0.id}`, async (tx, protokoll) => {
         const [a] = await tx.select().from(kennzahlAbfrage).where(eq(kennzahlAbfrage.id, a0.id)).for("update");
-        if (!a) throw new Fachfehler(404, "ABFRAGE_NICHT_GEFUNDEN", "Diesen Link gibt es nicht.");
+        if (!a) throw new Fachfehler(404, "metric_request_not_found", "This link does not exist.");
         pruefeZustand(a, true);
         const positionen = await tx
           .select({ d: kennzahlDefinition })
@@ -220,7 +223,7 @@ export function externRouten(db: Db, konfig: Pick<Konfiguration, "externLimit" |
         // Im ESG-Fragebogen ist keine Angabe verpflichtend (Daten dürfen lückenhaft sein, die Abdeckung zeigt es); ein Wert muss aber da sein.
         const fehlend = a.art === "esg" ? [] : positionen.filter(({ d }) => d.pflicht && !entwuerfe.some((w) => w.definitionId === d.id)).map(({ d }) => d.schluessel);
         if (fehlend.length > 0 || entwuerfe.length === 0) {
-          throw new Fachfehler(400, "KENNZAHL_PFLICHT_FEHLT", fehlend.length > 0 ? "Es fehlen Angaben zu Pflichtkennzahlen." : "Es wurde noch kein Wert eingetragen.", { fehlend });
+          throw new Fachfehler(400, "metric_required_missing", fehlend.length > 0 ? "Values for required metrics are missing." : "No value has been entered yet.", { fehlend });
         }
         for (const w of entwuerfe) {
           const [zeile] = await tx.update(kennzahlWert).set({ status: "eingereicht" }).where(eq(kennzahlWert.id, w.id)).returning();
@@ -232,6 +235,6 @@ export function externRouten(db: Db, konfig: Pick<Konfiguration, "externLimit" |
         await protokoll("einreichen", "kennzahl_abfrage", a.id, vorher, nachher);
         return inhalt(tx, neu!);
       });
-      return c.json(antwort, 200);
+      return kontaktJson(c, antwort, 200);
     });
 }

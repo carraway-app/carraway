@@ -5,7 +5,7 @@ import * as s from "@carraway/db";
 import { Schluesselring } from "../geheimnis/krypto";
 import { berlinerTag, externHash, externHashNeu, ladeBekannte, ordneZu } from "../postfach/abgleich";
 import { FakeAnbieter } from "../postfach/fake";
-import { gleicheAb, type SyncOptionen } from "../postfach/sync";
+import { gleicheAb, gleicheVerbindungAb, type SyncOptionen } from "../postfach/sync";
 import type { MailKopf, Termin, Zugang } from "../postfach/typen";
 import { verschluesseleZugang } from "../postfach/zugang";
 import { json, leeren, oeffneTestdb } from "./hilfen";
@@ -221,6 +221,21 @@ describe("Textauszug und Datenschutz-Schalter", () => {
   });
 });
 
+describe("Gesperrte Personen", () => {
+  it("die Verbindungen gesperrter Personen werden nicht abgeglichen (auch nicht bei direktem Aufruf); nach der Entsperrung läuft es weiter", async () => {
+    const verbindungId = await verbinde(vera, "mail");
+    const a = new FakeAnbieter();
+    a.mails = [mail({ von: "anna@alpha.example.com", an: [EIGENE], betreff: "Von Anna" })];
+    await db.update(s.benutzer).set({ aktiv: false }).where(eq(s.benutzer.id, await idVon(db, vera)));
+    expect(await gleicheAb(db, syncOpt(a))).toMatchObject({ verbindungen: 0, mails: 0 });
+    expect(await gleicheVerbindungAb(db, verbindungId, syncOpt(a))).toEqual({ mails: 0, termine: 0, fehler: null });
+    expect(await aktivitaeten()).toHaveLength(0);
+    expect(a.mails).toHaveLength(1);
+    await db.update(s.benutzer).set({ aktiv: true }).where(eq(s.benutzer.id, await idVon(db, vera)));
+    expect(await gleicheAb(db, syncOpt(a))).toMatchObject({ verbindungen: 1, mails: 1 });
+  });
+});
+
 describe("Dubletten, Ausschluss, Löschen", () => {
   it("dieselbe Nachricht entsteht nie zweimal: nicht beim zweiten Lauf, nicht bei einer zweiten Person mit derselben Message-ID", async () => {
     await verbinde(vera, "mail");
@@ -247,7 +262,7 @@ describe("Dubletten, Ausschluss, Löschen", () => {
 
     const fremd = await entfernen(bernd, x!.id);
     expect(fremd.status).toBe(403);
-    expect((await json(fremd)).fehler.code).toBe("FREMDE_SYNC_AKTIVITAET");
+    expect((await json(fremd)).error.code).toBe("synced_activity_foreign");
     expect((await entfernen(person("ab-ohne-rolle", { rollen: {} }), x!.id)).status).toBe(403);
     expect(await aktivitaeten()).toHaveLength(1);
 
@@ -270,12 +285,12 @@ describe("Dubletten, Ausschluss, Löschen", () => {
     expect(protokoll).not.toMatch(/Privat gemeint/);
   });
 
-  it("manuell angelegte Aktivitäten lassen sich so nicht entfernen (409 KEINE_SYNC_AKTIVITAET)", async () => {
+  it("manuell angelegte Aktivitäten lassen sich so nicht entfernen (409 not_synced_activity)", async () => {
     const r = await t.request("/aktivitaeten", { method: "POST", als: vera, headers: { "content-type": "application/json" }, body: JSON.stringify({ art: "notiz", datum: "2026-01-01", titel: "Handnotiz", organisationId: ID.orgA }) });
     const { id } = await json(r);
     const antwort = await t.request(`/aktivitaeten/${id}/sync-entfernen`, { method: "POST", als: vera });
     expect(antwort.status).toBe(409);
-    expect((await json(antwort)).fehler.code).toBe("KEINE_SYNC_AKTIVITAET");
+    expect((await json(antwort)).error.code).toBe("not_synced_activity");
   });
 
   it("Trennen während des Abgleichs: danach wird nichts mehr geschrieben", async () => {
@@ -656,7 +671,7 @@ describe("Sichtbarkeit nach den CRM-Regeln und Rechte", () => {
     const global = person("ab-global", { globalVerwalter: true });
     const liste = await json(await t.request("/postfach", { als: global }));
     expect(liste.verbindungen).toEqual([]);
-    const text = JSON.stringify(await json(await t.request("/aenderungen?limit=1000", { als: global })));
+    const text = JSON.stringify(await json(await t.request("/changes?limit=1000", { als: global })));
     expect(text).not.toContain("zugang");
   });
 

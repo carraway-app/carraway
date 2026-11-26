@@ -30,7 +30,10 @@ import { ZugangWahl } from "../komponenten/ZugangWahl";
 import { alle } from "../erweiterung";
 import { useAnmeldeschritt } from "../komponenten/anmeldeschritt";
 import { Wechselkurse } from "../komponenten/Wechselkurse";
+import { ManagerProfilBereich } from "../komponenten/ManagerProfilBereich";
+import { KontaktabgleichVerwaltung } from "../komponenten/KontakteAusPostfach";
 import { Seitenpanel } from "@carraway/ui";
+import { MailversandBereich } from "../komponenten/MailversandBereich";
 import { KennzahlenBereich } from "../komponenten/KennzahlKatalog";
 import { MeldewesenBereich } from "../komponenten/MeldeVerwaltung";
 import { FehlerHinweis } from "../komponenten/FehlerHinweis";
@@ -47,18 +50,18 @@ const route = getRouteApi("/verwaltung");
 /** Rollen, Nutzergruppen und Fondszugriff: eigenes Paket, geladen erst beim Öffnen des Eintrags. */
 const RechteVerwaltung = lazy(() => import("../komponenten/RechteVerwaltung"));
 
-export const BEREICHE = ["benutzer", "rollen", "rechte", "schluessel", "sperre", "kennzahlen", "meldewesen", "kurse", "daten", "betrieb"] as const;
+export const BEREICHE = ["benutzer", "rollen", "rechte", "schluessel", "sperre", "kennzahlen", "meldewesen", "profil", "kurse", "kontaktabgleich", "daten", "betrieb", "mail"] as const;
 export type Bereich = (typeof BEREICHE)[number];
 
 type GruppenId = "zugaenge" | "vorgaben" | "betrieb";
 /** Gliederung des Inhaltsverzeichnisses; die Kennungen sind die bisherigen Reiter (`?tab=…`). Der erste Eintrag ist der Standard. */
 const GRUPPEN: readonly { id: GruppenId; bereiche: readonly Bereich[] }[] = [
   { id: "zugaenge", bereiche: ["benutzer", "rechte", "rollen", "schluessel"] },
-  { id: "vorgaben", bereiche: ["kennzahlen", "meldewesen", "kurse"] },
-  { id: "betrieb", bereiche: ["sperre", "daten", "betrieb"] },
+  { id: "vorgaben", bereiche: ["kennzahlen", "meldewesen", "profil", "kurse", "kontaktabgleich"] },
+  { id: "betrieb", bereiche: ["sperre", "daten", "betrieb", "mail"] },
 ];
 /** Bereiche mit mehreren Blöcken: Sie legen jeden Block selbst als Karte an, alle anderen sind eine einzige Karte. */
-const MEHRERE_BLOECKE: ReadonlySet<string> = new Set(["kennzahlen", "meldewesen", "daten", "rechte"]);
+const MEHRERE_BLOECKE: ReadonlySet<string> = new Set(["kennzahlen", "meldewesen", "daten", "rechte", "mail"]);
 
 /** Gruppen samt den Bereichen der Erweiterungen (z. B. „Investoren“ des LP-Portals), jeweils hinter dem genannten Bereich des Kerns. */
 function gruppenMitErweiterungen(): { id: GruppenId; bereiche: string[] }[] {
@@ -95,9 +98,16 @@ export function VerwaltungSeite() {
     sperre: () => <SperreBereich />,
     kennzahlen: () => <KennzahlenBereich />,
     meldewesen: () => <MeldewesenBereich />,
+    profil: () => <ManagerProfilBereich />,
     kurse: () => <Wechselkurse />,
+    kontaktabgleich: () => <KontaktabgleichVerwaltung />,
     daten: () => <DatenBereich />,
     betrieb: () => <BetriebBereich />,
+    mail: () => (
+      <Suspense fallback={<section className="app-karte" aria-busy="true" />}>
+        <MailversandBereich />
+      </Suspense>
+    ),
   };
   return (
     <div className="app-seite">
@@ -255,7 +265,7 @@ function BenutzerDialog({ onSchliessen, onAngelegt }: { onSchliessen: () => void
           );
         }}
       >
-        <FehlerHinweis fehler={anlegen.error} bekannt={["name", "email", "passwort", "globalVerwalter"]} />
+        <FehlerHinweis fehler={anlegen.error} bekannt={["name", "email", "password", "globalAdmin"]} />
         <Feld label={f.name} autoComplete="off" {...feld("name")} fehler={fehler("name")} />
         <Feld label={f.email} type="email" autoComplete="off" {...feld("email")} fehler={fehler("email")} />
         {mailMoeglich ? <ZugangWahl wert={zugang} onWahl={setZugang} /> : null}
@@ -266,7 +276,7 @@ function BenutzerDialog({ onSchliessen, onAngelegt }: { onSchliessen: () => void
             autoComplete="new-password"
             hilfe={f.passwortHilfe(MINDESTLAENGE_PASSWORT)}
             {...feld("passwort")}
-            fehler={versucht && zuKurz ? t.passwort.zuKurz(MINDESTLAENGE_PASSWORT) : fehler("passwort")}
+            fehler={versucht && zuKurz ? t.passwort.zuKurz(MINDESTLAENGE_PASSWORT) : fehler("password")}
           />
         )}
         <label className="app-haken">
@@ -464,6 +474,21 @@ function SchluesselBereich() {
       {isPending ? <p className="app-leer-text">{t.gemeinsam.laedt}</p> : null}
       {data && data.length === 0 ? <p className="app-leer-text">{v.keine}</p> : null}
       {data && data.length > 0 ? <Tabelle beschriftung={v.titel} spalten={spalten} zeilen={data} zeilenSchluessel={(s) => s.id} /> : null}
+      <div className="app-gruppe">
+        <h3 className="app-gruppen-titel">{v.api.titel}</h3>
+        <p className="app-leer-text">{v.api.text}</p>
+        <p>
+          {v.api.basis}: <code className="app-code">{`${window.location.origin}/api/v1`}</code>
+        </p>
+        <div className="app-aktionen__knoepfe">
+          <ButtonLink variante="sekundaer" href={DOKU_URL} target="_blank" rel="noopener noreferrer">
+            {v.api.doku}
+          </ButtonLink>
+          <ButtonLink variante="sekundaer" href="/api/v1/openapi.json" target="_blank" rel="noopener noreferrer">
+            {v.api.spec}
+          </ButtonLink>
+        </div>
+      </div>
       {neu ? <SchluesselDialog fonds={fonds} onSchliessen={() => setNeu(false)} /> : null}
     </>
   );
@@ -533,9 +558,9 @@ function SchluesselDialog({ fonds, onSchliessen }: { fonds: FondsEintrag[]; onSc
           });
         }}
       >
-        <FehlerHinweis fehler={anlegen.fehler} bekannt={["name", "scopes", "ablauf"]} />
+        <FehlerHinweis fehler={anlegen.fehler} bekannt={["name", "scopes", "expiresAt"]} />
         <Feld label={f.name} hilfe={f.nameHilfe} autoComplete="off" value={name} onChange={(e) => setName(e.target.value)} fehler={versucht && name.trim() === "" ? f.nameFehlt : feldText(t, anlegen.fehler, "name")} />
-        <Auswahl label={f.laufzeit} value={String(laufzeit)} onChange={(e) => setLaufzeit(Number(e.target.value))} fehler={feldText(t, anlegen.fehler, "ablauf")}>
+        <Auswahl label={f.laufzeit} value={String(laufzeit)} onChange={(e) => setLaufzeit(Number(e.target.value))} fehler={feldText(t, anlegen.fehler, "expiresAt")}>
           {LAUFZEITEN.map((tage) => (
             <option key={tage} value={tage}>
               {f.tage(tage)}

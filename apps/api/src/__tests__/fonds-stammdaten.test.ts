@@ -40,8 +40,27 @@ describe("Fondsstammdaten", () => {
 
     const doppelt = await post("/fonds", eingabe);
     expect(doppelt.status).toBe(409);
-    expect((await json(doppelt)).fehler.code).toBe("FONDS_KURZNAME_VERGEBEN");
+    expect((await json(doppelt)).error.code).toBe("fund_short_name_taken");
     expect(await protokollZeilen(db, "fonds", "anlegen")).toHaveLength(1);
+  });
+
+  it("verwendet über HTTP nur die öffentlichen Namen und nennt ungültige englische Felder", async () => {
+    const senden = (body: object) => app.requestApi("/funds", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+    });
+    const english = { name: "Example Fund", shortName: "EF", vintage: 2026, subscribedCapital: "100000.50", currency: "USD" };
+    expect((await senden(eingabe)).status).toBe(400);
+    const invalid = await senden({ ...english, subscribedCapital: "100.123" });
+    expect(invalid.status).toBe(400);
+    expect((await json(invalid)).error.fields).toContainEqual(expect.objectContaining({ field: "subscribedCapital" }));
+    const erstellt = await senden(english);
+    expect(erstellt.status).toBe(201);
+    const fonds = await json(erstellt);
+    expect(fonds).toEqual({ ...english, id: expect.any(String) });
+    const liste = await app.requestApi("/funds?changedSince=2020-01-01T00:00:00Z");
+    expect(liste.status).toBe(200);
+    expect((await json(liste)).data).toContainEqual(fonds);
+    expect((await app.requestApi("/fonds")).ok).toBe(false);
   });
 
   it("erlaubt Ansicht ab betrachter und Änderungen nur Verwaltern des jeweiligen Fonds", async () => {
@@ -57,7 +76,7 @@ describe("Fondsstammdaten", () => {
 
     const doppelt = await patch(pfad, { kurzname: "TF2" }, verwalter);
     expect(doppelt.status).toBe(409);
-    expect((await json(doppelt)).fehler.code).toBe("FONDS_KURZNAME_VERGEBEN");
+    expect((await json(doppelt)).error.code).toBe("fund_short_name_taken");
     const antwort = await patch(pfad, { name: "Umbenannt", vintage: 2023 }, verwalter);
     expect(antwort.status).toBe(200);
     expect(await json(antwort)).toMatchObject({ id: ID.fonds, name: "Umbenannt", vintage: 2023, waehrung: "EUR" });
@@ -69,7 +88,7 @@ describe("Fondsstammdaten", () => {
     await db.insert(fondsBewegung).values({ fondsId: ID.fonds, art: "abruf", betrag: "100.00", valuta: "2026-01-01" });
     const antwort = await patch(pfad, { zeichnungskapital: "99.99" });
     expect(antwort.status).toBe(409);
-    expect((await json(antwort)).fehler.code).toBe("ZEICHNUNGSKAPITAL_UNTER_ABRUFEN");
+    expect((await json(antwort)).error.code).toBe("subscribed_capital_below_calls");
     expect((await json(await get(pfad))).zeichnungskapital).toBe("10000000.00");
     expect((await patch(pfad, { zeichnungskapital: "100.00" })).status).toBe(200);
   });

@@ -17,7 +17,7 @@ const leer: OpenApiDokument = {
   openapi: "3.1.0",
   info: { title: "Carraway API", version: "0", description: "Beschreibung" },
   servers: [{ url: "/api/v1" }],
-  paths: { "/thema": { get: { operationId: "get_thema", tags: ["thema"], description: "Jede angemeldete Person." } } },
+  paths: { "/theme": { get: { operationId: "get_thema", tags: ["thema"], description: "Jede angemeldete Person." } } },
   components: {},
   tags: [{ name: "thema" }],
 };

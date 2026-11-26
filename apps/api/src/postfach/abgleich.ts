@@ -7,7 +7,8 @@ import type { MailKopf, Termin } from "./typen";
 /**
  * Zuordnung zu bekannten Kontakten (Positivliste): Eine Nachricht oder ein Termin wird nur gespeichert, wenn mindestens ein Beteiligter eine
  * bekannte Person (Mailadresse im CRM) ist oder seine Adresse zur Domain einer Organisation passt (Domain der Website). Alles andere wird verworfen,
- * bevor es gespeichert wird; Adressen unbekannter Kontakte stehen nirgends. Die eigene Adresse des Postfachs zählt nie, ihre Domain nie als Organisation.
+ * bevor es gespeichert wird; Adressen unbekannter Kontakte stehen nirgends (Ausnahme mit eingeschalteten Kontakten aus Postfach und Kalender:
+ * Adresse und Name echter Gegenüber als Vorschlag, siehe `kontakte.ts`). Die eigene Adresse des Postfachs zählt nie, ihre Domain nie als Organisation.
  * Zusammengeführte Personen und Organisationen zeigen auf ihr Ziel.
  */
 
@@ -16,6 +17,9 @@ const FREEMAIL = new Set([
   "gmail.com", "googlemail.com", "outlook.com", "hotmail.com", "live.com", "msn.com", "yahoo.com", "yahoo.de", "icloud.com", "me.com", "mac.com", "aol.com",
   "gmx.de", "gmx.net", "gmx.at", "gmx.ch", "web.de", "t-online.de", "freenet.de", "posteo.de", "mailbox.org", "proton.me", "protonmail.com", "mail.com", "online.de", "arcor.de",
 ]);
+
+/** Freemail-Domain (Adressen dort gehören Personen, nicht einer Organisation)? */
+export const istFreemail = (d: string) => FREEMAIL.has(d);
 
 /**
  * Mehrmandanten-Hosts (jede Person bekommt eine Unterdomain) und häufige öffentliche Suffixe: Eine Website darunter sagt nichts über eine Organisation aus,

@@ -6,6 +6,8 @@ import { registriereBerichtsarten, type Berichtsart } from "./berichte/arten";
 import type { Speicher } from "./berichte/speicher";
 import type { Logger } from "./beobachtung/protokoll";
 import type { Konfiguration } from "./konfiguration";
+import type { AnhangDienst } from "./routen/anhaenge";
+import type { NachNeuenMails } from "./postfach/typen";
 import type { Regel } from "./rechte/tabelle";
 
 /**
@@ -15,10 +17,14 @@ import type { Regel } from "./rechte/tabelle";
 
 /** Was eine Erweiterung beim Bau der Anwendung bekommt. */
 export interface ErweiterungsKontext {
+  /** Interner Aufruf der fertigen HTTP-App einschließlich Anmeldung, Rechtetabelle und Zugriffsprotokoll. */
+  apiAnfrage: (anfrage: Request) => Response | Promise<Response>;
   db: Db;
   auth: Auth;
   konfig: Konfiguration;
   speicher: Speicher;
+  /** Anhänge synchronisierter Mails: laden und als Dokument übernehmen, mit denselben Prüfungen wie die Routen des Kerns (nur die Besitzerin der Verbindung, Rechte am Ziel). */
+  anhaenge: AnhangDienst;
 }
 
 /** Was eine Erweiterung im Worker bekommt. */
@@ -45,12 +51,14 @@ export interface ApiErweiterung {
   anmeldeanbieter?: (konfig: Konfiguration) => Anmeldeanbieter;
   /** Berichtsarten (Datei, Kontrolle, Freitexte, Vorgaben beim Anlegen), siehe `berichte/arten.ts`. */
   berichtsarten?: Record<string, Berichtsart>;
-  /** Zusätzliche Angaben im Betriebsstatus (`GET /betrieb/status`), unter `erweiterungen.<name>`. */
+  /** Zusätzliche Angaben im Betriebsstatus (`GET /operations/status`), unter `extensions.<name>`. */
   betrieb?: () => Record<string, unknown>;
   /** Warteschlangen in pg-boss anlegen (Worker und Tests, beim Start der Jobs). */
   warteschlangen?: (boss: PgBoss) => Promise<void>;
   /** Arbeiter im Worker anmelden (`boss.work`). */
   worker?: (k: WorkerKontext) => Promise<void>;
+  /** Wird nach dem Speichern neuer eingehender Mails bekannter Personen aufgerufen (Abgleich im Worker); ohne Erweiterung bleibt der Abgleich unverändert. */
+  postfachMails?: (k: WorkerKontext) => NachNeuenMails;
   /** Läuft im Takt des Workers neben dem Verteilen der Snapshot-Aufträge (z. B. eigene Ausgangskörbe an pg-boss übergeben). */
   verteilen?: (k: WorkerKontext) => Promise<unknown>;
 }

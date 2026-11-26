@@ -1,3 +1,4 @@
+import { kontaktJson, pruefeEnglisch } from "../kontakte/http";
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { Hono, type Context } from "hono";
@@ -7,7 +8,6 @@ import { aktuellerAkteur, sichtbareFonds } from "../anmeldung/akteur";
 import { beschreibeFelder } from "../crm/abfrage";
 import { Fachfehler } from "../fehler";
 import { dealSichtbar } from "../rechte/sichtbarkeit";
-import { pruefe } from "../pruefung";
 import { ladeFonds, protokolliereLesen, schreibe, KEIN_DATENSATZ } from "../schreiben";
 import { lese, type Tx } from "../zeitlimit";
 
@@ -18,14 +18,14 @@ const datumsform = /^\d{4}-\d{2}-\d{2}$/;
 const trichterAbfrage = z
   .object({ von: z.iso.date().optional(), bis: z.iso.date().optional(), fondsId: z.uuid().optional() })
   .refine((a) => !a.von || !a.bis || !(datumsform.test(a.von) && datumsform.test(a.bis)) || a.von <= a.bis, {
-    message: "von darf nicht nach bis liegen",
+    message: "from must not be after to",
     path: ["von"],
   });
 
 const exportAbfrage = z
   .object({ von: z.iso.date().optional(), bis: z.iso.date().optional(), fondsId: z.uuid().optional(), sprache: z.enum(["de", "en"]).default("de") })
   .refine((a) => !a.von || !a.bis || !(datumsform.test(a.von) && datumsform.test(a.bis)) || a.von <= a.bis, {
-    message: "von darf nicht nach bis liegen",
+    message: "from must not be after to",
     path: ["von"],
   });
 
@@ -240,7 +240,7 @@ export function dealflowRouten(db: Db) {
   const investmentmanager = alias(benutzer, "investmentmanager");
   const projektleiter = alias(benutzer, "projektleiter");
   return new Hono()
-    .get("/arbeitsliste", async (c) => {
+    .get("/worklist", async (c) => {
       const benutzerId = aktuellerAkteur(c).id;
       const deals = await lese(db, (tx) =>
         tx
@@ -267,22 +267,22 @@ export function dealflowRouten(db: Db) {
           .where(and(eq(deal.status, "offen"), dealSichtbar(c)))
           .orderBy(desc(deal.eingangsdatum), asc(deal.id)),
       );
-      return c.json({ deals, benutzerId }, 200);
+      return kontaktJson(c, { deals, benutzerId }, 200);
     })
-    .get("/kartenfelder", async (c) => {
+    .get("/card-fields", async (c) => {
       const { id } = aktuellerAkteur(c);
       const [zeile] = await lese(db, (tx) =>
         tx.select({ felder: benutzerEinstellung.dealflowKartenfelder }).from(benutzerEinstellung).where(eq(benutzerEinstellung.benutzerId, id)),
       );
-      return c.json({ felder: zeile?.felder ?? ["ticket", "investmentmanager"] }, 200);
+      return kontaktJson(c, { felder: zeile?.felder ?? ["ticket", "investmentmanager"] }, 200);
     })
-    .put("/kartenfelder", pruefe("json", kartenfelderEingabe), async (c) => {
+    .put("/card-fields", pruefeEnglisch("json", kartenfelderEingabe), async (c) => {
       const { id } = aktuellerAkteur(c);
       const { felder } = c.req.valid("json");
       await schreibe(db, c, async (tx, protokoll) => {
         const verfuegbar = new Set((await beschreibeFelder(tx, "deal", null)).map((feld) => feld.schluessel));
         if (felder.some((feld) => !verfuegbar.has(feld))) {
-          throw new Fachfehler(400, "FELD_NICHT_GEFUNDEN", "Kartenfelder müssen für Deals verfügbare Felder sein.");
+          throw new Fachfehler(400, "field_not_found", "Card fields must be fields available for deals.");
         }
         const [vorher] = await tx.select().from(benutzerEinstellung).where(eq(benutzerEinstellung.benutzerId, id));
         const [nachher] = await tx
@@ -295,9 +295,9 @@ export function dealflowRouten(db: Db) {
           .returning();
         await protokoll(vorher ? "aendern" : "anlegen", "benutzer_einstellung", id, vorher ?? null, nachher);
       });
-      return c.json({ felder }, 200);
+      return kontaktJson(c, { felder }, 200);
     })
-    .get("/trichter/export", pruefe("query", exportAbfrage), async (c) => {
+    .get("/funnel/export", pruefeEnglisch("query", exportAbfrage), async (c) => {
       const { sprache, ...filter } = c.req.valid("query");
       const auswertung = await lese(db, (tx) => ladeTrichter(tx, c, filter));
       // Eine Auswertung über Deals verlässt das System: Lese-Protokoll wie bei den Berichten.
@@ -307,9 +307,9 @@ export function dealflowRouten(db: Db) {
         "Content-Disposition": `attachment; filename="dealflow-trichter.csv"`,
       });
     })
-    .get("/trichter", pruefe("query", trichterAbfrage), async (c) => {
+    .get("/funnel", pruefeEnglisch("query", trichterAbfrage), async (c) => {
       const filter = c.req.valid("query");
       const auswertung = await lese(db, (tx) => ladeTrichter(tx, c, filter));
-      return c.json(auswertung, 200);
+      return kontaktJson(c, auswertung, 200);
     });
 }

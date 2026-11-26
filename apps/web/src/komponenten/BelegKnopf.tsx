@@ -32,7 +32,7 @@ export function BelegPanel({ art, bezugArt, bezugId, fondsId, onSchliessen }: Be
   const [eigeneArtId, setEigeneArtId] = useState("");
   const [werte, setWerte] = useState<Record<string, string>>({});
   const gewaehlt = eigene.find((v) => v.eigeneArtId === eigeneArtId) ?? (art === "frei" ? eigene[0] : undefined);
-  const vorhanden = erzeugen.error instanceof ApiFehler && erzeugen.error.code === "BELEG_VORHANDEN" ? String(erzeugen.error.zusatz.belegId ?? "") : "";
+  const vorhanden = erzeugen.error instanceof ApiFehler && erzeugen.error.code === "voucher_exists" ? String(erzeugen.error.zusatz.belegId ?? "") : "";
   return (
     <Seitenpanel titel={e.titel} onSchliessen={onSchliessen}>
       <h2 className="cw-t-untertitel">{e.titel}</h2>

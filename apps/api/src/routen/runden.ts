@@ -1,3 +1,5 @@
+import { portfolioAnApi } from "../portfolio-vertrag";
+import { pruefePortfolio } from "../portfolio-pruefung";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -34,7 +36,6 @@ import { anteileVorRunde } from "../kapital/anteile-vor-runde";
 import { ladeRundentransaktionen } from "../kapital/rundentransaktionen";
 import { ladeVehikel, vehikelDerPosition } from "../kapital/vehikel";
 import { anzahlEingabe, art as poolArt, basis as poolBasis, bestandDesPools, ladePool, legePoolAn, pruefeBestand } from "./mitarbeiterbeteiligung";
-import { pruefe } from "../pruefung";
 import { betragEingabe, idParam, ladeOrganisation, MINDESTENS_EIN_FELD, mindestensEins, nurGesetzte, optionalerText, schreibe, textEingabe, type Protokollant } from "../schreiben";
 import { lese, type Tx } from "../zeitlimit";
 
@@ -45,9 +46,9 @@ import { lese, type Tx } from "../zeitlimit";
  * eines Fonds verlangt außerdem die Rolle bearbeiter an diesem Fonds. Schließen = bearbeiter, Wiedereröffnen = verwalter.
  */
 
-const geldEingabe = z.string().regex(/^\d{1,16}(\.\d{1,2})?$/, "Betrag von null an mit höchstens zwei Nachkommastellen erwartet");
-const preisEingabe = z.string().regex(/^(?!0+(\.0+)?$)\d{1,14}(\.\d{1,4})?$/, "Preis größer als null mit höchstens vier Nachkommastellen erwartet");
-const anteileEingabe = z.string().regex(/^(?!0+$)\d{1,18}$/, "Ganze Zahl größer als null erwartet");
+const geldEingabe = z.string().regex(/^\d{1,16}(\.\d{1,2})?$/, "Expected an amount of zero or more with at most two decimal places");
+const preisEingabe = z.string().regex(/^(?!0+(\.0+)?$)\d{1,14}(\.\d{1,4})?$/, "Expected a price greater than zero with at most four decimal places");
+const anteileEingabe = z.string().regex(/^(?!0+$)\d{1,18}$/, "Expected a whole number greater than zero");
 const valuta = z.iso.date();
 
 const positionBasis = {
@@ -61,7 +62,7 @@ const positionBasis = {
   rolle: z.enum(rundenRolle.enumValues),
   anteilsklasseId: z.uuid().nullable().optional(),
 };
-const genauEinInvestor = { message: "Genau einer von fondsId, vehikelId und organisationId ist anzugeben", path: ["fondsId"] };
+const genauEinInvestor = { message: "Specify exactly one of fundId, vehicleId and organizationId", path: ["fondsId"] };
 const neuePosition = z.object(positionBasis).refine((p) => [p.fondsId, p.vehikelId, p.organisationId].filter((x) => x !== undefined).length === 1, genauEinInvestor);
 
 const rundeBasis = {
@@ -84,10 +85,10 @@ const poolAufstockungEingabe = z.object({
 /** Zielgröße des Pools: größer als 0 und höchstens 0,99 (darüber wächst die Aufstockung über alle Grenzen). */
 const zielBruch = z
   .string()
-  .regex(/^0\.\d{1,6}$/, "Bruch größer als 0 und kleiner als 1 mit höchstens sechs Nachkommastellen erwartet")
-  .refine((x) => !/^0\.0+$/.test(x) && Number(x) <= 0.99, "Bruch größer als 0 und höchstens 0,99 erwartet");
+  .regex(/^0\.\d{1,6}$/, "Expected a fraction greater than 0 and less than 1 with at most six decimal places")
+  .refine((x) => !/^0\.0+$/.test(x) && Number(x) <= 0.99, "Expected a fraction greater than 0 and at most 0.99");
 /** Anteile vor der Runde: höchstens 15 Stellen (realistische Größenordnung, begrenzt die Rechnung). */
-const anteileVorherEingabe = z.string().regex(/^(?!0+$)\d{1,15}$/, "Ganze Zahl größer als null mit höchstens 15 Stellen erwartet");
+const anteileVorherEingabe = z.string().regex(/^(?!0+$)\d{1,15}$/, "Expected a whole number greater than zero with at most 15 digits");
 /** Vorschlag zum Option Pool Shuffle: reine Rechnung, eigene Eingaben (der Preis ist hier gesucht, nicht gegeben). */
 const poolVorschlagEingabe = z.object({
   datum: valuta,
@@ -98,7 +99,7 @@ const poolVorschlagEingabe = z.object({
   /** Ausgegebene Anteile vor der Runde; sonst aus der letzten abgeschlossenen Runde (ohne Runde Pflicht). */
   anteileVorher: anteileVorherEingabe.optional(),
   /** Überschriebene Werte für die Kennwerte; ohne Angabe gelten die vorgeschlagenen. */
-  aufstockung: z.string().regex(/^\d{1,18}$/, "Ganze Zahl erwartet").optional(),
+  aufstockung: z.string().regex(/^\d{1,18}$/, "Expected a whole number").optional(),
   preisJeAnteil: preisEingabe.optional(),
 });
 
@@ -113,20 +114,20 @@ export const neueRunde = z
     preMoney: rundeBasis.preMoney.optional(),
     preisJeAnteil: rundeBasis.preisJeAnteil.optional(),
     postMoney: geldEingabe.optional(),
-    anteileGesamtNach: z.string().regex(/^\d{1,18}$/, "Ganze Zahl erwartet").optional(),
+    anteileGesamtNach: z.string().regex(/^\d{1,18}$/, "Expected a whole number").optional(),
     positionen: z.array(neuePosition).max(200).default([]),
     poolAufstockung: poolAufstockungEingabe.optional(),
   })
   .superRefine((r, ctx) => {
     if (r.art === "bruecke") {
-      if (r.poolAufstockung !== undefined) ctx.addIssue({ code: "custom", path: ["poolAufstockung"], message: "Eine Brückenrunde hat keine Aufstockung des Pools" });
+      if (r.poolAufstockung !== undefined) ctx.addIssue({ code: "custom", path: ["poolAufstockung"], message: "A bridge round has no pool top-up" });
       for (const feld of ["preMoney", "postMoney", "preisJeAnteil", "anteileGesamtNach"] as const) {
-        if (r[feld] !== undefined) ctx.addIssue({ code: "custom", path: [feld], message: "Eine Brückenrunde hat keine Bewertung" });
+        if (r[feld] !== undefined) ctx.addIssue({ code: "custom", path: [feld], message: "A bridge round has no valuation" });
       }
-      if (r.positionen.length > 0) ctx.addIssue({ code: "custom", path: ["positionen"], message: "Eine Brückenrunde hat keine Positionen mit Anteilen" });
+      if (r.positionen.length > 0) ctx.addIssue({ code: "custom", path: ["positionen"], message: "A bridge round has no positions with shares" });
     } else {
-      if (r.preMoney === undefined) ctx.addIssue({ code: "custom", path: ["preMoney"], message: "Pre-Money ist bei einer Eigenkapitalrunde erforderlich" });
-      if (r.preisJeAnteil === undefined) ctx.addIssue({ code: "custom", path: ["preisJeAnteil"], message: "Preis je Anteil ist bei einer Eigenkapitalrunde erforderlich" });
+      if (r.preMoney === undefined) ctx.addIssue({ code: "custom", path: ["preMoney"], message: "Pre-money is required for an equity round" });
+      if (r.preisJeAnteil === undefined) ctx.addIssue({ code: "custom", path: ["preisJeAnteil"], message: "Price per share is required for an equity round" });
     }
   });
 const rundenAenderung = z
@@ -139,7 +140,7 @@ const rundenAenderung = z
     preisJeAnteil: rundeBasis.preisJeAnteil.optional(),
     /** `null` leitet den Wert aus den Positionen ab. */
     postMoney: geldEingabe.nullable().optional(),
-    anteileGesamtNach: z.string().regex(/^\d{1,18}$/, "Ganze Zahl erwartet").nullable().optional(),
+    anteileGesamtNach: z.string().regex(/^\d{1,18}$/, "Expected a whole number").nullable().optional(),
   })
   .refine(mindestensEins, MINDESTENS_EIN_FELD);
 const positionAenderung = z
@@ -173,20 +174,20 @@ async function verlangeInvestorFrei(tx: Tx, rundeId: string, p: { fondsId: strin
     .select({ id: rundenposition.id })
     .from(rundenposition)
     .where(and(eq(rundenposition.rundeId, rundeId), "fondsId" in p ? eq(rundenposition.fondsId, p.fondsId) : eq(rundenposition.vehikelId, p.vehikelId)));
-  if (vorhanden) throw new Fachfehler(409, "RUNDENPOSITION_VORHANDEN", "Dieser Investor hat in der Runde bereits eine Position.");
+  if (vorhanden) throw new Fachfehler(409, "round_position_exists", "This investor already has a position in the round.");
 }
 
 async function positionenVon(tx: Tx, rundeId: string): Promise<PositionZeile[]> {
   return tx.select().from(rundenposition).where(eq(rundenposition.rundeId, rundeId)).orderBy(rundenposition.id);
 }
 
-const brueckeKeinAbschluss = () => new Fachfehler(409, "RUNDE_ART_BRUECKE", "Eine Brückenrunde wird nicht abgeschlossen oder wieder geöffnet.");
+const brueckeKeinAbschluss = () => new Fachfehler(409, "round_type_bridge", "A bridge round is not closed or reopened.");
 
 /** Eigenkapital-Instrumente oder eine Wandlung verweisen auf die Runde: Sie lässt sich nicht zur Brückenrunde umstellen. */
 async function verlangeKeinEigenkapitalBezug(tx: Tx, rundeId: string) {
   const [i] = await tx.select({ id: instrument.id }).from(instrument).where(and(eq(instrument.rundeId, rundeId), inArray(instrument.art, ["offene_beteiligung", "stille_beteiligung"]))).limit(1);
   const [w] = await tx.select({ id: wandlung.id }).from(wandlung).where(eq(wandlung.rundeId, rundeId)).limit(1);
-  if (i || w) throw new Fachfehler(409, "RUNDE_IN_VERWENDUNG", "Der Runde sind Eigenkapital-Instrumente oder eine Wandlung zugeordnet; sie lässt sich nicht zur Brückenrunde umstellen.", { instrumentId: i?.id ?? null, wandlungId: w?.id ?? null });
+  if (i || w) throw new Fachfehler(409, "round_in_use", "Equity instruments or a conversion are assigned to the round; it cannot be changed to a bridge round.", { instrumentId: i?.id ?? null, wandlungId: w?.id ?? null });
 }
 
 /**
@@ -196,7 +197,7 @@ async function verlangeKeinEigenkapitalBezug(tx: Tx, rundeId: string) {
  */
 async function verlangeKeineAufstockung(tx: Tx, rundeId: string) {
   const [a] = await tx.select({ id: poolAenderung.id }).from(poolAenderung).where(eq(poolAenderung.rundeId, rundeId)).limit(1);
-  if (a) throw new Fachfehler(409, "RUNDE_MIT_AUFSTOCKUNG", "Der Runde ist eine Aufstockung des Pools zugeordnet; sie lässt sich nicht zur Brückenrunde umstellen. Den Entwurf löschen (die Aufstockung geht mit) und die Brückenrunde neu anlegen.");
+  if (a) throw new Fachfehler(409, "round_has_top_up", "A pool top-up is assigned to the round; it cannot be changed to a bridge round. Delete the draft (the top-up is deleted with it) and create the bridge round again.");
 }
 
 /**
@@ -228,7 +229,7 @@ async function verlangeUnverwendet(tx: Tx, rundeId: string) {
   const [i] = await tx.select({ id: instrument.id }).from(instrument).where(eq(instrument.rundeId, rundeId)).limit(1);
   const [w] = await tx.select({ id: wandlung.id }).from(wandlung).where(eq(wandlung.rundeId, rundeId)).limit(1);
   const [v] = await tx.select({ id: vorgangRunde.vorgangId }).from(vorgangRunde).where(eq(vorgangRunde.rundeId, rundeId)).limit(1);
-  if (i || w || v) throw new Fachfehler(409, "RUNDE_IN_VERWENDUNG", "Der Runde sind Instrumente, Wandlungen oder Vorgänge zugeordnet; sie lässt sich nicht löschen.", { instrumentId: i?.id ?? null, wandlungId: w?.id ?? null, vorgangId: v?.id ?? null });
+  if (i || w || v) throw new Fachfehler(409, "round_in_use", "Instruments, conversions or transactions are assigned to the round; it cannot be deleted.", { instrumentId: i?.id ?? null, wandlungId: w?.id ?? null, vorgangId: v?.id ?? null });
 }
 
 /**
@@ -240,9 +241,9 @@ async function legeAufstockungAn(tx: Tx, protokoll: Protokollant, organisationId
   let poolId = a.poolId;
   if (poolId === undefined) {
     const pools = await tx.select({ id: mitarbeiterpool.id }).from(mitarbeiterpool).where(eq(mitarbeiterpool.organisationId, organisationId)).orderBy(asc(mitarbeiterpool.erstelltAm));
-    if (pools.length > 1) ungueltig([{ feld: "poolAufstockung.poolId", code: "pool_waehlen", meldung: "Das Unternehmen hat mehrere Pools; einer ist zu wählen" }]);
+    if (pools.length > 1) ungueltig([{ feld: "poolAufstockung.poolId", code: "pool_selection_required", meldung: "The company has several pools; one must be chosen" }]);
     if (pools.length === 0) {
-      if (!a.neuerPool) ungueltig([{ feld: "poolAufstockung.neuerPool", code: "pool_fehlt", meldung: "Das Unternehmen hat noch keinen Pool; Art und Bezeichnung des neuen Pools fehlen" }]);
+      if (!a.neuerPool) ungueltig([{ feld: "poolAufstockung.neuerPool", code: "pool_missing", meldung: "The company has no pool yet; type and name of the new pool are missing" }]);
       await legePoolAn(tx, protokoll, organisationId, { art: a.neuerPool.art, bezeichnung: a.neuerPool.bezeichnung, regel: "wie_anteile", groesse: a.anzahl, ...bezug });
       return;
     }
@@ -259,7 +260,7 @@ async function legeAufstockungAn(tx: Tx, protokoll: Protokollant, organisationId
 export function organisationRundenRouten(db: Db) {
   return new Hono()
     /** Alle Runden des Unternehmens, Entwürfe eingeschlossen, mit Positionen, Zahlungsstand und Prüfung. */
-    .get("/finanzierungsrunden", pruefe("param", idParam), async (c) => {
+    .get("/financing-rounds", pruefePortfolio("param", idParam), async (c) => {
       const { id } = c.req.valid("param");
       const akteur = aktuellerAkteur(c);
       const daten = await lese(db, async (tx) => {
@@ -270,30 +271,30 @@ export function organisationRundenRouten(db: Db) {
         const grundlage = await verwandteFonds(tx, id);
         if ([...grundlage].some((f) => hatRolle(akteur, f, "betrachter"))) return alle;
         const eigene = alle.filter((r) => r.positionen.some((p) => p.investor.art === "fonds" && hatRolle(akteur, p.investor.id, "betrachter")));
-        if (eigene.length === 0) throw new Fachfehler(403, "KEINE_BERECHTIGUNG", "Dafür fehlt die Berechtigung.");
+        if (eigene.length === 0) throw new Fachfehler(403, "forbidden", "You do not have permission for this.");
         return eigene;
       });
-      return c.json({ daten }, 200);
+      return c.json(portfolioAnApi({ daten }), 200);
     })
     /**
      * Alle Fondsvorgänge des Unternehmens nach Runde gruppiert (`runden[].transaktionen`, chronologisch) und `ohneRunde`; nur Vorgänge aus Fonds, an denen die Person
      * mindestens Betrachter ist. Rechte der Runden wie bei der Rundenliste.
      */
-    .get("/rundentransaktionen", pruefe("param", idParam), async (c) => {
+    .get("/round-transactions", pruefePortfolio("param", idParam), async (c) => {
       const { id } = c.req.valid("param");
       const akteur = aktuellerAkteur(c);
       const daten = await lese(db, async (tx) => {
         await ladeOrganisation(tx, id);
         return ladeRundentransaktionen(tx, akteur, id);
       });
-      return c.json(daten, 200);
+      return c.json(portfolioAnApi(daten), 200);
     })
     /** Reine Rechnung: abgeleitete Werte und Hinweise zu den eingegebenen Zahlen, ohne etwas zu speichern (für die Eingabemaske). */
-    .post("/finanzierungsrunden/vorschau", pruefe("param", idParam), pruefe("json", neueRunde), async (c) => {
+    .post("/financing-rounds/preview", pruefePortfolio("param", idParam), pruefePortfolio("json", neueRunde), async (c) => {
       const e = c.req.valid("json");
       pruefeDatumsfenster("datum", e.datum);
       if (e.art === "bruecke" || e.preMoney === undefined || e.preisJeAnteil === undefined) {
-        ungueltig([{ feld: "art", code: "keine_vorschau", meldung: "Für eine Brückenrunde gibt es keine Vorschau (keine Bewertung, keine Anteile)" }]);
+        ungueltig([{ feld: "art", code: "no_preview", meldung: "There is no preview for a bridge round (no valuation, no shares)" }]);
       }
       const eigenkapital = { ...e, preMoney: e.preMoney!, preisJeAnteil: e.preisJeAnteil! };
       const volumen = e.positionen.reduce((s, p) => s.plus(p.betrag), new Decimal(0));
@@ -315,14 +316,14 @@ export function organisationRundenRouten(db: Db) {
       const w = wirksam(eigenkapital, volumen, mitAufstockung);
       const pruefung = pruefeRunde({ preMoney: eigenkapital.preMoney, postMoney: w.postMoney, preisJeAnteil: eigenkapital.preisJeAnteil, anteileGesamtNach: w.anteileGesamtNach }, e.positionen, mitAufstockung);
       const dubletten = await lese(db, (tx) => findeRundenDubletten(tx, aktuellerAkteur(c), id, eigenkapital));
-      return c.json({ postMoney: w.postMoney, anteileGesamtNach: w.anteileGesamtNach, pruefung, dubletten }, 200);
+      return c.json(portfolioAnApi({ postMoney: w.postMoney, anteileGesamtNach: w.anteileGesamtNach, pruefung, dubletten }), 200);
     })
     /**
      * Option Pool Shuffle: Aufstockung und Preis je Anteil für eine Zielgröße des Pools (Rechenkern `poolShuffle`) und die Kennwerte zu den
      * übernommenen oder überschriebenen Werten. Speichert nichts. Verrät Pool und Anteile vor der Runde und verlangt daher das Leserecht an
      * den Runden (wie der Pool, Entscheidung 486).
      */
-    .post("/finanzierungsrunden/pool-vorschlag", pruefe("param", idParam), pruefe("json", poolVorschlagEingabe), async (c) => {
+    .post("/financing-rounds/pool-suggestion", pruefePortfolio("param", idParam), pruefePortfolio("json", poolVorschlagEingabe), async (c) => {
       const { id } = c.req.valid("param");
       const e = c.req.valid("json");
       pruefeDatumsfenster("datum", e.datum);
@@ -338,7 +339,7 @@ export function organisationRundenRouten(db: Db) {
       const preis = e.preisJeAnteil ?? vorschlag?.preisJeAnteil;
       const k = anteileVorher !== null && aufstockung !== undefined && preis !== undefined ? poolShuffleKennwerte({ preMoney: e.preMoney, volumen: e.volumen, anteileVorher, poolVorher, aufstockung, basis: e.basis, preisJeAnteil: preis }) : null;
       return c.json(
-        {
+        portfolioAnApi({
           anteileVorher,
           anteileVorherQuelle: e.anteileVorher !== undefined ? ("eingabe" as const) : anteileAusRunde !== null ? ("runde" as const) : null,
           poolVorher,
@@ -355,11 +356,11 @@ export function organisationRundenRouten(db: Db) {
                 effektivePreMoney: k.effektivePreMoney.toFixed(2),
               }
             : null,
-        },
+        }),
         200,
       );
     })
-    .post("/finanzierungsrunden", pruefe("param", idParam), pruefe("json", neueRunde), async (c) => {
+    .post("/financing-rounds", pruefePortfolio("param", idParam), pruefePortfolio("json", neueRunde), async (c) => {
       const { id } = c.req.valid("param");
       const e = c.req.valid("json");
       const akteur = aktuellerAkteur(c);
@@ -373,7 +374,7 @@ export function organisationRundenRouten(db: Db) {
         if (e.poolAufstockung) await legeAufstockungAn(tx, protokoll, id, runde, e.poolAufstockung);
         return { ...(await ladeRundenAntwort(tx, runde.organisationId, runde.id))[0]!, dubletten };
       });
-      return c.json(antwort, 201);
+      return c.json(portfolioAnApi(antwort), 201);
     });
 }
 
@@ -390,19 +391,19 @@ export function rundenRouten(db: Db) {
   const antwortVon = async (tx: Tx, runde: RundeZeile) => (await ladeRundenAntwort(tx, runde.organisationId, runde.id))[0]!;
 
   return new Hono()
-    .get("/:id", pruefe("param", idParam), async (c) => {
+    .get("/:id", pruefePortfolio("param", idParam), async (c) => {
       const { id } = c.req.valid("param");
       const akteur = aktuellerAkteur(c);
       const antwort = await lese(db, async (tx) => {
         const [runde] = await tx.select().from(finanzierungsrunde).where(eq(finanzierungsrunde.id, id));
-        if (!runde) throw new Fachfehler(404, "RUNDE_NICHT_GEFUNDEN", "Finanzierungsrunde nicht gefunden.");
+        if (!runde) throw new Fachfehler(404, "round_not_found", "Financing round not found.");
         await verlangeRundenrecht(tx, akteur, runde.organisationId, "betrachter", [], id);
         return antwortVon(tx, runde);
       });
-      return c.json(antwort, 200);
+      return c.json(portfolioAnApi(antwort), 200);
     })
     /** Nur Entwürfe: Stammdaten ändern; `postMoney` und `anteileGesamtNach` mit `null` aus den Positionen ableiten. */
-    .patch("/:id", pruefe("param", idParam), pruefe("json", rundenAenderung), async (c) => {
+    .patch("/:id", pruefePortfolio("param", idParam), pruefePortfolio("json", rundenAenderung), async (c) => {
       const { id } = c.req.valid("param");
       const e = c.req.valid("json");
       const akteur = aktuellerAkteur(c);
@@ -426,8 +427,8 @@ export function rundenRouten(db: Db) {
           werte = { ...werte, ...nurGesetzte({ bezeichnung: e.bezeichnung, datum: e.datum }) };
         } else if (vorher.art === "bruecke") {
           // Brücke zu Eigenkapital: wird ein Entwurf mit Bewertung.
-          if (e.preMoney === undefined) ungueltig([{ feld: "preMoney", code: "erforderlich", meldung: "Pre-Money ist bei einer Eigenkapitalrunde erforderlich" }]);
-          if (e.preisJeAnteil === undefined) ungueltig([{ feld: "preisJeAnteil", code: "erforderlich", meldung: "Preis je Anteil ist bei einer Eigenkapitalrunde erforderlich" }]);
+          if (e.preMoney === undefined) ungueltig([{ feld: "preMoney", code: "required", meldung: "Pre-money is required for an equity round" }]);
+          if (e.preisJeAnteil === undefined) ungueltig([{ feld: "preisJeAnteil", code: "required", meldung: "Price per share is required for an equity round" }]);
           const pool = poolBeiRunde(await ladePoolBestand(tx, vorher.organisationId), e.datum ?? vorher.datum, id);
           const w = wirksam({ preMoney: e.preMoney!, preisJeAnteil: e.preisJeAnteil!, postMoney: e.postMoney ?? null, anteileGesamtNach: e.anteileGesamtNach ?? null }, new Decimal(0), pool);
           werte = { art: "eigenkapital", preMoney: e.preMoney!, preisJeAnteil: e.preisJeAnteil!, postMoney: w.postMoney, anteileGesamtNach: w.anteileGesamtNach, status: "entwurf", abgeschlossenAm: null, abgeschlossenVon: null, ...nurGesetzte({ bezeichnung: e.bezeichnung, datum: e.datum }) };
@@ -448,10 +449,10 @@ export function rundenRouten(db: Db) {
         await protokoll("aendern", "finanzierungsrunde", id, vorher, nachher);
         return antwortVon(tx, nachher!);
       });
-      return c.json(antwort, 200);
+      return c.json(portfolioAnApi(antwort), 200);
     })
     /** Nur Entwürfe ohne Buchungen, Zahlungen oder Instrumente aus den Positionen. */
-    .delete("/:id", pruefe("param", idParam), async (c) => {
+    .delete("/:id", pruefePortfolio("param", idParam), async (c) => {
       const { id } = c.req.valid("param");
       const akteur = aktuellerAkteur(c);
       await schreibe(db, c, async (tx, protokoll) => {
@@ -460,7 +461,7 @@ export function rundenRouten(db: Db) {
         await verlangeUnverwendet(tx, id);
         const positionen = await positionenVon(tx, id);
         for (const p of positionen) {
-          if (await positionVerwendet(tx, p.id)) throw new Fachfehler(409, "RUNDENPOSITION_GEBUCHT", "Zu einer Position gibt es Buchungen, Zahlungen oder ein Instrument; die Runde lässt sich nicht löschen.");
+          if (await positionVerwendet(tx, p.id)) throw new Fachfehler(409, "round_position_posted", "A position has bookings, payments or an instrument; the round cannot be deleted.");
         }
         for (const p of positionen) {
           await tx.delete(rundenposition).where(eq(rundenposition.id, p.id));
@@ -493,7 +494,7 @@ export function rundenRouten(db: Db) {
       });
       return c.body(null, 204);
     })
-    .post("/:id/positionen", pruefe("param", idParam), pruefe("json", neuePosition), async (c) => {
+    .post("/:id/positions", pruefePortfolio("param", idParam), pruefePortfolio("json", neuePosition), async (c) => {
       const { id } = c.req.valid("param");
       const e = c.req.valid("json");
       const akteur = aktuellerAkteur(c);
@@ -511,9 +512,9 @@ export function rundenRouten(db: Db) {
         await protokoll("anlegen", "rundenposition", zeile!.id, null, zeile);
         return antwortVon(tx, runde);
       });
-      return c.json(antwort, 201);
+      return c.json(portfolioAnApi(antwort), 201);
     })
-    .patch("/:id/positionen/:positionId", pruefe("param", positionParam), pruefe("json", positionAenderung), async (c) => {
+    .patch("/:id/positions/:positionId", pruefePortfolio("param", positionParam), pruefePortfolio("json", positionAenderung), async (c) => {
       const { id, positionId } = c.req.valid("param");
       const e = c.req.valid("json");
       const akteur = aktuellerAkteur(c);
@@ -522,48 +523,48 @@ export function rundenRouten(db: Db) {
         // Das Vehikel ändert weder Anteile noch Beträge: Es lässt sich auch in einer abgeschlossenen Runde umhängen, sonst ändert nichts.
         if (Object.keys(e).some((k) => k !== "vehikelId")) verlangeEntwurf(runde);
         const [vorher] = await tx.select().from(rundenposition).where(and(eq(rundenposition.id, positionId), eq(rundenposition.rundeId, id))).for("update");
-        if (!vorher) throw new Fachfehler(404, "RUNDENPOSITION_NICHT_GEFUNDEN", "Rundenposition nicht gefunden.");
+        if (!vorher) throw new Fachfehler(404, "round_position_not_found", "Round position not found.");
         if (vorher.fondsId) verlangeBearbeiterAm(akteur, vorher.fondsId);
         if (e.vehikelId !== undefined) {
-          if (!vorher.vehikelId) throw new Fachfehler(409, "RUNDENPOSITION_OHNE_VEHIKEL", "Die Position gehört einem eigenen Fonds und hat kein Vehikel.");
+          if (!vorher.vehikelId) throw new Fachfehler(409, "round_position_without_vehicle", "The position belongs to an own fund and has no vehicle.");
           const [bisher, neu] = [await ladeVehikel(tx, vorher.vehikelId), await ladeVehikel(tx, e.vehikelId)];
-          if (neu.investorId !== bisher.investorId) throw new Fachfehler(422, "VEHIKEL_ANDERER_INVESTOR", "Das Vehikel gehört einem anderen Investor als die Position.");
+          if (neu.investorId !== bisher.investorId) throw new Fachfehler(422, "vehicle_other_investor", "The vehicle belongs to a different investor than the position.");
           if (neu.id !== bisher.id) await verlangeInvestorFrei(tx, id, { vehikelId: neu.id });
         }
         if (e.anteilsklasseId) {
           const [k] = await tx.select().from(anteilsklasse).where(eq(anteilsklasse.id, e.anteilsklasseId));
-          if (!k) throw new Fachfehler(404, "ANTEILSKLASSE_NICHT_GEFUNDEN", "Anteilsklasse nicht gefunden.");
-          if (k.organisationId !== runde.organisationId) throw new Fachfehler(409, "ANTEILSKLASSE_PASST_NICHT", "Die Klasse gehört zu einem anderen Unternehmen als die Runde.");
+          if (!k) throw new Fachfehler(404, "share_class_not_found", "Share class not found.");
+          if (k.organisationId !== runde.organisationId) throw new Fachfehler(409, "share_class_mismatch", "The class belongs to a different company than the round.");
         }
         const [nachher] = await tx.update(rundenposition).set(nurGesetzte(e)).where(eq(rundenposition.id, positionId)).returning();
         await protokoll("aendern", "rundenposition", positionId, vorher, nachher);
         return antwortVon(tx, runde);
       });
-      return c.json(antwort, 200);
+      return c.json(portfolioAnApi(antwort), 200);
     })
-    .delete("/:id/positionen/:positionId", pruefe("param", positionParam), async (c) => {
+    .delete("/:id/positions/:positionId", pruefePortfolio("param", positionParam), async (c) => {
       const { id, positionId } = c.req.valid("param");
       const akteur = aktuellerAkteur(c);
       const antwort = await schreibe(db, c, async (tx, protokoll) => {
         const runde = await laden(tx, akteur, id, "bearbeiter");
         verlangeEntwurf(runde);
         const [vorher] = await tx.select().from(rundenposition).where(and(eq(rundenposition.id, positionId), eq(rundenposition.rundeId, id))).for("update");
-        if (!vorher) throw new Fachfehler(404, "RUNDENPOSITION_NICHT_GEFUNDEN", "Rundenposition nicht gefunden.");
+        if (!vorher) throw new Fachfehler(404, "round_position_not_found", "Round position not found.");
         if (vorher.fondsId) verlangeBearbeiterAm(akteur, vorher.fondsId);
-        if (await positionVerwendet(tx, positionId)) throw new Fachfehler(409, "RUNDENPOSITION_GEBUCHT", "Zu dieser Position gibt es Buchungen, Zahlungen oder ein Instrument; sie lässt sich nicht entfernen.");
+        if (await positionVerwendet(tx, positionId)) throw new Fachfehler(409, "round_position_posted", "This position has bookings, payments or an instrument; it cannot be removed.");
         await tx.delete(rundenposition).where(eq(rundenposition.id, positionId));
         await protokoll("loeschen", "rundenposition", positionId, vorher, null);
         return antwortVon(tx, runde);
       });
-      return c.json(antwort, 200);
+      return c.json(portfolioAnApi(antwort), 200);
     })
     /**
-     * Abschließen: Die Prüfung muss grün sein (409 `RUNDE_NICHT_KONSISTENT` mit den Abweichungen). Der Abschluss legt in derselben Transaktion je
+     * Abschließen: Die Prüfung muss grün sein (409 `round_inconsistent` mit den Abweichungen). Der Abschluss legt in derselben Transaktion je
      * Position eines eigenen Fonds die Beteiligung (falls nötig), ein Instrument (Art, Runde, Anteilsklasse), die Zusage in Höhe der Position mit einer
      * Tranche und auf Wunsch erste Auszahlungen an. `fondsBuchungen` steuert das je Position (Zusage ab, Art, Auszahlungen); ohne Eintrag gilt der Standard
      * (Zusage an). Alles läuft über dieselbe Funktion wie jede andere Buchung.
      */
-    .post("/:id/abschliessen", pruefe("param", idParam), pruefe("json", abschluss), async (c) => {
+    .post("/:id/close", pruefePortfolio("param", idParam), pruefePortfolio("json", abschluss), async (c) => {
       const { id } = c.req.valid("param");
       const e = c.req.valid("json");
       const akteur = aktuellerAkteur(c);
@@ -574,7 +575,7 @@ export function rundenRouten(db: Db) {
         const positionen = await positionenVon(tx, id);
         const pruefung = pruefeRunde(rundenWerte(vorher), positionen, poolBeiRunde(await ladePoolBestand(tx, vorher.organisationId), vorher.datum, id));
         if (!pruefung.schliessbar) {
-          throw new Fachfehler(409, "RUNDE_NICHT_KONSISTENT", "Die Runde ist nicht stimmig und lässt sich nicht abschließen.", { abweichungen: pruefung.abweichungen });
+          throw new Fachfehler(409, "round_inconsistent", "The round is not consistent and cannot be closed.", { abweichungen: pruefung.abweichungen });
         }
         const buchungen = await bucheFondsBuchungen(tx, protokoll, akteur, vorher, positionen, e.fondsBuchungen);
         const [nachher] = await tx
@@ -585,19 +586,19 @@ export function rundenRouten(db: Db) {
         await protokoll("abschliessen", "finanzierungsrunde", id, vorher, { ...nachher, vorgangIds: buchungen.flatMap((b) => b.vorgangIds) });
         return { runde: await antwortVon(tx, nachher!), buchungen };
       });
-      return c.json(ergebnis, 200);
+      return c.json(portfolioAnApi(ergebnis), 200);
     })
     /** Verwalter: eine abgeschlossene Runde mit Begründung wieder öffnen. Gebuchte Vorgänge bleiben und werden bei Bedarf einzeln storniert. */
-    .post("/:id/wiedereroeffnen", pruefe("param", idParam), pruefe("json", wiedereroeffnung), async (c) => {
+    .post("/:id/reopen", pruefePortfolio("param", idParam), pruefePortfolio("json", wiedereroeffnung), async (c) => {
       const { id } = c.req.valid("param");
       const { grund } = c.req.valid("json");
       const akteur = aktuellerAkteur(c);
       const antwort = await schreibe(db, c, async (tx, protokoll) => {
         const vorher = await laden(tx, akteur, id, "verwalter");
         if (vorher.art === "bruecke") throw brueckeKeinAbschluss();
-        if (vorher.status !== "abgeschlossen") throw new Fachfehler(409, "RUNDE_NICHT_ABGESCHLOSSEN", "Die Runde ist noch nicht abgeschlossen.", { status: vorher.status });
+        if (vorher.status !== "abgeschlossen") throw new Fachfehler(409, "round_not_closed", "The round is not closed yet.", { status: vorher.status });
         const [verwendet] = await tx.select({ id: wandlung.id }).from(wandlung).where(eq(wandlung.rundeId, id));
-        if (verwendet) throw new Fachfehler(409, "RUNDE_VERWENDET", "Die Runde ist Grundlage einer Wandlung und lässt sich nicht wieder öffnen.", { wandlungId: verwendet.id });
+        if (verwendet) throw new Fachfehler(409, "round_used", "The round is the basis of a conversion and cannot be reopened.", { wandlungId: verwendet.id });
         const [nachher] = await tx
           .update(finanzierungsrunde)
           .set({ status: "entwurf", wiedergeoeffnetAm: new Date(), wiedergeoeffnetVon: protokoll.akteur, wiedereroeffnungGrund: grund })
@@ -606,7 +607,7 @@ export function rundenRouten(db: Db) {
         await protokoll("wiedereroeffnen", "finanzierungsrunde", id, vorher, { ...nachher, grund });
         return antwortVon(tx, nachher!);
       });
-      return c.json(antwort, 200);
+      return c.json(portfolioAnApi(antwort), 200);
     });
 }
 
@@ -620,10 +621,10 @@ export function positionZahlungRouten(db: Db) {
       .innerJoin(finanzierungsrunde, eq(finanzierungsrunde.id, rundenposition.rundeId))
       .where(eq(rundenposition.id, id));
     const [zeile] = await (sperren ? abfrage.for("update", { of: rundenposition }) : abfrage);
-    if (!zeile) throw new Fachfehler(404, "RUNDENPOSITION_NICHT_GEFUNDEN", "Rundenposition nicht gefunden.");
+    if (!zeile) throw new Fachfehler(404, "round_position_not_found", "Round position not found.");
     await verlangeRundenrecht(tx, akteur, zeile.runde.organisationId, mindest, [], zeile.runde.id);
-    if (zeile.p.fondsId) throw new Fachfehler(409, "ZAHLUNG_NUR_FREMDE_POSITION", "Zahlungen gibt es nur für Positionen von Co-Investoren.");
-    if (zahlungErwartet && zeile.runde.status !== "abgeschlossen") throw new Fachfehler(409, "RUNDE_NICHT_ABGESCHLOSSEN", "Die Runde ist noch nicht abgeschlossen.");
+    if (zeile.p.fondsId) throw new Fachfehler(409, "payment_third_party_position_only", "Payments exist only for positions of co-investors.");
+    if (zahlungErwartet && zeile.runde.status !== "abgeschlossen") throw new Fachfehler(409, "round_not_closed", "The round is not closed yet.");
     return zeile;
   };
   const stand = async (tx: Tx, positionId: string, betrag: string) => {
@@ -633,16 +634,16 @@ export function positionZahlungRouten(db: Db) {
   };
 
   return new Hono()
-    .get("/:id/zahlungen", pruefe("param", idParam), async (c) => {
+    .get("/:id/payments", pruefePortfolio("param", idParam), async (c) => {
       const { id } = c.req.valid("param");
       const akteur = aktuellerAkteur(c);
       const antwort = await lese(db, async (tx) => {
         const z = await ladePosition(tx, akteur, id, "betrachter", false, false);
         return stand(tx, id, z.p.betrag);
       });
-      return c.json(antwort, 200);
+      return c.json(portfolioAnApi(antwort), 200);
     })
-    .post("/:id/zahlungen", pruefe("param", idParam), pruefe("json", zahlungEingabe), async (c) => {
+    .post("/:id/payments", pruefePortfolio("param", idParam), pruefePortfolio("json", zahlungEingabe), async (c) => {
       const { id } = c.req.valid("param");
       const e = c.req.valid("json");
       const akteur = aktuellerAkteur(c);
@@ -651,28 +652,28 @@ export function positionZahlungRouten(db: Db) {
         const z = await ladePosition(tx, akteur, id, "bearbeiter", true);
         const bisher = await stand(tx, id, z.p.betrag);
         if (e.art === "rueckzahlung" && new Decimal(e.betrag).greaterThan(bisher.gezahlt)) {
-          ungueltig([{ feld: "betrag", code: "rueckzahlung_ueber_gezahlt", meldung: "Die Rückzahlung übersteigt den gezahlten Betrag" }]);
+          ungueltig([{ feld: "betrag", code: "repayment_exceeds_paid", meldung: "The repayment exceeds the amount paid" }]);
         }
         const [neu] = await tx.insert(rundenpositionZahlung).values({ positionId: id, datum: e.datum, art: e.art, betrag: e.betrag, bemerkung: e.bemerkung ?? null }).returning();
         await protokoll("anlegen", "rundenposition_zahlung", neu!.id, null, neu);
         return { zahlung: neu!, ...(await stand(tx, id, z.p.betrag)) };
       });
-      return c.json(antwort, 201);
+      return c.json(portfolioAnApi(antwort), 201);
     })
-    .delete("/:id/zahlungen/:zahlungId", pruefe("param", zahlungParam), async (c) => {
+    .delete("/:id/payments/:paymentId", pruefePortfolio("param", zahlungParam), async (c) => {
       const { id, zahlungId } = c.req.valid("param");
       const akteur = aktuellerAkteur(c);
       const antwort = await schreibe(db, c, async (tx, protokoll) => {
         const z = await ladePosition(tx, akteur, id, "bearbeiter", false);
         const [vorher] = await tx.select().from(rundenpositionZahlung).where(and(eq(rundenpositionZahlung.id, zahlungId), eq(rundenpositionZahlung.positionId, id)));
-        if (!vorher) throw new Fachfehler(404, "ZAHLUNG_NICHT_GEFUNDEN", "Zahlung nicht gefunden.");
+        if (!vorher) throw new Fachfehler(404, "payment_not_found", "Payment not found.");
         const ohne = await stand(tx, id, z.p.betrag);
         const danach = new Decimal(ohne.gezahlt).minus(vorher.art === "einzahlung" ? vorher.betrag : new Decimal(vorher.betrag).neg());
-        if (danach.isNegative()) ungueltig([{ feld: "zahlungId", code: "rueckzahlung_ueber_gezahlt", meldung: "Ohne diese Einzahlung wären die Rückzahlungen höher als das Gezahlte" }]);
+        if (danach.isNegative()) ungueltig([{ feld: "zahlungId", code: "repayment_exceeds_paid", meldung: "Without this payment, the repayments would exceed the amount paid" }]);
         await tx.delete(rundenpositionZahlung).where(eq(rundenpositionZahlung.id, zahlungId));
         await protokoll("loeschen", "rundenposition_zahlung", zahlungId, vorher, null);
         return stand(tx, id, z.p.betrag);
       });
-      return c.json(antwort, 200);
+      return c.json(portfolioAnApi(antwort), 200);
     });
 }

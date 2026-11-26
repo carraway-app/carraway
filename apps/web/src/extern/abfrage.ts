@@ -51,50 +51,15 @@ export class ExternerApiFehler extends Error {
   }
 }
 
-const CODES: Record<string, ExternerFehler> = {
-  ABFRAGE_NICHT_GEFUNDEN: "link",
-  ABFRAGE_WIDERRUFEN: "widerrufen",
-  ABFRAGE_ABGELAUFEN: "abgelaufen",
-  ZU_VIELE_ANFRAGEN: "zuViele",
-  ABFRAGE_EINGEREICHT: "eingereicht",
-  KENNZAHL_PFLICHT_FEHLT: "pflicht",
-  KENNZAHL_WERT_UNGUELTIG: "ungueltig",
-  EINGABE_UNGUELTIG: "ungueltig",
-  KENNZAHL_NICHT_ANGEFORDERT: "ungueltig",
-};
-
 export type Abrufer = typeof fetch;
 
-async function anfrage<T>(abrufer: Abrufer, token: string, methode: "GET" | "PUT" | "POST", pfad: string, koerper?: unknown): Promise<T> {
-  let antwort: Response;
-  try {
-    antwort = await abrufer(`/api/v1/extern/abfragen/${encodeURIComponent(token)}${pfad}`, {
-      method: methode,
-      credentials: "omit",
-      cache: "no-store",
-      referrerPolicy: "no-referrer",
-      headers: koerper === undefined ? { Accept: "application/json" } : { Accept: "application/json", "Content-Type": "application/json" },
-      ...(koerper === undefined ? {} : { body: JSON.stringify(koerper) }),
-    });
-  } catch {
-    throw new ExternerApiFehler("allgemein");
-  }
-  if (antwort.ok) return (await antwort.json()) as T;
-  let code = "";
-  let fehlend: string[] = [];
-  try {
-    const roh = (await antwort.json()) as { fehler?: { code?: string; fehlend?: string[] } };
-    code = roh.fehler?.code ?? "";
-    fehlend = roh.fehler?.fehlend ?? [];
-  } catch {
-    // keine lesbare Fehlerantwort: allgemeiner Fehler
-  }
-  throw new ExternerApiFehler(CODES[code] ?? (antwort.status === 429 ? "zuViele" : "allgemein"), fehlend);
-}
+const anfrage = (...teile: Parameters<typeof import("../api/abbildung-externe-abfrage").externeAnfrage>) =>
+  import("../api/abbildung-externe-abfrage").then((m) => m.externeAnfrage(...teile));
 
-export const ladeAbfrage = (abrufer: Abrufer, token: string) => anfrage<ExterneAbfrage>(abrufer, token, "GET", "");
+export const ladeAbfrage = (abrufer: Abrufer, token: string) => anfrage(abrufer, token, "GET", "");
 export interface EntwurfsWert {
   schluessel: string;
+  typ?: KennzahlTyp;
   wert: string | null;
   kommentar: string | null;
   /** Nur für ESG-Datenpunkte. */
@@ -102,8 +67,10 @@ export interface EntwurfsWert {
   quellenangabe?: string | null;
 }
 export const speichereEntwurf = (abrufer: Abrufer, token: string, werte: EntwurfsWert[]) =>
-  anfrage<ExterneAbfrage>(abrufer, token, "PUT", "", { werte });
-export const reicheEin = (abrufer: Abrufer, token: string) => anfrage<ExterneAbfrage>(abrufer, token, "POST", "/einreichen", {});
+  anfrage(abrufer, token, "PUT", "", {
+    werte: werte.map(({ typ, wert, ...eintrag }) => ({ ...eintrag, wert: typ === "ja_nein" && wert !== null ? (wert === "ja" ? "yes" : "no") : wert })),
+  });
+export const reicheEin = (abrufer: Abrufer, token: string) => anfrage(abrufer, token, "POST", "/submit", {});
 
 // Eingabe und Anzeige von Zahlen --------------------------------------------------------------------------------------
 

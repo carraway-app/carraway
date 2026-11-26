@@ -1,3 +1,4 @@
+import { ausCrm, kontaktAbruf, ausKontakten } from "./abbildung-kontakte";
 import { keepPreviousData, queryOptions } from "@tanstack/react-query";
 import { api, auspacken } from "./client";
 import { useApiMutation } from "./mutationen";
@@ -152,7 +153,7 @@ const als = <T>(p: Promise<unknown>) => p as Promise<T>;
 export const crmFelder = (objekt: Objekt, listeId?: string, archiviert = false) =>
   queryOptions({
     queryKey: [...crmSchluessel.felder(objekt, listeId), archiviert],
-    queryFn: async () => (await als<{ daten: Feld[] }>(auspacken(api.api.v1.crm.objekte[":objekt"].felder.$get({ param: { objekt }, query: { ...(listeId ? { listeId } : {}), ...(archiviert ? { archiviert: "1" as const } : {}) } })))).daten,
+    queryFn: async () => (await als<{ daten: Feld[] }>(ausCrm(api.api.v1.crm.objects[":object"].fields.$get, { param: { objekt }, query: { ...(listeId ? { listeId } : {}), ...(archiviert ? { archiviert: "1" as const } : {}) } }))).daten,
     staleTime: 30_000,
   });
 
@@ -168,12 +169,12 @@ const aufbereiten = (e: AbfrageEingabe) => ({ ...e, sortierung: e.sortierung ?? 
 export const crmAbfrage = (objekt: Objekt, eingabe: AbfrageEingabe) =>
   queryOptions({
     queryKey: [...crmSchluessel.abfrage(objekt), eingabe],
-    queryFn: () => als<AbfrageAntwort>(auspacken(api.api.v1.crm.objekte[":objekt"].abfrage.$post({ param: { objekt }, json: aufbereiten(eingabe) as never }))),
+    queryFn: () => als<AbfrageAntwort>(ausCrm(api.api.v1.crm.objects[":object"].query.$post, { param: { objekt }, json: aufbereiten(eingabe) as never })),
     placeholderData: keepPreviousData,
   });
 
 /** Eine Seite einer Abfrage (für virtuelles Nachladen); die Seiten liegen unter einem gemeinsamen Schlüssel je Konfiguration. */
-export const ladeAbfrageSeite = (objekt: Objekt, eingabe: AbfrageEingabe) => als<AbfrageAntwort>(auspacken(api.api.v1.crm.objekte[":objekt"].abfrage.$post({ param: { objekt }, json: aufbereiten(eingabe) as never })));
+export const ladeAbfrageSeite = (objekt: Objekt, eingabe: AbfrageEingabe) => als<AbfrageAntwort>(ausCrm(api.api.v1.crm.objects[":object"].query.$post, { param: { objekt }, json: aufbereiten(eingabe) as never }));
 
 export interface Gruppenzeile {
   /** Optionsschlüssel bzw. Benutzer-ID; `null` = ohne Wert. */
@@ -194,36 +195,36 @@ export interface GruppenAntwort {
 export const crmGruppen = (objekt: Objekt, eingabe: AbfrageEingabe, gruppe: string, summen: string[]) =>
   queryOptions({
     queryKey: [...crmSchluessel.abfrage(objekt), "gruppen", eingabe, gruppe, summen],
-    queryFn: () => als<GruppenAntwort>(auspacken(api.api.v1.crm.objekte[":objekt"].gruppen.$post({ param: { objekt }, json: { ...aufbereiten(eingabe), gruppe, summen } as never }))),
+    queryFn: () => als<GruppenAntwort>(ausCrm(api.api.v1.crm.objects[":object"].groups.$post, { param: { objekt }, json: { ...aufbereiten(eingabe), gruppe, summen } as never })),
     placeholderData: keepPreviousData,
   });
 
 export const crmBoard = (objekt: Objekt, eingabe: AbfrageEingabe, gruppe: string, summe: string | null) =>
   queryOptions({
     queryKey: [...crmSchluessel.board(objekt), eingabe, gruppe, summe],
-    queryFn: () => als<{ spalten: BoardSpalte[]; bezuege: Record<string, string | null> }>(auspacken(api.api.v1.crm.objekte[":objekt"].board.$post({ param: { objekt }, json: { ...aufbereiten(eingabe), gruppe, summe, kartenProSpalte: 50 } as never }))),
+    queryFn: () => als<{ spalten: BoardSpalte[]; bezuege: Record<string, string | null> }>(ausCrm(api.api.v1.crm.objects[":object"].board.$post, { param: { objekt }, json: { ...aufbereiten(eingabe), gruppe, summe, kartenProSpalte: 50 } as never })),
     placeholderData: keepPreviousData,
   });
 
 export const crmAnsichten = (objekt: Objekt, listeId?: string) =>
   queryOptions({
     queryKey: crmSchluessel.ansichten(objekt, listeId),
-    queryFn: async () => (await als<{ daten: Ansicht[] }>(auspacken(api.api.v1.crm.ansichten.$get({ query: { objekt, ...(listeId ? { listeId } : {}) } })))).daten,
+    queryFn: async () => (await als<{ daten: Ansicht[] }>(ausCrm(api.api.v1.crm.views.$get, { query: { objekt, ...(listeId ? { listeId } : {}) } }))).daten,
   });
 
 export const crmListen = (objekt?: Objekt) =>
   queryOptions({
     queryKey: [...crmSchluessel.listen, objekt ?? null],
-    queryFn: async () => (await als<{ daten: Liste[] }>(auspacken(api.api.v1.crm.listen.$get({ query: objekt ? { objekt } : {} })))).daten,
+    queryFn: async () => (await als<{ daten: Liste[] }>(ausCrm(api.api.v1.crm.lists.$get, { query: objekt ? { objekt } : {} }))).daten,
   });
 
 export const crmDatensatz = (objekt: Objekt, id: string) =>
-  queryOptions({ queryKey: crmSchluessel.datensatz(objekt, id), queryFn: () => als<Datensatz>(auspacken(api.api.v1.crm.datensaetze[":objekt"][":id"].$get({ param: { objekt, id } }))) });
+  queryOptions({ queryKey: crmSchluessel.datensatz(objekt, id), queryFn: () => als<Datensatz>(ausCrm(api.api.v1.crm.records[":object"][":id"].$get, { param: { objekt, id } })) });
 
 export const crmVerknuepfungen = (objekt: Objekt, id: string) =>
   queryOptions({
     queryKey: crmSchluessel.verknuepfungen(objekt, id),
-    queryFn: () => als<{ eingehend: Verweis[]; ausgehend: Verweis[] }>(auspacken(api.api.v1.crm.datensaetze[":objekt"][":id"].verknuepfungen.$get({ param: { objekt, id } }))),
+    queryFn: () => als<{ eingehend: Verweis[]; ausgehend: Verweis[] }>(ausCrm(api.api.v1.crm.records[":object"][":id"].links.$get, { param: { objekt, id } })),
   });
 
 /** Kurzkarte eines Datensatzes für die Vorschau an Verweisen (Name, Unternehmen, Kontaktwege). */
@@ -245,7 +246,7 @@ export interface Kurzkarte {
 export const crmKarte = (objekt: Objekt, id: string) =>
   queryOptions({
     queryKey: crmSchluessel.karte(objekt, id),
-    queryFn: () => als<Kurzkarte>(auspacken(api.api.v1.crm.datensaetze[":objekt"][":id"].karte.$get({ param: { objekt, id } }))),
+    queryFn: () => als<Kurzkarte>(ausCrm(api.api.v1.crm.records[":object"][":id"].card.$get, { param: { objekt, id } })),
     staleTime: 60_000,
     retry: false,
   });
@@ -261,14 +262,14 @@ export interface AufgabenFilter {
 export const crmAufgaben = (filter: AufgabenFilter) =>
   queryOptions({
     queryKey: [...crmSchluessel.aufgaben, filter],
-    queryFn: async () => (await als<{ daten: Aufgabe[] }>(auspacken(api.api.v1.crm.aufgaben.$get({ query: { ...filter } as never })))).daten,
+    queryFn: async () => (await als<{ daten: Aufgabe[] }>(ausCrm(api.api.v1.crm.tasks.$get, { query: { ...filter } as never }))).daten,
   });
 
 /** Kandidaten für Zuständigkeiten (Aufgaben, Felder „Person im Haus“): nur Kennung und Name; mit `dealId` nur, wer den Deal sehen darf. */
 export const crmZustaendige = (f: { q?: string; dealId?: string }) =>
   queryOptions({
     queryKey: [...crmSchluessel.zustaendige, f],
-    queryFn: async () => (await als<{ daten: { id: string; name: string }[] }>(auspacken(api.api.v1.crm.zustaendige.$get({ query: { ...f } as never })))).daten,
+    queryFn: async () => (await als<{ daten: { id: string; name: string }[] }>(ausCrm(api.api.v1.crm.assignees.$get, { query: { ...f } as never }))).daten,
     staleTime: 30_000,
     placeholderData: keepPreviousData,
   });
@@ -276,7 +277,7 @@ export const crmZustaendige = (f: { q?: string; dealId?: string }) =>
 export const crmBeschaeftigungen = (f: { personId?: string; organisationId?: string }) =>
   queryOptions({
     queryKey: [...crmSchluessel.beschaeftigungen, f],
-    queryFn: async () => (await als<{ daten: Beschaeftigung[] }>(auspacken(api.api.v1.crm.beschaeftigungen.$get({ query: { ...f } as never })))).daten,
+    queryFn: async () => (await als<{ daten: Beschaeftigung[] }>(ausCrm(api.api.v1.crm.employments.$get, { query: { ...f } as never }))).daten,
   });
 
 export interface DealKontakt {
@@ -292,7 +293,7 @@ export interface DealKontakt {
 export const crmDealKontakte = (id: string) =>
   queryOptions({
     queryKey: crmSchluessel.dealKontakte(id),
-    queryFn: async () => (await als<{ daten: DealKontakt[] }>(auspacken(api.api.v1.crm.deals[":id"].kontakte.$get({ param: { id } })))).daten,
+    queryFn: async () => (await als<{ daten: DealKontakt[] }>(ausCrm(api.api.v1.crm.deals[":id"].contacts.$get, { param: { id } }))).daten,
   });
 
 // Mutationen ------------------------------------------------------------------------------------------------------
@@ -303,7 +304,7 @@ const datenAlt = [crmSchluessel.wurzel, basisSchluessel.organisationListe, basis
 export const useDatensatzAendern = (objekt: Objekt) =>
   useApiMutation({
     aufruf: ({ id, system, eigene }: { id: string; system?: Record<string, unknown>; eigene?: Record<string, unknown> }) =>
-      auspacken(api.api.v1.crm.datensaetze[":objekt"][":id"].$patch({ param: { objekt, id }, json: { ...(system ? { system } : {}), ...(eigene ? { eigene } : {}) } })),
+      ausCrm(api.api.v1.crm.records[":object"][":id"].$patch, { param: { objekt, id }, json: { ...(system ? { system } : {}), ...(eigene ? { eigene } : {}) } }),
     invalidiert: ({ id }) => [crmSchluessel.abfrage(objekt), crmSchluessel.board(objekt), crmSchluessel.datensatz(objekt, id), crmSchluessel.verknuepfungen(objekt, id), ...datenAlt.slice(1)],
   });
 
@@ -322,7 +323,7 @@ export interface MassenErgebnis {
 export const useMassenaktion = (objekt: Objekt) =>
   useApiMutation({
     aufruf: (eingabe: { ids?: string[]; abfrage?: AbfrageEingabe; aktion: Massenaktion }) =>
-      als<MassenErgebnis>(auspacken(api.api.v1.crm.objekte[":objekt"].massenaktion.$post({ param: { objekt }, json: { ...eingabe, ...(eingabe.abfrage ? { abfrage: aufbereiten(eingabe.abfrage) } : {}) } as never }))),
+      als<MassenErgebnis>(ausCrm(api.api.v1.crm.objects[":object"]["bulk-actions"].$post, { param: { objekt }, json: { ...eingabe, ...(eingabe.abfrage ? { abfrage: aufbereiten(eingabe.abfrage) } : {}) } as never })),
     invalidiert: () => [...datenAlt],
   });
 
@@ -337,20 +338,20 @@ export interface FeldEingabe {
 
 export const useFeldAnlegen = () =>
   useApiMutation({
-    aufruf: (json: FeldEingabe) => auspacken(api.api.v1.crm.felder.$post({ json: json as never })),
+    aufruf: (json: FeldEingabe) => ausCrm(api.api.v1.crm.fields.$post, { json: json as never }),
     invalidiert: () => [crmSchluessel.wurzel, ["zusatzfelder"]],
   });
 
 export const useFeldAendern = () =>
   useApiMutation({
-    aufruf: ({ id, ...json }: { id: string; name?: string; optionen?: Record<string, unknown>; position?: number }) => auspacken(api.api.v1.crm.felder[":id"].$patch({ param: { id }, json })),
+    aufruf: ({ id, ...json }: { id: string; name?: string; optionen?: Record<string, unknown>; position?: number }) => ausCrm(api.api.v1.crm.fields[":id"].$patch, { param: { id }, json }),
     invalidiert: () => [crmSchluessel.wurzel, ["zusatzfelder"]],
   });
 
 export const useFeldArchivieren = () =>
   useApiMutation({
     aufruf: ({ id, wiederherstellen }: { id: string; wiederherstellen?: boolean }) =>
-      wiederherstellen ? auspacken(api.api.v1.crm.felder[":id"].wiederherstellen.$post({ param: { id } })) : auspacken(api.api.v1.crm.felder[":id"].archivieren.$post({ param: { id } })),
+      wiederherstellen ? ausCrm(api.api.v1.crm.fields[":id"].restore.$post, { param: { id } }) : ausCrm(api.api.v1.crm.fields[":id"].archive.$post, { param: { id } }),
     invalidiert: () => [crmSchluessel.wurzel, ["zusatzfelder"]],
   });
 
@@ -365,26 +366,26 @@ export interface AnsichtEingabe {
 
 export const useAnsichtSpeichern = (objekt: Objekt, listeId?: string) =>
   useApiMutation({
-    aufruf: (json: AnsichtEingabe) => als<Ansicht>(auspacken(api.api.v1.crm.ansichten.$post({ json: json as never }))),
+    aufruf: (json: AnsichtEingabe) => als<Ansicht>(ausCrm(api.api.v1.crm.views.$post, { json: json as never })),
     invalidiert: () => [crmSchluessel.ansichten(objekt, listeId)],
   });
 
 export const useAnsichtAendern = (objekt: Objekt, listeId?: string) =>
   useApiMutation({
     aufruf: ({ id, ...json }: { id: string; name?: string; art?: "tabelle" | "kanban"; konfig?: Konfig; geteilt?: boolean; standard?: boolean }) =>
-      als<Ansicht>(auspacken(api.api.v1.crm.ansichten[":id"].$patch({ param: { id }, json: json as never }))),
+      als<Ansicht>(ausCrm(api.api.v1.crm.views[":id"].$patch, { param: { id }, json: json as never })),
     invalidiert: () => [crmSchluessel.ansichten(objekt, listeId)],
   });
 
 export const useAnsichtLoeschen = (objekt: Objekt, listeId?: string) =>
   useApiMutation({
-    aufruf: (id: string) => auspacken(api.api.v1.crm.ansichten[":id"].$delete({ param: { id } })),
+    aufruf: (id: string) => ausCrm(api.api.v1.crm.views[":id"].$delete, { param: { id } }),
     invalidiert: () => [crmSchluessel.ansichten(objekt, listeId)],
   });
 
 export const useListeAnlegen = () =>
   useApiMutation({
-    aufruf: (json: { name: string; objekt: Objekt; beschreibung?: string }) => als<Liste>(auspacken(api.api.v1.crm.listen.$post({ json }))),
+    aufruf: (json: { name: string; objekt: Objekt; beschreibung?: string }) => als<Liste>(ausCrm(api.api.v1.crm.lists.$post, { json })),
     invalidiert: () => [crmSchluessel.listen],
   });
 
@@ -392,8 +393,8 @@ export const useListeEintraege = (listeId: string) =>
   useApiMutation({
     aufruf: ({ datensatzIds, entfernen }: { datensatzIds: string[]; entfernen?: boolean }) =>
       entfernen
-        ? als<unknown>(auspacken(api.api.v1.crm.listen[":id"].eintraege.entfernen.$post({ param: { id: listeId }, json: { datensatzIds } })))
-        : als<unknown>(auspacken(api.api.v1.crm.listen[":id"].eintraege.$post({ param: { id: listeId }, json: { datensatzIds } }))),
+        ? als<unknown>(ausCrm(api.api.v1.crm.lists[":id"].entries.remove.$post, { param: { id: listeId }, json: { datensatzIds } }))
+        : als<unknown>(ausCrm(api.api.v1.crm.lists[":id"].entries.$post, { param: { id: listeId }, json: { datensatzIds } })),
     invalidiert: () => [crmSchluessel.wurzel],
   });
 
@@ -401,50 +402,50 @@ export const useListeEintraege = (listeId: string) =>
 export const useListeEintragFelder = () =>
   useApiMutation({
     aufruf: ({ listeId, datensatzId, felder }: { listeId: string; datensatzId: string; felder: Record<string, unknown> }) =>
-      als<unknown>(auspacken(api.api.v1.crm.listen[":id"].eintraege[":datensatzId"].$patch({ param: { id: listeId, datensatzId }, json: { felder } }))),
+      als<unknown>(ausCrm(api.api.v1.crm.lists[":id"].entries[":recordId"].$patch, { param: { id: listeId, datensatzId }, json: { felder } })),
     invalidiert: () => [crmSchluessel.wurzel],
   });
 
 export const useAufgabeAnlegen = () =>
   useApiMutation({
-    aufruf: (json: { titel: string; faellig?: string | null; zustaendigId?: string | null; organisationId?: string; personId?: string; dealId?: string; notiz?: string | null }) => auspacken(api.api.v1.crm.aufgaben.$post({ json })),
+    aufruf: (json: { titel: string; faellig?: string | null; zustaendigId?: string | null; organisationId?: string; personId?: string; dealId?: string; notiz?: string | null }) => ausCrm(api.api.v1.crm.tasks.$post, { json }),
     invalidiert: () => [crmSchluessel.aufgaben],
   });
 
 export const useAufgabeAendern = () =>
   useApiMutation({
-    aufruf: ({ id, ...json }: { id: string; titel?: string; faellig?: string | null; zustaendigId?: string | null }) => auspacken(api.api.v1.crm.aufgaben[":id"].$patch({ param: { id }, json })),
+    aufruf: ({ id, ...json }: { id: string; titel?: string; faellig?: string | null; zustaendigId?: string | null }) => ausCrm(api.api.v1.crm.tasks[":id"].$patch, { param: { id }, json }),
     invalidiert: () => [crmSchluessel.aufgaben],
   });
 
 export const useAufgabeErledigen = () =>
   useApiMutation({
     aufruf: ({ id, erledigt }: { id: string; erledigt: boolean }) =>
-      erledigt ? auspacken(api.api.v1.crm.aufgaben[":id"].erledigt.$post({ param: { id } })) : auspacken(api.api.v1.crm.aufgaben[":id"]["wieder-oeffnen"].$post({ param: { id } })),
+      erledigt ? ausCrm(api.api.v1.crm.tasks[":id"].complete.$post, { param: { id } }) : ausCrm(api.api.v1.crm.tasks[":id"].reopen.$post, { param: { id } }),
     invalidiert: () => [crmSchluessel.aufgaben],
   });
 
 export const useBeschaeftigungAnlegen = () =>
   useApiMutation({
-    aufruf: (json: { personId: string; organisationId: string; funktion?: string | null; von?: string | null; bis?: string | null; haupt?: boolean }) => auspacken(api.api.v1.crm.beschaeftigungen.$post({ json })),
+    aufruf: (json: { personId: string; organisationId: string; funktion?: string | null; von?: string | null; bis?: string | null; haupt?: boolean }) => ausCrm(api.api.v1.crm.employments.$post, { json }),
     invalidiert: () => [crmSchluessel.wurzel, basisSchluessel.organisationen, basisSchluessel.personen],
   });
 
 export const useBeschaeftigungAendern = () =>
   useApiMutation({
-    aufruf: ({ id, ...json }: { id: string; funktion?: string | null; von?: string | null; bis?: string | null; haupt?: boolean }) => auspacken(api.api.v1.crm.beschaeftigungen[":id"].$patch({ param: { id }, json })),
+    aufruf: ({ id, ...json }: { id: string; funktion?: string | null; von?: string | null; bis?: string | null; haupt?: boolean }) => ausCrm(api.api.v1.crm.employments[":id"].$patch, { param: { id }, json }),
     invalidiert: () => [crmSchluessel.wurzel, basisSchluessel.organisationen, basisSchluessel.personen],
   });
 
 export const useBeschaeftigungLoeschen = () =>
   useApiMutation({
-    aufruf: (id: string) => auspacken(api.api.v1.crm.beschaeftigungen[":id"].$delete({ param: { id } })),
+    aufruf: (id: string) => ausCrm(api.api.v1.crm.employments[":id"].$delete, { param: { id } }),
     invalidiert: () => [crmSchluessel.wurzel, basisSchluessel.organisationen, basisSchluessel.personen],
   });
 
 export const useDealKontaktHinzufuegen = (dealId: string) =>
   useApiMutation({
-    aufruf: (json: { personId: string; rolle?: string | null }) => auspacken(api.api.v1.crm.deals[":id"].kontakte.$post({ param: { id: dealId }, json })),
+    aufruf: (json: { personId: string; rolle?: string | null }) => ausCrm(api.api.v1.crm.deals[":id"].contacts.$post, { param: { id: dealId }, json }),
     invalidiert: () => [crmSchluessel.dealKontakte(dealId)],
   });
 
@@ -467,17 +468,17 @@ export interface ImportEingabe {
   unternehmenAnlegen: boolean;
 }
 
-export const ladeKopfzeile = async (csv: string) => (await als<{ spalten: string[] }>(auspacken(api.api.v1.crm.import.kopfzeile.$post({ json: { csv } })))).spalten;
-export const importVorschau = (json: ImportEingabe) => als<ImportErgebnis>(auspacken(api.api.v1.crm.import.vorschau.$post({ json })));
+export const ladeKopfzeile = async (csv: string) => (await als<{ spalten: string[] }>(ausCrm(api.api.v1.crm.import.headers.$post, { json: { csv } }))).spalten;
+export const importVorschau = (json: ImportEingabe) => als<ImportErgebnis>(ausCrm(api.api.v1.crm.import.preview.$post, { json }));
 export const useCrmImport = () =>
   useApiMutation({
-    aufruf: (json: ImportEingabe) => als<ImportErgebnis>(auspacken(api.api.v1.crm.import.$post({ json }))),
+    aufruf: (json: ImportEingabe) => als<ImportErgebnis>(ausCrm(api.api.v1.crm.import.$post, { json })),
     invalidiert: () => [...datenAlt],
   });
 
 /** Export einer Ansicht als CSV: Der Browser lädt die Antwort als Datei. */
 export async function exportiereCsv(objekt: Objekt, eingabe: AbfrageEingabe): Promise<string> {
-  const antwort = await api.api.v1.crm.objekte[":objekt"].export.$post({ param: { objekt }, json: aufbereiten(eingabe) as never });
+  const antwort = await kontaktAbruf(api.api.v1.crm.objects[":object"].export.$post, { param: { objekt }, json: aufbereiten(eingabe) as never });
   if (!antwort.ok) await auspacken(Promise.resolve(antwort));
   return antwort.text();
 }
@@ -514,7 +515,7 @@ function verschiebeLokal(daten: BoardDaten, id: string, nach: Phase): BoardDaten
  */
 export const useDealVerschieben = () =>
   useApiMutation({
-    aufruf: ({ id, nachPhase }: { id: string; nachPhase: Phase }) => auspacken(api.api.v1.deals[":id"].phase.$post({ param: { id }, json: { nachPhase } })),
+    aufruf: ({ id, nachPhase }: { id: string; nachPhase: Phase }) => ausKontakten(api.api.v1.deals[":id"].stage.$post, { param: { id }, json: { nachPhase } }),
     vorher: async ({ id, nachPhase }, qc) => {
       await qc.cancelQueries({ queryKey: crmSchluessel.board("deal") });
       const alt = qc.getQueriesData<BoardDaten>({ queryKey: crmSchluessel.board("deal") });

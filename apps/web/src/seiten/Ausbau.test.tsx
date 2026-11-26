@@ -107,7 +107,7 @@ describe("Rollen und Beziehungen", () => {
   it("zeigt bei ähnlichen Personen die Kandidaten und legt erst nach Bestätigung an", async () => {
     const kandidat = { id: "p9", vorname: "Eva", nachname: "Musterfrau", email: "eva@example.org", organisation: null, grund: "email", score: 1 };
     const api = spieleApi({
-      "POST /api/v1/personen": (a) => ((a.koerper as { dubletteBestaetigt?: boolean }).dubletteBestaetigt ? { status: 201, koerper: { id: "p10" } } : fehler(409, "DUBLETTE_MOEGLICH", { kandidaten: [kandidat] })),
+      "POST /api/v1/personen": (a) => ((a.koerper as { dubletteBestaetigt?: boolean }).dubletteBestaetigt ? { status: 201, koerper: { id: "p10" } } : fehler(409, "possible_duplicate", { kandidaten: [kandidat] })),
     });
     rendereApp(`/organisationen/${ORG_A}`);
     const nutzer = userEvent.setup();
@@ -211,7 +211,7 @@ describe("Zusammenführen", () => {
   });
 
   it("bietet das Zusammenführen nur mit Schreibrecht an, und auf Englisch vollständig", async () => {
-    spieleApi({ "/api/v1/ich": alsRolle("betrachter") });
+    spieleApi({ "/api/v1/me": alsRolle("betrachter") });
     rendereApp(`/organisationen/${ORG_A}`);
     await screen.findByRole("heading", { level: 1, name: "Alpha Energie" });
     expect(screen.queryByRole("button", { name: "Zusammenführen" })).toBeNull();
@@ -261,8 +261,8 @@ describe("Kontaktimport", () => {
     const nutzer = userEvent.setup({ applyAccept: false });
     await screen.findByRole("heading", { level: 1, name: "Kontaktimport" });
     // Vorlagen als Links, in beiden Sprachen und Formaten
-    expect(screen.getByRole("link", { name: "Vorlage CSV, DE" }).getAttribute("href")).toBe("/api/v1/kontaktimport/vorlage?sprache=de&format=csv");
-    expect(screen.getByRole("link", { name: "Vorlage XLSX, EN" }).getAttribute("href")).toBe("/api/v1/kontaktimport/vorlage?sprache=en&format=xlsx");
+    expect(screen.getByRole("link", { name: "Vorlage CSV, DE" }).getAttribute("href")).toBe("/api/v1/contact-import/template?language=de&format=csv");
+    expect(screen.getByRole("link", { name: "Vorlage XLSX, EN" }).getAttribute("href")).toBe("/api/v1/contact-import/template?language=en&format=xlsx");
 
     await nutzer.upload(screen.getByLabelText("Datei (CSV oder Excel)"), new File([csv], "kontakte.csv", { type: "text/csv" }));
     await nutzer.click(screen.getByRole("button", { name: "Datei prüfen" }));
@@ -289,7 +289,7 @@ describe("Kontaktimport", () => {
   });
 
   it("lehnt andere Dateitypen ab und meldet unlesbare Dateien der API verständlich", async () => {
-    spieleApi({ "POST /api/v1/kontaktimport/vorschau": fehler(400, "IMPORT_UNGUELTIG", { grund: "zu_gross_entpackt" }) });
+    spieleApi({ "POST /api/v1/kontaktimport/vorschau": fehler(400, "import_invalid", { grund: "zu_gross_entpackt" }) });
     rendereApp("/kontakte/import");
     const nutzer = userEvent.setup({ applyAccept: false });
     const feld = await screen.findByLabelText("Datei (CSV oder Excel)");
@@ -319,7 +319,7 @@ describe("Kontaktimport", () => {
 
 describe("Wiedervorlagen", () => {
   const eintrag = { ...wiedervorlageDaten, zustaendigId: ICH_ID, ueberfaellig: true };
-  const namen = { "/api/v1/benutzer/namen": { koerper: { daten: [{ id: ICH_ID, name: "Vera Beispiel" }] } } };
+  const namen = { "/api/v1/users/names": { koerper: { daten: [{ id: ICH_ID, name: "Vera Beispiel" }] } } };
 
   it("zeigt in der Kopfzeile die Zahl der fälligen Wiedervorlagen mit eigenem Namen und führt zur Liste", async () => {
     const api = spieleApi({ "/api/v1/wiedervorlagen": (a) => ({ koerper: { daten: a.query.get("zustaendig") === "alle" ? [eintrag, { ...eintrag, id: "a2", titel: "Zweites Gespräch" }] : [eintrag] } }), ...namen });
@@ -369,7 +369,7 @@ describe("Wiedervorlagen", () => {
 
   it("ist auf Englisch vollständig und blendet Aktionen für Betrachter aus", async () => {
     localStorage.setItem("carraway.sprache", "en");
-    spieleApi({ "/api/v1/ich": alsRolle("betrachter"), "/api/v1/wiedervorlagen": { koerper: { daten: [eintrag] } }, ...namen });
+    spieleApi({ "/api/v1/me": alsRolle("betrachter"), "/api/v1/wiedervorlagen": { koerper: { daten: [eintrag] } }, ...namen });
     rendereApp("/wiedervorlagen");
     expect(await screen.findByRole("heading", { level: 1, name: "Follow-ups" })).toBeTruthy();
     expect(await screen.findByText("Overdue")).toBeTruthy();
@@ -403,7 +403,7 @@ describe("Auswertung: Trichter erweitert", () => {
     expect(within(betreuung[2] as HTMLElement).getByText("Ohne Betreuung")).toBeTruthy();
 
     const export_ = screen.getByRole("link", { name: "Als CSV herunterladen: Auswertung des Trichters" });
-    expect(export_.getAttribute("href")).toBe(`/api/v1/dealflow/trichter/export?sprache=de&von=2026-01-01&fondsId=${FONDS_ID}`);
+    expect(export_.getAttribute("href")).toBe(`/api/v1/dealflow/funnel/export?language=de&from=2026-01-01&fundId=${FONDS_ID}`);
     expect(export_.hasAttribute("download")).toBe(true);
   });
 
@@ -419,7 +419,7 @@ describe("Auswertung: Trichter erweitert", () => {
     expect(await screen.findByRole("region", { name: "Time in each phase" })).toBeTruthy();
     await nutzer.click(screen.getByRole("tab", { name: "Conversion" }));
     expect(await screen.findByRole("region", { name: "Conversion by owner" })).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Download as CSV: funnel analysis" }).getAttribute("href")).toBe("/api/v1/dealflow/trichter/export?sprache=en");
+    expect(screen.getByRole("link", { name: "Download as CSV: funnel analysis" }).getAttribute("href")).toBe("/api/v1/dealflow/funnel/export?language=en");
     localStorage.removeItem("carraway.sprache");
   });
 });
@@ -432,7 +432,7 @@ describe("Beschlussvorlagen", () => {
     let text: string | null = null;
     const api = spieleApi({
       [`/api/v1/deals/${DEAL_ID}`]: () => ({ koerper: { ...dealDetailDaten, beschlussvorschlag: text } }),
-      "/api/v1/beschlussvorlagen": { koerper: liste },
+      "/api/v1/resolution-templates": { koerper: liste },
       [`POST /api/v1/deals/${DEAL_ID}/beschlussvorschlag`]: () => {
         text = "<b>Alpha</b> erhält 2.450.000 EUR.";
         return { koerper: { beschlussvorschlag: text, vorlageId: "v1", deal: {} } };
@@ -457,9 +457,9 @@ describe("Beschlussvorlagen", () => {
 
   it("legt eine Vorlage an, meldet unbekannte Platzhalter und löscht; Bearbeiter sehen sie nur", async () => {
     const api = spieleApi({
-      "/api/v1/beschlussvorlagen": { koerper: liste },
-      "POST /api/v1/beschlussvorlagen": (a) => ((a.koerper as { text: string }).text.includes("{{gewinn}}") ? fehler(400, "PLATZHALTER_UNBEKANNT", { unbekannt: ["gewinn"] }) : { status: 201, koerper: { id: "v2" } }),
-      "DELETE /api/v1/beschlussvorlagen/v1": { status: 204, koerper: null },
+      "/api/v1/resolution-templates": { koerper: liste },
+      "POST /api/v1/resolution-templates": (a) => ((a.koerper as { text: string }).text.includes("{{gewinn}}") ? fehler(400, "placeholder_unknown", { unbekannt: ["gewinn"] }) : { status: 201, koerper: { id: "v2" } }),
+      "DELETE /api/v1/resolution-templates/v1": { status: 204, koerper: null },
     });
     rendereApp("/beschlussvorlagen");
     const nutzer = userEvent.setup();
@@ -473,14 +473,14 @@ describe("Beschlussvorlagen", () => {
     expect(await within(dialog).findByText("Unbekannte Platzhalter: gewinn")).toBeTruthy();
     fireEvent.change(within(dialog).getByLabelText("Text"), { target: { value: "{{organisation}}" } });
     await nutzer.click(within(dialog).getByRole("button", { name: "Vorlage anlegen" }));
-    await waitFor(() => expect(api.anfragen("POST", "/api/v1/beschlussvorlagen")).toHaveLength(2));
-    expect(api.anfragen("POST", "/api/v1/beschlussvorlagen")[1]?.koerper).toEqual({ fondsId: FONDS_ID, name: "Kurz", text: "{{organisation}}" });
+    await waitFor(() => expect(api.anfragen("POST", "/api/v1/resolution-templates")).toHaveLength(2));
+    expect(api.anfragen("POST", "/api/v1/resolution-templates")[1]?.koerper).toEqual({ fondsId: FONDS_ID, name: "Kurz", text: "{{organisation}}" });
     await nutzer.click(await screen.findByRole("button", { name: "Vorlage „Standard“ löschen" }));
-    await waitFor(() => expect(api.anfragen("DELETE", "/api/v1/beschlussvorlagen/v1")).toHaveLength(1));
+    await waitFor(() => expect(api.anfragen("DELETE", "/api/v1/resolution-templates/v1")).toHaveLength(1));
   });
 
   it("zeigt Bearbeitern ohne Verwalterrolle die Vorlagen nur zum Lesen", async () => {
-    spieleApi({ "/api/v1/ich": alsRolle("bearbeiter"), "/api/v1/beschlussvorlagen": { koerper: liste } });
+    spieleApi({ "/api/v1/me": alsRolle("bearbeiter"), "/api/v1/resolution-templates": { koerper: liste } });
     rendereApp("/beschlussvorlagen");
     expect(await screen.findByText("Vorlagen pflegen nur Verwalter dieses Fonds. Sie können sie hier lesen.")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Neue Vorlage" })).toBeNull();

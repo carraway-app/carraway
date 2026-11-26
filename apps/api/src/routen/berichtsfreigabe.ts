@@ -17,10 +17,14 @@ import { pruefeStichtag } from "../instrumente/stichtag";
 import { standardStichtag } from "../kennzahlen/fonds";
 import { verlangeAnderenAkteur } from "../instrumente/bewertung";
 import { geaendertSeitBedingung, geaendertSeitEingabe } from "../geaendert";
-import { pruefe } from "../pruefung";
 import { heute, idParam, optionalerText, protokolliereLesen, schreibe, textEingabe } from "../schreiben";
 import { fondsSichtbar } from "../rechte/sichtbarkeit";
 import { lese, type Tx } from "../zeitlimit";
+import { berichtPruefung } from "../berichte-pruefung";
+import { berichtAnApi, berichtWertAnApi } from "../berichte-vertrag";
+
+const pruefeApi = berichtPruefung("report");
+const anApi = <T>(wert: T) => berichtAnApi("report", wert);
 
 /**
  * Berichte mit Freigabe in Stufen (Etappe 5). Mount unter `/berichte`, nach den festen Pfaden der alten Download-Routen
@@ -57,7 +61,7 @@ const stufeEingabe = z.object({
 const abschnittParam = z.object({ id: z.uuid(), schluessel: z.string().regex(/^[a-z][a-z0-9_]{1,59}$/) });
 const abschnittEingabe = z
   .object({ textDe: z.string().max(20000).optional(), textEn: z.string().max(20000).optional() })
-  .refine((w) => w.textDe !== undefined || w.textEn !== undefined, { message: "Mindestens ein Text muss angegeben werden", path: [] });
+  .refine((w) => w.textDe !== undefined || w.textEn !== undefined, { message: "At least one text must be given", path: [] });
 
 /**
  * Wissensstand „jetzt“. Zeitstempel in der Datenbank haben Mikrosekunden, `Date` nur Millisekunden: eine Zeile, die in derselben
@@ -67,7 +71,7 @@ const jetzt = () => new Date(Date.now() + 1);
 
 async function sperreBericht(tx: Tx, id: string): Promise<Bericht> {
   const [b] = await tx.select().from(bericht).where(eq(bericht.id, id)).for("update");
-  if (!b) throw new Fachfehler(404, "BERICHT_NICHT_GEFUNDEN", "Bericht nicht gefunden.");
+  if (!b) throw new Fachfehler(404, "report_not_found", "Report not found.");
   return b;
 }
 
@@ -121,55 +125,55 @@ export function berichtFreigabeRouten(db: Db, speicher: Speicher = erstelleStand
      * Nur globale Verwalter: legt die Fassungen je Investor für LP-Berichte an, die vor den Fassungen freigegeben wurden. Die Daten sind die des festgehaltenen
      * Wissensstands und werden gegen die gespeicherte Hauptdatei geprüft; wiederholbar, unveränderlich gespeichert (SHA-256), protokolliert.
      */
-    .post("/varianten-nachholen", pruefe("json", z.object({ berichtId: z.uuid().optional() })), async (c) => {
+    .post("/backfill-variants", pruefeApi("json", z.object({ berichtId: z.uuid().optional() })), async (c) => {
       const { berichtId } = c.req.valid("json");
-      return c.json(await holeVariantenNach(db, c, speicher, berichtId ? { berichtId } : {}), 200);
+      return c.json(anApi(await holeVariantenNach(db, c, speicher, berichtId ? { berichtId } : {})), 200);
     })
     /** Legt einen Bericht als Entwurf an (Art, Bezug, Stichtag, Sprache, optional Wissensstand). */
-    .post("/", pruefe("json", neuerBericht), async (c) => {
+    .post("/", pruefeApi("json", neuerBericht), async (c) => {
       const e = c.req.valid("json");
       const ergebnis = await schreibe(db, c, async (tx, protokoll) => {
         const format = e.format ?? "pdf";
         const fehlerhaft = (feld: string, code: string, meldung: string) =>
-          new Fachfehler(400, "EINGABE_UNGUELTIG", "Die Eingabe ist ungültig.", { felder: [{ feld, code, meldung }] });
+          new Fachfehler(400, "invalid_input", "The input is invalid.", { felder: [{ feld, code, meldung }] });
         const formate = formateVon(e.art);
-        if (!formate) throw fehlerhaft("art", "art_nicht_verfuegbar", `Die Art ${e.art} gibt es in dieser Installation nicht`);
-        if (!formate.includes(format)) throw fehlerhaft("format", "format_nicht_moeglich", `Die Art ${e.art} gibt es nur als ${formate.join(" oder ")}`);
+        if (!formate) throw fehlerhaft("art", "type_unavailable", `The type ${berichtWertAnApi("report", "art", e.art)} is not available in this installation`);
+        if (!formate.includes(format)) throw fehlerhaft("format", "format_not_possible", `The type ${berichtWertAnApi("report", "art", e.art)} is only available as ${formate.join(" or ")}`);
         const erweiterung = berichtsartAusErweiterung(e.art);
         let fondsId = e.fondsId ?? null;
         let beteiligungId: string | null = null;
         if (e.art === "quartalsbericht") {
-          if (!e.beteiligungId) throw fehlerhaft("beteiligungId", "erforderlich", "Der Quartalsbericht braucht eine Beteiligung");
+          if (!e.beteiligungId) throw fehlerhaft("beteiligungId", "required", "The quarterly report requires an investment");
           const [b] = await tx.select().from(beteiligung).where(eq(beteiligung.id, e.beteiligungId));
-          if (!b) throw new Fachfehler(404, "BETEILIGUNG_NICHT_GEFUNDEN", "Beteiligung nicht gefunden.");
+          if (!b) throw new Fachfehler(404, "investment_not_found", "Investment not found.");
           beteiligungId = b.id;
           fondsId = b.fondsId;
         } else {
-          if (!fondsId) throw fehlerhaft("fondsId", "erforderlich", "Diese Berichtsart braucht einen Fonds");
+          if (!fondsId) throw fehlerhaft("fondsId", "required", "This report type requires a fund");
           const [f] = await tx.select({ id: fonds.id }).from(fonds).where(eq(fonds.id, fondsId));
-          if (!f) throw new Fachfehler(404, "FONDS_NICHT_GEFUNDEN", "Fonds nicht gefunden.");
+          if (!f) throw new Fachfehler(404, "fund_not_found", "Fund not found.");
         }
         // Arten aus Erweiterungen geben Vorgabe und Prüfung des Stichtags selbst vor (PAI-Erklärung: der 31.12. des letzten abgeschlossenen Jahres).
         // Szenariobericht: nur festgeschriebene Szenarien dieses Fonds; ihr Ergebnis ist gespeichert und unveränderlich, die Auswahl wird mit dem Bericht festgehalten.
         let szenarien: SzenarioZeile[] = [];
         if (e.art === "szenariobericht") {
           const ids = e.szenarioIds ?? [];
-          if (ids.length === 0 || new Set(ids).size !== ids.length) throw fehlerhaft("szenarioIds", "erforderlich", "Der Szenariobericht braucht ein bis drei verschiedene Szenarien");
+          if (ids.length === 0 || new Set(ids).size !== ids.length) throw fehlerhaft("szenarioIds", "required", "The scenario report requires one to three different scenarios");
           szenarien = await ladeSzenarien(tx, fondsId!, ids);
-          if (szenarien.length !== ids.length) throw new Fachfehler(404, "SZENARIO_NICHT_GEFUNDEN", "Szenario nicht gefunden.");
-          if (szenarien.some((z) => z.status !== "festgeschrieben")) throw new Fachfehler(409, "SZENARIO_NICHT_FESTGESCHRIEBEN", "Ein Szenarienbericht lässt sich nur mit festgeschriebenen Szenarien freigeben.");
-        } else if (e.szenarioIds) throw fehlerhaft("szenarioIds", "nur_szenariobericht", "Szenarien gibt es nur beim Szenariobericht");
+          if (szenarien.length !== ids.length) throw new Fachfehler(404, "scenario_not_found", "Scenario not found.");
+          if (szenarien.some((z) => z.status !== "festgeschrieben")) throw new Fachfehler(409, "scenario_not_locked", "A scenario report can only be approved with locked scenarios.");
+        } else if (e.szenarioIds) throw fehlerhaft("szenarioIds", "scenario_report_only", "Scenarios are only available for the scenario report");
         const sichtFehler = pruefeSichtEingabe(e);
         if (sichtFehler) throw fehlerhaft(sichtFehler.feld, sichtFehler.code, sichtFehler.meldung);
         const wahl = sichtWahl(e);
-        if (wahl.sicht !== "fonds" && !SICHT_ARTEN.includes(e.art)) throw fehlerhaft("waehrungssicht", "sicht_nicht_moeglich", "Die Währungssicht gibt es nur bei Fondsbericht, LP-Bericht, Portfolioliste und Exitliste");
+        if (wahl.sicht !== "fonds" && !SICHT_ARTEN.includes(e.art)) throw fehlerhaft("waehrungssicht", "view_not_possible", "The currency view is only available for the fund report, LP report, portfolio list and exit list");
         const stichtag = e.stichtag ?? (e.art === "szenariobericht" ? [...szenarien.map((z) => z.basisStichtag)].sort().at(-1)! : e.art === "gremienvorlage" ? heute() : erweiterung?.anlage?.standardStichtag ? erweiterung.anlage.standardStichtag(heute()) : await standardStichtag(tx, fondsId!, e.stand));
         const stichtagFehler = erweiterung?.anlage?.pruefeStichtag?.(stichtag);
         if (stichtagFehler) throw fehlerhaft("stichtag", stichtagFehler.code, stichtagFehler.meldung);
         if (e.art !== "gremienvorlage" && e.art !== "szenariobericht") await pruefeStichtag(tx, fondsId!, stichtag);
         const vorjahr = erweiterung?.anlage?.texteAusVorjahr;
-        if (e.texteAusVorjahr && !vorjahr) throw fehlerhaft("texteAusVorjahr", "nur_pai", "Texte aus dem Vorjahr gibt es nur bei der PAI-Erklärung");
-        if (e.stand && new Date(e.stand).getTime() > Date.now()) throw fehlerhaft("stand", "stand_in_zukunft", "Der Wissensstand darf nicht in der Zukunft liegen");
+        if (e.texteAusVorjahr && !vorjahr) throw fehlerhaft("texteAusVorjahr", "pai_only", "Texts from the previous year are only available for the PAI statement");
+        if (e.stand && new Date(e.stand).getTime() > Date.now()) throw fehlerhaft("stand", "knowledge_date_in_future", "The knowledge date must not be in the future");
         const stufen = await ladeFreigabestufen(tx, fondsId!);
         const konfiguration = await ladeVorlage(tx, fondsId!, e.art);
         const [neu] = await tx
@@ -213,15 +217,15 @@ export function berichtFreigabeRouten(db: Db, speicher: Speicher = erstelleStand
         }
         return { ...neu, texteUebernommenAus: uebernommenAus };
       });
-      return c.json(ergebnis, 201);
+      return c.json(anApi(ergebnis), 201);
     })
-    .post("/:id/berichtigung", pruefe("param", idParam), pruefe("json", z.object({ grund: textEingabe(1000) })), async (c) => {
+    .post("/:id/correction", pruefeApi("param", idParam), pruefeApi("json", z.object({ grund: textEingabe(1000) })), async (c) => {
       const { id } = c.req.valid("param");
       const { grund } = c.req.valid("json");
       const entwurf = await schreibe(db, c, async (tx, protokoll) => {
         const vor = await sperreBericht(tx, id);
-        if (vor.status !== "freigegeben") throw new Fachfehler(409, "VORFASSUNG_NICHT_FREIGEGEBEN", "Eine Berichtigung setzt eine freigegebene Fassung voraus.");
-        if (await nachfassungId(tx, id)) throw new Fachfehler(409, "BERICHTIGUNG_VORHANDEN", "Zu dieser Fassung gibt es bereits eine Berichtigung.");
+        if (vor.status !== "freigegeben") throw new Fachfehler(409, "previous_version_not_released", "A correction requires an approved version.");
+        if (await nachfassungId(tx, id)) throw new Fachfehler(409, "correction_exists", "A correction already exists for this version.");
         const fondsId = vor.fondsId ?? (await tx.select({ id: beteiligung.fondsId }).from(beteiligung).where(eq(beteiligung.id, vor.beteiligungId!)))[0]!.id;
         const [neu] = await tx.insert(bericht).values({
           vorfassungId: vor.id,
@@ -248,9 +252,9 @@ export function berichtFreigabeRouten(db: Db, speicher: Speicher = erstelleStand
         }
         return neu;
       });
-      return c.json(entwurf, 201);
+      return c.json(anApi(entwurf), 201);
     })
-    .get("/", pruefe("query", listenAbfrage), async (c) => {
+    .get("/", pruefeApi("query", listenAbfrage), async (c) => {
       const { fondsId, art, status, geaendertSeit } = c.req.valid("query");
       const daten = await lese(db, (tx) =>
         tx
@@ -259,73 +263,73 @@ export function berichtFreigabeRouten(db: Db, speicher: Speicher = erstelleStand
           .where(and(fondsSichtbar(c, bericht.fondsId), fondsId ? eq(bericht.fondsId, fondsId) : undefined, art ? eq(bericht.art, art) : undefined, status ? eq(bericht.status, status) : undefined, geaendertSeitBedingung("bericht", bericht.id, bericht.erstelltAm, geaendertSeit)))
           .orderBy(desc(bericht.erstelltAm), asc(bericht.id)),
       );
-      return c.json({ daten }, 200);
+      return c.json(anApi({ daten }), 200);
     })
-    .get("/:id", pruefe("param", idParam), async (c) => {
+    .get("/:id", pruefeApi("param", idParam), async (c) => {
       const { id } = c.req.valid("param");
       const detail = await lese(db, async (tx) => {
         const [b] = await tx.select().from(bericht).where(eq(bericht.id, id));
         return b ? ladeDetail(tx, b) : null;
       });
-      if (!detail) return fehlerAntwort(c, 404, "BERICHT_NICHT_GEFUNDEN", "Bericht nicht gefunden.");
-      return c.json(detail, 200);
+      if (!detail) return fehlerAntwort(c, 404, "report_not_found", "Report not found.");
+      return c.json(anApi(detail), 200);
     })
     /**
      * Datei des Berichts. Freigegeben: genau die gespeicherten Bytes (SHA-256 geprüft). Sonst frisch erzeugt mit Wasserzeichen
      * zum vorgegebenen oder aktuellen Wissensstand.
      */
-    .get("/:id/datei", pruefe("param", idParam), async (c) => {
+    .get("/:id/file", pruefeApi("param", idParam), async (c) => {
       const { id } = c.req.valid("param");
       const ergebnis = await lese(db, async (tx) => {
         const [b] = await tx.select().from(bericht).where(eq(bericht.id, id));
         if (!b) return null;
         if (b.status === "freigegeben" && b.dateiSchluessel && b.dateiSha256 && b.dateiName) {
           const bytes = await speicher.lese(b.dateiSchluessel);
-          if (sha256(bytes) !== b.dateiSha256) throw new Fachfehler(500, "DATEI_BESCHAEDIGT", "Die gespeicherte Datei stimmt nicht mehr mit ihrem Hash überein.");
+          if (sha256(bytes) !== b.dateiSha256) throw new Fachfehler(500, "file_corrupt", "The stored file no longer matches its hash.");
           return { bytes, typ: b.format === "pdf" ? "application/pdf" : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", name: b.dateiName, hash: b.dateiSha256 };
         }
         const d = await erzeugeBerichtDatei(tx, b, { entwurf: true, stand: b.standVorgabe ?? jetzt() });
         return { ...d, hash: null };
       });
-      if (!ergebnis) return fehlerAntwort(c, 404, "BERICHT_NICHT_GEFUNDEN", "Bericht nicht gefunden.");
+      if (!ergebnis) return fehlerAntwort(c, 404, "report_not_found", "Report not found.");
       await protokolliereLesen(db, c, "bericht", id, { bericht: "datei", freigegeben: ergebnis.hash !== null, dateiName: ergebnis.name, sha256: ergebnis.hash });
       return c.body(Buffer.from(ergebnis.bytes), 200, {
         "Content-Type": ergebnis.typ,
         "Content-Disposition": `attachment; filename="${ergebnis.name}"`,
         "Cache-Control": "no-store",
-        ...(ergebnis.hash ? { "X-Datei-Sha256": ergebnis.hash } : {}),
+        ...(ergebnis.hash ? { "X-File-Sha256": ergebnis.hash } : {}),
       });
     })
     /** Kontrollbericht der Berichtsdaten. Freigegebene Berichte werden mit ihrem festgehaltenen Stand geprüft. */
-    .get("/:id/kontrolle", pruefe("param", idParam), async (c) => {
+    .get("/:id/checks", pruefeApi("param", idParam), async (c) => {
       const { id } = c.req.valid("param");
       const kontrolle = await lese(db, async (tx) => {
         const [b] = await tx.select().from(bericht).where(eq(bericht.id, id));
         if (!b) return null;
         return kontrolliereBericht(tx, b, (b.stand ?? b.standVorgabe ?? jetzt()).toISOString());
       });
-      if (!kontrolle) return fehlerAntwort(c, 404, "BERICHT_NICHT_GEFUNDEN", "Bericht nicht gefunden.");
-      return c.json(kontrolle, 200);
+      if (!kontrolle) return fehlerAntwort(c, 404, "report_not_found", "Report not found.");
+      return c.json(anApi(kontrolle), 200);
     })
     /**
      * Freitextabschnitt des LP-Berichts setzen, solange der Bericht ein Entwurf ist (keine Stufe erteilt).
      * Schlüssel: vorwort, marktumfeld, ausblick; sie müssen in der Vorlage des Fonds stehen.
      */
-    .put("/:id/abschnitte/:schluessel", pruefe("param", abschnittParam), pruefe("json", abschnittEingabe), async (c) => {
+    .put("/:id/sections/:key", pruefeApi("param", abschnittParam), pruefeApi("json", abschnittEingabe), async (c) => {
       const { id, schluessel } = c.req.valid("param");
       const e = c.req.valid("json");
       const nachher = await schreibe(db, c, async (tx, protokoll) => {
         const b = await sperreBericht(tx, id);
         const freitexte = b.art === "lp_bericht" ? undefined : berichtsartAusErweiterung(b.art)?.freitexte;
-        if (b.art !== "lp_bericht" && !freitexte) throw new Fachfehler(409, "ABSCHNITT_UNBEKANNT", "Nur der LP-Bericht und die PAI-Erklärung haben Freitextabschnitte.", { art: b.art });
+        if (b.art !== "lp_bericht" && !freitexte) throw new Fachfehler(409, "section_unknown", "Only the LP report and the PAI statement have free-text sections.", { art: b.art });
         // Schlüssel je Art: Vorwort, Marktumfeld, Ausblick (LP-Bericht); bei Arten aus Erweiterungen deren Schlüssel (PAI-Erklärung: Vorbemerkung, Erläuterung und Maßnahmen je Indikator).
         const erlaubt: readonly string[] = freitexte ? freitexte.schluessel() : FREITEXT_SCHLUESSEL;
-        if (!erlaubt.includes(schluessel)) throw new Fachfehler(400, "EINGABE_UNGUELTIG", "Die Eingabe ist ungültig.", { felder: [{ feld: "schluessel", code: "invalid_value", meldung: `Unbekannter Abschnitt (erlaubt: ${erlaubt.join(", ")})` }] });
-        if (b.status !== "entwurf") throw new Fachfehler(409, "BERICHT_NICHT_ENTWURF", "Abschnitte lassen sich nur im Entwurf ändern.", { status: b.status });
+        if (!erlaubt.includes(schluessel)) throw new Fachfehler(400, "invalid_input", "The input is invalid.", { felder: [{ feld: "schluessel", code: "invalid_value", meldung: `Unknown section (allowed: ${erlaubt.map((key) => berichtWertAnApi("report", "schluessel", key)).join(", ")})` }] });
+        if (b.status !== "entwurf") throw new Fachfehler(409, "report_not_draft", "Sections can only be changed in a draft.", { status: b.status });
         const vorlage = pruefeKonfiguration(b.art, b.konfiguration);
         // Der Abschnitt der Vorlage zum Schlüssel (PAI-Erklärung: Vorbemerkung oder Tabelle); er muss in der Vorlage stehen.
         const abschnittName = freitexte ? freitexte.abschnitt(schluessel) : schluessel;
-        if (!vorlage.abschnitte.includes(abschnittName)) throw new Fachfehler(409, "ABSCHNITT_UNBEKANNT", "Der Abschnitt steht nicht in der Vorlage des Fonds.", { schluessel });
+        if (!vorlage.abschnitte.includes(abschnittName)) throw new Fachfehler(409, "section_unknown", "The section is not part of the fund's template.", { schluessel });
         const [vorher] = await tx.select().from(berichtAbschnitt).where(and(eq(berichtAbschnitt.berichtId, id), eq(berichtAbschnitt.schluessel, schluessel)));
         const werte = { ...(e.textDe !== undefined ? { textDe: e.textDe } : {}), ...(e.textEn !== undefined ? { textEn: e.textEn } : {}), geaendertVon: protokoll.akteur, geaendertAm: new Date() };
         const [neu] = vorher
@@ -334,29 +338,29 @@ export function berichtFreigabeRouten(db: Db, speicher: Speicher = erstelleStand
         await protokoll(vorher ? "aendern" : "anlegen", "bericht_abschnitt", neu!.id, vorher ?? null, neu);
         return neu!;
       });
-      return c.json(nachher, 200);
+      return c.json(anApi(nachher), 200);
     })
     /**
      * Freigabestufe: `ok` (die nächste Stufe, anderer Akteur als bei den gültigen Freigaben) oder `zurueck` (die zuletzt erteilte
      * Freigabe entfällt, mit Kommentar). Die letzte Stufe erzeugt die Datei ohne Wasserzeichen, hält den Stand fest und speichert sie.
-     * Ist der Kontrollbericht rot, ist die Freigabe 409 `KONTROLLE_ROT`, außer die letzte Stufe überschreibt mit Begründung.
+     * Ist der Kontrollbericht rot, ist die Freigabe 409 `checks_failed`, außer die letzte Stufe überschreibt mit Begründung.
      */
-    .post("/:id/stufe", pruefe("param", idParam), pruefe("json", stufeEingabe), async (c) => {
+    .post("/:id/stage", pruefeApi("param", idParam), pruefeApi("json", stufeEingabe), async (c) => {
       const { id } = c.req.valid("param");
       const e = c.req.valid("json");
       const nachher = await schreibe(db, c, async (tx, protokoll) => {
         const vorher = await sperreBericht(tx, id);
-        if (vorher.status === "freigegeben") throw new Fachfehler(409, "BERICHT_STATUS_UNGUELTIG", "Der Bericht ist bereits freigegeben.", { status: vorher.status });
+        if (vorher.status === "freigegeben") throw new Fachfehler(409, "report_status_invalid", "The report is already approved.", { status: vorher.status });
         const stufen = vorher.freigabestufen as string[];
         const log = await tx.select().from(berichtFreigabe).where(eq(berichtFreigabe.berichtId, id)).orderBy(asc(berichtFreigabe.am), asc(berichtFreigabe.id));
         const aktiv = aktiveFreigaben(log);
         const index = aktiv.length;
-        if (e.stufe !== stufen[index]) throw new Fachfehler(409, "BERICHT_STUFE_FALSCH", "Das ist nicht die nächste Stufe.", { erwartet: stufen[index] ?? null, stufe: e.stufe });
-        const fehlerhaft = (feld: string, code: string, meldung: string) => new Fachfehler(400, "EINGABE_UNGUELTIG", "Die Eingabe ist ungültig.", { felder: [{ feld, code, meldung }] });
+        if (e.stufe !== stufen[index]) throw new Fachfehler(409, "report_stage_wrong", "This is not the next stage.", { erwartet: stufen[index] ?? null, stufe: e.stufe });
+        const fehlerhaft = (feld: string, code: string, meldung: string) => new Fachfehler(400, "invalid_input", "The input is invalid.", { felder: [{ feld, code, meldung }] });
 
         if (e.ergebnis === "zurueck") {
-          if (!e.kommentar?.trim()) throw fehlerhaft("kommentar", "kommentar_erforderlich", "Für die Rückgabe ist ein Kommentar erforderlich");
-          if (e.kontrolleUeberschreiben) throw fehlerhaft("kontrolleUeberschreiben", "nur_bei_freigabe", "Die Überschreibung gilt nur bei der Freigabe der letzten Stufe");
+          if (!e.kommentar?.trim()) throw fehlerhaft("kommentar", "comment_required", "A comment is required to return the report");
+          if (e.kontrolleUeberschreiben) throw fehlerhaft("kontrolleUeberschreiben", "approval_only", "The override applies only to the approval of the last stage");
           const neueAnzahl = Math.max(0, index - 1);
           await tx.insert(berichtFreigabe).values({ berichtId: id, stufeIndex: index, stufe: e.stufe, ergebnis: "zurueck", kommentar: e.kommentar, akteur: protokoll.akteur });
           const [neu] = await tx.update(bericht).set({ naechsteStufe: neueAnzahl, status: neueAnzahl === 0 ? "entwurf" : "geprueft" }).where(eq(bericht.id, id)).returning();
@@ -367,13 +371,13 @@ export function berichtFreigabeRouten(db: Db, speicher: Speicher = erstelleStand
         // Vier-Augen auf jeder Stufe: nicht der Ersteller, nicht wer einen Abschnitt bearbeitet hat, nicht wer schon eine gültige Freigabe erteilt hat.
         verlangeAnderenAkteur(vorher.erstelltVon, protokoll.akteur);
         if ((await bisherigeBearbeiter(tx, id)).has(protokoll.akteur)) {
-          throw new Fachfehler(409, "VIER_AUGEN_VERLETZT", "Wer einen Abschnitt des Berichts bearbeitet hat, darf ihn nicht freigeben.");
+          throw new Fachfehler(409, "four_eyes_violated", "Whoever edited a section of the report must not approve it.");
         }
         if (aktiv.includes(protokoll.akteur)) {
-          throw new Fachfehler(409, "VIER_AUGEN_VERLETZT", "Jede Stufe verlangt einen anderen Akteur als die bereits erteilten Freigaben.");
+          throw new Fachfehler(409, "four_eyes_violated", "Each stage requires a different actor than the approvals already given.");
         }
         const letzte = index === stufen.length - 1;
-        if (e.kontrolleUeberschreiben && !letzte) throw fehlerhaft("kontrolleUeberschreiben", "nur_letzte_stufe", "Die Überschreibung ist nur in der letzten Stufe möglich");
+        if (e.kontrolleUeberschreiben && !letzte) throw fehlerhaft("kontrolleUeberschreiben", "last_stage_only", "The override is only possible in the last stage");
         if (!letzte) {
           await tx.insert(berichtFreigabe).values({ berichtId: id, stufeIndex: index, stufe: e.stufe, ergebnis: "ok", kommentar: e.kommentar ?? null, akteur: protokoll.akteur });
           const [neu] = await tx.update(bericht).set({ naechsteStufe: index + 1, status: "geprueft" }).where(eq(bericht.id, id)).returning();
@@ -387,7 +391,7 @@ export function berichtFreigabeRouten(db: Db, speicher: Speicher = erstelleStand
         let ueberschrieben: unknown = null;
         if (kontrolle.gesamt !== "ok") {
           if (!e.kontrolleUeberschreiben) {
-            throw new Fachfehler(409, "KONTROLLE_ROT", "Der Kontrollbericht zeigt Abweichungen; die Freigabe braucht eine ausdrückliche Überschreibung mit Begründung.", {
+            throw new Fachfehler(409, "checks_failed", "The control report shows deviations; the approval requires an explicit override with a justification.", {
               pruefungen: kontrolle.pruefungen.filter((p) => p.status !== "ok").map((p) => ({ code: p.code, schluessel: p.schluessel, params: p.params })),
             });
           }
@@ -437,6 +441,6 @@ export function berichtFreigabeRouten(db: Db, speicher: Speicher = erstelleStand
         await sendeBerichtFreigegeben(tx, protokoll, c.get("mail"), { berichtId: id, bericht: vorher.art, fondsId: hinweisFonds, fondsName: fondsZeile?.name ?? null });
         return neu!;
       });
-      return c.json(nachher, 200);
+      return c.json(anApi(nachher), 200);
     });
 }

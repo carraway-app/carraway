@@ -16,6 +16,9 @@ import { abgeleiteteId, euro, plusTage, tagesnummer } from "./zufall";
  * - Darlehen, Wandeldarlehen, Venture Debt und Gesellschafterdarlehen: eigene Brückenrunde (ohne Bewertung), Tranchen mit Bedingung, Zinsen.
  * - Wandlung: wie `apps/api/src/instrumente/wandlung.ts` (Rechenkern, gleiche Buchungen), Ziel ist ein neues Eigenkapital-Instrument derselben Beteiligung.
  * - Ein Unternehmen mit vollständiger Kette (Seed, Wandeldarlehen, Serie A durch Wandlung, Venture Debt, Folgerunde).
+ * - Am selben Unternehmen je ein Beispiel für weitere Instrumente und Vorgänge (Issue 148): Optionsscheine zur Venture Debt (ohne Kaufpreis, nicht
+ *   ausgeübt), ein SAFE als Brückenfinanzierung nach der Folgerunde (Zusage und Auszahlung, Wandlung offen) und eine Anteilsübertragung aus den
+ *   Stammanteilen an ein Vehikel eines Co-Investors (ohne Geldfluss des Fonds). Ids abgeleitet, keine Zufallszahlen; außer dem SAFE fließt kein Geld.
  */
 
 type V = NeuerVorgang & { id: string };
@@ -81,6 +84,50 @@ export function richteModellAus(d: Demodaten, optionen: ModellOptionen): void {
   const preFn = new Map<string, (davor: number, letztePost: number) => number>();
   const konvRunden = new Set<string>();
   const abrufDeltas: { fondsId: string; valuta: string; cent: number }[] = [];
+
+  /**
+   * Beispiele für SAFE, Optionsscheine und Anteilsübertragung am Schaufenster (nach dem Rechnen der Runden, damit Preise und Anteile feststehen).
+   * Ids sind abgeleitet; Vorgänge kommen mit eigenen Schlüsseln dazu (der laufende Zähler der übrigen bleibt unberührt). Bewertungen und Abrufe
+   * bleiben, wie sie sind.
+   */
+  const weitereInstrumente = (x: { b: Beteiligung; vd: Instrument; vdStart: string; r2: Runde; rb: Runde }) => {
+    const { b, vd, vdStart, r2, rb } = x;
+    const beispielId = (schluessel: string) => abgeleiteteId(b.id, `beispiel:${schluessel}`);
+    // Optionsscheine zur Venture Debt: 15.000 Anteile zum Preis der Serie A, sieben Jahre Laufzeit, kein Kaufpreis (kein Vorgang).
+    const ausgabe = vdStart;
+    const laufzeit = `${Number(ausgabe.slice(0, 4)) + 7}${ausgabe.slice(4)}`;
+    legeInstrumentAn(b, "optionsschein", {
+      art: "optionsschein",
+      bezeichnung: `Optionsscheine zur ${vd.bezeichnung}`,
+      rundeId: vd.rundeId ?? null,
+      status: "aktiv",
+      optionsscheinAnzahl: "15000",
+      ausuebungspreis: r2.preisJeAnteil as string,
+      ausgabeAm: ausgabe,
+      laufzeitBis: laufzeit,
+      erstelltAm: new Date(`${ausgabe}T08:00:00Z`),
+    });
+    // SAFE als Brücke nach der Serie B: 150.000 mit 20 % Abschlag und Bewertungsobergrenze beim 1,2-Fachen des Post-Money der Serie B, noch nicht gewandelt.
+    const safeDatum = plusTage(rb.datum, 45) <= BEWERTUNG_BIS ? plusTage(rb.datum, 45) : BEWERTUNG_BIS;
+    const obergrenze = euro(Math.round((cent(rb.postMoney) * 1.2) / 100_000_000) * 100_000_000);
+    const safe = legeInstrumentAn(b, "safe", { art: "safe", bezeichnung: `SAFE ${jahrVon(safeDatum)}`, status: "aktiv", wandlungsabschlag: "0.200000", bewertungsobergrenze: obergrenze, erstelltAm: new Date(`${safeDatum}T08:00:00Z`) });
+    bruecke(b, safe.id, `SAFE ${jahrVon(safeDatum)}`, safeDatum);
+    for (const art of ["zusage", "auszahlung"] as const) {
+      const zeile: V = { id: beispielId(`safe-${art}`), beteiligungId: b.id, instrumentId: safe.id, art, valuta: safeDatum, betrag: euro(15_000_000), bemerkung: art === "zusage" ? "Zusage SAFE" : "Auszahlung SAFE" };
+      neu.push(zeile);
+      vorgJe.set(b.id, [...(vorgJe.get(b.id) ?? []), zeile]);
+    }
+    // Bewusst ohne Anpassung der Abrufe (anders als die übrigen Auszahlungen des Schaufensters): Ein zusätzlicher Abruf verschöbe die Zahlungen der
+    // Investoren, auf die das Demo-Drehbuch Bezug nimmt. Die Auszahlung kommt aus der Liquidität des Fonds.
+    // Anteilsübertragung: Gründer geben 30.000 Stammanteile zu 80 % des Preises der Serie A an ein Vehikel eines Co-Investors ab (Datum zwischen Serie A und B).
+    const kaeufer = investoren[(Math.abs(tagesnummer(r2.datum)) + 1) % Math.max(1, investoren.length)];
+    const uDatum = plusTage(r2.datum, 120) < rb.datum ? plusTage(r2.datum, 120) : plusTage(r2.datum, 1);
+    if (kaeufer) {
+      const preis = (Number(r2.preisJeAnteil) * 0.8).toFixed(4);
+      const kaufpreis = euro(Math.round(30_000 * Number(preis) * 100));
+      d.anteilsuebertragungen.push({ id: beispielId("uebertragung"), organisationId: b.organisationId, datum: uDatum, kaeuferVehikelId: vehikelFuer(d.vehikel, kaeufer.id, beispielId("uebertragung")), anzahl: "30000", preisJeAnteil: `${preis}00`, kaufpreis, bemerkung: tx.uebertragung });
+    }
+  };
 
   // Hilfen ------------------------------------------------------------------------------------------------------
   const hauptInstrument = (b: Beteiligung) => (instJe.get(b.id) ?? [])[0] as Instrument;
@@ -280,6 +327,7 @@ export function richteModellAus(d: Demodaten, optionen: ModellOptionen): void {
   // Schaufenster ------------------------------------------------------------------------------------------------
   const umgestellt = new Set<string>();
   let schauBewertung: (() => void) | undefined;
+  let weitere: { b: Beteiligung; vd: Instrument; vdStart: string; r2: Runde; rb: Runde } | undefined;
   if (schau) {
     const { b, r1, p1, r2, p2 } = schau;
     const fonds = b.fondsId;
@@ -369,6 +417,7 @@ export function richteModellAus(d: Demodaten, optionen: ModellOptionen): void {
     vorgang(b, sb.id, "auszahlung", bDatum, 30_000_000, "Tranche 1", { trancheId: s1.id });
     abrufDeltas.push({ fondsId: fonds, valuta: bDatum, cent: 30_000_000 });
     void pb;
+    weitere = { b, vd, vdStart, r2, rb };
 
     // 6. Mitarbeiterbeteiligung: ESOP-Pool nach der Serie B (die Runden bleiben unverwässert gerechnet), Zuteilungen nach Kategorie ohne Namen.
     const poolDatum = plusTage(bDatum, 30);
@@ -620,6 +669,7 @@ export function richteModellAus(d: Demodaten, optionen: ModellOptionen): void {
     }
   }
   schauBewertung?.();
+  if (weitere) weitereInstrumente(weitere);
 
   // Abrufe des Fonds für geänderte Auszahlungen anpassen ------------------------------------------------------------
   for (const delta of abrufDeltas) {

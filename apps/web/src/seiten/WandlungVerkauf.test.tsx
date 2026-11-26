@@ -111,7 +111,7 @@ describe("Wandlung", () => {
     spieleApi({
       [`POST /api/v1/beteiligungen/${BET_ID}/wandlung/vorschau`]: {
         status: 400,
-        koerper: { fehler: { code: "EINGABE_UNGUELTIG", meldung: "x", felder: [{ feld: "preisregel.discount", code: "invalid_format", meldung: "x" }, { feld: "cutoff", code: "stichtag_ausserhalb", meldung: "x" }] } },
+        koerper: { error: { code: "invalid_input", message: "x", fields: [{ field: "preisregel.discount", code: "invalid_format", message: "x" }, { field: "cutoff", code: "as_of_out_of_range", message: "x" }] } },
       },
     });
     rendereApp(`${url}?tab=finanzierung&unter=instrumente`);
@@ -207,8 +207,8 @@ describe("Verkauf, Kaufpreisanpassung, Insolvenz", () => {
     });
   });
 
-  it("zeigt VERKAUF_UNGUELTIG mit Beträgen und bei Verlust das Wort Verlust", async () => {
-    spieleApi({ [`POST /api/v1/beteiligungen/${BET_ID}/verkauf/vorschau`]: fehler(409, "VERKAUF_UNGUELTIG", { erloes: "100.00", treuhand: "200.00", verkaeuferdarlehen: "0.00" }) });
+  it("zeigt sale_invalid mit Beträgen und bei Verlust das Wort Verlust", async () => {
+    spieleApi({ [`POST /api/v1/beteiligungen/${BET_ID}/verkauf/vorschau`]: fehler(409, "sale_invalid", { erloes: "100.00", treuhand: "200.00", verkaeuferdarlehen: "0.00" }) });
     rendereApp(url);
     const nutzer = userEvent.setup();
     await waehleAktion(nutzer, "Verkauf");

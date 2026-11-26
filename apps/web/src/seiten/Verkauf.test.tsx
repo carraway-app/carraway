@@ -79,7 +79,7 @@ describe("Verkauf: Vorschau vor dem Buchen", () => {
   });
 
   it("zeigt Prüffehler der Vorschau am Feld und bucht nichts", async () => {
-    const api = spieleApi({ [VORSCHAU]: fehler(400, "EINGABE_UNGUELTIG", { felder: [{ feld: "kaufpreis", code: "invalid_format", meldung: "x" }] }) });
+    const api = spieleApi({ [VORSCHAU]: fehler(400, "invalid_input", { felder: [{ feld: "kaufpreis", code: "invalid_format", meldung: "x" }] }) });
     rendereApp(url);
     const nutzer = userEvent.setup();
     await waehleAktion(nutzer, "Verkauf");
@@ -128,7 +128,7 @@ describe("Verkauf stornieren", () => {
   });
 
   it("übersetzt die Ablehnungsgründe des Stornos", async () => {
-    const codes = ["VERKAUF_BEREITS_STORNIERT", "VERKAUF_STORNO_SPAETERER_VERKAUF", "VERKAUF_STORNO_DARLEHEN_GENUTZT", "VERKAUF_STORNO_UEBER_VERKAUF", "FORDERUNG_STORNIERT"] as const;
+    const codes = ["sale_already_reversed", "sale_reversal_later_sale", "sale_reversal_loan_used", "sale_reversal_exceeds_sale", "receivable_reversed"] as const;
     for (const code of codes) {
       spieleApi({ ...mitVerkauf(), "POST /api/v1/verkaeufe/vk1/storno": fehler(409, code) });
       const { unmount } = rendereApp(url);
@@ -143,7 +143,7 @@ describe("Verkauf stornieren", () => {
   });
 
   it("nennt bei gesperrter Periode das Sperrdatum und übersetzt ins Englische", async () => {
-    spieleApi({ ...mitVerkauf(), "POST /api/v1/verkaeufe/vk1/storno": fehler(409, "PERIODE_GESPERRT", { gesperrtBis: "2026-09-30" }) });
+    spieleApi({ ...mitVerkauf(), "POST /api/v1/verkaeufe/vk1/storno": fehler(409, "period_locked", { gesperrtBis: "2026-09-30" }) });
     localStorage.setItem("carraway.sprache", "en");
     rendereApp(url);
     const nutzer = userEvent.setup();
@@ -151,7 +151,7 @@ describe("Verkauf stornieren", () => {
     await nutzer.type(dialog().getByLabelText("Reason"), "Test");
     await nutzer.click(dialog().getByRole("button", { name: "Reverse sale" }));
     const hinweis = await dialog().findByRole("alert");
-    expect(hinweis.textContent).toContain(en.fehler.PERIODE_GESPERRT);
+    expect(hinweis.textContent).toContain(en.fehler.period_locked);
     expect(hinweis.textContent).toContain("30/09/2026");
     localStorage.removeItem("carraway.sprache");
   });
@@ -165,9 +165,45 @@ describe("Verkauf stornieren", () => {
     expect(inst.queryByRole("button", { name: /stornieren/ })).toBeNull();
     unmount();
 
-    spieleApi({ ...mitVerkauf(), "/api/v1/ich": alsRolle("betrachter") });
+    spieleApi({ ...mitVerkauf(), "/api/v1/me": alsRolle("betrachter") });
     rendereApp(url);
     await (await abschnitt()).findByRole("heading", { name: /Verkäufe · 01\.10\.2026/ });
     expect(screen.queryByRole("button", { name: /Verkauf vom .* stornieren/ })).toBeNull();
+  });
+});
+
+describe("Exit mit Buchwert oder offenem Kapital (Issue #193)", () => {
+  const exit = (buchwert: string, offenesKapital: string) => ({
+    [`/api/v1/beteiligungen/${BET_ID}/instrumentdaten`]: {
+      koerper: {
+        ...instrumentDaten,
+        beteiligung: { ...instrumentDaten.beteiligung, status: "exit" },
+        instrumente: instrumentDaten.instrumente.map((i) => ({ ...i, status: "verkauft", offenesKapital, buchwert })),
+        zustand: { ...instrumentDaten.zustand, offenesKapital },
+        buchwert: { ...instrumentDaten.buchwert, wert: buchwert },
+      },
+    },
+  });
+
+  it("weist auf stehengebliebenen Buchwert hin, statt ihn zu verstecken", async () => {
+    spieleApi(exit("1012000.00", "1012000.00"));
+    rendereApp(url);
+    const inst = await abschnitt();
+    expect(await inst.findByText(de.inst.exitMitRest)).toBeTruthy();
+    expect(inst.getAllByText("1.012.000,00 €").length).toBeGreaterThan(0);
+  });
+
+  it("weist auch auf offenes Kapital eines Darlehens hin, wenn der Buchwert schon null ist", async () => {
+    spieleApi(exit("0.00", "250000.00"));
+    rendereApp(url);
+    expect(await (await abschnitt()).findByText(de.inst.exitMitRest)).toBeTruthy();
+  });
+
+  it("zeigt keinen Hinweis, wenn Buchwert und offenes Kapital null sind", async () => {
+    spieleApi(exit("0.00", "0.00"));
+    rendereApp(url);
+    const inst = await abschnitt();
+    expect(await inst.findByText(de.inst.nichtAktiv)).toBeTruthy();
+    expect(inst.queryByText(de.inst.exitMitRest)).toBeNull();
   });
 });

@@ -87,7 +87,7 @@ export function protokolliereLesen(db: Db, c: Context, tabelle: string, datensat
 /** Beträge kommen als Zeichenkette mit höchstens zwei Nachkommastellen (Entscheidung 7), größer als null. */
 export const betragEingabe = z
   .string()
-  .regex(/^(?!0+(\.0+)?$)\d{1,16}(\.\d{1,2})?$/, "Betrag größer als null mit höchstens zwei Nachkommastellen erwartet");
+  .regex(/^(?!0+(\.0+)?$)\d{1,16}(\.\d{1,2})?$/, "Expected an amount greater than zero with at most two decimal places");
 
 /** Text ohne Leerraum am Rand; leer ist ungültig. */
 export const textEingabe = (max = 500) => z.string().trim().min(1).max(max);
@@ -106,7 +106,7 @@ export const websiteEingabe = textEingabe(300)
         return false;
       }
     },
-    { message: "Absolute URL mit http: oder https: erwartet" },
+    { message: "Expected an absolute URL with http: or https:" },
   )
   .nullable()
   .optional();
@@ -115,7 +115,7 @@ export const idParam = z.object({ id: z.uuid() });
 
 /** Bei Änderungen muss mindestens ein Feld mitgeschickt werden. */
 export const mindestensEins = (werte: object) => Object.values(werte).some((w) => w !== undefined);
-export const MINDESTENS_EIN_FELD = { message: "Mindestens ein Feld muss angegeben werden", path: [] as string[] };
+export const MINDESTENS_EIN_FELD = { message: "At least one field must be given", path: [] as string[] };
 
 /** Entfernt `undefined`, damit nur mitgeschickte Felder geändert werden. */
 export function nurGesetzte<T extends Record<string, unknown>>(werte: T): Partial<T> {
@@ -126,14 +126,14 @@ export function nurGesetzte<T extends Record<string, unknown>>(werte: T): Partia
 
 export async function ladeOrganisation(tx: Tx, id: string) {
   const [zeile] = await tx.select().from(organisation).where(eq(organisation.id, id));
-  if (!zeile) throw new Fachfehler(404, "ORGANISATION_NICHT_GEFUNDEN", "Organisation nicht gefunden.");
+  if (!zeile) throw new Fachfehler(404, "organization_not_found", "Organization not found.");
   if (zeile.zusammengefuehrtIn) throw bereitsZusammengefuehrtFehler(zeile.zusammengefuehrtIn);
   return zeile;
 }
 
 export async function ladePerson(tx: Tx, id: string) {
   const [zeile] = await tx.select().from(person).where(eq(person.id, id));
-  if (!zeile) throw new Fachfehler(404, "PERSON_NICHT_GEFUNDEN", "Person nicht gefunden.");
+  if (!zeile) throw new Fachfehler(404, "person_not_found", "Person not found.");
   if (zeile.zusammengefuehrtIn) throw bereitsZusammengefuehrtFehler(zeile.zusammengefuehrtIn);
   return zeile;
 }
@@ -141,12 +141,12 @@ export async function ladePerson(tx: Tx, id: string) {
 /** Lädt den Deal und sperrt die Zeile bis zum Ende der Transaktion. */
 export async function ladeDeal(tx: Tx, id: string) {
   const [zeile] = await tx.select().from(deal).where(eq(deal.id, id)).for("update");
-  if (!zeile) throw new Fachfehler(404, "DEAL_NICHT_GEFUNDEN", "Deal nicht gefunden.");
+  if (!zeile) throw new Fachfehler(404, "deal_not_found", "Deal not found.");
   return zeile;
 }
 
 export async function ladeFonds(tx: Tx, id: string) {
   const [zeile] = await tx.select().from(fonds).where(eq(fonds.id, id));
-  if (!zeile) throw new Fachfehler(404, "FONDS_NICHT_GEFUNDEN", "Fonds nicht gefunden.");
+  if (!zeile) throw new Fachfehler(404, "fund_not_found", "Fund not found.");
   return zeile;
 }

@@ -190,7 +190,7 @@ const efre: DefinitionInhalt = {
       felder: [
         zahl("ind_output_unternehmen", "Unterstützte Unternehmen (Outputindikator)", "Enterprises supported (output indicator)", anzahl("bestand"), { hinweis: PLATZHALTER }),
         zahl("ind_output_darlehen", "davon mit Darlehen unterstützt", "of which supported by loans", anzahl("bestand"), { filter: { instrument: ["darlehen", "wandeldarlehen"] }, hinweis: PLATZHALTER }),
-        zahl("ind_output_eigenkapital", "davon mit Beteiligungskapital unterstützt", "of which supported by equity", anzahl("bestand"), { filter: { instrument: ["offene_beteiligung", "stille_beteiligung"] }, hinweis: PLATZHALTER }),
+        zahl("ind_output_eigenkapital", "davon mit Beteiligungskapital unterstützt", "of which supported by equity", anzahl("bestand"), { filter: { instrument: ["offene_beteiligung", "stille_beteiligung", "safe", "optionsschein"] }, hinweis: PLATZHALTER }),
         zahl("ind_output_neu", "Im Berichtszeitraum neu unterstützte Unternehmen", "Enterprises newly supported in the reporting period", anzahl("neu"), { hinweis: PLATZHALTER }),
         {
           id: "ind_ergebnis_beschaeftigte",

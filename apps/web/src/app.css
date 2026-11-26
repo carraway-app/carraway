@@ -284,7 +284,16 @@ body > .cw-ueberlagerung { inset-block-start: var(--umgebung-h, 0px); }
 .app-auth__karte--breit { width: min(640px, 100%); }
 .app-auth__karte h1 { margin: 0; }
 .app-auth__karte p { margin: 0; }
+.app-auth__zeichen { align-self: center; }
+.app-auth__zeichen .cw-logo__zeichen { width: 48px; height: 48px; }
+.app-auth__titel { text-align: center; }
+.app-auth__adresse { display: flex; align-items: center; justify-content: space-between; gap: var(--s-1); min-width: 0; }
+.app-auth__adresse-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--cw-text); }
 .app-auth__anbieter { display: flex; flex-direction: column; gap: var(--s-1); }
+.app-auth__trenner { display: flex; align-items: center; gap: var(--s-1); color: var(--cw-text-muted); font-size: var(--fs-klein); }
+.app-auth__trenner::before, .app-auth__trenner::after { content: ""; flex: 1; border-top: 1px solid var(--cw-line); }
+.app-auth__anbieter-knopf { justify-content: center; }
+.app-auth__anbieter-symbol { flex: none; width: 18px; height: 18px; }
 .app-auth__fuss { font-size: var(--fs-klein); }
 .app-schritte { display: flex; flex-direction: column; gap: var(--s-4); margin: 0; padding: 0; list-style: none; }
 .app-schritte > li { display: flex; flex-direction: column; gap: var(--s-2); min-width: 0; }
@@ -321,8 +330,11 @@ body > .cw-ueberlagerung { inset-block-start: var(--umgebung-h, 0px); }
 .app-abschnitt-text p { margin: 0; }
 .app-abschnitt-text p, .app-lesetext { max-inline-size: 72ch; }
 .app-stufenliste { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--s-2); }
-.app-stufenzeile { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--s-2); }
+.app-stufenzeile { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--s-2); padding-block: var(--s-0); }
 .app-stufenzeile .cw-feld { flex: 1 1 240px; }
+.app-baum > .cw-sortierbar__zeile { align-items: flex-start; }
+.app-baum__eintrag { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.app-baum__eintrag > .app-reihenfolge { min-height: var(--h-xs); }
 .app-reihenfolge { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--s-1); }
 
 /* Datenübernahme: Ablegefläche, Befunde, Listen der Verwaltungshilfe */
@@ -633,5 +645,10 @@ body > .cw-ueberlagerung { inset-block-start: var(--umgebung-h, 0px); }
 .app-vorlage__liste { display: flex; flex-direction: column; gap: var(--s-0); margin: 0; padding: 0; list-style: none; }
 .app-vorlage__liste li { display: flex; align-items: center; justify-content: space-between; gap: var(--s-1); min-height: 40px; padding: 0 var(--s-1); border-radius: var(--r-xl); background: var(--cw-surface); }
 .app-vorlage__knoepfe { display: inline-flex; gap: var(--s-0); }
+.app-vorlage__felder { gap: var(--s-0); }
+.app-vorlage__feld { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-1); padding-block: var(--s-0); }
+.app-vorlage__nr { min-width: 1.5rem; text-align: end; color: var(--cw-text-muted); font-variant-numeric: tabular-nums; }
+.app-vorlage__name { flex: 1 1 10rem; min-width: 0; }
+.app-vorlage__eigen { flex: 1 1 18rem; min-width: 0; }
 .app-vorlage__texte { padding-top: var(--s-2); border-top: 1px solid var(--cw-line); }
 @media (max-width: 899px) { .app-vorlage__spalten { grid-template-columns: minmax(0, 1fr); } }

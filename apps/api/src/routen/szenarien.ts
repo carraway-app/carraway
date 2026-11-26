@@ -1,3 +1,5 @@
+import { pruefeFonds } from "../fonds-pruefung";
+import { fondsAnApi } from "../fonds-vertrag";
 import { eq } from "drizzle-orm";
 import { Hono, type Context } from "hono";
 import { erzeugeSzenarioberichtExcel, erzeugeSzenarioberichtPdf } from "@carraway/berichte";
@@ -5,7 +7,6 @@ import { z } from "zod";
 import { beteiligung, reserve, szenario, type Db } from "@carraway/db";
 import { aktuellerAkteur } from "../anmeldung/akteur";
 import { Fachfehler } from "../fehler";
-import { pruefe } from "../pruefung";
 import { hatPostgresCode, MAX_RESERVE } from "../szenarien/konstanten";
 import { annahmenSchema } from "../szenarien/annahmen";
 import { ladeSzenarioberichtDaten } from "../szenarien/bericht";
@@ -21,20 +22,20 @@ const datum = z.iso.date();
 const neuesSzenario = z.object({ name: textEingabe(120), basisStichtag: datum.optional(), annahmen: annahmenSchema });
 const aenderungSzenario = z
   .object({ name: textEingabe(120).optional(), basisStichtag: datum.optional(), annahmen: annahmenSchema.optional() })
-  .refine((v) => v.name !== undefined || v.basisStichtag !== undefined || v.annahmen !== undefined, { message: "Mindestens ein Feld muss angegeben werden", path: [] });
+  .refine((v) => v.name !== undefined || v.basisStichtag !== undefined || v.annahmen !== undefined, { message: "At least one field must be provided", path: [] });
 
 const vergleichAbfrage = z.object({
   ids: z
     .string()
     .transform((s) => s.split(",").map((t) => t.trim()).filter(Boolean))
     .pipe(z.array(z.uuid()).min(1).max(3))
-    .refine((l) => new Set(l).size === l.length, { message: "Szenarien nur einmal angeben" }),
+    .refine((l) => new Set(l).size === l.length, { message: "Provide each scenario only once" }),
 });
 
 const reserveAbfrage = z.object({ stichtag: datum.optional(), szenarioId: z.uuid().optional() });
 
 const reserveEingabe = z.object({
-  betrag: z.string().regex(/^\d{1,16}(\.\d{1,2})?$/, "Betrag mit höchstens zwei Nachkommastellen erwartet"),
+  betrag: z.string().regex(/^\d{1,16}(\.\d{1,2})?$/, "Amount with at most two decimal places expected"),
   gueltigAb: datum,
   bemerkung: optionalerText(500),
 });
@@ -56,21 +57,21 @@ async function berichtAntwort(db: Db, c: Context, fondsId: string, zeilen: Szena
   });
 }
 
-const nameVorhanden =() => new Fachfehler(409, "SZENARIO_NAME_VORHANDEN", "Es gibt schon ein Szenario mit diesem Namen in diesem Fonds.");
-const festgeschrieben = () => new Fachfehler(409, "SZENARIO_FESTGESCHRIEBEN", "Das Szenario ist festgeschrieben und nicht mehr änderbar.");
+const nameVorhanden =() => new Fachfehler(409, "scenario_name_exists", "A scenario with this name already exists in this fund.");
+const festgeschrieben = () => new Fachfehler(409, "scenario_locked", "The scenario is locked and can no longer be changed.");
 
-/** Szenarien am Fonds: Liste, Anlegen, Vorlage, Vergleich, Reserven. Unter `/fonds`. */
+/** Szenarien am Fonds: Liste, Anlegen, Vorlage, Vergleich, Reserven. Unter `/funds`. */
 export function szenarioFondsRouten(db: Db) {
   return new Hono()
-    .get("/:id/szenarien", pruefe("param", idParam), async (c) => {
+    .get("/:id/scenarios", pruefeFonds("param", idParam), async (c) => {
       const { id } = c.req.valid("param");
       const zeilen = await lese(db, async (tx) => {
         await ladeFonds(tx, id);
         return ladeSzenarien(tx, id);
       });
-      return c.json({ daten: zeilen.map(kopf) }, 200);
+      return c.json(fondsAnApi({ daten: zeilen.map(kopf) }), 200);
     })
-    .post("/:id/szenarien", pruefe("param", idParam), pruefe("json", neuesSzenario), async (c) => {
+    .post("/:id/scenarios", pruefeFonds("param", idParam), pruefeFonds("json", neuesSzenario), async (c) => {
       const { id } = c.req.valid("param");
       const { name, basisStichtag, annahmen } = c.req.valid("json");
       const neu = await schreibe(db, c, async (tx, protokoll) => {
@@ -87,13 +88,13 @@ export function szenarioFondsRouten(db: Db) {
         await protokoll("anlegen", "szenario", zeile!.id, null, zeile);
         return zeile!;
       });
-      return c.json(kopf(neu), 201);
+      return c.json(fondsAnApi(kopf(neu)), 201);
     })
-    .get("/:id/szenarien/vorlage", pruefe("param", idParam), async (c) => {
+    .get("/:id/scenarios/template", pruefeFonds("param", idParam), async (c) => {
       const { id } = c.req.valid("param");
       const tag = heute();
       return c.json(
-        await lese(db, async (tx) => {
+        fondsAnApi(await lese(db, async (tx) => {
           await ladeFonds(tx, id);
           const ue = await berechneFondsUebersicht(tx, id, tag);
           return {
@@ -102,65 +103,65 @@ export function szenarioFondsRouten(db: Db) {
               .filter((b) => b.status === "aktiv")
               .map((b) => ({ id: b.id, organisation: b.organisation.name, instrument: b.instrument, wert: b.letzteBewertung?.wert ?? null, investiert: b.investiert })),
           };
-        }),
+        })),
         200,
       );
     })
-    .get("/:id/szenarien/vergleich", pruefe("param", idParam), pruefe("query", vergleichAbfrage), async (c) => {
+    .get("/:id/scenarios/comparison", pruefeFonds("param", idParam), pruefeFonds("query", vergleichAbfrage), async (c) => {
       const { id } = c.req.valid("param");
       const { ids } = c.req.valid("query");
       return c.json(
-        await lese(db, async (tx) => {
+        fondsAnApi(await lese(db, async (tx) => {
           await ladeFonds(tx, id);
           const zeilen = await ladeSzenarien(tx, id, ids);
-          if (zeilen.length !== ids.length) throw new Fachfehler(404, "SZENARIO_NICHT_GEFUNDEN", "Szenario nicht gefunden.");
+          if (zeilen.length !== ids.length) throw new Fachfehler(404, "scenario_not_found", "Scenario not found.");
           const geordnet = ids.map((i) => zeilen.find((z) => z.id === i)!);
           const ergebnisse: SzenarioErgebnis[] = [];
           for (const z of geordnet) ergebnisse.push((await ergebnisVon(tx, z)).ergebnis);
           return { fondsId: id, szenarien: geordnet.map((z, i) => ({ ...kopf(z), ergebnis: ergebnisse[i]! })), vergleich: vergleiche(ergebnisse) };
-        }),
+        })),
         200,
       );
     })
-    .get("/:id/szenarien/bericht", pruefe("param", idParam), pruefe("query", vergleichBericht), async (c) => {
+    .get("/:id/scenarios/report", pruefeFonds("param", idParam), pruefeFonds("query", vergleichBericht), async (c) => {
       const { id } = c.req.valid("param");
       const { ids, format, sprache } = c.req.valid("query");
       const zeilen = await lese(db, async (tx) => {
         await ladeFonds(tx, id);
         const z = await ladeSzenarien(tx, id, ids);
-        if (z.length !== ids.length) throw new Fachfehler(404, "SZENARIO_NICHT_GEFUNDEN", "Szenario nicht gefunden.");
+        if (z.length !== ids.length) throw new Fachfehler(404, "scenario_not_found", "Scenario not found.");
         return ids.map((i) => z.find((x) => x.id === i)!);
       });
       return berichtAntwort(db, c, id, zeilen, format, sprache, { tabelle: "fonds", id });
     })
-    .get("/:id/reserven", pruefe("param", idParam), pruefe("query", reserveAbfrage), async (c) => {
+    .get("/:id/reserves", pruefeFonds("param", idParam), pruefeFonds("query", reserveAbfrage), async (c) => {
       const { id } = c.req.valid("param");
       const { stichtag, szenarioId } = c.req.valid("query");
-      return c.json(await lese(db, (tx) => ladeReserven(tx, id, { stichtag, szenarioId })), 200);
+      return c.json(fondsAnApi(await lese(db, (tx) => ladeReserven(tx, id, { stichtag, szenarioId }))), 200);
     });
 }
 
-/** Ein Szenario: lesen, ändern, löschen, duplizieren, festschreiben. Unter `/szenarien`. */
+/** Ein Szenario: lesen, ändern, löschen, duplizieren, festschreiben. Unter `/scenarios`. */
 export function szenarioRouten(db: Db) {
   return new Hono()
-    .get("/:id", pruefe("param", idParam), async (c) => {
+    .get("/:id", pruefeFonds("param", idParam), async (c) => {
       const { id } = c.req.valid("param");
       return c.json(
-        await lese(db, async (tx) => {
+        fondsAnApi(await lese(db, async (tx) => {
           const z = await ladeSzenario(tx, id);
           const { ergebnis, pruefsumme } = await ergebnisVon(tx, z);
           return { ...kopf(z), annahmen: annahmenVon(z), ergebnis, pruefsumme };
-        }),
+        })),
         200,
       );
     })
-    .get("/:id/bericht", pruefe("param", idParam), pruefe("query", berichtAbfrage), async (c) => {
+    .get("/:id/report", pruefeFonds("param", idParam), pruefeFonds("query", berichtAbfrage), async (c) => {
       const { id } = c.req.valid("param");
       const { format, sprache } = c.req.valid("query");
       const z = await lese(db, (tx) => ladeSzenario(tx, id));
       return berichtAntwort(db, c, z.fondsId, [z], format, sprache, { tabelle: "szenario", id });
     })
-    .patch("/:id", pruefe("param", idParam), pruefe("json", aenderungSzenario), async (c) => {
+    .patch("/:id", pruefeFonds("param", idParam), pruefeFonds("json", aenderungSzenario), async (c) => {
       const { id } = c.req.valid("param");
       const aenderung = c.req.valid("json");
       const neu = await schreibe(db, c, async (tx, protokoll) => {
@@ -181,9 +182,9 @@ export function szenarioRouten(db: Db) {
         await protokoll("aendern", "szenario", id, vorher, zeile);
         return zeile!;
       });
-      return c.json(kopf(neu), 200);
+      return c.json(fondsAnApi(kopf(neu)), 200);
     })
-    .delete("/:id", pruefe("param", idParam), async (c) => {
+    .delete("/:id", pruefeFonds("param", idParam), async (c) => {
       const { id } = c.req.valid("param");
       await schreibe(db, c, async (tx, protokoll) => {
         const vorher = await ladeSzenario(tx, id);
@@ -193,7 +194,7 @@ export function szenarioRouten(db: Db) {
       });
       return c.body(null, 204);
     })
-    .post("/:id/duplizieren", pruefe("param", idParam), pruefe("json", z.object({ name: textEingabe(120).optional() }).default({})), async (c) => {
+    .post("/:id/duplicate", pruefeFonds("param", idParam), pruefeFonds("json", z.object({ name: textEingabe(120).optional() }).default({})), async (c) => {
       const { id } = c.req.valid("param");
       const { name } = c.req.valid("json");
       const neu = await schreibe(db, c, async (tx, protokoll) => {
@@ -213,14 +214,14 @@ export function szenarioRouten(db: Db) {
         await protokoll("anlegen", "szenario", zeile!.id, null, zeile);
         return zeile!;
       });
-      return c.json(kopf(neu), 201);
+      return c.json(fondsAnApi(kopf(neu)), 201);
     })
-    .post("/:id/festschreiben", pruefe("param", idParam), async (c) => {
+    .post("/:id/lock", pruefeFonds("param", idParam), async (c) => {
       const { id } = c.req.valid("param");
       const akteur = aktuellerAkteur(c);
       const neu = await schreibe(db, c, async (tx, protokoll) => {
         const [vorher] = await tx.select().from(szenario).where(eq(szenario.id, id)).for("update");
-        if (!vorher) throw new Fachfehler(404, "SZENARIO_NICHT_GEFUNDEN", "Szenario nicht gefunden.");
+        if (!vorher) throw new Fachfehler(404, "scenario_not_found", "Scenario not found.");
         if (vorher.status === "festgeschrieben") throw festgeschrieben();
         const stand = new Date();
         const ergebnis = await rechneSzenario(tx, vorher.fondsId, vorher.basisStichtag, annahmenVon(vorher), stand.toISOString());
@@ -233,28 +234,28 @@ export function szenarioRouten(db: Db) {
         await protokoll("festschreiben", "szenario", id, { status: vorher.status }, { status: zeile!.status, ergebnisHash: hash, wissensstand: stand.toISOString() });
         return zeile!;
       });
-      return c.json(kopf(neu), 200);
+      return c.json(fondsAnApi(kopf(neu)), 200);
     });
 }
 
 /** Reserve je Beteiligung: Verlauf lesen, neue Planung erfassen. Unter `/beteiligungen`. */
 export function reserveRouten(db: Db) {
   return new Hono()
-    .get("/:id/reserve", pruefe("param", idParam), async (c) => {
+    .get("/:id/reserve", pruefeFonds("param", idParam), async (c) => {
       const { id } = c.req.valid("param");
-      return c.json({ daten: await lese(db, (tx) => ladeReserveVerlauf(tx, id)) }, 200);
+      return c.json(fondsAnApi({ daten: await lese(db, (tx) => ladeReserveVerlauf(tx, id)) }), 200);
     })
-    .put("/:id/reserve", pruefe("param", idParam), pruefe("json", reserveEingabe), async (c) => {
+    .put("/:id/reserve", pruefeFonds("param", idParam), pruefeFonds("json", reserveEingabe), async (c) => {
       const { id } = c.req.valid("param");
       const e = c.req.valid("json");
-      if (Number(e.betrag) > MAX_RESERVE) throw new Fachfehler(400, "EINGABE_UNGUELTIG", "Der Betrag ist zu groß.");
+      if (Number(e.betrag) > MAX_RESERVE) throw new Fachfehler(400, "invalid_input", "The amount is too large.");
       const neu = await schreibe(db, c, async (tx, protokoll) => {
         const [b] = await tx.select({ id: beteiligung.id }).from(beteiligung).where(eq(beteiligung.id, id));
-        if (!b) throw new Fachfehler(404, "BETEILIGUNG_NICHT_GEFUNDEN", "Beteiligung nicht gefunden.");
+        if (!b) throw new Fachfehler(404, "investment_not_found", "Investment not found.");
         const [zeile] = await tx.insert(reserve).values({ beteiligungId: id, betrag: e.betrag, gueltigAb: e.gueltigAb, bemerkung: e.bemerkung ?? null, erfasstVon: protokoll.akteur }).returning();
         await protokoll("anlegen", "reserve", zeile!.id, null, zeile);
         return zeile!;
       });
-      return c.json(neu, 201);
+      return c.json(fondsAnApi(neu), 201);
     });
 }

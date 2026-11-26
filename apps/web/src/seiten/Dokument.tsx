@@ -1,6 +1,8 @@
 import { lazy, Suspense } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { getRouteApi, Link } from "@tanstack/react-router";
+import { alle } from "../erweiterung";
+import { useRechte } from "../lib/rechte";
 import { Hinweis, Seitenkopf, formatDatum } from "@carraway/ui";
 import { dokumentDateiUrl, dokumentDetail } from "../api/dokumente";
 import { Skelettzeilen } from "../komponenten/Skelett";
@@ -21,6 +23,7 @@ const route = getRouteApi("/dokumente/$id");
 export function DokumentSeite() {
   const t = useT();
   const d = t.dokumente;
+  const { darf } = useRechte();
   const sprache = useSprache();
   const { id } = route.useParams();
   const { seite, stichtag, stand } = route.useSearch();
@@ -67,6 +70,7 @@ export function DokumentSeite() {
             {d.herunterladen}
           </a>
         </p>
+        {!stand && !stichtag && data.status === "aktiv" && alle("dokumentAktion").map((Aktion, i) => <Aktion key={i} dokument={data} darfSchreiben={darf("bearbeiter", null, "dokumente")} />)}
       </section>
       {anzeigbar ? (
         <section className="app-karte">

@@ -6,7 +6,7 @@ import type { Db } from "@carraway/db";
 export type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 
 /**
- * Läuft ein Stapel (`POST /stapel`), liegen alle Lese- und Schreibwege in der einen Transaktion des Stapels: `schreibe()` arbeitet
+ * Läuft ein Stapel (`POST /batch`), liegen alle Lese- und Schreibwege in der einen Transaktion des Stapels: `schreibe()` arbeitet
  * dann in einem Savepoint, `lese()` liest in derselben Transaktion (und sieht damit die Schreibvorgänge davor).
  */
 export const stapelSpeicher = new AsyncLocalStorage<{ tx: Tx }>();

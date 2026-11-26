@@ -22,8 +22,8 @@ const summeInstrument = async (instrumentId: string, art: s.Vorgang["art"]) =>
 beforeEach(async () => {
   await grundbestand(db);
   const b = ID.wandel;
-  await post(`/beteiligungen/${b}/vorgaenge`, { art: "zusage", valuta: "2026-01-01", betrag: "200000" });
-  await post(`/beteiligungen/${b}/vorgaenge`, { art: "auszahlung", valuta: "2026-01-01", betrag: "100000" });
+  await post(`/investments/${b}/transactions`, { type: "commitment", valueDate: "2026-01-01", amount: "200000" });
+  await post(`/investments/${b}/transactions`, { type: "disbursement", valueDate: "2026-01-01", amount: "100000" });
   await post(`/beteiligungen/${b}/konditionen`, KONDITION);
   await leereAuftraege(db);
 });
@@ -85,7 +85,7 @@ describe("POST /beteiligungen/:id/wandlung", () => {
     // Die Wandlung ist im Detail sichtbar und nicht wiederholbar
     const nochmal = await wandlung(basis);
     expect(nochmal.status).toBe(409);
-    expect((await json(nochmal)).fehler.code).toBe("BEREITS_GEWANDELT");
+    expect((await json(nochmal)).error.code).toBe("already_converted");
   });
 
   it("mit Bewertungsobergrenze, Zinsauszahlung und Spitzenbetrag in einer bestehenden Runde", async () => {
@@ -171,7 +171,7 @@ describe("POST /beteiligungen/:id/wandlung", () => {
       const k = await klasse(ID.orgA, "Fremd");
       const antwort = await wandlung({ ...basis, anteilsklasseId: k.id });
       expect(antwort.status).toBe(409);
-      expect((await json(antwort)).fehler.code).toBe("ANTEILSKLASSE_PASST_NICHT");
+      expect((await json(antwort)).error.code).toBe("share_class_mismatch");
       expect(await db.select().from(s.rundenposition)).toHaveLength(0);
       expect((await wandlung({ ...basis, anteilsklasseId: "00000000-0000-4000-8000-0000000000ee" })).status).toBe(404);
     });
@@ -200,12 +200,12 @@ describe("POST /beteiligungen/:id/wandlung", () => {
 
   it("zwei Wandeldarlehen in einer Beteiligung: ohne Angabe des Instruments 400, mit Angabe wird genau dieses gewandelt", async () => {
     const zweites = await json(await post(`/beteiligungen/${ID.wandel}/instrumente`, { art: "wandeldarlehen", bezeichnung: "Wandeldarlehen 2026 II" }));
-    await post(`/beteiligungen/${ID.wandel}/vorgaenge`, { art: "zusage", valuta: "2026-01-01", betrag: "50000", instrumentId: zweites.id });
-    await post(`/beteiligungen/${ID.wandel}/vorgaenge`, { art: "auszahlung", valuta: "2026-01-01", betrag: "50000", instrumentId: zweites.id });
+    await post(`/investments/${ID.wandel}/transactions`, { type: "commitment", valueDate: "2026-01-01", amount: "50000", instrumentId: zweites.id });
+    await post(`/investments/${ID.wandel}/transactions`, { type: "disbursement", valueDate: "2026-01-01", amount: "50000", instrumentId: zweites.id });
     await post(`/beteiligungen/${ID.wandel}/konditionen`, { ...KONDITION, instrumentId: zweites.id });
     const ohne = await wandlung(basis);
     expect(ohne.status).toBe(400);
-    expect((await json(ohne)).fehler.felder[0]).toMatchObject({ feld: "instrumentId", code: "instrument_erforderlich" });
+    expect((await json(ohne)).error.fields[0]).toMatchObject({ field: "instrumentId", code: "instrument_required" });
     const d = await json(await wandlung({ ...basis, instrumentId: zweites.id }));
     expect(d.quellInstrumentId).toBe(zweites.id);
     expect(await summeInstrument(zweites.id, "tilgung")).toBe(50000);
@@ -229,32 +229,32 @@ describe("POST /beteiligungen/:id/wandlung", () => {
   it("lehnt falsches Instrument, fehlende Konditionen, fremde Runde, doppelte Position und unmögliche Daten ab", async () => {
     const falsch = await wandlung(basis, ID.darlehen);
     expect(falsch.status).toBe(409);
-    expect((await json(falsch)).fehler.code).toBe("INSTRUMENT_PASST_NICHT");
+    expect((await json(falsch)).error.code).toBe("instrument_mismatch");
 
     await db.update(s.beteiligung).set({ instrument: "wandeldarlehen" }).where(eq(s.beteiligung.id, ID.darlehen));
     await db.update(s.instrument).set({ art: "wandeldarlehen" }).where(eq(s.instrument.beteiligungId, ID.darlehen));
     const ohne = await wandlung(basis, ID.darlehen);
-    expect((await json(ohne)).fehler.code).toBe("KEINE_KONDITIONEN");
+    expect((await json(ohne)).error.code).toBe("no_terms");
 
     const [fremd] = await db.insert(s.finanzierungsrunde).values({ organisationId: ID.orgA, bezeichnung: "Fremd", datum: "2026-06-30", preMoney: "1", postMoney: "2", preisJeAnteil: "1.0000", anteileGesamtNach: "10" }).returning();
     const rundeFremd = await wandlung({ ...basis, runde: { id: fremd!.id } });
     expect(rundeFremd.status).toBe(409);
-    expect((await json(rundeFremd)).fehler.code).toBe("RUNDE_PASST_NICHT");
+    expect((await json(rundeFremd)).error.code).toBe("round_mismatch");
 
     const [eigen] = await db.insert(s.finanzierungsrunde).values({ organisationId: ID.orgC, bezeichnung: "Eigen", datum: "2026-06-30", preMoney: "1", postMoney: "2", preisJeAnteil: "1.0000", anteileGesamtNach: "10" }).returning();
     await db.insert(s.rundenposition).values({ rundeId: eigen!.id, fondsId: ID.fonds, betrag: "1.00", anteile: "1", rolle: "co" });
     const doppelt = await wandlung({ ...basis, runde: { id: eigen!.id } });
-    expect((await json(doppelt)).fehler.code).toBe("RUNDENPOSITION_VORHANDEN");
+    expect((await json(doppelt)).error.code).toBe("round_position_exists");
     expect((await wandlung({ ...basis, runde: { id: "00000000-0000-4000-8000-0000000000ee" } })).status).toBe(404);
 
     const frueh = await wandlung({ ...basis, cutoff: "2025-12-31" });
     expect(frueh.status).toBe(400); // vor dem ersten Vorgang des Fonds
-    expect((await json(frueh)).fehler.felder[0]).toMatchObject({ feld: "cutoff", code: "stichtag_ausserhalb" });
+    expect((await json(frueh)).error.fields[0]).toMatchObject({ field: "cutoff", code: "as_of_out_of_range" });
     // Der Rechenkern meldet weiterhin einen Cut-off vor der ersten Auszahlung (Fonds hat frühere Vorgänge)
     await vorgaengeEinfuegen(db, { beteiligungId: ID.eigen, art: "zusage", valuta: "2025-01-01", betrag: "1.00" });
     const frueh2 = await wandlung({ ...basis, cutoff: "2025-12-31" });
     expect(frueh2.status).toBe(409);
-    expect((await json(frueh2)).fehler).toMatchObject({ code: "BERECHNUNG_FEHLGESCHLAGEN", beteiligungId: ID.wandel });
+    expect((await json(frueh2)).error).toMatchObject({ code: "calculation_failed", beteiligungId: ID.wandel });
 
     const ungueltig = await wandlung({ ...basis, preisregel: { discount: "2" }, nennwertJeAnteil: "0", cutoff: "irgendwann" });
     expect(ungueltig.status).toBe(400);
@@ -343,7 +343,7 @@ describe("Cut-off: Stichtag-Schutz", () => {
     for (const pfad of ["wandlung", "wandlung/vorschau"]) {
       const antwort = await post(`/beteiligungen/${ID.wandel}/${pfad}`, { ...basis, cutoff: "9999-12-31" });
       expect(antwort.status).toBe(400);
-      expect((await json(antwort)).fehler.felder[0]).toMatchObject({ feld: "cutoff", code: "stichtag_ausserhalb" });
+      expect((await json(antwort)).error.fields[0]).toMatchObject({ field: "cutoff", code: "as_of_out_of_range" });
     }
     const vorFonds = await post(`/beteiligungen/${ID.wandel}/wandlung/vorschau`, { ...basis, cutoff: "2020-01-01" });
     expect(vorFonds.status).toBe(400);
@@ -352,7 +352,7 @@ describe("Cut-off: Stichtag-Schutz", () => {
     expect((await post(`/beteiligungen/${ID.wandel}/wandlung/vorschau`, { ...basis, cutoff: zukunft })).status).toBe(200);
     const gebucht = await post(`/beteiligungen/${ID.wandel}/wandlung`, { ...basis, cutoff: zukunft });
     expect(gebucht.status).toBe(400);
-    expect((await json(gebucht)).fehler.felder[0]).toMatchObject({ feld: "cutoff", code: "stichtag_ausserhalb" });
+    expect((await json(gebucht)).error.fields[0]).toMatchObject({ field: "cutoff", code: "as_of_out_of_range" });
     expect(await anzahl(db, "wandlung")).toBe(0);
   });
 });

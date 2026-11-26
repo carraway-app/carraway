@@ -4,8 +4,8 @@ import { describe, expect, it } from "vitest";
 import { alsRolle, BET_ID, fehler, ORG_A, rendereApp, spieleApi, letzteRegion } from "../test/hilfen";
 
 const url = `/beteiligungen/${BET_ID}?tab=foerderung`;
-const SCHLUESSEL = `/api/v1/beteiligungen/${BET_ID}/buchhaltungsschluessel`;
-const MELDEDATEN = `/api/v1/organisationen/${ORG_A}/meldedaten`;
+const SCHLUESSEL = `/api/v1/investments/${BET_ID}/accounting-keys`;
+const MELDEDATEN = `/api/v1/organizations/${ORG_A}/reporting-data`;
 const schmal = (text: string | null) => (text ?? "").replace(/\s+/g, " ");
 const gefuellt = {
   beteiligungId: BET_ID,
@@ -44,14 +44,14 @@ describe("Förderung und Buchhaltung an der Beteiligung", () => {
     await nutzer.click(abschnitt.getByRole("button", { name: "Schlüssel speichern" }));
 
     await waitFor(() => expect(api.anfragen("PUT", SCHLUESSEL)).toHaveLength(1));
-    expect(api.anfragen("PUT", SCHLUESSEL)[0]!.koerper).toEqual({ foerderprogramm: null, projektnummer: "P-100", vertragsnummer: "V-7", partnernummer: "PN-3", buchungskreis: "BK1" });
+    expect(api.anfragen("PUT", SCHLUESSEL)[0]!.koerper).toEqual({ fundingProgram: null, projectNumber: "P-100", contractNumber: "V-7", partnerNumber: "PN-3", companyCode: "BK1" });
     expect(api.anfragen("PUT", MELDEDATEN)).toHaveLength(0); // Meldedaten ändert nur die Organisation
     expect(await abschnitt.findByText("Die Schlüssel sind gespeichert.")).toBeTruthy();
   });
 
   it("zeigt Fehler am Feld und sendet nie Meldedaten", async () => {
     const nutzer = userEvent.setup();
-    const api = spieleApi({ [SCHLUESSEL]: { koerper: gefuellt }, [`PUT ${SCHLUESSEL}`]: fehler(404, "FOERDERPROGRAMM_NICHT_GEFUNDEN") });
+    const api = spieleApi({ [SCHLUESSEL]: { koerper: gefuellt }, [`PUT ${SCHLUESSEL}`]: fehler(404, "funding_program_not_found") });
     rendereApp(url);
     const abschnitt = within(await letzteRegion("Förderung und Buchhaltung"));
     await abschnitt.findByDisplayValue("P-100");
@@ -61,7 +61,7 @@ describe("Förderung und Buchhaltung an der Beteiligung", () => {
   });
 
   it("zeigt Betrachtern die Werte, aber ohne Speichern", async () => {
-    spieleApi({ "/api/v1/ich": alsRolle("betrachter"), [SCHLUESSEL]: { koerper: gefuellt } });
+    spieleApi({ "/api/v1/me": alsRolle("betrachter"), [SCHLUESSEL]: { koerper: gefuellt } });
     rendereApp(url);
     const abschnitt = within(await letzteRegion("Förderung und Buchhaltung"));
     expect((await abschnitt.findByLabelText("Projektnummer")).matches(":disabled")).toBe(true);

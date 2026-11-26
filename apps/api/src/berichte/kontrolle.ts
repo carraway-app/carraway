@@ -110,12 +110,19 @@ async function fondsPruefungen(tx: Abfrage, b: Bericht, fondsId: string, stichta
   // 6. LP-Bericht: Zeichnungen und Kapitalkonten stimmen mit dem Fonds überein
   if (b.art === "lp_bericht") {
     const konten = await ladeKapitalkonten(tx, fondsId, stichtag, stand, navBericht);
-    const summe = (feld: "zusage" | "abgerufen" | "ausgeschuettet" | "navAnteil") => konten.reduce((x, k) => x.plus(k[feld] ?? 0), new Decimal(0));
+    const summe = (feld: "zusage" | "abgerufen" | "ausgeschuettet" | "navAnteil" | "verwaltungsverguetung" | "fondskosten") => konten.reduce((x, k) => x.plus(k[feld] ?? 0), new Decimal(0));
     const { rows: bew } = await tx.execute<{ abruf: string; ausschuettung: string }>(sql`
       SELECT coalesce(sum(betrag) FILTER (WHERE art = 'abruf'), 0)::text AS abruf, coalesce(sum(betrag) FILTER (WHERE art = 'ausschuettung'), 0)::text AS ausschuettung
       FROM fonds_bewegung WHERE fonds_id = ${fondsId} AND valuta <= ${stichtag}::date${bisStand(sql.raw("erfasst_am"), stand)}`);
-    const soll = { zusage: f?.zeichnungskapital ?? "0", abgerufen: bew[0]?.abruf ?? "0", ausgeschuettet: bew[0]?.ausschuettung ?? "0", navAnteil: navBericht };
-    const abw = (["zusage", "abgerufen", "ausgeschuettet", "navAnteil"] as const)
+    // Verwaltungsvergütung und Fondskosten (Issue #157): Summe der Buchungen gegen die Summe der Anteile auf den Konten.
+    const { rows: kst } = await tx.execute<{ verguetung: string; kosten: string }>(sql`
+      SELECT coalesce(sum(betrag) FILTER (WHERE art = 'verwaltungsverguetung'), 0)::text AS verguetung, coalesce(sum(betrag) FILTER (WHERE art = 'fondskosten'), 0)::text AS kosten
+      FROM fonds_kosten WHERE fonds_id = ${fondsId} AND valuta <= ${stichtag}::date${bisStand(sql.raw("erfasst_am"), stand)}`);
+    const soll = {
+      zusage: f?.zeichnungskapital ?? "0", abgerufen: bew[0]?.abruf ?? "0", ausgeschuettet: bew[0]?.ausschuettung ?? "0", navAnteil: navBericht,
+      verwaltungsverguetung: kst[0]?.verguetung ?? "0", fondskosten: kst[0]?.kosten ?? "0",
+    };
+    const abw = (["zusage", "abgerufen", "ausgeschuettet", "navAnteil", "verwaltungsverguetung", "fondskosten"] as const)
       .filter((k) => soll[k] !== null && !gleich(summe(k), soll[k]))
       .map((k) => ({ feld: k, kapitalkonten: summe(k).toFixed(2), fonds: new Decimal(soll[k]!).toFixed(2) }));
     ergebnis.push(pruefung("kapitalkonten_summe", "KAPITALKONTEN_ABWEICHUNG", "Die Kapitalkonten der Investoren ergeben die Summen des Fonds", konten.length === 0 ? [{ feld: "zeichnungen", hinweis: "keine Zeichnungen erfasst" }] : abw));

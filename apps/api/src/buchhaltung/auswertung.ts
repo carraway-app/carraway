@@ -3,6 +3,7 @@ import { beteiligung, gliederungPosition, kontenregel, organisation, saldenlauf,
 import { Decimal, rechneSicht, type Auswertung, type Position, type Regel, type Rechenschritt } from "@carraway/rechenkern";
 import { Fachfehler } from "../fehler";
 import { ladeInstrumentdaten } from "../instrumente/daten";
+import { ladeKapitalstand } from "../instrumente/kapitalstand";
 import { ohneStornoPaare } from "../kennzahlen/fonds";
 import type { Tx } from "../zeitlimit";
 import { geldlos } from "../instrumente/geldfluss";
@@ -14,14 +15,14 @@ import { geldlos } from "../instrumente/geldfluss";
 
 export type SichtName = "bilanz" | "guv" | "liquiditaet" | "mittelverwendung" | "portfolio";
 
-/** Die gültige Saldenliste für das Periodenende; 409 `SALDENLISTE_FEHLT`, wenn es keine gibt. */
+/** Die gültige Saldenliste für das Periodenende; 409 `trial_balance_missing`, wenn es keine gibt. */
 export async function aktiverLauf(tx: Tx, fondsId: string, bis: string): Promise<Saldenlauf> {
   const [lauf] = await tx
     .select()
     .from(saldenlauf)
     .where(and(eq(saldenlauf.fondsId, fondsId), eq(saldenlauf.zeitraumBis, bis), eq(saldenlauf.status, "uebernommen"), isNull(saldenlauf.ersetztAm)))
     .limit(1);
-  if (!lauf) throw new Fachfehler(409, "SALDENLISTE_FEHLT", "Für diesen Zeitraum gibt es keine übernommene Saldenliste.", { bis });
+  if (!lauf) throw new Fachfehler(409, "trial_balance_missing", "There is no applied trial balance for this period.", { bis });
   return lauf;
 }
 
@@ -116,9 +117,14 @@ export async function stimmePortfolioAb(tx: Tx, lauf: Saldenlauf, portfolioSicht
 }
 
 /**
- * Liquidität: Zahlungsstrom aus den Daten der Plattform (Abrufe − Ausschüttungen − Auszahlungen + Rückflüsse + Tilgungen + gezahlte Zinsen
- * + Dividenden, jeweils bis zum Periodenende; eine Zinsbuchung ist eine Forderung und keine Kasse) gegen das Guthaben bei Banken laut Saldenliste. Kosten und Gebühren des Fonds kennt die Plattform
- * nicht; sie erscheinen als Differenz.
+ * Liquidität: Zahlungsstrom aus den Daten der Plattform (eingegangene LP-Zahlungen − Ausschüttungen − Auszahlungen + Rückflüsse + Tilgungen
+ * + gezahlte Zinsen + Dividenden, jeweils bis zum Periodenende; eine Zinsbuchung ist eine Forderung und keine Kasse) gegen das Guthaben bei Banken
+ * laut Saldenliste. Gebuchte Verwaltungsvergütung und Fondskosten (Issue #157, `fonds_kosten`) mindern den Zahlungsstrom mit ihrer Valuta;
+ * weitere Kosten, die nur die Buchhaltung kennt, erscheinen als Differenz.
+ *
+ * Geldeingang sind die wirksamen LP-Zahlungen mit Wertstellung bis zum Periodenende (wie „Eingezahltes Kapital“ der Fondskennzahlen, `ladeKapitalstand`):
+ * Teil- und Restzahlungen zählen ab ihrer Wertstellung, ein Storno hebt seine Zahlung erst ab seiner eigenen Wertstellung auf. Der Rechenweg zeigt die
+ * Abrufe und den zum Periodenende noch nicht eingegangenen Teil.
  */
 export async function stimmeLiquiditaetAb(tx: Tx, lauf: Saldenlauf, liquiditaet: Auswertung): Promise<AbstimmungsZeile | null> {
   const bank = liquiditaet.zeilen.find((z) => z.schluessel === "liq.bank") ?? liquiditaet.zeilen.find((z) => z.ebene === 0);
@@ -139,14 +145,20 @@ export async function stimmeLiquiditaetAb(tx: Tx, lauf: Saldenlauf, liquiditaet:
         .groupBy(vorgang.art, vorgang.kapitalisiert)
     : [];
   const v = (art: string, kapitalisiert?: boolean) => vorgaenge.filter((x) => x.art === art && (kapitalisiert === undefined || x.kapitalisiert === kapitalisiert)).reduce((s, x) => s.plus(x.summe), new Decimal(0));
+  // Abrufe wie oben (ohne Storno-Paare bis zum Periodenende); eingegangen ist, was LPs bis dahin wirksam gezahlt haben.
   const abrufe = b("abruf");
+  const eingezahlt = new Decimal((await ladeKapitalstand(tx, lauf.fondsId, lauf.zeitraumBis)).fonds.eingezahlt);
+  const nichtEingegangen = abrufe.minus(eingezahlt);
   const ausschuettungen = b("ausschuettung");
   const auszahlungen = v("auszahlung");
   const rueckfluesse = v("rueckfluss");
   const tilgungen = v("tilgung");
   const zinszahlungen = v("zinszahlung");
   const dividenden = v("dividende");
-  const carraway = abrufe.minus(ausschuettungen).minus(auszahlungen).plus(rueckfluesse).plus(tilgungen).plus(zinszahlungen).plus(dividenden);
+  const { rows: kostenZeilen } = await tx.execute<{ summe: string }>(sql`
+    SELECT coalesce(sum(betrag), 0)::text AS summe FROM fonds_kosten WHERE fonds_id = ${lauf.fondsId} AND valuta <= ${lauf.zeitraumBis}::date`);
+  const kosten = new Decimal(kostenZeilen[0]?.summe ?? 0);
+  const carraway = eingezahlt.minus(ausschuettungen).minus(auszahlungen).plus(rueckfluesse).plus(tilgungen).plus(zinszahlungen).plus(dividenden).minus(kosten);
   const buch = new Decimal(bank.wert);
   return {
     schluessel: bank.schluessel,
@@ -157,15 +169,18 @@ export async function stimmeLiquiditaetAb(tx: Tx, lauf: Saldenlauf, liquiditaet:
     verknuepft: false,
     schritte: [
       { zeichen: "", bezeichnung: "Abrufe", wert: cent(abrufe) },
+      { zeichen: "−", bezeichnung: "Zum Periodenende nicht eingegangen", wert: cent(nichtEingegangen) },
+      { zeichen: "=", bezeichnung: "Eingegangene LP-Zahlungen (Wertstellung bis Periodenende)", wert: cent(eingezahlt) },
       { zeichen: "−", bezeichnung: "Ausschüttungen", wert: cent(ausschuettungen) },
       { zeichen: "−", bezeichnung: "Auszahlungen an Beteiligungen", wert: cent(auszahlungen) },
       { zeichen: "+", bezeichnung: "Rückflüsse", wert: cent(rueckfluesse) },
       { zeichen: "+", bezeichnung: "Tilgungen", wert: cent(tilgungen) },
       { zeichen: "+", bezeichnung: "Gezahlte Zinsen", wert: cent(zinszahlungen) },
       { zeichen: "+", bezeichnung: "Dividenden", wert: cent(dividenden) },
+      ...(kosten.isZero() ? [] : [{ zeichen: "−" as const, bezeichnung: "Verwaltungsvergütung und Fondskosten (gebucht)", wert: cent(kosten) }]),
       { zeichen: "=", bezeichnung: "Zahlungsstrom laut Plattform", wert: cent(carraway) },
       { zeichen: "−", bezeichnung: `${bank.bezeichnungDe} laut Saldenliste`, wert: cent(buch) },
-      { zeichen: "=", bezeichnung: "Differenz (u. a. Kosten und Gebühren des Fonds)", wert: cent(carraway.minus(buch)) },
+      { zeichen: "=", bezeichnung: "Differenz (u. a. nicht gebuchte Kosten des Fonds)", wert: cent(carraway.minus(buch)) },
     ],
   };
 }

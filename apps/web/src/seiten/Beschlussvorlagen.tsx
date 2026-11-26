@@ -25,7 +25,7 @@ function VorlageDialog({ fondsId, vorlage, platzhalter, onSchliessen }: { fondsI
   const aktion = vorlage ? aendern : anlegen;
   const { werte, feld, pruefeAlle } = useFormular({ name: vorlage?.name ?? "", text: vorlage?.text ?? "" }, { name: pflichtRegel(), text: pflichtRegel() });
   const titel = vorlage ? f.titelBearbeiten : f.titelNeu;
-  const unbekannt = aktion.error instanceof ApiFehler && aktion.error.code === "PLATZHALTER_UNBEKANNT" && Array.isArray(aktion.error.zusatz.unbekannt) ? (aktion.error.zusatz.unbekannt as string[]) : null;
+  const unbekannt = aktion.error instanceof ApiFehler && aktion.error.code === "placeholder_unknown" && Array.isArray(aktion.error.zusatz.unbekannt) ? (aktion.error.zusatz.unbekannt as string[]) : null;
   return (
     <Seitenpanel titel={titel} onSchliessen={onSchliessen} breit>
       <h2 className="cw-t-untertitel">{titel}</h2>

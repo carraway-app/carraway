@@ -1,10 +1,11 @@
+import { pruefeFonds } from "../fonds-pruefung";
+import { fondsAnApi } from "../fonds-vertrag";
 import { eq, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import { benutzer, periodensperre, type Db } from "@carraway/db";
 import { aktuellerAkteur } from "../anmeldung/akteur";
 import { Fachfehler } from "../fehler";
-import { pruefe } from "../pruefung";
 import { heute, idParam, ladeFonds, schreibe, textEingabe } from "../schreiben";
 import { lese, type Tx } from "../zeitlimit";
 
@@ -27,24 +28,24 @@ async function ladeAnsicht(tx: Tx, fondsId: string) {
   };
 }
 
-/** `GET/PUT /fonds/:id/periodensperre` (Verwalter). Zurücknehmen (früheres Datum) verlangt einen Grund und wird protokolliert. */
+/** `GET/PUT /funds/:id/period-lock` (Verwalter). Zurücknehmen (früheres Datum) verlangt einen Grund und wird protokolliert. */
 export function periodensperreRouten(db: Db) {
   return new Hono()
-    .get("/", pruefe("param", idParam), async (c) => {
+    .get("/", pruefeFonds("param", idParam), async (c) => {
       const { id } = c.req.valid("param");
       const ansicht = await lese(db, async (tx) => {
         await ladeFonds(tx, id);
         return ladeAnsicht(tx, id);
       });
-      return c.json(ansicht, 200);
+      return c.json(fondsAnApi(ansicht), 200);
     })
-    .put("/", pruefe("param", idParam), pruefe("json", sperreEingabe), async (c) => {
+    .put("/", pruefeFonds("param", idParam), pruefeFonds("json", sperreEingabe), async (c) => {
       const { id } = c.req.valid("param");
       const { gesperrtBis, grund } = c.req.valid("json");
       const akteur = aktuellerAkteur(c);
       if (gesperrtBis > heute()) {
-        throw new Fachfehler(400, "EINGABE_UNGUELTIG", "Die Eingabe ist ungültig.", {
-          felder: [{ feld: "gesperrtBis", code: "in_der_zukunft", meldung: "Das Sperrdatum darf nicht in der Zukunft liegen" }],
+        throw new Fachfehler(400, "invalid_input", "The input is invalid.", {
+          felder: [{ feld: "gesperrtBis", code: "in_future", meldung: "The lock date must not be in the future" }],
         });
       }
       await schreibe(db, c, async (tx, protokoll) => {
@@ -52,8 +53,8 @@ export function periodensperreRouten(db: Db) {
         const [vorher] = await tx.select().from(periodensperre).where(eq(periodensperre.fondsId, id)).for("update");
         const zurueck = vorher !== undefined && gesperrtBis < vorher.gesperrtBis;
         if (zurueck && !grund) {
-          throw new Fachfehler(400, "EINGABE_UNGUELTIG", "Die Eingabe ist ungültig.", {
-            felder: [{ feld: "grund", code: "grund_erforderlich", meldung: "Wer die Sperre zurücknimmt, muss einen Grund angeben" }],
+          throw new Fachfehler(400, "invalid_input", "The input is invalid.", {
+            felder: [{ feld: "grund", code: "reason_required", meldung: "A reason is required to lift the lock" }],
           });
         }
         const werte = { gesperrtBis, gesetztVon: akteur.id, gesetztAm: new Date(), grund: grund ?? null };
@@ -64,6 +65,6 @@ export function periodensperreRouten(db: Db) {
           .returning();
         await protokoll(zurueck ? "periodensperre_zurueck" : "periodensperre_setzen", "fonds", id, vorher ?? null, nachher);
       });
-      return c.json(await lese(db, (tx) => ladeAnsicht(tx, id)), 200);
+      return c.json(fondsAnApi(await lese(db, (tx) => ladeAnsicht(tx, id))), 200);
     });
 }

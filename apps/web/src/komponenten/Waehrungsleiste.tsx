@@ -36,6 +36,7 @@ export function Waehrungsleiste({ sicht, suche, waehrungen, onAendern, luecken, 
   const waehle = (neu: Sicht) => {
     if (neu === "fonds") onAendern({ ...(suche.vergleich ? { vergleich: suche.vergleich } : {}) });
     else if (neu === "lokal") onAendern({ sicht: "lokal", ...(suche.vergleich ? { vergleich: suche.vergleich } : {}) });
+    else if (neu === "haus") onAendern({ sicht: "haus", ...(suche.vergleich ? { vergleich: suche.vergleich } : {}) });
     else onAendern({ sicht: "vergleich", ...(suche.vergleich ?? standard ? { vergleich: (suche.vergleich ?? standard)! } : {}) });
   };
   return (
@@ -49,6 +50,7 @@ export function Waehrungsleiste({ sicht, suche, waehrungen, onAendern, luecken, 
             { wert: "lokal", label: w.sichten.lokal },
             { wert: "fonds", label: w.sichten.fonds },
             { wert: "vergleich", label: w.sichten.vergleich },
+            ...(waehrungen.haus ? [{ wert: "haus" as const, label: w.sichtHaus(waehrungen.haus) }] : []),
           ]}
         />
         {sicht === "vergleich" || (tabellenWaehrung === undefined && kandidaten.length > 0) ? (
@@ -58,7 +60,7 @@ export function Waehrungsleiste({ sicht, suche, waehrungen, onAendern, luecken, 
             label={w.vergleichswaehrung}
             value={suche.vergleich ?? ""}
             disabled={kandidaten.length === 0}
-            onChange={(e) => onAendern({ ...(sicht === "lokal" ? { sicht: "lokal" as const } : { sicht: "vergleich" as const }), ...(e.target.value ? { vergleich: e.target.value } : {}) })}
+            onChange={(e) => onAendern({ ...(sicht === "lokal" || sicht === "haus" ? { sicht } : { sicht: "vergleich" as const }), ...(e.target.value ? { vergleich: e.target.value } : {}) })}
           >
             {suche.vergleich ? null : <option value="">{kandidaten.length === 0 ? w.keineVergleichswaehrung : w.vergleichswaehrung}</option>}
             {kandidaten.map((c) => (

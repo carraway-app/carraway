@@ -137,7 +137,7 @@ export function UebernahmeDialog({ deal, fonds, onSchliessen }: { deal: DealDeta
   const { werte, feld } = useFormular({ fondsId: vorgabe, instrument: "offene_beteiligung", erstinvestment: heuteIso(), zusage: zusageVorschlag(deal) });
   const f = t.uebernahme;
   const vorhanden =
-    uebernehmen.error instanceof ApiFehler && uebernehmen.error.code === "BETEILIGUNG_VORHANDEN" && typeof uebernehmen.error.zusatz.beteiligungId === "string"
+    uebernehmen.error instanceof ApiFehler && uebernehmen.error.code === "investment_exists" && typeof uebernehmen.error.zusatz.beteiligungId === "string"
       ? uebernehmen.error.zusatz.beteiligungId
       : null;
 

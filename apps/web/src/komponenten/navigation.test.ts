@@ -9,7 +9,7 @@ const als = (zusatz: Partial<Ich>) => ({ ...ichDaten, globalVerwalter: false, in
 
 describe("Seitenleiste nach Bereichen (Rollen der Nutzergruppen)", () => {
   it("ohne Gruppe (bereiche null) alle Einträge wie bisher", () => {
-    expect(ids(als({ bereiche: null }))).toEqual(["fonds", "portfolio", "dealflow", "kontakte", "journal", "zinsen", "belege", "buchhaltung", "meldungen", "berichte", "register", "import"]);
+    expect(ids(als({ bereiche: null }))).toEqual(["fonds", "dashboard", "portfolio", "dealflow", "kontakte", "journal", "zinsen", "belege", "buchhaltung", "meldungen", "berichte", "register", "import"]);
   });
 
   it("nur Kontakte: Fondsliste, Kontakte und Register; keine Finanzen, kein Portfolio, kein Dealflow", () => {

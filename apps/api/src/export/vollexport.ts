@@ -41,6 +41,7 @@ export const EXPORT_TABELLEN: readonly Tabelle[] = [
   { name: "datensatz_link", ordnung: ["id"] },
   { name: "deal_kontakt", ordnung: ["deal_id", "person_id"] },
   { name: "kontaktrolle", ordnung: ["id"] },
+  { name: "gremienmandat", ordnung: ["id"] },
   { name: "organisationsbeziehung", ordnung: ["id"] },
   { name: "beschlussvorlage", ordnung: ["id"] },
   { name: "fonds_zeichnung", ordnung: ["id"] },
@@ -52,6 +53,8 @@ export const EXPORT_TABELLEN: readonly Tabelle[] = [
   { name: "fonds_bewegung", ordnung: ["id"] },
   { name: "abruf_anteil", ordnung: ["bewegung_id", "organisation_id"] },
   { name: "lp_zahlung", ordnung: ["id"] },
+  { name: "fonds_kosten", ordnung: ["id"] },
+  { name: "fonds_kosten_anteil", ordnung: ["kosten_id", "organisation_id"] },
   { name: "fonds_offenlegung", ordnung: ["id"] },
   { name: "periodensperre", ordnung: ["fonds_id"] },
   { name: "deal", ordnung: ["id"] },
@@ -84,6 +87,8 @@ export const EXPORT_TABELLEN: readonly Tabelle[] = [
   { name: "verkauf", ordnung: ["id"] },
   { name: "forderung", ordnung: ["id"] },
   { name: "kaufpreisanpassung", ordnung: ["id"] },
+  { name: "optionsschein_ausuebung", ordnung: ["id"] },
+  { name: "anteilsuebertragung", ordnung: ["id"] },
   { name: "bericht", ordnung: ["id"] },
   { name: "bericht_freigabe", ordnung: ["id"] },
   { name: "bericht_abschnitt", ordnung: ["id"] },
@@ -156,6 +161,11 @@ export const EXPORT_TABELLEN: readonly Tabelle[] = [
   { name: "wechselkurs", ordnung: ["id"] },
   { name: "szenario", ordnung: ["id"] },
   { name: "reserve", ordnung: ["id"] },
+  // Manager-Profil und Dachfonds (Zielfondsbeteiligungen mit Bewegungen und Meldungen)
+  { name: "manager_profil", ordnung: ["id"] },
+  { name: "zielfonds_beteiligung", ordnung: ["id"] },
+  { name: "zielfonds_bewegung", ordnung: ["id"] },
+  { name: "zielfonds_meldung", ordnung: ["id"] },
 ];
 
 const csvFeld = (wert: string | null): string => {

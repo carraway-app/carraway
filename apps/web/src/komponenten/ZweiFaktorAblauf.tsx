@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Button, Feld, Hinweis } from "@carraway/ui";
+import { Button, CodeEingabe, Feld, Hinweis } from "@carraway/ui";
 import { zweiFaktorErst, zweiFaktorNeu, type ZweiFaktorAnsatz } from "../api/sicherheit";
 import { useT } from "../i18n";
 import { FehlerHinweis } from "./FehlerHinweis";
@@ -127,7 +127,8 @@ export function ZweiFaktorAblauf({ modus, passwortNoetig, onFertig, onAbbrechen 
         <li>
           <h3 className="cw-t-untertitel">{z.schritt3}</h3>
           <FehlerHinweis fehler={fehler} />
-          <Feld label={z.code} hilfe={z.codeHilfe} name="zf-code" value={code} onChange={(e) => setCode(e.target.value)} inputMode="numeric" autoComplete="one-time-code" spellCheck={false} required zahl />
+          <p className="app-leer-text">{z.codeHilfe}</p>
+          <CodeEingabe label={z.code} ziffer={t.anmeldung.ziffer} name="zf-code" value={code} onChange={setCode} />
           {modus === "neu" ? (
             <label className="app-haken">
               <input type="checkbox" checked={andere} onChange={(e) => setAndere(e.target.checked)} />
@@ -135,7 +136,7 @@ export function ZweiFaktorAblauf({ modus, passwortNoetig, onFertig, onAbbrechen 
             </label>
           ) : null}
           <div className="app-aktionen__knoepfe">
-            <Button type="submit" disabled={laeuft || !gesichert || code.trim() === ""} aria-describedby={gesichert ? undefined : "zf-gesichert-hinweis"}>
+            <Button type="submit" disabled={laeuft || !gesichert || code.length < 6} aria-describedby={gesichert ? undefined : "zf-gesichert-hinweis"}>
               {z.aktivieren}
             </Button>
             <Button variante="ruhig" onClick={onAbbrechen}>

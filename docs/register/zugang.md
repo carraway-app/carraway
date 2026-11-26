@@ -35,4 +35,4 @@ Carraway **ruft Registerportale nicht automatisiert ab** (kein Scraping). Regist
 ## Technische Folgen
 
 - Die Beobachtung (Worker-Auftrag) ist standardmäßig aus (`REGISTER_PRUEFUNG_CRON` leer) und ruft nur den konfigurierten Anbieter ab, höchstens `REGISTER_ABRUFE_PRO_LAUF` Unternehmen je Lauf (Vorgabe 20), mit Pause zwischen den Abrufen.
-- Ohne konfigurierten Anbieter (`REGISTER_ANBIETER` leer) antworten Suche und Abruf mit 409 `REGISTER_ANBIETER_FEHLT`.
+- Ohne konfigurierten Anbieter (`REGISTER_ANBIETER` leer) antworten Suche und Abruf mit 409 `register_provider_missing`.

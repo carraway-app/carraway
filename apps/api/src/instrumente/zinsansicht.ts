@@ -270,7 +270,7 @@ export async function ladeZinsansicht(tx: Tx, auswahl: { fondsId: string } | { b
         }
       } catch (e) {
         fehler = (e as Error).message;
-        fehlerCode = e instanceof Fachfehler ? e.code : "BERECHNUNG_FEHLGESCHLAGEN";
+        fehlerCode = e instanceof Fachfehler ? e.code : "calculation_failed";
       }
     }
 

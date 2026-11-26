@@ -7,8 +7,10 @@
 export type DemoSprache = "de" | "en";
 
 export interface DemoTexte {
-  bewertung: { insolvenz: string; anschaffungskosten: string; keineNeubewertung: string; letzteRunde: string; multiplikator: string; ertragswert: string };
+  bewertung: { insolvenz: string; anschaffungskosten: string; keineNeubewertung: string; letzteRunde: string; multiplikator: string; ertragswert: string; verkauft: string };
   abruf: string;
+  /** Bemerkung der Beispiel-Übertragung von Stammanteilen an einen Co-Investor. */
+  uebertragung: string;
   ausschuettung: string;
   abstimmung: string;
   absagegruende: readonly string[];
@@ -30,8 +32,10 @@ const DE: DemoTexte = {
     letzteRunde: "Orientierung an der letzten Finanzierungsrunde",
     multiplikator: "Umsatzmultiplikator vergleichbarer Unternehmen",
     ertragswert: "Ertragswert aus der Unternehmensplanung",
+    verkauft: "Beteiligung verkauft",
   },
   abruf: "Abruf für Investitionen und Verwaltung",
+  uebertragung: "Kauf von Gründeranteilen durch einen Co-Investor",
   ausschuettung: "Ausschüttung aus Exit",
   abstimmung: "Abstimmung mit Co-Investor zu Konditionen",
   absagegruende: [
@@ -69,8 +73,10 @@ const EN: DemoTexte = {
     letzteRunde: "Based on the latest financing round",
     multiplikator: "Revenue multiple of comparable companies",
     ertragswert: "Income value from the company's business plan",
+    verkauft: "Holding sold",
   },
   abruf: "Capital call for investments and administration",
+  uebertragung: "Purchase of founder shares by a co-investor",
   ausschuettung: "Distribution from exit",
   abstimmung: "Alignment with co-investor on terms",
   absagegruende: [

@@ -6,14 +6,14 @@ import { Fachfehler } from "../fehler";
 import type { Protokollant } from "../schreiben";
 import type { Tx } from "../zeitlimit";
 import { letzteBewertung, setzeBewertung } from "./bewertung";
-import { instrumenteVon, legeInstrumentAn, setzeInstrumentStatus, type InstrumentZeile } from "./instrumente";
+import { instrumenteVon, legeInstrumentAn, setzeInstrumentStatus, WANDELBARE_ARTEN, type InstrumentZeile } from "./instrumente";
 import { pruefeStichtag } from "./stichtag";
 import { ordneRundeZu } from "./vorgang-runde";
 import { gebuchtePerioden, ladeZinskontexte, tagVor, versionAm } from "./zinsen";
 import { alsFachfehler, berechneZustand, buchwertVon, ladeVorgaenge, verlangeAktiv, vorgaengeDesInstruments, type BeteiligungZeile } from "./zustand";
 
 /**
- * Wandlung eines Wandeldarlehens (Entscheidung 63 bis 66). Quelle ist ein Wandeldarlehen-Instrument der Beteiligung (Status danach `gewandelt`),
+ * Wandlung eines Wandeldarlehens oder SAFE (Entscheidung 63 bis 66). Quelle ist ein Wandeldarlehen- oder SAFE-Instrument der Beteiligung (Status danach `gewandelt`),
  * Ziel ein neues Eigenkapital-Instrument derselben Beteiligung (Runde gesetzt); es entsteht keine zweite Beteiligung. Der Rechenkern liefert Zinsen bis zum Cut-off, Preis, Anteile,
  * Nominal, Agio und Spitzenbetrag ungerundet. Gebucht wird auf Cent:
  *   Spitzenbetrag gebucht = auf Cent gerundet, Wandelbetrag in Anteile = Wandlungsbetrag − Spitzenbetrag gebucht,
@@ -24,6 +24,9 @@ import { alsFachfehler, berechneZustand, buchwertVon, ladeVorgaenge, verlangeAkt
  * Darlehen und Zinsen wird `zurueckgezahlt` (Geldfluss: Tilgung bzw. Zinsbuchung mit Zinszahlung am Cut-off) oder `erlassen` (Darlehen: Tilgung
  * ohne Geldfluss, Schlüssel `darlehen_erlass_*`; Zinsen: gar nicht erst als Forderung gebucht, der Verzicht steht im Ergebnis der Wandlung).
  * Der Spitzenbetrag aus der Rundung bleibt der bar ausgezahlte Rest des gewandelten Darlehens.
+ *
+ * SAFE (Issue 149): dieselbe Wandlung ohne Zinsen und Konditionen. Wandlungsbetrag ist das ausgezahlte Kapital, „Zinsen wandeln“ gilt als nein; die
+ * Buchungen (Tilgung durch Wandlung auf dem SAFE, Zusage und Einlage auf dem Ziel) und ihre Behandlung als geldlos im Journal sind dieselben.
  */
 
 export interface WandlungsEingabe {
@@ -94,16 +97,16 @@ async function ladeRunde(tx: Tx, b: BeteiligungZeile, eingabe: WandlungsEingabe)
     return { id: null, organisationId: b.organisationId, preisJeAnteil: r.preisJeAnteil, neu: r };
   }
   const [r] = await tx.select().from(finanzierungsrunde).where(eq(finanzierungsrunde.id, eingabe.runde.id));
-  if (!r) throw new Fachfehler(404, "RUNDE_NICHT_GEFUNDEN", "Finanzierungsrunde nicht gefunden.");
+  if (!r) throw new Fachfehler(404, "round_not_found", "Financing round not found.");
   if (r.organisationId !== b.organisationId) {
-    throw new Fachfehler(409, "RUNDE_PASST_NICHT", "Die Runde gehört zu einem anderen Unternehmen als das Darlehen.");
+    throw new Fachfehler(409, "round_mismatch", "The round belongs to a different company than the loan.");
   }
   if (r.art !== "eigenkapital" || r.preisJeAnteil === null) {
-    throw new Fachfehler(409, "RUNDE_KEINE_EIGENKAPITALRUNDE", "Die Zielrunde einer Wandlung muss eine Eigenkapitalrunde sein, keine Brückenrunde.", { rundeId: r.id });
+    throw new Fachfehler(409, "round_not_equity", "The target round of a conversion must be an equity round, not a bridge round.", { rundeId: r.id });
   }
-  if (r.status !== "abgeschlossen") throw new Fachfehler(409, "RUNDE_NICHT_ABGESCHLOSSEN", "Die Runde ist noch nicht abgeschlossen.");
+  if (r.status !== "abgeschlossen") throw new Fachfehler(409, "round_not_closed", "The round is not closed yet.");
   const [vorhanden] = await tx.select({ id: rundenposition.id }).from(rundenposition).where(and(eq(rundenposition.rundeId, r.id), eq(rundenposition.fondsId, b.fondsId)));
-  if (vorhanden) throw new Fachfehler(409, "RUNDENPOSITION_VORHANDEN", "Der Fonds hat in dieser Runde bereits eine Position.");
+  if (vorhanden) throw new Fachfehler(409, "round_position_exists", "The fund already has a position in this round.");
   return { id: r.id, organisationId: r.organisationId, preisJeAnteil: r.preisJeAnteil, neu: null };
 }
 
@@ -114,8 +117,8 @@ async function ladeRunde(tx: Tx, b: BeteiligungZeile, eingabe: WandlungsEingabe)
 async function ladeKlasse(tx: Tx, b: BeteiligungZeile, rundeId: string | null, angegeben: string | undefined): Promise<string | null> {
   if (angegeben) {
     const [k] = await tx.select().from(anteilsklasse).where(eq(anteilsklasse.id, angegeben));
-    if (!k) throw new Fachfehler(404, "ANTEILSKLASSE_NICHT_GEFUNDEN", "Anteilsklasse nicht gefunden.");
-    if (k.organisationId !== b.organisationId) throw new Fachfehler(409, "ANTEILSKLASSE_PASST_NICHT", "Die Klasse gehört zu einem anderen Unternehmen als die Beteiligung.");
+    if (!k) throw new Fachfehler(404, "share_class_not_found", "Share class not found.");
+    if (k.organisationId !== b.organisationId) throw new Fachfehler(409, "share_class_mismatch", "The class belongs to a different company than the investment.");
     return k.id;
   }
   if (!rundeId) return null;
@@ -137,18 +140,18 @@ async function ladeQuelle(tx: Tx, b: BeteiligungZeile, instrumentId: string | un
   const alle = await instrumenteVon(tx, b.id);
   if (instrumentId) {
     const i = alle.find((x) => x.id === instrumentId);
-    if (!i) throw new Fachfehler(409, "INSTRUMENT_FALSCHE_BETEILIGUNG", "Das Instrument gehört zu einer anderen Beteiligung.", { instrumentId });
-    if (i.art !== "wandeldarlehen") throw new Fachfehler(409, "INSTRUMENT_PASST_NICHT", "Nur ein Wandeldarlehen lässt sich wandeln.", { instrument: i.art });
+    if (!i) throw new Fachfehler(409, "instrument_wrong_investment", "The instrument belongs to a different investment.", { instrumentId });
+    if (!WANDELBARE_ARTEN.has(i.art)) throw new Fachfehler(409, "instrument_mismatch", "Only a convertible loan or a SAFE can be converted.", { instrument: i.art });
     return i;
   }
-  const wandel = alle.filter((x) => x.art === "wandeldarlehen");
+  const wandel = alle.filter((x) => WANDELBARE_ARTEN.has(x.art));
   const aktive = wandel.filter((x) => x.status === "aktiv");
   if (aktive.length > 1) {
-    throw new Fachfehler(400, "EINGABE_UNGUELTIG", "Die Eingabe ist ungültig.", { felder: [{ feld: "instrumentId", code: "instrument_erforderlich", meldung: "Die Beteiligung hat mehrere Wandeldarlehen; das Instrument ist anzugeben" }] });
+    throw new Fachfehler(400, "invalid_input", "The input is invalid.", { felder: [{ feld: "instrumentId", code: "instrument_required", meldung: "The investment has several convertible loans or SAFEs; the instrument must be specified" }] });
   }
   if (aktive[0]) return aktive[0];
-  if (wandel.some((x) => x.status === "gewandelt")) throw new Fachfehler(409, "BEREITS_GEWANDELT", "Das Darlehen ist bereits gewandelt.");
-  throw new Fachfehler(409, "INSTRUMENT_PASST_NICHT", "Nur ein Wandeldarlehen lässt sich wandeln.", { instrument: b.instrument });
+  if (wandel.some((x) => x.status === "gewandelt")) throw new Fachfehler(409, "already_converted", "The loan has already been converted.");
+  throw new Fachfehler(409, "instrument_mismatch", "Only a convertible loan or a SAFE can be converted.", { instrument: b.instrument });
 }
 
 /** Prüft die vertraglich abweichenden Beträge gegen den errechneten Stand (Darlehen und Zinsen am Cut-off); Fehler als Feldfehler (400). */
@@ -156,21 +159,21 @@ function pruefeAbweichung(eingabe: WandlungsEingabe, stand: Wandlungsergebnis): 
   const felder: { feld: string; code: string; meldung: string }[] = [];
   const de = (x: Decimal) => x.toFixed(2);
   if (eingabe.gewandeltesDarlehen !== undefined && new Decimal(eingabe.gewandeltesDarlehen).greaterThan(stand.restkapital)) {
-    felder.push({ feld: "gewandeltesDarlehen", code: "ueber_ausstehend", meldung: `Das gewandelte Darlehen darf den ausstehenden Betrag (${de(stand.restkapital)}) nicht übersteigen` });
+    felder.push({ feld: "gewandeltesDarlehen", code: "exceeds_outstanding", meldung: `The converted loan must not exceed the outstanding amount (${de(stand.restkapital)})` });
   }
   if (eingabe.gewandelteZinsen !== undefined) {
     if (!eingabe.zinsenWandeln && new Decimal(eingabe.gewandelteZinsen).greaterThan(0)) {
-      felder.push({ feld: "gewandelteZinsen", code: "zinsen_nicht_gewandelt", meldung: "Zinsen werden nicht gewandelt; gewandelte Zinsen müssen null sein" });
+      felder.push({ feld: "gewandelteZinsen", code: "interest_not_converted", meldung: "Interest is not converted; converted interest must be zero" });
     } else if (new Decimal(eingabe.gewandelteZinsen).greaterThan(stand.zinsenGebucht)) {
-      felder.push({ feld: "gewandelteZinsen", code: "ueber_ausstehend", meldung: `Die gewandelten Zinsen dürfen die Zinsen bis zum Cut-off (${de(stand.zinsenGebucht)}) nicht übersteigen` });
+      felder.push({ feld: "gewandelteZinsen", code: "exceeds_outstanding", meldung: `The converted interest must not exceed the interest up to the cut-off (${de(stand.zinsenGebucht)})` });
     }
   }
   const darlehen = new Decimal(eingabe.gewandeltesDarlehen ?? stand.restkapital);
   const zinsen = new Decimal(eingabe.gewandelteZinsen ?? (eingabe.zinsenWandeln ? stand.zinsenGebucht : 0));
   if (felder.length === 0 && !darlehen.plus(zinsen).greaterThan(0)) {
-    felder.push({ feld: "gewandeltesDarlehen", code: "nichts_gewandelt", meldung: "Es muss ein Betrag größer null gewandelt werden" });
+    felder.push({ feld: "gewandeltesDarlehen", code: "nothing_converted", meldung: "An amount greater than zero must be converted" });
   }
-  if (felder.length > 0) throw new Fachfehler(400, "EINGABE_UNGUELTIG", "Die Eingabe ist ungültig.", { felder });
+  if (felder.length > 0) throw new Fachfehler(400, "invalid_input", "The input is invalid.", { felder });
 }
 
 /** Berechnet die Wandlung samt geplanter Vorgänge, ohne zu schreiben (Grundlage von Vorschau und Buchung). */
@@ -178,28 +181,38 @@ export async function planeWandlung(tx: Tx, b: BeteiligungZeile, eingabe: Wandlu
   const quelle = await ladeQuelle(tx, b, eingabe.instrumentId);
   verlangeAktiv(b);
   const [bereits] = await tx.select({ id: wandlung.id }).from(wandlung).where(eq(wandlung.quellInstrumentId, quelle.id));
-  if (bereits || quelle.status === "gewandelt") throw new Fachfehler(409, "BEREITS_GEWANDELT", "Das Darlehen ist bereits gewandelt.");
-  if (quelle.status !== "aktiv") throw new Fachfehler(409, "INSTRUMENT_NICHT_AKTIV", "Das Instrument ist nicht aktiv.", { instrumentId: quelle.id, status: quelle.status });
+  if (bereits || quelle.status === "gewandelt") throw new Fachfehler(409, "already_converted", "The loan has already been converted.");
+  if (quelle.status !== "aktiv") throw new Fachfehler(409, "instrument_not_active", "The instrument is not active.", { instrumentId: quelle.id, status: quelle.status });
 
-  const [kontext] = await ladeZinskontexte(tx, { instrumentIds: [quelle.id] });
-  if (!kontext || kontext.konditionen.length === 0) throw new Fachfehler(409, "KEINE_KONDITIONEN", "Für die Zinsen bis zum Cut-off fehlen Konditionen.");
-  const version = versionAm(kontext.konditionen, tagVor(eingabe.cutoff))!;
-  const gebucht = gebuchtePerioden(kontext).filter((d) => d <= eingabe.cutoff);
-  const zinsenAb = gebucht.at(-1);
+  // Ein SAFE hat weder Zinsen noch Konditionen: Wandlungsbetrag ist das ausgezahlte Kapital, „Zinsen wandeln“ gilt als nein.
+  const safe = quelle.art === "safe";
+  if (safe && eingabe.gewandelteZinsen !== undefined && new Decimal(eingabe.gewandelteZinsen).greaterThan(0)) {
+    throw new Fachfehler(400, "invalid_input", "The input is invalid.", { felder: [{ feld: "gewandelteZinsen", code: "safe_without_interest", meldung: "A SAFE has no interest; converted interest must be zero" }] });
+  }
+  if (safe) eingabe = { ...eingabe, zinsenWandeln: false };
+  const [kontext] = safe ? [] : await ladeZinskontexte(tx, { instrumentIds: [quelle.id] });
+  if (!safe && (!kontext || kontext.konditionen.length === 0)) throw new Fachfehler(409, "no_terms", "Terms for the interest up to the cut-off are missing.");
+  const version = kontext ? versionAm(kontext.konditionen, tagVor(eingabe.cutoff))! : null;
+  const quellVorgaenge = kontext ? kontext.vorgaenge : vorgaengeDesInstruments(await ladeVorgaenge(tx, b.id), quelle.id);
+  const zinsenAb = kontext ? gebuchtePerioden(kontext).filter((d) => d <= eingabe.cutoff).at(-1) : undefined;
   const runde = await ladeRunde(tx, b, eingabe);
   const anteilsklasseId = await ladeKlasse(tx, b, runde.id, eingabe.anteilsklasseId);
 
   const rundenpreis = eingabe.preisregel.rundenpreisJeAnteil ?? runde.preisJeAnteil;
   const rechne = (abweichung: { gewandeltesDarlehen?: string; gewandelteZinsen?: string }) =>
     rechneWandlung({
-      bewegungen: berechneZustand(kontext.vorgaenge).bewegungen,
-      bedingungen: {
-        satzFix: version.satzFix,
-        methode: version.methode,
-        ...(version.gewinnabhaengigSatz !== null && version.kappungSatz !== null
-          ? { gewinnabhaengig: { satz: version.gewinnabhaengigSatz, kappungSatz: version.kappungSatz, bemessung: kontext.ueberschuesse } }
-          : {}),
-      },
+      bewegungen: berechneZustand(quellVorgaenge).bewegungen,
+      ...(version && kontext
+        ? {
+            bedingungen: {
+              satzFix: version.satzFix,
+              methode: version.methode,
+              ...(version.gewinnabhaengigSatz !== null && version.kappungSatz !== null
+                ? { gewinnabhaengig: { satz: version.gewinnabhaengigSatz, kappungSatz: version.kappungSatz, bemessung: kontext.ueberschuesse } }
+                : {}),
+            },
+          }
+        : {}),
       cutoff: eingabe.cutoff,
       zinsenWandeln: eingabe.zinsenWandeln,
       preisregel: {
@@ -228,7 +241,7 @@ export async function planeWandlung(tx: Tx, b: BeteiligungZeile, eingabe: Wandlu
   const nominal = ergebnis.nominal;
   const agio = umgewandelt.minus(nominal);
   if (agio.isNegative()) {
-    throw new Fachfehler(409, "BERECHNUNG_FEHLGESCHLAGEN", "Der Nennwert liegt über dem Wandlungspreis (negatives Agio).", { beteiligungId: b.id, grund: "negatives Agio" });
+    throw new Fachfehler(409, "calculation_failed", "The nominal value exceeds the conversion price (negative premium).", { beteiligungId: b.id, grund: "negatives Agio" });
   }
 
   const wandlungId = randomUUID();
@@ -242,8 +255,8 @@ export async function planeWandlung(tx: Tx, b: BeteiligungZeile, eingabe: Wandlu
   };
   const tilgungWandlung = ergebnis.darlehenGewandelt.minus(spitz);
   if (tilgungWandlung.isNegative()) {
-    throw new Fachfehler(400, "EINGABE_UNGUELTIG", "Die Eingabe ist ungültig.", {
-      felder: [{ feld: "gewandeltesDarlehen", code: "unter_spitzenbetrag", meldung: `Das gewandelte Darlehen muss mindestens dem Spitzenbetrag (${spitz.toFixed(2)}) entsprechen` }],
+    throw new Fachfehler(400, "invalid_input", "The input is invalid.", {
+      felder: [{ feld: "gewandeltesDarlehen", code: "below_residual_amount", meldung: `The converted loan must be at least the residual amount (${spitz.toFixed(2)})` }],
     });
   }
   const zinsText = (zusatz: string) => `${kennung}: Zinsen bis zum Cut-off (${zusatz})`;
@@ -372,7 +385,7 @@ export async function fuehreWandlungAus(tx: Tx, protokoll: Protokollant, b: Bete
       zielInstrumentId,
       rundeId,
       cutoff: eingabe.cutoff,
-      zinsenWandeln: eingabe.zinsenWandeln,
+      zinsenWandeln: p.quelle.art === "safe" ? false : eingabe.zinsenWandeln,
       preisregel: eingabe.preisregel,
       nennwertJeAnteil: eingabe.nennwertJeAnteil,
       anzahlAnteile: ergebnis.anzahlAnteile.toFixed(0),

@@ -30,8 +30,8 @@ async function fundstelle(werte: Record<string, string>, beteiligungId: string =
 
 beforeEach(async () => {
   await grundbestand(db);
-  await post(`/beteiligungen/${ID.wandel}/vorgaenge`, { art: "zusage", valuta: "2026-01-01", betrag: "200000" });
-  await post(`/beteiligungen/${ID.wandel}/vorgaenge`, { art: "auszahlung", valuta: "2026-01-01", betrag: "100000" });
+  await post(`/investments/${ID.wandel}/transactions`, { type: "commitment", valueDate: "2026-01-01", amount: "200000" });
+  await post(`/investments/${ID.wandel}/transactions`, { type: "disbursement", valueDate: "2026-01-01", amount: "100000" });
   await post(`/beteiligungen/${ID.wandel}/konditionen`, KONDITION);
   const [runde] = await db
     .insert(s.finanzierungsrunde)
@@ -94,8 +94,8 @@ describe("GET /beteiligungen/:id/kapitaltabelle mit offenen Wandlungen", () => {
   it("zwei offene Wandeldarlehen in einer Beteiligung: Fundstellen nicht zuzuordnen, beide offen", async () => {
     await fundstelle({ wandlungsabschlag: "0.2" });
     const zweites = await json(await post(`/beteiligungen/${ID.wandel}/instrumente`, { art: "wandeldarlehen", bezeichnung: "Wandeldarlehen 2026 II" }, "bearbeiter"));
-    await post(`/beteiligungen/${ID.wandel}/vorgaenge`, { art: "zusage", valuta: "2026-02-01", betrag: "50000", instrumentId: zweites.id });
-    await post(`/beteiligungen/${ID.wandel}/vorgaenge`, { art: "auszahlung", valuta: "2026-02-01", betrag: "50000", instrumentId: zweites.id });
+    await post(`/investments/${ID.wandel}/transactions`, { type: "commitment", valueDate: "2026-02-01", amount: "50000", instrumentId: zweites.id });
+    await post(`/investments/${ID.wandel}/transactions`, { type: "disbursement", valueDate: "2026-02-01", amount: "50000", instrumentId: zweites.id });
     const d = await tabelle("2026-07-01", true);
     expect(d.offeneWandlungen.liste).toHaveLength(2);
     for (const w of d.offeneWandlungen.liste) expect(w).toMatchObject({ status: "offen", grund: "parameter_mehrdeutig", anteile: null });
@@ -107,8 +107,8 @@ describe("GET /beteiligungen/:id/kapitaltabelle mit offenen Wandlungen", () => {
     // Zweiter Fonds mit eigenem Wandeldarlehen am selben Unternehmen und eigener Fundstelle
     const [fremd] = await db.insert(s.beteiligung).values({ fondsId: ID.anderer, organisationId: ID.orgC, instrument: "wandeldarlehen", erstinvestment: "2025-01-01" }).returning();
     await legeHauptinstrumentAn(db, fremd!);
-    await post(`/beteiligungen/${fremd!.id}/vorgaenge`, { art: "zusage", valuta: "2026-01-01", betrag: "70000" });
-    await post(`/beteiligungen/${fremd!.id}/vorgaenge`, { art: "auszahlung", valuta: "2026-01-01", betrag: "70000" });
+    await post(`/investments/${fremd!.id}/transactions`, { type: "commitment", valueDate: "2026-01-01", amount: "70000" });
+    await post(`/investments/${fremd!.id}/transactions`, { type: "disbursement", valueDate: "2026-01-01", amount: "70000" });
     await fundstelle({ wandlungsabschlag: "0.25" }, fremd!.id, true);
     // Eigene Fundstelle: ein unverknüpftes Dokument sieht nur, wer alle Fonds sieht
     await fundstelle({ wandlungsabschlag: "0.2" });

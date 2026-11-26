@@ -18,7 +18,7 @@ function NichtBerechenbar({ zeile }: { zeile: Zeile }) {
   const t = useT();
   const a = t.abgrenzung;
   const roh = zeile as { fehler?: string | null; fehlerCode?: string | null; fehlerParams?: Record<string, unknown> | null };
-  const code = roh.fehlerCode ?? "BERECHNUNG_FEHLGESCHLAGEN";
+  const code = roh.fehlerCode ?? "calculation_failed";
   const grund = roh.fehlerParams?.grund;
   const text = aufzaehlung(t.fehler, code);
   const zusatz = typeof grund === "string" ? grund : (roh.fehler ?? null);

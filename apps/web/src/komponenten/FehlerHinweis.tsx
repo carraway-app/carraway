@@ -14,31 +14,31 @@ function zusatzText(t: Texte, sprache: Sprache, api: ApiFehler | null): string |
   };
   const z = api.zusatz;
   switch (api.code) {
-    case "ZUSAGE_UEBER_BESCHLUSS": {
+    case "commitment_exceeds_resolution": {
       const b = betrag(z.beschlussBetrag);
       return b ? t.fehlerZusatz.beschlussBetrag(b) : null;
     }
-    case "AUSZAHLUNG_UEBER_ZUSAGE": {
+    case "disbursement_exceeds_commitment": {
       const [a, b] = [betrag(z.zusage), betrag(z.investiert)];
       return a && b ? t.fehlerZusatzInstrumente.auszahlungUeberZusage(a, b) : null;
     }
-    case "BUCHWERT_NEGATIV": {
+    case "book_value_negative": {
       const b = betrag(z.buchwert);
       return b ? t.fehlerZusatzInstrumente.buchwertNegativ(b) : null;
     }
-    case "MEILENSTEIN_BETRAG_UEBERSCHRITTEN": {
+    case "milestone_amount_exceeded": {
       const [a, b] = [betrag(z.meilensteinBetrag), betrag(z.bisherAusgezahlt)];
       return a && b ? t.fehlerZusatzInstrumente.meilensteinBetrag(a, b) : null;
     }
-    case "VERKAUF_UNGUELTIG": {
+    case "sale_invalid": {
       const [a, b, c] = [betrag(z.erloes), betrag(z.treuhand), betrag(z.verkaeuferdarlehen)];
       return a && b && c ? t.fehlerZusatzInstrumente.verkauf(a, b, c) : null;
     }
-    case "PERIODE_GESPERRT": {
+    case "period_locked": {
       const bis = text(z.gesperrtBis);
       return bis ? t.fehlerZusatzAnmeldung.gesperrtBis(formatDatum(bis, sprache)) : null;
     }
-    case "ZU_VIELE_VERSUCHE":
+    case "too_many_attempts":
       return api.wartenSekunden ? t.fehlerZusatzAnmeldung.warten(Math.ceil(api.wartenSekunden / 60)) : null;
     default:
       return null;
@@ -48,7 +48,7 @@ function zusatzText(t: Texte, sprache: Sprache, api: ApiFehler | null): string |
 /**
  * Fehlermeldung einer schreibenden Anfrage über dem Formular oder der Liste. Feldfehler, die ein Formular
  * nicht selbst am Feld zeigt (`bekannt`), erscheinen hier mit ihrem Feldnamen. Invariantenfehler der Instrumente
- * (`AUSZAHLUNG_UEBER_ZUSAGE`, `BUCHWERT_NEGATIV` …) erscheinen mit ihren Beträgen als Hinweis.
+ * (`disbursement_exceeds_commitment`, `book_value_negative` …) erscheinen mit ihren Beträgen als Hinweis.
  */
 export function FehlerHinweis({ fehler, bekannt = [] }: { fehler: unknown; bekannt?: string[] }) {
   const t = useT();

@@ -2,6 +2,8 @@ export { Button, ButtonLink, IconButton } from "./komponenten/Button";
 export type { ButtonProps, ButtonLinkProps, IconButtonProps, ButtonVariante, ButtonGroesse } from "./komponenten/Button";
 export { Feld } from "./komponenten/Feld";
 export type { FeldProps } from "./komponenten/Feld";
+export { CodeEingabe } from "./komponenten/CodeEingabe";
+export type { CodeEingabeProps } from "./komponenten/CodeEingabe";
 export { Auswahl } from "./komponenten/Auswahl";
 export type { AuswahlProps } from "./komponenten/Auswahl";
 export { Textbereich } from "./komponenten/Textbereich";
@@ -69,3 +71,5 @@ export type { Sprache, UiTexte } from "./texte";
 export { formatBetrag, formatMultiple, formatProzent, formatDatum, waehrungszeichen } from "./format";
 
 export * from "./icons";
+export { SortierbareListe } from "./komponenten/SortierbareListe";
+export type { SortierbareListeProps, SortierbareListeTexte } from "./komponenten/SortierbareListe";

@@ -16,7 +16,7 @@ export interface NeueTranche {
   betrag: string;
   bedingung?: string | null | undefined;
   geplantAm?: string | null | undefined;
-  /** Prüft Summe der Tranchen ≤ Zusage (`TRANCHEN_UEBER_ZUSAGE`); die alte Meilenstein-Route prüft sie nicht (Aufrufer legen die Zusage dort später an). */
+  /** Prüft Summe der Tranchen ≤ Zusage (`tranches_exceed_commitment`); die alte Meilenstein-Route prüft sie nicht (Aufrufer legen die Zusage dort später an). */
   pruefeZusage?: boolean;
   /** Bucht die fehlende Zusage (Summe der Tranchen minus Zusage) im selben Schritt; Valuta der Zusage: `zusageValuta`, sonst heute. */
   zusageErhoehen?: boolean;
@@ -33,7 +33,7 @@ export async function legeTrancheAn(tx: Tx, protokoll: Protokollant, instrumentI
   let zusageVorgang: Awaited<ReturnType<typeof bucheVorgang>>["vorgang"] | null = null;
   if (e.pruefeZusage !== false && summe.greaterThan(zusage)) {
     if (!e.zusageErhoehen) {
-      throw new Fachfehler(409, "TRANCHEN_UEBER_ZUSAGE", "Die Tranchen würden die Zusage des Instruments übersteigen.", {
+      throw new Fachfehler(409, "tranches_exceed_commitment", "The tranches would exceed the commitment of the instrument.", {
         zusage: zusage.toFixed(2),
         tranchen: bestehend.toFixed(2),
         betrag: new Decimal(e.betrag).toFixed(2),
@@ -55,7 +55,7 @@ export async function legeTrancheAn(tx: Tx, protokoll: Protokollant, instrumentI
 
 async function sperreTranche(tx: Tx, id: string): Promise<{ t: TrancheZeile }> {
   const [vorab] = await tx.select().from(tranche).where(eq(tranche.id, id));
-  if (!vorab) throw new Fachfehler(404, "MEILENSTEIN_NICHT_GEFUNDEN", "Meilenstein nicht gefunden.");
+  if (!vorab) throw new Fachfehler(404, "milestone_not_found", "Milestone not found.");
   return { t: vorab };
 }
 
@@ -71,17 +71,17 @@ export async function aendereTranche(tx: Tx, protokoll: Protokollant, id: string
   const { t: vorab } = await sperreTranche(tx, id);
   const { i, b } = await sperreInstrument(tx, vorab.instrumentId);
   const [vorher] = await tx.select().from(tranche).where(eq(tranche.id, id)).for("update");
-  if (!vorher) throw new Fachfehler(404, "MEILENSTEIN_NICHT_GEFUNDEN", "Meilenstein nicht gefunden.");
+  if (!vorher) throw new Fachfehler(404, "milestone_not_found", "Milestone not found.");
   const vorgaenge = await ladeVorgaenge(tx, b.id);
   const ausgezahlt = ausgezahltJeTranche(vorgaenge).get(id) ?? new Decimal(0);
   if (e.betrag !== undefined) {
     if (ausgezahlt.greaterThan(e.betrag)) {
-      throw new Fachfehler(409, "MEILENSTEIN_BETRAG_UEBERSCHRITTEN", "Die Auszahlungen übersteigen den Betrag des Meilensteins.", { meilensteinBetrag: new Decimal(e.betrag).toFixed(2), bisherAusgezahlt: ausgezahlt.toFixed(2) });
+      throw new Fachfehler(409, "milestone_amount_exceeded", "The disbursements exceed the amount of the milestone.", { meilensteinBetrag: new Decimal(e.betrag).toFixed(2), bisherAusgezahlt: ausgezahlt.toFixed(2) });
     }
     const zusage = berechneZustand(vorgaengeDesInstruments(vorgaenge, i.id)).zusage;
     const summe = (await summeTranchen(tx, i.id, id)).plus(e.betrag);
     if (summe.greaterThan(zusage) && new Decimal(e.betrag).greaterThan(vorher.betrag)) {
-      throw new Fachfehler(409, "TRANCHEN_UEBER_ZUSAGE", "Die Tranchen würden die Zusage des Instruments übersteigen.", { zusage: zusage.toFixed(2), tranchen: (await summeTranchen(tx, i.id, id)).toFixed(2), betrag: new Decimal(e.betrag).toFixed(2) });
+      throw new Fachfehler(409, "tranches_exceed_commitment", "The tranches would exceed the commitment of the instrument.", { zusage: zusage.toFixed(2), tranchen: (await summeTranchen(tx, i.id, id)).toFixed(2), betrag: new Decimal(e.betrag).toFixed(2) });
     }
   }
   const aenderung: Partial<typeof tranche.$inferInsert> = {};
@@ -91,7 +91,7 @@ export async function aendereTranche(tx: Tx, protokoll: Protokollant, id: string
   if (e.geplantAm !== undefined) aenderung.geplantAm = e.geplantAm;
   if (Object.keys(aenderung).length === 0) return { ...alsTranche(vorher), stand: trancheStand(vorher, ausgezahlt) };
   const [nachher] = await tx.update(tranche).set(aenderung).where(and(eq(tranche.id, id))).returning();
-  if (!nachher) throw new Fachfehler(404, "MEILENSTEIN_NICHT_GEFUNDEN", "Meilenstein nicht gefunden.");
+  if (!nachher) throw new Fachfehler(404, "milestone_not_found", "Milestone not found.");
   await protokoll("aendern", "tranche", id, alsMeilenstein(vorher), alsMeilenstein(nachher));
   return { ...alsTranche(nachher), stand: trancheStand(nachher, ausgezahlt) };
 }
@@ -101,14 +101,14 @@ export async function erfuelleTranche(tx: Tx, protokoll: Protokollant, id: strin
   const { t: vorab } = await sperreTranche(tx, id);
   const { b } = await sperreInstrument(tx, vorab.instrumentId);
   const [vorher] = await tx.select().from(tranche).where(eq(tranche.id, id)).for("update");
-  if (vorher?.erfuelltAm) throw new Fachfehler(409, "MEILENSTEIN_ERFUELLT", "Der Meilenstein ist bereits erfüllt.");
+  if (vorher?.erfuelltAm) throw new Fachfehler(409, "milestone_fulfilled", "The milestone is already fulfilled.");
   const [neu] = await tx
     .update(tranche)
     .set({ erfuelltAm: datum ?? heute(), nachweis: nachweis ?? vorher?.nachweis ?? null })
     .where(eq(tranche.id, id))
     .returning();
   await protokoll("erfuellen", tabelle, id, vorher && alsMeilenstein(vorher), neu && alsMeilenstein(neu));
-  if (!neu) throw new Fachfehler(404, "MEILENSTEIN_NICHT_GEFUNDEN", "Meilenstein nicht gefunden.");
+  if (!neu) throw new Fachfehler(404, "milestone_not_found", "Milestone not found.");
   const ausgezahlt = ausgezahltJeTranche(await ladeVorgaenge(tx, b.id)).get(id) ?? new Decimal(0);
   return { ...alsTranche(neu), stand: trancheStand(neu, ausgezahlt) };
 }

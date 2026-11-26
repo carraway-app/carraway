@@ -210,7 +210,7 @@ function RolleFormular({ stand, rolle, onSchliessen }: { stand: RechteStand; rol
           speichern.mutate({ ...(rolle ? { id: rolle.id } : {}), werte }, { onSuccess: onSchliessen });
         }}
       >
-        <FehlerHinweis fehler={speichern.error} bekannt={["name", "beschreibung", "bereiche", "bereichStufen"]} />
+        <FehlerHinweis fehler={speichern.error} bekannt={["name", "description", "areas", "areaLevels"]} />
         <div className="cw-formularraster">
           <Feld label={v.name} value={name} required onChange={(e) => setName(e.target.value)} />
           <Feld label={v.beschreibung} value={beschreibung} breit onChange={(e) => setBeschreibung(e.target.value)} />
@@ -284,7 +284,7 @@ function GruppeFormular({ stand, gruppe, onSchliessen }: { stand: RechteStand; g
           speichern.mutate({ ...(gruppe ? { id: gruppe.id } : {}), werte }, { onSuccess: onSchliessen });
         }}
       >
-        <FehlerHinweis fehler={speichern.error} bekannt={["name", "beschreibung", "stufe", "fondsIds", "fondsBereiche", "rollenIds", "mitglieder"]} />
+        <FehlerHinweis fehler={speichern.error} bekannt={["name", "description", "level", "fundIds", "fundAreas", "roleIds", "memberIds"]} />
         <div className="cw-formularraster">
           <Feld label={v.name} value={name} required onChange={(e) => setName(e.target.value)} />
           <Auswahl label={v.stufe} hilfe={v.stufeHilfe} value={stufe} onChange={(e) => setStufe(e.target.value as FondsRolle)}>

@@ -65,7 +65,7 @@ export const abfrageSchema = ansichtKonfigSchema.extend({
 export type AbfrageEingabe = z.input<typeof abfrageSchema>;
 
 function ungueltig(feld: string, meldung: string, code = "invalid_query"): Fachfehler {
-  return new Fachfehler(400, "ABFRAGE_UNGUELTIG", "Die Abfrage ist ungültig.", { felder: [{ feld, code, meldung }] });
+  return new Fachfehler(400, "query_invalid", "The query is invalid.", { felder: [{ feld, code, meldung }] });
 }
 
 const maskiere = (text: string) => text.replace(/[\\%_]/g, (z) => `\\${z}`);
@@ -79,28 +79,28 @@ function wertFuer(feld: AufgeloestesFeld, operator: string, roh: unknown, pfad: 
     if (textartig) {
       if (operator === "ist" || operator === "ist_nicht") {
         const e = z.string().min(1).max(500).refine(ohneNul).safeParse(w);
-        if (!e.success) throw ungueltig(pfad, "Textwert erwartet");
+        if (!e.success) throw ungueltig(pfad, "Expected a text value");
         return e.data;
       }
       const e = z.string().min(1).max(200).refine(ohneNul).safeParse(w);
-      if (!e.success) throw ungueltig(pfad, "Textwert erwartet");
+      if (!e.success) throw ungueltig(pfad, "Expected a text value");
       return e.data;
     }
     const schema = wertSchema({ typ, optionen: feld.optionen });
     const e = schema.safeParse(w);
-    if (!e.success) throw ungueltig(pfad, e.error.issues[0]?.message ?? "Ungültiger Wert");
+    if (!e.success) throw ungueltig(pfad, e.error.issues[0]?.message ?? "Invalid value");
     return e.data;
   };
   if (operator === "zwischen") {
-    if (!Array.isArray(roh) || roh.length !== 2) throw ungueltig(pfad, "Zwei Werte erwartet");
+    if (!Array.isArray(roh) || roh.length !== 2) throw ungueltig(pfad, "Expected two values");
     return [einzel(roh[0]), einzel(roh[1])];
   }
   if (["ist_eines_von", "enthaelt_eines", "enthaelt_alle", "enthaelt_keines"].includes(operator)) {
-    if (!Array.isArray(roh) || roh.length === 0 || roh.length > 100) throw ungueltig(pfad, "Liste von 1 bis 100 Werten erwartet");
+    if (!Array.isArray(roh) || roh.length === 0 || roh.length > 100) throw ungueltig(pfad, "Expected a list of 1 to 100 values");
     const element = typ === "mehrfachauswahl" ? wertSchema({ typ: "auswahl", optionen: feld.optionen }) : wertSchema({ typ, optionen: feld.optionen });
     return [roh.map((w) => {
       const e = element.safeParse(w);
-      if (!e.success) throw ungueltig(pfad, e.error.issues[0]?.message ?? "Ungültiger Wert");
+      if (!e.success) throw ungueltig(pfad, e.error.issues[0]?.message ?? "Invalid value");
       return e.data as string;
     })];
   }
@@ -108,7 +108,7 @@ function wertFuer(feld: AufgeloestesFeld, operator: string, roh: unknown, pfad: 
 }
 
 function bedingungSql(feld: AufgeloestesFeld, b: Bedingung, pfad: string): SQL {
-  if (!OPERATOREN[feld.typ].includes(b.operator)) throw ungueltig(pfad, `Operator ${b.operator} gilt nicht für Felder vom Typ ${feld.typ}`, "invalid_operator");
+  if (!OPERATOREN[feld.typ].includes(b.operator)) throw ungueltig(pfad, `Operator ${b.operator} does not apply to fields of type ${feld.typ}`, "invalid_operator");
   const [w1, w2] = wertFuer(feld, b.operator, b.wert, `${pfad}.wert`);
   const a = feld.ausdruck;
   const textartig = ["text", "langtext", "url", "email", "telefon"].includes(feld.typ);
@@ -158,26 +158,26 @@ function bedingungSql(feld: AufgeloestesFeld, b: Bedingung, pfad: string): SQL {
     case "ist_falsch":
       return sql`${a} IS NOT TRUE`;
   }
-  throw ungueltig(pfad, "Unbekannter Operator", "invalid_operator");
+  throw ungueltig(pfad, "Unknown operator", "invalid_operator");
 }
 
 function filterSql(felder: Map<string, AufgeloestesFeld>, gruppe: Gruppe, tiefe: number, zaehler: { n: number }, pfad: string): SQL | undefined {
-  if (tiefe > MAX_TIEFE) throw ungueltig(pfad, "Filter zu tief verschachtelt");
+  if (tiefe > MAX_TIEFE) throw ungueltig(pfad, "Filter nested too deeply");
   const teile: SQL[] = [];
   gruppe.elemente.forEach((roh, i) => {
     const p = `${pfad}.elemente.${i}`;
     if ("elemente" in roh) {
       const g = gruppeSchema.safeParse(roh);
-      if (!g.success) throw ungueltig(p, "Ungültige Gruppe");
+      if (!g.success) throw ungueltig(p, "Invalid group");
       const t = filterSql(felder, g.data, tiefe + 1, zaehler, p);
       if (t) teile.push(t);
       return;
     }
     const e = bedingungSchema.safeParse(roh);
-    if (!e.success) throw ungueltig(p, "Ungültige Bedingung (Feld, Operator und Wert erwartet)");
-    if (++zaehler.n > MAX_BEDINGUNGEN) throw ungueltig(pfad, "Zu viele Bedingungen");
+    if (!e.success) throw ungueltig(p, "Invalid condition (field, operator and value expected)");
+    if (++zaehler.n > MAX_BEDINGUNGEN) throw ungueltig(pfad, "Too many conditions");
     const feld = felder.get(e.data.feld);
-    if (!feld) throw ungueltig(`${p}.feld`, "Unbekanntes Feld", "unknown_field");
+    if (!feld) throw ungueltig(`${p}.feld`, "Unknown field", "unknown_field");
     teile.push(bedingungSql(feld, e.data, p));
   });
   if (teile.length === 0) return undefined;
@@ -216,8 +216,8 @@ async function plane(tx: Tx, objekt: Objekt, eingabe: Pick<z.infer<typeof abfrag
   let von = sql`${def.tabelle}`;
   if (eingabe.listeId) {
     const [l] = await tx.select({ objekt: liste.objekt, archiviertAm: liste.archiviertAm }).from(liste).where(sql`${liste.id} = ${eingabe.listeId}`);
-    if (!l || l.archiviertAm) throw new Fachfehler(404, "LISTE_NICHT_GEFUNDEN", "Liste nicht gefunden.");
-    if (l.objekt !== objekt) throw ungueltig("listeId", "Die Liste gehört zu einem anderen Objekt");
+    if (!l || l.archiviertAm) throw new Fachfehler(404, "list_not_found", "List not found.");
+    if (l.objekt !== objekt) throw ungueltig("listeId", "The list belongs to a different object");
     eigene = [...eigene, ...(await ladeFelder(tx, objekt, eingabe.listeId))];
     von = sql`${def.tabelle} JOIN ${listeEintrag} ON ${listeEintrag.datensatzId} = ${def.tabelle.id} AND ${listeEintrag.listeId} = ${eingabe.listeId}::uuid`;
   }
@@ -243,8 +243,8 @@ function sortierSql(plan: Plan, sortierung: Sortierung): SQL {
   const vorgabe = sortierung.length ? sortierung : plan.def.standardSortierung;
   const teile = vorgabe.map((s, i) => {
     const feld = plan.felder.get(s.schluessel);
-    if (!feld) throw ungueltig(`sortierung.${i}.feld`, "Unbekanntes Feld", "unknown_field");
-    if (["mehrfachauswahl", "verknuepfung", "benutzer"].includes(feld.typ) && !feld.sortAusdruck) throw ungueltig(`sortierung.${i}.feld`, `Felder vom Typ ${feld.typ} lassen sich nicht sortieren`, "not_sortable");
+    if (!feld) throw ungueltig(`sortierung.${i}.feld`, "Unknown field", "unknown_field");
+    if (["mehrfachauswahl", "verknuepfung", "benutzer"].includes(feld.typ) && !feld.sortAusdruck) throw ungueltig(`sortierung.${i}.feld`, `Fields of type ${feld.typ} cannot be sorted`, "not_sortable");
     const a = feld.sortAusdruck ?? (["text", "langtext", "url", "email", "telefon"].includes(feld.typ) ? sql`lower(${feld.ausdruck})` : feld.ausdruck);
     return s.richtung === "ab" ? sql`${a} DESC NULLS LAST` : sql`${a} ASC NULLS LAST`;
   });
@@ -260,7 +260,7 @@ export async function fuehreAbfrageAus(tx: Tx, objekt: Objekt, roh: AbfrageEinga
   const spaltenSchluessel = eingabe.spalten.length ? eingabe.spalten.map((s) => s.feld) : plan.def.felder.map((f) => f.schluessel);
   const spalten = [...new Set(spaltenSchluessel)].map((k, i) => {
     const f = plan.felder.get(k);
-    if (!f) throw ungueltig(`spalten.${i}.feld`, "Unbekanntes Feld", "unknown_field");
+    if (!f) throw ungueltig(`spalten.${i}.feld`, "Unknown field", "unknown_field");
     return f;
   });
   const auswahl = spalten.map((f, i) => sql`${f.ausgabe} AS ${sql.identifier(`c${i}`)}`);
@@ -315,7 +315,7 @@ export async function ladeAlleZeilen(tx: Tx, objekt: Objekt, roh: AbfrageEingabe
   const schluessel = eingabe.spalten.length ? eingabe.spalten.map((s) => s.feld) : plan.def.felder.map((f) => f.schluessel);
   const spalten = [...new Set(schluessel)].map((k, i) => {
     const f = plan.felder.get(k);
-    if (!f) throw ungueltig(`spalten.${i}.feld`, "Unbekanntes Feld", "unknown_field");
+    if (!f) throw ungueltig(`spalten.${i}.feld`, "Unknown field", "unknown_field");
     return f;
   });
   const auswahl = spalten.map((f, i) => sql`${f.ausgabe} AS ${sql.identifier(`c${i}`)}`);
@@ -342,9 +342,9 @@ export async function fuehreBoardAus(tx: Tx, objekt: Objekt, roh: AbfrageEingabe
   const eingabe = abfrageSchema.parse(roh);
   const plan = await plane(tx, objekt, eingabe, kontext);
   const gruppe = plan.felder.get(gruppeFeld);
-  if (!gruppe || gruppe.typ !== "auswahl") throw ungueltig("gruppierung", "Gruppierung braucht ein Feld vom Typ Auswahl", "not_groupable");
+  if (!gruppe || gruppe.typ !== "auswahl") throw ungueltig("gruppierung", "Grouping requires a field of type select", "not_groupable");
   const summe = summenFeld ? plan.felder.get(summenFeld) : undefined;
-  if (summenFeld && (!summe || (summe.typ !== "betrag" && summe.typ !== "zahl"))) throw ungueltig("summe", "Summe braucht ein Betrags- oder Zahlenfeld", "not_summable");
+  if (summenFeld && (!summe || (summe.typ !== "betrag" && summe.typ !== "zahl"))) throw ungueltig("summe", "Sum requires an amount or number field", "not_summable");
   const optionen = ((gruppe.optionen.optionen as { schluessel: string }[] | undefined) ?? []).map((o) => o.schluessel);
   const summenSql = summe ? sql`coalesce(sum(${summe.ausdruck}), 0)::text` : sql`'0'`;
   const zaehlung = await tx.execute<{ g: string | null; n: number; s: string }>(
@@ -369,7 +369,7 @@ export async function fuehreBoardAus(tx: Tx, objekt: Objekt, roh: AbfrageEingabe
 async function fuehreSeite(tx: Tx, plan: Plan, schluessel: string[], wo: SQL, sortierung: AnsichtKonfig["sortierung"], limit: number, kontext: Kontext) {
   const spalten = [...new Set(schluessel)].map((k, i) => {
     const f = plan.felder.get(k);
-    if (!f) throw ungueltig(`spalten.${i}.feld`, "Unbekanntes Feld", "unknown_field");
+    if (!f) throw ungueltig(`spalten.${i}.feld`, "Unknown field", "unknown_field");
     return f;
   });
   const auswahl = spalten.map((f, i) => sql`${f.ausgabe} AS ${sql.identifier(`c${i}`)}`);
@@ -412,11 +412,11 @@ export async function fuehreGruppierungAus(tx: Tx, objekt: Objekt, roh: AbfrageE
   const eingabe = abfrageSchema.parse(roh);
   const plan = await plane(tx, objekt, eingabe, kontext);
   const gruppe = plan.felder.get(gruppeFeld);
-  if (!gruppe || !(GRUPPIERBAR as readonly string[]).includes(gruppe.typ)) throw ungueltig("gruppe", "Gruppierung braucht ein Feld vom Typ Auswahl, Mehrfachauswahl, Person im Haus, Verknüpfung oder Kontrollkästchen", "not_groupable");
+  if (!gruppe || !(GRUPPIERBAR as readonly string[]).includes(gruppe.typ)) throw ungueltig("gruppe", "Grouping requires a field of type select, multi-select, internal person, link or checkbox", "not_groupable");
   const summen = [...new Set(summenFelder)].map((k, i) => {
     const f = plan.felder.get(k);
-    if (!f) throw ungueltig(`summen.${i}`, "Unbekanntes Feld", "unknown_field");
-    if (f.typ !== "betrag" && f.typ !== "zahl") throw ungueltig(`summen.${i}`, "Summe braucht ein Betrags- oder Zahlenfeld", "not_summable");
+    if (!f) throw ungueltig(`summen.${i}`, "Unknown field", "unknown_field");
+    if (f.typ !== "betrag" && f.typ !== "zahl") throw ungueltig(`summen.${i}`, "Sum requires an amount or number field", "not_summable");
     return f;
   });
   const summenSql = summen.map((f, i) => sql`coalesce(sum(${f.ausdruck}), 0)::text AS ${sql.identifier(`s${i}`)}`);

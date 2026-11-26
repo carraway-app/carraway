@@ -53,18 +53,18 @@ describe("Laden mit der Seite", () => {
     const t = await ladeTexte("de");
     expect(t.nav.beschriftung).toBe(de.nav.beschriftung);
     expect("buchhaltung" in t).toBe(false);
-    expect(t.fehler.BELEG_NICHT_GEFUNDEN).toBeUndefined();
+    expect(t.fehler.voucher_not_found).toBeUndefined();
     await ladeSeitentexte("/belege");
     expect(t.buchhaltung.nav.belege).toBe(de.buchhaltung.nav.belege);
-    expect(t.fehler.BELEG_NICHT_GEFUNDEN).toBe(de.fehler.BELEG_NICHT_GEFUNDEN);
+    expect(t.fehler.voucher_not_found).toBe(de.fehler.voucher_not_found);
     // allgemeine Fehlertexte kommen mit jeder Seite nach der Anmeldung
-    expect(t.fehler.FONDS_NICHT_GEFUNDEN).toBe(de.fehler.FONDS_NICHT_GEFUNDEN);
+    expect(t.fehler.fund_not_found).toBe(de.fehler.fund_not_found);
     expect("mail" in t).toBe(false);
   });
 
   it("nach der Anmeldung ist jeder Fehlercode der API übersetzt, auch wenn die Seite keinen Bereich des Codes geladen hat", async () => {
     const quelle = readFileSync(resolve(process.cwd(), "../api/src/fehler.ts"), "utf8");
-    const codes = [...(/export type Fehlercode =([\s\S]*?);/.exec(quelle)?.[1] ?? "").matchAll(/"([A-Z][A-Z0-9_]+)"/g)].map((m) => m[1]!);
+    const codes = [...(/export type Fehlercode =([\s\S]*?);/.exec(quelle)?.[1] ?? "").matchAll(/"([^"]+)"/g)].map((m) => m[1]!);
     expect(codes.length).toBeGreaterThan(200);
     for (const sprache of ["de", "en"] as const) {
       setzeTexteZurueck();
@@ -82,7 +82,7 @@ describe("Laden mit der Seite", () => {
     const t = tabelleFuer("de");
     expect(t.anmeldung.titel).toBe(de.anmeldung.titel);
     expect(t.fehler.INVALID_EMAIL_OR_PASSWORD).toBe(de.fehler.INVALID_EMAIL_OR_PASSWORD);
-    expect(t.fehler.FONDS_NICHT_GEFUNDEN).toBeUndefined();
+    expect(t.fehler.fund_not_found).toBeUndefined();
     // Außer dem Rahmen kommt nur der kleine Bereich „konto“ (Anmeldung, Passwort, zweiter Faktor), nie die Fehlertexte der übrigen Seiten.
     expect(bereicheFuerPfad("/anmelden")).toEqual(["konto"]);
     expect(bereicheFuerPfad("/passwort-setzen")).toEqual(["konto"]);
@@ -100,7 +100,7 @@ describe("Laden mit der Seite", () => {
     expect(gehalten).toBeInstanceOf(Promise);
     expect(nachgeladen).toEqual(["mail"]);
     await gehalten;
-    expect(t.mail.menue.mailversand).toBe(en.mail.menue.mailversand);
+    expect(t.mail.menue.einstellungen).toBe(en.mail.menue.einstellungen);
     nachgeladen.length = 0;
   });
 

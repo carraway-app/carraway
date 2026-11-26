@@ -1,3 +1,4 @@
+import { ausFonds } from "./abbildung-fonds";
 import { queryOptions } from "@tanstack/react-query";
 import { api, auspacken } from "./client";
 
@@ -9,10 +10,9 @@ import { api, auspacken } from "./client";
 /** Frische der Daten im Cache: Seitenwechsel innerhalb dieser Zeit laufen ohne Anfrage. */
 export const STALE_ZEIT = 60_000;
 
-export const ladeFonds = async () => (await auspacken(api.api.v1.fonds.$get())).daten;
+export const ladeFonds = async () => (await ausFonds(api.api.v1.funds.$get)).daten;
 export const ladeUebersicht = (fondsId: string, stichtag?: string, stand?: string) =>
-  auspacken(api.api.v1.fonds[":id"].uebersicht.$get({ param: { id: fondsId }, query: { ...(stichtag ? { stichtag } : {}), ...(stand ? { stand } : {}) } }));
-export const ladeWiedervorlagenAnzahl = () => auspacken(api.api.v1.wiedervorlagen.anzahl.$get());
+  ausFonds(api.api.v1.funds[":id"].overview.$get, { param: { id: fondsId }, query: { ...(stichtag ? { stichtag } : {}), ...(stand ? { stand } : {}) } });
 
 /**
  * Schlüssel der Abfragen. Die Hierarchie ist Absicht: Schreibvorgänge entwerten genau die Präfixe,
@@ -47,4 +47,4 @@ export const fondsListe = () => queryOptions({ queryKey: schluessel.fonds, query
 export const fondsUebersicht = (fondsId: string, stichtag?: string, stand?: string) =>
   queryOptions({ queryKey: [...schluessel.fonds, fondsId, "uebersicht", stichtag ?? null, stand ?? null], queryFn: () => ladeUebersicht(fondsId, stichtag, stand) });
 /** Zähler der Kopfzeile: fällige und überfällige Wiedervorlagen der angemeldeten Person; alle Minute neu. */
-export const wiedervorlagenAnzahl = () => queryOptions({ queryKey: [...schluessel.wiedervorlagen, "anzahl"], queryFn: ladeWiedervorlagenAnzahl, refetchInterval: 60_000 });
+export const wiedervorlagenAnzahl = queryOptions({ queryKey: [...schluessel.wiedervorlagen, "anzahl"], queryFn: () => auspacken(api.api.v1["follow-ups"].count.$get()), refetchInterval: 60_000 });

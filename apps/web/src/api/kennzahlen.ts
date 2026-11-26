@@ -1,6 +1,6 @@
+import { auspackenPortfolio, type PortfolioEingabe } from "./abbildung-portfolio";
 import { queryOptions } from "@tanstack/react-query";
-import type { InferRequestType } from "hono/client";
-import { api, auspacken } from "./client";
+import { api } from "./client";
 import { useApiMutation } from "./mutationen";
 
 /**
@@ -12,12 +12,12 @@ const wurzel = ["kennzahlen"] as const;
 export type Szenario = "ist" | "plan" | "forecast";
 export const SZENARIEN: readonly Szenario[] = ["ist", "plan", "forecast"];
 
-const ladeKatalog = async (alle: boolean) => (await auspacken(api.api.v1.kennzahlen.katalog.$get({ query: { alle: alle ? "true" : "false" } }))).daten;
-const ladeAuswahl = async (fondsId: string) => (await auspacken(api.api.v1.fonds[":id"].kennzahlen.auswahl.$get({ param: { id: fondsId } }))).daten;
-const ladeReihe = (beteiligungId: string) => auspacken(api.api.v1.beteiligungen[":id"].kennzahlen.$get({ param: { id: beteiligungId }, query: {} }));
-const ladeUebersicht = (fondsId: string, periode: string) => auspacken(api.api.v1.fonds[":id"].kennzahlen.uebersicht.$get({ param: { id: fondsId }, query: { periode } }));
-const ladeAbfragen = async (fondsId: string) => (await auspacken(api.api.v1.fonds[":id"].kennzahlen.abfragen.$get({ param: { id: fondsId }, query: {} }))).daten;
-const ladeAbfrage = (id: string) => auspacken(api.api.v1.kennzahlen.abfragen[":id"].$get({ param: { id } }));
+const ladeKatalog = async (alle: boolean) => (await auspackenPortfolio(api.api.v1.metrics.catalog.$get, { query: { alle: alle ? "true" : "false" } })).daten;
+const ladeAuswahl = async (fondsId: string) => (await auspackenPortfolio(api.api.v1.funds[":id"].metrics.selection.$get, { param: { id: fondsId } })).daten;
+const ladeReihe = (beteiligungId: string) => auspackenPortfolio(api.api.v1.investments[":id"].metrics.$get, { param: { id: beteiligungId }, query: {} });
+const ladeUebersicht = (fondsId: string, periode: string) => auspackenPortfolio(api.api.v1.funds[":id"].metrics.overview.$get, { param: { id: fondsId }, query: { periode } });
+const ladeAbfragen = async (fondsId: string) => (await auspackenPortfolio(api.api.v1.funds[":id"].metrics["metric-requests"].$get, { param: { id: fondsId }, query: {} })).daten;
+const ladeAbfrage = (id: string) => auspackenPortfolio(api.api.v1.metrics["metric-requests"][":id"].$get, { param: { id } });
 
 export type Katalog = Awaited<ReturnType<typeof ladeKatalog>>;
 export type KatalogEintrag = Katalog[number];
@@ -29,9 +29,9 @@ export type OffenerWert = Zeitreihe["offen"][number];
 export type Uebersicht = Awaited<ReturnType<typeof ladeUebersicht>>;
 export type AbfrageZeile = Awaited<ReturnType<typeof ladeAbfragen>>[number];
 export type AbfrageDetail = Awaited<ReturnType<typeof ladeAbfrage>>;
-export type NeueDefinition = InferRequestType<typeof api.api.v1.kennzahlen.katalog.$post>["json"];
-export type NeueAbfrage = InferRequestType<(typeof api.api.v1.beteiligungen)[":id"]["kennzahlen"]["abfragen"]["$post"]>["json"];
-export type NeuerWert = InferRequestType<(typeof api.api.v1.beteiligungen)[":id"]["kennzahlen"]["werte"]["$post"]>["json"];
+export type NeueDefinition = PortfolioEingabe<typeof api.api.v1.metrics.catalog.$post>["json"];
+export type NeueAbfrage = PortfolioEingabe<(typeof api.api.v1.investments)[":id"]["metrics"]["metric-requests"]["$post"]>["json"];
+export type NeuerWert = PortfolioEingabe<(typeof api.api.v1.investments)[":id"]["metrics"]["values"]["$post"]>["json"];
 /** Link, der nur beim Anlegen oder bei einem neuen Link ausgegeben wird (die Datenbank kennt nur den Hash). */
 export interface Link {
   token: string;
@@ -49,50 +49,50 @@ export const kennzahlAbfrage = (id: string) => queryOptions({ queryKey: [...wurz
 const alles = () => [wurzel] as const;
 
 export const useDefinitionAnlegen = () =>
-  useApiMutation({ aufruf: (json: NeueDefinition) => auspacken(api.api.v1.kennzahlen.katalog.$post({ json })), invalidiert: alles });
+  useApiMutation({ aufruf: (json: NeueDefinition) => auspackenPortfolio(api.api.v1.metrics.catalog.$post, { json }), invalidiert: alles });
 
 export const useVersionAnlegen = () =>
   useApiMutation({
     aufruf: ({ schluessel, json }: { schluessel: string; json: { bezeichnungDe?: string; bezeichnungEn?: string; einheit?: string; periodizitaet?: "monat" | "quartal" | "jahr"; aggregation?: "summe" | "stand" | "durchschnitt"; pflicht?: boolean; gueltigAb?: string } }) =>
-      auspacken(api.api.v1.kennzahlen.katalog[":schluessel"].versionen.$post({ param: { schluessel }, json })),
+      auspackenPortfolio(api.api.v1.metrics.catalog[":metricKey"].versions.$post, { param: { schluessel }, json }),
     invalidiert: alles,
   });
 
 export const useAusserKraft = () =>
-  useApiMutation({ aufruf: (schluessel: string) => auspacken(api.api.v1.kennzahlen.katalog[":schluessel"].$delete({ param: { schluessel } })), invalidiert: alles });
+  useApiMutation({ aufruf: (schluessel: string) => auspackenPortfolio(api.api.v1.metrics.catalog[":metricKey"].$delete, { param: { schluessel } }), invalidiert: alles });
 
 export const useAuswahlSetzen = (fondsId: string) =>
-  useApiMutation({ aufruf: (schluessel: string[]) => auspacken(api.api.v1.fonds[":id"].kennzahlen.auswahl.$put({ param: { id: fondsId }, json: { schluessel } })), invalidiert: alles });
+  useApiMutation({ aufruf: (schluessel: string[]) => auspackenPortfolio(api.api.v1.funds[":id"].metrics.selection.$put, { param: { id: fondsId }, json: { schluessel } }), invalidiert: alles });
 
 export const useWertAnlegen = (beteiligungId: string) =>
-  useApiMutation({ aufruf: (json: NeuerWert) => auspacken(api.api.v1.beteiligungen[":id"].kennzahlen.werte.$post({ param: { id: beteiligungId }, json })), invalidiert: alles });
+  useApiMutation({ aufruf: (json: NeuerWert) => auspackenPortfolio(api.api.v1.investments[":id"].metrics.values.$post, { param: { id: beteiligungId }, json }), invalidiert: alles });
 
 export const useWertAendern = () =>
   useApiMutation({
-    aufruf: ({ id, json }: { id: string; json: { wert?: string; kommentar?: string | null } }) => auspacken(api.api.v1.kennzahlen.werte[":id"].$patch({ param: { id }, json })),
+    aufruf: ({ id, json }: { id: string; json: { wert?: string; kommentar?: string | null } }) => auspackenPortfolio(api.api.v1.metrics.values[":id"].$patch, { param: { id }, json }),
     invalidiert: alles,
   });
 
 export const useWertBestaetigen = () =>
-  useApiMutation({ aufruf: (id: string) => auspacken(api.api.v1.kennzahlen.werte[":id"].bestaetigen.$post({ param: { id } })), invalidiert: alles });
+  useApiMutation({ aufruf: (id: string) => auspackenPortfolio(api.api.v1.metrics.values[":id"].confirm.$post, { param: { id } }), invalidiert: alles });
 
 export const useWertVerwerfen = () =>
-  useApiMutation({ aufruf: (id: string) => auspacken(api.api.v1.kennzahlen.werte[":id"].verwerfen.$post({ param: { id } })), invalidiert: alles });
+  useApiMutation({ aufruf: (id: string) => auspackenPortfolio(api.api.v1.metrics.values[":id"].discard.$post, { param: { id } }), invalidiert: alles });
 
 export const useAbfrageAnlegen = (beteiligungId: string) =>
   useApiMutation({
-    aufruf: async (json: NeueAbfrage) => (await auspacken(api.api.v1.beteiligungen[":id"].kennzahlen.abfragen.$post({ param: { id: beteiligungId }, json }))) as { abfrage: { id: string }; link: Link },
+    aufruf: async (json: NeueAbfrage) => (await auspackenPortfolio(api.api.v1.investments[":id"].metrics["metric-requests"].$post, { param: { id: beteiligungId }, json })) as { abfrage: { id: string }; link: Link },
     invalidiert: alles,
   });
 
 export const useNeuerLink = () =>
   useApiMutation({
-    aufruf: async (id: string) => (await auspacken(api.api.v1.kennzahlen.abfragen[":id"]["neuer-link"].$post({ param: { id } }))) as { abfrage: { id: string }; link: Link },
+    aufruf: async (id: string) => (await auspackenPortfolio(api.api.v1.metrics["metric-requests"][":id"]["renew-link"].$post, { param: { id } })) as { abfrage: { id: string }; link: Link },
     invalidiert: alles,
   });
 
 export const useAbfrageWiderrufen = () =>
-  useApiMutation({ aufruf: (id: string) => auspacken(api.api.v1.kennzahlen.abfragen[":id"].widerrufen.$post({ param: { id } })), invalidiert: alles });
+  useApiMutation({ aufruf: (id: string) => auspackenPortfolio(api.api.v1.metrics["metric-requests"][":id"].revoke.$post, { param: { id } }), invalidiert: alles });
 
 export const useAbfrageBestaetigen = () =>
-  useApiMutation({ aufruf: (id: string) => auspacken(api.api.v1.kennzahlen.abfragen[":id"].bestaetigen.$post({ param: { id } })), invalidiert: alles });
+  useApiMutation({ aufruf: (id: string) => auspackenPortfolio(api.api.v1.metrics["metric-requests"][":id"].confirm.$post, { param: { id } }), invalidiert: alles });

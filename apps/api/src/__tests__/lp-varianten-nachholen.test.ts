@@ -69,9 +69,9 @@ afterAll(async () => {
 });
 
 async function lpFreigeben(): Promise<string> {
-  const neu = await json(await post("/berichte", { art: "lp_bericht", fondsId, stichtag: "2026-03-01", sprache: "de" }, "nach-autor"));
+  const neu = await json(await post("/reports", { art: "lp_bericht", fondsId, stichtag: "2026-03-01", sprache: "de" }, "nach-autor"));
   let letzte: Response | undefined;
-  for (const [i, k] of ["n1", "n2", "n3"].entries()) letzte = await post(`/berichte/${neu.id}/stufe`, { stufe: STUFEN[i], ergebnis: "ok", ...(i === 2 ? { kontrolleUeberschreiben: { grund: "Test ohne Bewertungen" } } : {}) }, k);
+  for (const [i, k] of ["n1", "n2", "n3"].entries()) letzte = await post(`/reports/${neu.id}/stage`, { stufe: STUFEN[i], ergebnis: "ok", ...(i === 2 ? { kontrolleUeberschreiben: { grund: "Test ohne Bewertungen" } } : {}) }, k);
   expect(letzte!.status, await letzte!.clone().text()).toBe(200);
   return neu.id;
 }
@@ -86,13 +86,13 @@ async function alsAltBericht(berichtId: string) {
   }
   return vorher;
 }
-const nachholen = (als = admin, koerper: object = {}) => post("/berichte/varianten-nachholen", koerper, als);
+const nachholen = (als = admin, koerper: object = {}) => post("/reports/backfill-variants", koerper, als);
 const fassungenVon = (berichtId: string) => db.select().from(s.berichtVariante).where(eq(s.berichtVariante.berichtId, berichtId));
 
 describe("Fassungen für früher freigegebene LP-Berichte nachholen", () => {
   it("nur globale Verwalter; Bearbeiter und Fremde werden abgewiesen", async () => {
     expect((await nachholen(bearbeiter)).status).toBe(403);
-    expect((await t.request("/berichte/varianten-nachholen", { method: "POST", als: null })).status).toBe(401);
+    expect((await t.request("/reports/backfill-variants", { method: "POST", als: null })).status).toBe(401);
   });
 
   it("legt je Zeichnung eine Fassung mit dem Konto des Investors an, gleich der ursprünglich ausgelieferten, ohne fremde Konten; protokolliert; wiederholbar", async () => {
@@ -157,7 +157,7 @@ describe("Fassungen für früher freigegebene LP-Berichte nachholen", () => {
     expect(await json(await nachholen())).toEqual({ geprueft: 1, angelegt: [], uebersprungen: [{ berichtId, grund: "datei_fehlt" }] });
     expect(await fassungenVon(berichtId)).toHaveLength(0);
     // Entwurf eines LP-Berichts: wird nicht angefasst
-    await post("/berichte", { art: "lp_bericht", fondsId, stichtag: "2026-03-01", sprache: "de" }, "nach-autor");
+    await post("/reports", { art: "lp_bericht", fondsId, stichtag: "2026-03-01", sprache: "de" }, "nach-autor");
     expect((await json(await nachholen())).geprueft).toBe(1);
   });
 });

@@ -95,7 +95,7 @@ describe("Bewertungsrunde", () => {
   });
 
   it("zeigt Fehler beim Ändern und verlangt für andere Methoden als Anschaffungskosten eine Begründung", async () => {
-    spieleApi({ "PATCH /api/v1/bewertungen/rw1": fehler(409, "PERIODE_GESPERRT", { gesperrtBis: "2026-12-31" }) });
+    spieleApi({ "PATCH /api/v1/bewertungen/rw1": fehler(409, "period_locked", { gesperrtBis: "2026-12-31" }) });
     rendereApp(URL_RUNDE);
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Entwurf ändern: Alpha Energie" }));
@@ -106,7 +106,7 @@ describe("Bewertungsrunde", () => {
   });
 
   it("blendet das Ändern für Betrachter aus und sperrt die Freigabe, wenn die Person einen Entwurf der Runde angelegt hat", async () => {
-    spieleApi({ "/api/v1/ich": alsRolle("betrachter") });
+    spieleApi({ "/api/v1/me": alsRolle("betrachter") });
     const { unmount } = rendereApp(URL_RUNDE);
     await screen.findByRole("button", { name: "Alle Entwürfe freigeben" });
     expect(screen.queryByRole("button", { name: /Entwurf ändern/ })).toBeNull();
@@ -147,8 +147,8 @@ describe("Bewertungsrunde", () => {
     expect(api.anfragen("POST", `/api/v1/bewertungsrunden/${RUNDE_ID}/verwerfen`)).toHaveLength(1);
   });
 
-  it("blendet das Anlegen für Betrachter aus und übersetzt BEWERTUNGSRUNDE_OFFEN in beiden Sprachen", async () => {
-    spieleApi({ "/api/v1/ich": alsRolle("betrachter") });
+  it("blendet das Anlegen für Betrachter aus und übersetzt valuation_round_open in beiden Sprachen", async () => {
+    spieleApi({ "/api/v1/me": alsRolle("betrachter") });
     const { unmount } = rendereApp(URL_RUNDE);
     await screen.findByRole("heading", { level: 2, name: "Bewertungsrunde" });
     expect(screen.queryByRole("button", { name: "Runde anlegen" })).toBeNull();
@@ -156,13 +156,13 @@ describe("Bewertungsrunde", () => {
     expect(screen.getByText(de.rechte.braucht("Freigeber"))).toBeTruthy();
     unmount();
 
-    spieleApi({ [`POST /api/v1/fonds/${FONDS_ID}/bewertungsrunde`]: fehler(409, "BEWERTUNGSRUNDE_OFFEN", { bewertungsrundeId: RUNDE_ID }) });
+    spieleApi({ [`POST /api/v1/fonds/${FONDS_ID}/bewertungsrunde`]: fehler(409, "valuation_round_open", { bewertungsrundeId: RUNDE_ID }) });
     localStorage.setItem("carraway.sprache", "en");
     rendereApp(URL_RUNDE);
     const nutzer = userEvent.setup();
     fireEvent.change(await screen.findByLabelText("Reporting date"), { target: { value: "2026-12-31" } });
     await nutzer.click(screen.getByRole("button", { name: "Start round" }));
-    expect(await screen.findByText(en.fehler.BEWERTUNGSRUNDE_OFFEN)).toBeTruthy();
+    expect(await screen.findByText(en.fehler.valuation_round_open)).toBeTruthy();
     localStorage.removeItem("carraway.sprache");
   });
 });

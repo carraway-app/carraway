@@ -1,9 +1,13 @@
+import { berichtAnApi, berichtBereich, berichtFeldpfadVonApi, berichtVonApi, type BerichteBereich } from "../berichte-vertrag";
+import { fondsFixtureAnApi, fondsFixturePfad, fondsFixtureVonApi } from "./fonds-fixtures";
+import { portfolioFixtureAnApi, portfolioFixturePfad, portfolioFixtureVonApi } from "./portfolio-fixtures";
 import { createHmac } from "node:crypto";
 import { hashPassword, symmetricEncrypt } from "better-auth/crypto";
 import { sql } from "drizzle-orm";
 import type { Hono } from "hono";
 import * as s from "@carraway/db";
 import { erstelleApp, type AppOptionen } from "../app";
+import { kontaktFixtureJson, kontaktFixtureUrl } from "./kontakt-fixtures";
 import { ladeKonfiguration, type Konfiguration } from "../konfiguration";
 
 /**
@@ -151,10 +155,56 @@ export interface TestAnfrage extends RequestInit {
   origin?: string | null;
 }
 
+/** Fachtests verwenden die internen Namen. Vertragstests rufen `requestApi` direkt auf. */
+async function berichtFixture(
+  bereich: BerichteBereich, pfad: string, init: TestAnfrage | undefined, request: TestApp["requestApi"],
+) {
+  const url = new URL(pfad, "http://localhost");
+  const query = new URLSearchParams(berichtAnApi(bereich, Object.fromEntries(url.searchParams)));
+  let body = init?.body;
+  if (body instanceof FormData) {
+    const neu = new FormData();
+    for (const [feld, wert] of body) {
+      const inhalt = feld === "ziele" && typeof wert === "string" ? JSON.parse(wert) as unknown : wert;
+      for (const [name, x] of Object.entries(berichtAnApi(bereich, { [feld]: inhalt }))) {
+        neu.append(name, typeof x === "string" || x instanceof Blob ? x : JSON.stringify(x));
+      }
+    }
+    body = neu;
+  } else if (typeof body === "string") {
+    try {
+      body = JSON.stringify(berichtAnApi(bereich, JSON.parse(body)));
+    } catch {
+      // Ungültiges JSON unverändert an die API geben.
+    }
+  }
+  const pfadApi = url.pathname + (query.size ? `?${query}` : "");
+  const antwort = await request(pfadApi, { ...init, ...(body === undefined ? {} : { body }) });
+  const json = antwort.json.bind(antwort);
+  Object.defineProperty(antwort, "json", {
+    value: async () => {
+      const wert: unknown = await json();
+      if (antwort.ok) return berichtVonApi(bereich, wert);
+      const { error } = wert as { error: { code: string; message: string; fields?: { field: string; code: string; message: string }[] } };
+      const { code, message, fields, ...details } = error;
+      return { error: {
+        code, message, ...berichtVonApi(bereich, details),
+        ...(fields ? { fields: fields.map((f) => ({ ...f, field: berichtFeldpfadVonApi(bereich, f.field) })) } : {}),
+      } };
+    },
+  });
+  return antwort;
+}
+
 export interface TestApp {
   /** Die echte App ohne Zutaten (für Tests der Anmeldung selbst). */
   app: Hono;
+  /** Unveränderte HTTP-Anfrage für Tests des öffentlichen Vertrags. */
+  requestApi: (pfad: string, init?: TestAnfrage) => Promise<Response>;
+  /** Fachtests können die bisherigen Kontakt-Fixtures mit internen Schlüsseln weiterverwenden. */
   request: (pfad: string, init?: TestAnfrage) => Promise<Response>;
+  /** HTTP-Vertrag prüfen, einschließlich unbekannter Pfade und unbearbeiteter JSON-Antworten. */
+  requestEnglisch: (pfad: string, init?: TestAnfrage) => Promise<Response>;
 }
 
 /**
@@ -179,18 +229,110 @@ export function erstelleTestApp(db: Db, optionen: Partial<Konfiguration> & AppOp
     }
     return eintrag;
   };
+  const requestEnglisch: TestApp["requestEnglisch"] = async (pfad, { als, origin, headers, ...init } = {}) => {
+    const kopf = new Headers(headers);
+    const methode = (init.method ?? "GET").toUpperCase();
+    const person = als === undefined ? STANDARD : als;
+    if (person) kopf.set("cookie", await cookieFuer(person));
+    if (methode !== "GET" && methode !== "HEAD") {
+      const ursprung = origin === undefined ? TESTORIGIN : origin;
+      if (ursprung) kopf.set("origin", ursprung);
+    }
+    return app.request(pfad.startsWith("/api/") ? pfad : `/api/v1${pfad}`, { ...init, headers: kopf });
+  };
   return {
     app,
-    request: async (pfad, { als, origin, headers, ...init } = {}) => {
-      const kopf = new Headers(headers);
-      const methode = (init.method ?? "GET").toUpperCase();
-      const person = als === undefined ? STANDARD : als;
-      if (person) kopf.set("cookie", await cookieFuer(person));
-      if (methode !== "GET" && methode !== "HEAD") {
-        const ursprung = origin === undefined ? TESTORIGIN : origin;
-        if (ursprung) kopf.set("origin", ursprung);
+    requestEnglisch,
+    requestApi: requestEnglisch,
+    request: async (pfad, init) => {
+      const bereich = berichtBereich(pfad.split("?")[0]!);
+      if (bereich) return berichtFixture(bereich, pfad, init, requestEnglisch);
+      const fondsRoute = fondsFixturePfad(pfad);
+      if (fondsRoute.fonds) {
+        let body = init?.body;
+        if (typeof body === "string") {
+          try {
+            body = JSON.stringify(fondsFixtureAnApi(JSON.parse(body)));
+          } catch {
+            // Ungültiges JSON bleibt unverändert.
+          }
+        }
+        const antwort = await requestEnglisch(fondsRoute.pfad, { ...init, ...(body === undefined ? {} : { body }) });
+        const json = antwort.json.bind(antwort);
+        Object.defineProperty(antwort, "json", { value: async () => fondsFixtureVonApi(await json()) });
+        return antwort;
       }
-      return app.request(pfad.startsWith("/api/") ? pfad : `/api/v1${pfad}`, { ...init, headers: kopf });
+      const ziel = kontaktFixtureUrl(pfad, true);
+      if (!ziel) {
+        const portfolio = portfolioFixturePfad(pfad);
+        const route = { ...portfolio, pfad: fondsFixturePfad(portfolio.pfad).pfad };
+        if (route.format === "fachlich") return requestEnglisch(route.pfad, init);
+        const plan = { ...init };
+        if (typeof plan.body === "string") {
+          try {
+            plan.body = JSON.stringify(portfolioFixtureAnApi(JSON.parse(plan.body), route.format, true));
+          } catch {
+            // Tests für ungültige JSON-Körper senden den Originaltext.
+          }
+        }
+        const antwort = await requestEnglisch(route.pfad, plan);
+        const json = antwort.json.bind(antwort);
+        Object.defineProperty(antwort, "json", { value: async () => portfolioFixtureVonApi(await json(), route.format) });
+        return antwort;
+      }
+      const query = ziel.query.toString();
+      let body = init?.body;
+      let gruppenfeld: string | undefined;
+      if (typeof body === "string" && new Headers(init?.headers).get("content-type")?.startsWith("application/json")) {
+        try {
+          const roh = JSON.parse(body) as { gruppe?: unknown } | null;
+          if (ziel.crm && typeof roh?.gruppe === "string") gruppenfeld = roh.gruppe;
+          body = JSON.stringify(kontaktFixtureJson(roh, true, ziel.crm));
+        } catch {
+          // Tests für ungültige JSON-Körper senden den Originaltext.
+        }
+      }
+      const antwort = await requestEnglisch(ziel.pfad + (query ? `?${query}` : ""), { ...init, ...(body === undefined ? {} : { body }) });
+      if (ziel.pfad.startsWith("/custom-fields/") && ziel.pfad.endsWith("/schema")) return antwort;
+      const json = antwort.json.bind(antwort);
+      Object.defineProperty(antwort, "json", { value: async () => kontaktFixtureJson(await json(), false, ziel.crm, gruppenfeld) });
+      return antwort;
     },
   };
+}
+
+// Rechte-Körper in der englischen Form der Schnittstelle ---------------------------------------------------------------------
+// Tests, die Gruppen und Rollen anlegen, schreiben ihre Bereiche und Stufen mit den Namen der Datenbank; diese Hilfen übersetzen sie.
+
+export const BEREICH_EN: Record<string, string> = {
+  portfolio: "portfolio",
+  finanzen: "finance",
+  kennzahlen: "metrics",
+  berichte: "reports",
+  meldewesen: "regulatory_reporting",
+  dealflow: "dealflow",
+  kontakte: "contacts",
+  dokumente: "documents",
+  daten: "data",
+  fondsverwaltung: "fund_administration",
+};
+export const STUFE_EN: Record<string, string> = { betrachter: "viewer", bearbeiter: "editor", freigeber: "approver", verwalter: "admin" };
+
+/** Körper einer Gruppe mit den Namen der Datenbank (`stufe`, `fondsIds` …) als Körper der Schnittstelle. */
+export function gruppeAnApi(g: Record<string, unknown>): Record<string, unknown> {
+  const karte: Record<string, string> = {
+    fondsBeschraenkt: "fundsRestricted",
+    bereicheJeFonds: "areasPerFund",
+    fondsIds: "fundIds",
+    rollenIds: "roleIds",
+    mitglieder: "memberIds",
+    beschreibung: "description",
+  };
+  return Object.fromEntries(
+    Object.entries(g).map(([k, v]) => {
+      if (k === "stufe") return ["level", STUFE_EN[v as string] ?? v];
+      if (k === "fondsBereiche") return ["fundAreas", Object.fromEntries(Object.entries(v as Record<string, string[]>).map(([f, b]) => [f, b.map((x) => BEREICH_EN[x] ?? x)]))];
+      return [karte[k] ?? k, v];
+    }),
+  );
 }

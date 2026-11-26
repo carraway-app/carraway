@@ -103,7 +103,7 @@ describe("Register am Unternehmen", () => {
   });
 
   it("zeigt Betrachtern keine Schreibaktionen und eine gesperrte Beobachtung", async () => {
-    spieleApi({ "/api/v1/ich": alsRolle("betrachter"), [REGISTER]: { koerper: registerDaten }, "/api/v1/register/meldungen": { koerper: { daten: [] } } });
+    spieleApi({ "/api/v1/me": alsRolle("betrachter"), [REGISTER]: { koerper: registerDaten }, "/api/v1/register/meldungen": { koerper: { daten: [] } } });
     rendereApp(url);
     const r = await abschnitt();
     expect(r.queryByRole("button", { name: /übernehmen/ })).toBeNull();
@@ -145,12 +145,12 @@ describe("Register am Unternehmen", () => {
     spieleApi({
       [REGISTER]: { koerper: registerDaten },
       "/api/v1/register/meldungen": { koerper: { daten: [] } },
-      [`POST ${REGISTER}/uebernehmen`]: { koerper: { fehler: { code: "REGISTER_KEIN_UNTERSCHIED", meldung: "x" } }, status: 409 },
+      [`POST ${REGISTER}/uebernehmen`]: { koerper: { error: { code: "register_no_difference", message: "x" } }, status: 409 },
     });
     rendereApp(url);
     const r = await abschnitt();
     await userEvent.setup().click(r.getByRole("button", { name: "Firma aus dem Register übernehmen" }));
-    expect(await r.findByText(de.fehler.REGISTER_KEIN_UNTERSCHIED)).toBeTruthy();
+    expect(await r.findByText(de.fehler.register_no_difference)).toBeTruthy();
   });
 
   it("ist in Englisch vollständig übersetzt", async () => {

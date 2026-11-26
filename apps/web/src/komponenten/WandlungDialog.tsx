@@ -86,10 +86,10 @@ export interface WandlungVorbelegung {
 }
 
 /**
- * Wandlung eines Wandeldarlehens. Die Vorschau rechnet der Server (Rechenkern); gebucht wird nur nach einer Vorschau
+ * Wandlung eines Wandeldarlehens oder SAFE (`safe`: ohne Zinsen, Konditionen und Restbehandlung der Zinsen). Die Vorschau rechnet der Server (Rechenkern); gebucht wird nur nach einer Vorschau
  * mit unveränderten Eingaben. Die Oberfläche rechnet nichts, sie zeigt `schritte` und `gebucht` der API.
  */
-export function WandlungDialog({ beteiligungId, organisationId, instrumentId, vorbelegung, runden, onSchliessen }: { beteiligungId: string; organisationId: string; instrumentId?: string | undefined; vorbelegung?: WandlungVorbelegung | undefined; runden: WandlungRunde[]; onSchliessen: () => void }) {
+export function WandlungDialog({ beteiligungId, organisationId, instrumentId, vorbelegung, safe = false, runden, onSchliessen }: { beteiligungId: string; organisationId: string; instrumentId?: string | undefined; vorbelegung?: WandlungVorbelegung | undefined; safe?: boolean | undefined; runden: WandlungRunde[]; onSchliessen: () => void }) {
   const t = useT();
   const sprache = useSprache();
   const f = t.wandlungForm;
@@ -156,7 +156,7 @@ export function WandlungDialog({ beteiligungId, organisationId, instrumentId, vo
   const eingabe = (): WandlungEingabe => ({
     ...(instrumentId ? { instrumentId } : {}),
     cutoff: werte.cutoff,
-    zinsenWandeln: zinsenWandeln === "ja",
+    zinsenWandeln: !safe && zinsenWandeln === "ja",
     preisregel: {
       ...(textOderNichts(werte.rundenpreis) ? { rundenpreisJeAnteil: betragOderNichts(werte.rundenpreis, sprache) ?? "" } : {}),
       ...(textOderNichts(werte.discount) ? { discount: prozentZuAnteil(werte.discount) } : {}),
@@ -181,7 +181,7 @@ export function WandlungDialog({ beteiligungId, organisationId, instrumentId, vo
     rolle: werte.rolle as WandlungEingabe["rolle"],
     // Abweichende Beträge nur, wenn angegeben; die Art des Rests nur dazu (leer = wie errechnet).
     ...(textOderNichts(werte.gewandeltesDarlehen) ? { gewandeltesDarlehen: betragOderNichts(werte.gewandeltesDarlehen, sprache) ?? "", darlehenRest } : {}),
-    ...(textOderNichts(werte.gewandelteZinsen) ? { gewandelteZinsen: betragOderNichts(werte.gewandelteZinsen, sprache) ?? "", zinsenRest } : {}),
+    ...(!safe && textOderNichts(werte.gewandelteZinsen) ? { gewandelteZinsen: betragOderNichts(werte.gewandelteZinsen, sprache) ?? "", zinsenRest } : {}),
     ...(klasseId ? { anteilsklasseId: klasseId } : {}),
   });
   const schluessel = JSON.stringify(eingabe());
@@ -260,10 +260,12 @@ export function WandlungDialog({ beteiligungId, organisationId, instrumentId, vo
             <FehlerHinweis fehler={aktiveFehler} bekannt={FELDER} />
             <div className="app-feldgruppe">
               <Feld label={f.cutoff} type="date" max={heuteIso()} hilfe={f.cutoffHilfe} {...feld("cutoff", fehler("cutoff"))} />
-              <Auswahl label={f.zinsen} value={zinsenWandeln} onChange={(e) => setZinsenWandeln(e.target.value)} fehler={fehler("zinsenWandeln")}>
-                <option value="ja">{f.zinsenGewandelt}</option>
-                <option value="nein">{f.zinsenAusgezahlt}</option>
-              </Auswahl>
+              {safe ? null : (
+                <Auswahl label={f.zinsen} value={zinsenWandeln} onChange={(e) => setZinsenWandeln(e.target.value)} fehler={fehler("zinsenWandeln")}>
+                  <option value="ja">{f.zinsenGewandelt}</option>
+                  <option value="nein">{f.zinsenAusgezahlt}</option>
+                </Auswahl>
+              )}
               <BetragFeld label={f.nennwert} {...feld("nennwert", fehler("nennwertJeAnteil"))} />
               <BetragFeld label={f.rundenpreis} hilfe={f.rundenpreisHilfe} {...feld("rundenpreis", fehler("preisregel.rundenpreisJeAnteil"))} />
               <BetragFeld label={f.discount} {...feld("discount", fehler("preisregel.discount"))} />
@@ -280,11 +282,15 @@ export function WandlungDialog({ beteiligungId, organisationId, instrumentId, vo
                   <option value="zurueckgezahlt">{f.restArt.zurueckgezahlt}</option>
                   <option value="erlassen">{f.restArt.erlassen}</option>
                 </Auswahl>
-                <BetragFeld label={f.gewandelteZinsen} {...feld("gewandelteZinsen", fehler("gewandelteZinsen"))} />
-                <Auswahl label={f.restZinsenWahl} value={zinsenRest} onChange={(e) => setZinsenRest(e.target.value as Rest)} fehler={fehler("zinsenRest")}>
-                  <option value="zurueckgezahlt">{f.restArt.zurueckgezahlt}</option>
-                  <option value="erlassen">{f.restArt.erlassen}</option>
-                </Auswahl>
+                {safe ? null : (
+                  <>
+                    <BetragFeld label={f.gewandelteZinsen} {...feld("gewandelteZinsen", fehler("gewandelteZinsen"))} />
+                    <Auswahl label={f.restZinsenWahl} value={zinsenRest} onChange={(e) => setZinsenRest(e.target.value as Rest)} fehler={fehler("zinsenRest")}>
+                      <option value="zurueckgezahlt">{f.restArt.zurueckgezahlt}</option>
+                      <option value="erlassen">{f.restArt.erlassen}</option>
+                    </Auswahl>
+                  </>
+                )}
               </div>
             </fieldset>
 

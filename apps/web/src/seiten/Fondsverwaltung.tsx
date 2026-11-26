@@ -20,6 +20,7 @@ import type { fondsInhalteTabs } from "../komponenten/FondsInhalte";
 const FondsPeriodensperre = lazy(() => import("../komponenten/FondsPeriodensperre"));
 const FondsInhalte = lazy(() => import("../komponenten/FondsInhalte"));
 const FondsInvestorenzugaenge = lazy(() => import("../komponenten/FondsInvestorenzugaenge"));
+const FondsMandate = lazy(() => import("../komponenten/MandateAbschnitt").then((m) => ({ default: m.FondsMandate })));
 const route = getRouteApi("/fonds");
 
 export function FondsverwaltungSeite() {
@@ -44,7 +45,7 @@ export function FondsverwaltungSeite() {
   // Reihenfolge der Anzeige; der erste Eintrag ist der Standard. Ein Wechsel setzt auch die geöffnete Bewegung zurück.
   const verwaltet = fonds ? darf("verwalter", fonds.id, "fondsverwaltung") : false;
   // Kapital, Abgrenzung, Dokumente und eigene Felder gehören anderen Bereichen (`lib/bereiche.ts`) und fehlen ohne ihn.
-  const ziele = useSichtbar("fondsverwaltung", ["stammdaten", "kapital", ...(verwaltet ? ["investoren"] : []), "abgrenzung", ...(verwaltet ? ["sperre"] : []), "dokumente", "felder"].map((id) => ({ id, tab: id })));
+  const ziele = useSichtbar("fondsverwaltung", ["stammdaten", "gremien", "kapital", ...(verwaltet ? ["investoren"] : []), "abgrenzung", ...(verwaltet ? ["sperre"] : []), "dokumente", "felder"].map((id) => ({ id, tab: id })));
   const wechselNavigation = useCallback(
     (optionen: { search: (alt: Record<string, unknown>) => Record<string, unknown> }) => navigate({ search: (alt: Record<string, unknown>) => ({ ...optionen.search(alt), bewegungId: undefined }) } as never),
     [navigate],
@@ -86,6 +87,7 @@ export function FondsverwaltungSeite() {
   };
   const eintraege = [
     { id: "stammdaten", label: f.stammdaten, tab: "stammdaten", inhalt: () => <FondsStammdaten fondsId={fonds.id} onFondsWahl={onFondsWahl} /> },
+    { id: "gremien", label: t.tabs.gremien, tab: "gremien", inhalt: () => <FondsMandate fondsId={fonds.id} /> },
     { id: "kapital", label: f.kapital, tab: "kapital", inhalt: () => inhalt("kapital") },
     ...(verwaltetFonds ? [{ id: "investoren", label: f.investoren, tab: "investoren", inhalt: () => <FondsInvestorenzugaenge fondsId={fonds.id} /> }] : []),
     { id: "abgrenzung", label: t.tabs.abgrenzung, tab: "abgrenzung", inhalt: () => inhalt("abgrenzung") },
@@ -100,7 +102,7 @@ export function FondsverwaltungSeite() {
   ];
   const nimm = (...ids: string[]) => eintraege.filter((e) => ids.includes(e.id) && ziele.some((z) => z.id === e.id));
   const gruppen: VerzeichnisGruppe[] = [
-    { id: "stammdaten", label: f.gruppeStammdaten, eintraege: nimm("stammdaten") },
+    { id: "stammdaten", label: f.gruppeStammdaten, eintraege: nimm("stammdaten", "gremien") },
     { id: "kapital", label: f.gruppeKapital, eintraege: nimm("kapital", "investoren") },
     { id: "abschluss", label: f.gruppeAbschluss, eintraege: nimm("abgrenzung", "sperre") },
     { id: "ablage", label: f.gruppeAblage, eintraege: nimm("dokumente", "felder") },

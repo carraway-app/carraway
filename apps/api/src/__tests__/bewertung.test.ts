@@ -53,7 +53,7 @@ describe("Bewertung mit Freigabe", () => {
     const d = await json(await neu(ID.eigen, q1));
     const selbst = await frei(d.bewertung.id, "ersteller");
     expect(selbst.status).toBe(409);
-    expect((await json(selbst)).fehler.code).toBe("VIER_AUGEN_VERLETZT");
+    expect((await json(selbst)).error.code).toBe("four_eyes_violated");
     const ohne = await json(await neu(ID.darlehen, q1, ""));
     expect((await frei(ohne.bewertung.id, "")).status).toBe(409);
     expect(await portfoliowert("2025-03-31")).toBe("0.00");
@@ -63,7 +63,7 @@ describe("Bewertung mit Freigabe", () => {
     for (const methode of ["letzte_runde", "multiplikator", "dcf", "sonstige"]) {
       const a = await neu(ID.eigen, { stichtag: "2025-03-31", wert: "1.00", methode });
       expect(a.status).toBe(400);
-      expect((await json(a)).fehler.felder[0]).toMatchObject({ feld: "begruendung", code: "begruendung_erforderlich" });
+      expect((await json(a)).error.fields[0]).toMatchObject({ field: "begruendung", code: "justification_required" });
     }
     expect((await neu(ID.eigen, { stichtag: "2025-03-31", wert: "1.00", methode: "dcf", begruendung: "   " })).status).toBe(400);
     expect((await neu(ID.eigen, { stichtag: "2025-03-31", wert: "50000.00", methode: "anschaffungskosten" })).status).toBe(201);
@@ -75,7 +75,7 @@ describe("Bewertung mit Freigabe", () => {
     const d = await json(await neu(ID.eigen, q1));
     const doppelt = await neu(ID.eigen, q1);
     expect(doppelt.status).toBe(409);
-    expect((await json(doppelt)).fehler.code).toBe("BEWERTUNG_ENTWURF_VORHANDEN");
+    expect((await json(doppelt)).error.code).toBe("valuation_draft_exists");
     const verworfen = await post(`/bewertungen/${d.bewertung.id}/verwerfen`, undefined, "ersteller");
     expect(await json(verworfen)).toMatchObject({ status: "verworfen" });
     expect((await frei(d.bewertung.id)).status).toBe(409);
@@ -142,8 +142,8 @@ describe("Bewertung mit Freigabe", () => {
   });
 
   it("Systembuchungen (Insolvenz) sind sofort freigegeben und ersetzen die geltende Bewertung", async () => {
-    await post(`/beteiligungen/${ID.eigen}/vorgaenge`, { art: "zusage", valuta: "2025-01-01", betrag: "100000" });
-    await post(`/beteiligungen/${ID.eigen}/vorgaenge`, { art: "auszahlung", valuta: "2025-02-01", betrag: "100000" });
+    await post(`/investments/${ID.eigen}/transactions`, { type: "commitment", valueDate: "2025-01-01", amount: "100000" });
+    await post(`/investments/${ID.eigen}/transactions`, { type: "disbursement", valueDate: "2025-02-01", amount: "100000" });
     const a = await json(await neu(ID.eigen, q1));
     await frei(a.bewertung.id);
     await post(`/beteiligungen/${ID.eigen}/insolvenz`, { datum: "2025-03-31" }, "bearbeiter");
@@ -180,11 +180,11 @@ describe("Massen-Neubewertung", () => {
     expect(await statusAmStichtag()).toEqual(["entwurf", "freigegeben"]);
 
     // zweite offene Runde zum selben Stichtag: nicht erlaubt
-    expect((await json(await runde({ stichtag: "2025-06-30", vorschlag: "fortschreiben" }))).fehler.code).toBe("BEWERTUNGSRUNDE_OFFEN");
+    expect((await json(await runde({ stichtag: "2025-06-30", vorschlag: "fortschreiben" }))).error.code).toBe("valuation_round_open");
 
     const selbst = await post(`/bewertungsrunden/${d.runde.id}/freigeben`, undefined, "ersteller");
     expect(selbst.status).toBe(409);
-    expect((await json(selbst)).fehler.code).toBe("VIER_AUGEN_VERLETZT");
+    expect((await json(selbst)).error.code).toBe("four_eyes_violated");
     expect(await statusAmStichtag()).toEqual(["entwurf", "freigegeben"]);
 
     const ok = await post(`/bewertungsrunden/${d.runde.id}/freigeben`, undefined, "pruefer");
@@ -195,7 +195,7 @@ describe("Massen-Neubewertung", () => {
     const lesen = await json(await get(`/bewertungsrunden/${d.runde.id}`));
     expect(lesen.bewertungen.every((b: { status: string }) => b.status === "freigegeben")).toBe(true);
     // erneut freigeben: Status ungültig
-    expect((await json(await post(`/bewertungsrunden/${d.runde.id}/freigeben`, undefined, "dritter"))).fehler.code).toBe("BEWERTUNG_STATUS_UNGUELTIG");
+    expect((await json(await post(`/bewertungsrunden/${d.runde.id}/freigeben`, undefined, "dritter"))).error.code).toBe("valuation_status_invalid");
   });
 
   it("letzte_runde: Preis je Anteil der letzten Runde mal Anteile des Fonds; ohne Anteile wird fortgeschrieben", async () => {

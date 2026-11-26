@@ -10,7 +10,7 @@ import { eintragWerte, ereignisWerte, type EintragWerte, type EreignisWerte } fr
 
 /**
  * Sammelaktualisierung aus einer strukturierten Datei (JSON oder CSV). Alles oder nichts: Gibt es einen Fehler in einer Zeile, wird keine
- * Zeile übernommen und alle Fehler stehen im Ergebnis (`REGISTER_IMPORT_UNGUELTIG`). Die Datei kommt von der Person (z. B. aus Auszügen
+ * Zeile übernommen und alle Fehler stehen im Ergebnis (`register_import_invalid`). Die Datei kommt von der Person (z. B. aus Auszügen
  * oder einem lizenzierten Datenbezug); Carraway ruft dafür kein Portal ab.
  */
 
@@ -119,10 +119,10 @@ function ausJson(text: string): Zeile[] {
   try {
     roh = JSON.parse(text);
   } catch {
-    throw new Fachfehler(422, "REGISTER_IMPORT_UNGUELTIG", "Die Datei ist kein gültiges JSON.", { zeilen: [{ zeile: 0, feld: "inhalt", meldung: "Kein gültiges JSON." }] });
+    throw new Fachfehler(422, "register_import_invalid", "The file is not valid JSON.", { zeilen: [{ zeile: 0, feld: "inhalt", meldung: "Kein gültiges JSON." }] });
   }
   const liste = roh && typeof roh === "object" && !Array.isArray(roh) ? (roh as { eintraege?: unknown }).eintraege : roh;
-  if (!Array.isArray(liste)) throw new Fachfehler(422, "REGISTER_IMPORT_UNGUELTIG", "Erwartet wird eine Liste `eintraege`.", { zeilen: [{ zeile: 0, feld: "eintraege", meldung: "Liste fehlt." }] });
+  if (!Array.isArray(liste)) throw new Fachfehler(422, "register_import_invalid", "Expected a list `eintraege`.", { zeilen: [{ zeile: 0, feld: "eintraege", meldung: "Liste fehlt." }] });
   return liste.map((z, i) => {
     const { organisationId, organisationName, ereignisse, ...eintrag } = (z ?? {}) as Record<string, unknown>;
     return { nr: i + 1, organisationId: organisationId as string | undefined, organisationName: organisationName as string | undefined, eintrag, ereignisse: ereignisse ?? [] };
@@ -133,10 +133,10 @@ export interface GeprueftesImport {
   zeilen: { nr: number; organisationId: string; eintrag: EintragWerte; ereignisse: EreignisWerte[] }[];
 }
 
-/** Liest die Datei, prüft Form und Organisationen. Wirft `REGISTER_IMPORT_UNGUELTIG` mit allen Fehlern. */
+/** Liest die Datei, prüft Form und Organisationen. Wirft `register_import_invalid` mit allen Fehlern. */
 export async function pruefeImport(tx: Tx, format: "json" | "csv", text: string): Promise<GeprueftesImport> {
   const roh = format === "csv" ? ausCsv(text) : ausJson(text);
-  if (roh.length > MAX_ZEILEN) throw new Fachfehler(422, "REGISTER_IMPORT_UNGUELTIG", `Höchstens ${MAX_ZEILEN} Zeilen je Datei.`, { zeilen: [{ zeile: 0, feld: "inhalt", meldung: `Mehr als ${MAX_ZEILEN} Zeilen.` }] });
+  if (roh.length > MAX_ZEILEN) throw new Fachfehler(422, "register_import_invalid", `At most ${MAX_ZEILEN} rows per file.`, { zeilen: [{ zeile: 0, feld: "inhalt", meldung: `Mehr als ${MAX_ZEILEN} Zeilen.` }] });
   const fehler: ImportFehler[] = [];
   const ok: GeprueftesImport["zeilen"] = [];
   for (const z of roh) {
@@ -169,7 +169,7 @@ export async function pruefeImport(tx: Tx, format: "json" | "csv", text: string)
     }
     ok.push({ nr: z.nr, organisationId, eintrag: eintrag.data, ereignisse: ereignisse.data });
   }
-  if (fehler.length > 0) throw new Fachfehler(422, "REGISTER_IMPORT_UNGUELTIG", "Die Datei enthält Fehler, es wurde nichts übernommen.", { zeilen: fehler.slice(0, 200), anzahlFehler: fehler.length });
+  if (fehler.length > 0) throw new Fachfehler(422, "register_import_invalid", "The file contains errors; nothing was imported.", { zeilen: fehler.slice(0, 200), anzahlFehler: fehler.length });
   return { zeilen: ok };
 }
 

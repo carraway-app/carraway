@@ -106,7 +106,7 @@ describe("Option Pool Shuffle im Dialog „Neue Finanzierungsrunde“", () => {
       { id: "p1", bezeichnung: "ESOP 2025", art: "esop" },
       { id: "p2", bezeichnung: "VSOP 2025", art: "vsop" },
     ];
-    const { nutzer, d } = await dialog(zwei, { status: 400, koerper: { fehler: { code: "EINGABE_UNGUELTIG", meldung: "x", felder: [{ feld: "poolAufstockung.poolId", code: "pool_waehlen", meldung: "x" }] } } });
+    const { nutzer, d } = await dialog(zwei, { status: 400, koerper: { error: { code: "invalid_input", message: "x", fields: [{ field: "poolAufstockung.poolId", code: "pool_selection_required", message: "x" }] } } });
     await nutzer.type(d.getByLabelText("Aufstockung (Anteile)"), "1000");
     await nutzer.click(d.getByRole("button", { name: "Als Entwurf anlegen" }));
     expect(await d.findByText("Das Unternehmen hat mehrere Pools; bitte einen wählen.")).toBeTruthy();

@@ -7,14 +7,19 @@ import { importBefund, importLauf, type Db } from "@carraway/db";
 import { DateiFehler, erkenneDateityp, erzeugeVorlage, kappeParams, type Befund } from "@carraway/import";
 import { aktuellerAkteur, hatRolle, type Akteur } from "../anmeldung/akteur";
 import { Fachfehler, fehlerAntwort, type Fehlercode } from "../fehler";
+import { englischerImportBefund } from "../import/befund-texte";
 import { pruefeLauf } from "../import/pruefen";
 import { erzeugeProtokollExcel, erzeugeProtokollPdf, type ProtokollLauf } from "../import/protokoll";
 import { schreibePlan, type UebernahmeErgebnis } from "../import/uebernehmen";
-import { pruefe } from "../pruefung";
 import type { Bereich } from "../rechte/bereiche";
 import { verlangeBereiche } from "../rechte/uebergreifend";
 import { idParam, protokolliereLesen, schreibe } from "../schreiben";
 import { lese, type Tx } from "../zeitlimit";
+import { berichtPruefung } from "../berichte-pruefung";
+import { berichtAnApi } from "../berichte-vertrag";
+
+const pruefeApi = berichtPruefung("import");
+const anApi = <T>(wert: T) => berichtAnApi("import", wert);
 
 /**
  * Bereiche, in die eine Datenübernahme schreibt (zusätzlich zu Datenübernahme, dem Bereich der Route): Organisationen und Personen (Kontakte),
@@ -53,12 +58,12 @@ const ohneDatei = {
   ergebnis: importLauf.ergebnis,
 };
 
-const DATEIFEHLER: Record<DateiFehler["code"], { status: 400 | 413 | 415 | 422; code: Fehlercode }> = {
-  DATEITYP_UNBEKANNT: { status: 415, code: "DATEITYP_UNBEKANNT" },
-  DATEI_BESCHAEDIGT: { status: 422, code: "IMPORT_DATEI_UNLESBAR" },
-  DATEI_ZU_GROSS: { status: 413, code: "DATEI_ZU_GROSS" },
-  DATEI_LEER: { status: 422, code: "DATEI_LEER" },
-  BLATT_NICHT_ERKANNT: { status: 422, code: "BLATT_NICHT_ERKANNT" },
+const DATEIFEHLER: Record<DateiFehler["code"], { status: 400 | 413 | 415 | 422; code: Fehlercode; meldung: string }> = {
+  DATEITYP_UNBEKANNT: { status: 415, code: "file_type_unknown", meldung: "The file type is not supported; expected Excel (.xlsx) or CSV." },
+  DATEI_BESCHAEDIGT: { status: 422, code: "import_file_unreadable", meldung: "The file is damaged or cannot be read." },
+  DATEI_ZU_GROSS: { status: 413, code: "file_too_large", meldung: "The file is too large." },
+  DATEI_LEER: { status: 422, code: "file_empty", meldung: "The file is empty." },
+  BLATT_NICHT_ERKANNT: { status: 422, code: "sheet_not_recognized", meldung: "No sheet of the file matches the template." },
 };
 
 /** Übersetzt Lesefehler der Datei in Fachfehler der API. */
@@ -68,7 +73,7 @@ async function mitDateifehlern<T>(fn: () => Promise<T>): Promise<T> {
   } catch (fehler) {
     if (fehler instanceof DateiFehler) {
       const z = DATEIFEHLER[fehler.code];
-      throw new Fachfehler(z.status, z.code, fehler.message);
+      throw new Fachfehler(z.status, z.code, z.meldung);
     }
     throw fehler;
   }
@@ -77,7 +82,7 @@ async function mitDateifehlern<T>(fn: () => Promise<T>): Promise<T> {
 async function ladeLauf(tx: Tx, id: string, sperren = false) {
   const abfrage = tx.select().from(importLauf).where(eq(importLauf.id, id));
   const [lauf] = await (sperren ? abfrage.for("update") : abfrage);
-  if (!lauf) throw new Fachfehler(404, "IMPORT_LAUF_NICHT_GEFUNDEN", "Import-Lauf nicht gefunden.");
+  if (!lauf) throw new Fachfehler(404, "import_run_not_found", "Import run not found.");
   return lauf;
 }
 
@@ -114,11 +119,11 @@ const darfSehen = (akteur: Akteur, lauf: { hochgeladenVon: string; fonds: unknow
 
 function verlangeSichtbar(akteur: Akteur, lauf: { hochgeladenVon: string; fonds: unknown }) {
   // Kein Hinweis auf die Existenz: wer den Lauf nicht sehen darf, bekommt 404.
-  if (!darfSehen(akteur, lauf)) throw new Fachfehler(404, "IMPORT_LAUF_NICHT_GEFUNDEN", "Import-Lauf nicht gefunden.");
+  if (!darfSehen(akteur, lauf)) throw new Fachfehler(404, "import_run_not_found", "Import run not found.");
 }
 
 function verlangeVollzugriff(akteur: Akteur, lauf: { fonds: unknown }) {
-  if (!hatVollzugriff(akteur, lauf)) throw new Fachfehler(403, "KEINE_BERECHTIGUNG", "Für die Ergebnisse dieses Laufs fehlt die Berechtigung an mindestens einem berührten Fonds.");
+  if (!hatVollzugriff(akteur, lauf)) throw new Fachfehler(403, "forbidden", "Permission for at least one affected fund is missing for the results of this run.");
 }
 
 /** Schwärzt Ergebnisse (Anzahlen, Vorschau, Übernahmeergebnis, Fonds), wenn die Person nur die Metadaten sehen darf. */
@@ -138,12 +143,18 @@ async function speichereBefunde(tx: Tx, laufId: string, befunde: Befund[]) {
 
 const zaehle = (befunde: Befund[]) => ({ fehler: befunde.filter((b) => b.schweregrad === "fehler").length, warnungen: befunde.filter((b) => b.schweregrad === "warnung").length });
 
+const befundMitMeldung = <T extends { code: string; meldung: string; params: unknown }>(befund: T) => ({
+  ...befund,
+  meldungDe: befund.meldung,
+  meldung: englischerImportBefund(befund.code, befund.params),
+});
+
 const ABFRAGE_ZEIT = 120_000;
 
 export function importRouten(db: Db) {
   return new Hono()
     /** Leere Importvorlage als Excel (deutsche oder englische Köpfe). */
-    .get("/vorlage", pruefe("query", z.object({ sprache: z.enum(["de", "en"]).default("de") })), async (c) => {
+    .get("/template", pruefeApi("query", z.object({ sprache: z.enum(["de", "en"]).default("de") })), async (c) => {
       const { sprache } = c.req.valid("query");
       const datei = await erzeugeVorlage(sprache);
       return new Response(new Uint8Array(datei), {
@@ -155,28 +166,28 @@ export function importRouten(db: Db) {
         },
       });
     })
-    /** Hochladen (multipart, Feld `datei`): speichert die Datei, ändert noch keine Daten. */
+    /** Hochladen (multipart, Feld `file`): speichert die Datei, ändert noch keine Daten. */
     .post(
-      "/laeufe",
+      "/runs",
       bodyLimit({
         maxSize: MAX_UPLOAD + 64 * 1024,
-        onError: (c) => fehlerAntwort(c, 413, "DATEI_ZU_GROSS", `Die Datei ist größer als ${MAX_UPLOAD / 1024 / 1024} MB.`),
+        onError: (c) => fehlerAntwort(c, 413, "file_too_large", `The file is larger than ${MAX_UPLOAD / 1024 / 1024} MB.`),
       }),
       async (c) => {
         const kopf = c.req.header("content-type") ?? "";
-        if (!/^multipart\/form-data/i.test(kopf)) throw new Fachfehler(400, "DATEI_FEHLT", "Erwartet wird multipart/form-data mit dem Feld „datei“.");
+        if (!/^multipart\/form-data/i.test(kopf)) throw new Fachfehler(400, "file_missing", "Expected multipart/form-data with the field \"file\".");
         let formular: Record<string, string | File | (string | File)[]>;
         try {
           formular = await c.req.parseBody();
         } catch {
-          throw new Fachfehler(400, "DATEI_FEHLT", "Erwartet wird multipart/form-data mit dem Feld „datei“.");
+          throw new Fachfehler(400, "file_missing", "Expected multipart/form-data with the field \"file\".");
         }
-        const datei = formular.datei;
-        if (!(datei instanceof File)) throw new Fachfehler(400, "DATEI_FEHLT", "Das Feld „datei“ fehlt.");
-        if (datei.size > MAX_UPLOAD) throw new Fachfehler(413, "DATEI_ZU_GROSS", `Die Datei ist größer als ${MAX_UPLOAD / 1024 / 1024} MB.`);
+        const datei = formular.file;
+        if (!(datei instanceof File)) throw new Fachfehler(400, "file_missing", "The field \"file\" is missing.");
+        if (datei.size > MAX_UPLOAD) throw new Fachfehler(413, "file_too_large", `The file is larger than ${MAX_UPLOAD / 1024 / 1024} MB.`);
         const inhalt = Buffer.from(await datei.arrayBuffer());
         const typ = erkenneDateityp(inhalt);
-        if (typ === null) throw new Fachfehler(415, "DATEITYP_UNBEKANNT", "Nur Excel-Dateien (.xlsx) und CSV-Dateien sind erlaubt.");
+        if (typ === null) throw new Fachfehler(415, "file_type_unknown", "Only Excel files (.xlsx) and CSV files are allowed.");
         const akteur = aktuellerAkteur(c);
         const name = datei.name.replace(/^.*[\\/]/, "").replace(/[^\p{L}\p{N}._ -]/gu, "_").slice(0, 200) || "import";
         const lauf = await schreibe(db, c, async (tx, protokoll) => {
@@ -188,32 +199,32 @@ export function importRouten(db: Db) {
           await protokoll("hochladen", "import_lauf", neu.id, null, { dateiname: neu.dateiname, dateityp: neu.dateityp, groesse: neu.groesse, sha256: neu.sha256 });
           return neu;
         });
-        return c.json(lauf, 201);
+        return c.json(anApi(lauf), 201);
       },
     )
-    .get("/laeufe", async (c) => {
+    .get("/runs", async (c) => {
       const akteur = aktuellerAkteur(c);
       const daten = await lese(db, async (tx) => {
         const zeilen = await tx.select(ohneDatei).from(importLauf).orderBy(desc(importLauf.hochgeladenAm), asc(importLauf.id)).limit(200);
         return zeilen.filter((l) => darfSehen(akteur, l)).slice(0, 50).map((l) => schuetze(akteur, l));
       });
-      return c.json({ daten }, 200);
+      return c.json(anApi({ daten }), 200);
     })
-    .get("/laeufe/:id", pruefe("param", idParam), async (c) => {
+    .get("/runs/:id", pruefeApi("param", idParam), async (c) => {
       const { id } = c.req.valid("param");
       const akteur = aktuellerAkteur(c);
       const lauf = await lese(db, async (tx) => {
         const [l] = await tx.select(ohneDatei).from(importLauf).where(eq(importLauf.id, id));
-        if (!l) throw new Fachfehler(404, "IMPORT_LAUF_NICHT_GEFUNDEN", "Import-Lauf nicht gefunden.");
+        if (!l) throw new Fachfehler(404, "import_run_not_found", "Import run not found.");
         verlangeSichtbar(akteur, l);
         return schuetze(akteur, l);
       });
-      return c.json(lauf, 200);
+      return c.json(anApi(lauf), 200);
     })
     .get(
-      "/laeufe/:id/befunde",
-      pruefe("param", idParam),
-      pruefe("query", z.object({ schweregrad: z.enum(["fehler", "warnung"]).optional(), blatt: z.string().max(100).optional(), ab: z.coerce.number().int().min(0).default(0), limit: z.coerce.number().int().min(1).max(1000).default(200) })),
+      "/runs/:id/findings",
+      pruefeApi("param", idParam),
+      pruefeApi("query", z.object({ schweregrad: z.enum(["fehler", "warnung"]).optional(), blatt: z.string().max(100).optional(), ab: z.coerce.number().int().min(0).default(0), limit: z.coerce.number().int().min(1).max(1000).default(200) })),
       async (c) => {
         const { id } = c.req.valid("param");
         const { schweregrad, blatt, ab, limit } = c.req.valid("query");
@@ -232,11 +243,11 @@ export function importRouten(db: Db) {
           return { zeilen, eingeschraenkt };
         });
         const seite = daten.zeilen.slice(0, limit);
-        return c.json({ daten: seite, naechstesAb: daten.zeilen.length > limit ? seite.at(-1)!.nr : null, eingeschraenkt: daten.eingeschraenkt }, 200);
+        return c.json(anApi({ daten: seite.map(befundMitMeldung), naechstesAb: daten.zeilen.length > limit ? seite.at(-1)!.nr : null, eingeschraenkt: daten.eingeschraenkt }), 200);
       },
     )
     /** Prüft ohne Daten zu schreiben; ersetzt die Befunde des Laufs. */
-    .post("/laeufe/:id/pruefen", pruefe("param", idParam), async (c) => {
+    .post("/runs/:id/validate", pruefeApi("param", idParam), async (c) => {
       const { id } = c.req.valid("param");
       const akteur = aktuellerAkteur(c);
       verlangeBereiche(akteur, IMPORT_BEREICHE);
@@ -244,7 +255,7 @@ export function importRouten(db: Db) {
         await tx.execute(sql.raw(`SET LOCAL statement_timeout = ${ABFRAGE_ZEIT}`));
         const lauf = await ladeLauf(tx, id, true);
         verlangeSichtbar(akteur, lauf);
-        if (lauf.status === "uebernommen") throw new Fachfehler(409, "IMPORT_BEREITS_UEBERNOMMEN", "Der Lauf ist schon übernommen.");
+        if (lauf.status === "uebernommen") throw new Fachfehler(409, "import_already_applied", "The run has already been applied.");
         const r = await mitDateifehlern(() => pruefeLauf(tx, lauf.datei, lauf.dateiname, akteur, "bearbeiter"));
         verlangeBereiche(akteur, neueFondsBereich(r.neueFonds));
         const { fehler, warnungen } = zaehle(r.befunde);
@@ -269,10 +280,10 @@ export function importRouten(db: Db) {
         await protokoll("pruefen", "import_lauf", id, null, { fehler, warnungen, fonds: r.fondsIds, neueFonds: r.neueFonds });
         return schuetze(akteur, nachher!);
       });
-      return c.json(ergebnis, 200);
+      return c.json(anApi(ergebnis), 200);
     })
     /** Übernimmt alles in einer Transaktion; verlangt Freigeber an jedem berührten Fonds und eine andere Person als Hochladende und Prüfende. */
-    .post("/laeufe/:id/uebernehmen", pruefe("param", idParam), async (c) => {
+    .post("/runs/:id/apply", pruefeApi("param", idParam), async (c) => {
       const { id } = c.req.valid("param");
       const akteur = aktuellerAkteur(c);
       verlangeBereiche(akteur, IMPORT_BEREICHE);
@@ -282,17 +293,17 @@ export function importRouten(db: Db) {
         await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('carraway-import'))`);
         const lauf = await ladeLauf(tx, id, true);
         verlangeSichtbar(akteur, lauf);
-        if (lauf.status === "uebernommen") throw new Fachfehler(409, "IMPORT_BEREITS_UEBERNOMMEN", "Der Lauf ist schon übernommen.");
-        if (lauf.status !== "geprueft") throw new Fachfehler(409, "IMPORT_NICHT_GEPRUEFT", "Der Lauf ist nicht fehlerfrei geprüft.", { fehler: lauf.fehlerAnzahl });
+        if (lauf.status === "uebernommen") throw new Fachfehler(409, "import_already_applied", "The run has already been applied.");
+        if (lauf.status !== "geprueft") throw new Fachfehler(409, "import_not_validated", "The run has not been validated without errors.", { fehler: lauf.fehlerAnzahl });
         if (akteur.id === lauf.hochgeladenVon || akteur.id === lauf.geprueftVon) {
-          throw new Fachfehler(409, "VIER_AUGEN_VERLETZT", "Die Übernahme muss eine andere Person vornehmen als das Hochladen und die Prüfung.");
+          throw new Fachfehler(409, "four_eyes_violated", "The import must be applied by a different person than the one who uploaded and validated it.");
         }
         // Frische Prüfung im selben Zug, mit der Rolle Freigeber an jedem berührten Fonds.
         const r = await mitDateifehlern(() => pruefeLauf(tx, lauf.datei, lauf.dateiname, akteur, "freigeber"));
         verlangeBereiche(akteur, neueFondsBereich(r.neueFonds));
         const { fehler, warnungen } = zaehle(r.befunde);
         if (fehler > 0) {
-          throw new Fachfehler(409, "IMPORT_FEHLER", "Die Prüfung vor der Übernahme hat Fehler gefunden; bitte erneut prüfen.", { fehler, beispiele: r.befunde.filter((b) => b.schweregrad === "fehler").slice(0, 5) });
+          throw new Fachfehler(409, "import_failed", "The validation before applying found errors; please validate again.", { fehler, beispiele: r.befunde.filter((b) => b.schweregrad === "fehler").slice(0, 5).map(befundMitMeldung) });
         }
         const { gekuerzt } = await speichereBefunde(tx, id, r.befunde);
         const ergebnisDaten: UebernahmeErgebnis = await schreibePlan(tx, protokoll, r.plan, id, lauf.hochgeladenVon);
@@ -304,16 +315,16 @@ export function importRouten(db: Db) {
         await protokoll("uebernehmen", "import_lauf", id, null, { warnungen, zaehler: ergebnisDaten.zaehler });
         return schuetze(akteur, nachher!);
       });
-      return c.json(ergebnis, 200);
+      return c.json(anApi(ergebnis), 200);
     })
     /** Abnahmeprotokoll als PDF oder Excel. */
-    .get("/laeufe/:id/protokoll", pruefe("param", idParam), pruefe("query", z.object({ format: z.enum(["pdf", "xlsx"]).default("pdf"), sprache: z.enum(["de", "en"]).default("de") })), async (c) => {
+    .get("/runs/:id/log", pruefeApi("param", idParam), pruefeApi("query", z.object({ format: z.enum(["pdf", "xlsx"]).default("pdf"), sprache: z.enum(["de", "en"]).default("de") })), async (c) => {
       const { id } = c.req.valid("param");
       const { format, sprache } = c.req.valid("query");
       const akteur = aktuellerAkteur(c);
       const { lauf, befunde } = await lese(db, async (tx) => {
         const [l] = await tx.select(ohneDatei).from(importLauf).where(eq(importLauf.id, id));
-        if (!l) throw new Fachfehler(404, "IMPORT_LAUF_NICHT_GEFUNDEN", "Import-Lauf nicht gefunden.");
+        if (!l) throw new Fachfehler(404, "import_run_not_found", "Import run not found.");
         verlangeSichtbar(akteur, l);
         verlangeVollzugriff(akteur, l);
         const b = await tx

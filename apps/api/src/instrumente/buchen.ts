@@ -25,7 +25,7 @@ import {
 
 /**
  * Der eine Schreibweg für Vorgänge einer Beteiligung: Zusage, Auszahlung (optional zu einer Tranche), Rückfluss, Tilgung, Wertberichtigung,
- * Zinszahlung, Dividende. `POST /beteiligungen/:id/vorgaenge`, `POST /fonds/:id/buchungen` und das Abschließen einer Finanzierungsrunde rufen
+ * Zinszahlung, Dividende. `POST /investments/:id/transactions`, `POST /funds/:id/postings` und das Abschließen einer Finanzierungsrunde rufen
  * ihn auf, damit überall dieselben Invarianten, dieselbe Periodensperre und dasselbe Protokoll gelten. Jeder Vorgang bucht auf ein Instrument;
  * die Invarianten (Zusage, Kapitalverlauf, Berichtigung) gelten je Instrument.
  */
@@ -47,7 +47,7 @@ export interface VorgangEingabe {
   beglichenVorgangId?: string | undefined;
   /**
    * Finanzierungsrunde des Unternehmens, der der Vorgang zugeordnet wird. Ohne Angabe gilt die Runde des Instruments (sonst keine), `null` heißt
-   * bewusst keiner Runde. Eine Runde eines anderen Unternehmens wird abgelehnt (`VORGANG_RUNDE_FREMD`).
+   * bewusst keiner Runde. Eine Runde eines anderen Unternehmens wird abgelehnt (`transaction_round_foreign`).
    */
   rundeId?: string | null | undefined;
   /** Bereits geprüfte Werte eigener Felder (`felder/werte.ts`, Objekt `vorgang`); ohne Angabe keine. */
@@ -88,17 +88,17 @@ export const BERUEHRT_KAPITAL = new Set<string>(["zusage", "auszahlung", "tilgun
 /** Tranche gehört zur Beteiligung und zum Instrument, ihre Bedingung (falls vorhanden) ist erfüllt, und die Auszahlungen übersteigen ihren Betrag nicht. */
 async function pruefeTranche(tx: Tx, beteiligungId: string, instrumentId: string, trancheId: string, betrag: Decimal, vorhandene: readonly VorgangDaten[]) {
   const [m] = await tx.select().from(tranche).where(eq(tranche.id, trancheId));
-  if (!m) throw new Fachfehler(404, "MEILENSTEIN_NICHT_GEFUNDEN", "Meilenstein nicht gefunden.");
+  if (!m) throw new Fachfehler(404, "milestone_not_found", "Milestone not found.");
   if (m.beteiligungId !== beteiligungId) {
-    throw new Fachfehler(409, "MEILENSTEIN_FALSCHE_BETEILIGUNG", "Der Meilenstein gehört zu einer anderen Beteiligung.");
+    throw new Fachfehler(409, "milestone_wrong_investment", "The milestone belongs to a different investment.");
   }
   if (m.instrumentId !== instrumentId) {
-    throw new Fachfehler(409, "TRANCHE_FALSCHES_INSTRUMENT", "Die Tranche gehört zu einem anderen Instrument.", { trancheId: m.id, instrumentId: m.instrumentId });
+    throw new Fachfehler(409, "tranche_wrong_instrument", "The tranche belongs to a different instrument.", { trancheId: m.id, instrumentId: m.instrumentId });
   }
-  if (m.bedingung && !m.erfuelltAm) throw new Fachfehler(409, "MEILENSTEIN_OFFEN", "Der Meilenstein ist noch nicht erfüllt.", { meilensteinId: m.id, frist: m.geplantAm });
+  if (m.bedingung && !m.erfuelltAm) throw new Fachfehler(409, "milestone_open", "The milestone has not been met yet.", { meilensteinId: m.id, frist: m.geplantAm });
   const bisher = vorhandene.filter((v) => v.art === "auszahlung" && v.trancheId === m.id).reduce((s, v) => s.plus(v.betrag), new Decimal(0));
   if (bisher.plus(betrag).greaterThan(m.betrag)) {
-    throw new Fachfehler(409, "MEILENSTEIN_BETRAG_UEBERSCHRITTEN", "Die Auszahlungen übersteigen den Betrag des Meilensteins.", {
+    throw new Fachfehler(409, "milestone_amount_exceeded", "The disbursements exceed the amount of the milestone.", {
       meilensteinBetrag: m.betrag,
       bisherAusgezahlt: bisher.toFixed(2),
     });
@@ -108,7 +108,7 @@ async function pruefeTranche(tx: Tx, beteiligungId: string, instrumentId: string
 /** Die Zinsbuchung, die eine Zinszahlung begleicht: gleiches Instrument, Art `zins`, nicht storniert. */
 async function pruefeBeglichen(vorhandene: readonly VorgangDaten[], instrumentId: string, beglichenId: string) {
   const z = vorhandene.find((v) => v.id === beglichenId);
-  const ungueltig = (grund: string) => new Fachfehler(409, "ZINSZAHLUNG_BEZUG_UNGUELTIG", "Die Zinszahlung verweist auf keine gültige Zinsbuchung dieses Instruments.", { beglichenVorgangId: beglichenId, grund });
+  const ungueltig = (grund: string) => new Fachfehler(409, "interest_payment_reference_invalid", "The interest payment does not refer to a valid interest booking of this instrument.", { beglichenVorgangId: beglichenId, grund });
   if (!z) throw ungueltig("nicht_gefunden");
   if (z.art !== "zins") throw ungueltig("keine_zinsbuchung");
   if (z.instrumentId !== instrumentId) throw ungueltig("anderes_instrument");
@@ -123,7 +123,7 @@ export async function bucheVorgang(tx: Tx, protokoll: Protokollant, beteiligungI
   const abgang = await ladeBuchwertabgang(tx, beteiligungId);
   const trancheId = eingabe.art === "auszahlung" ? (eingabe.trancheId ?? eingabe.meilensteinId) : undefined;
   if (eingabe.art === "auszahlung" && eingabe.trancheId && eingabe.meilensteinId && eingabe.trancheId !== eingabe.meilensteinId) {
-    throw new Fachfehler(400, "EINGABE_UNGUELTIG", "Die Eingabe ist ungültig.", { felder: [{ feld: "trancheId", code: "uneinheitlich", meldung: "trancheId und meilensteinId nennen verschiedene Tranchen" }] });
+    throw new Fachfehler(400, "invalid_input", "The input is invalid.", { felder: [{ feld: "trancheId", code: "inconsistent", meldung: "trancheId and meilensteinId refer to different tranches" }] });
   }
   const trancheZeile = trancheId ? (await tx.select({ instrumentId: tranche.instrumentId, beteiligungId: tranche.beteiligungId }).from(tranche).where(eq(tranche.id, trancheId)))[0] : undefined;
   // Ohne Instrument gilt das der Tranche, sofern sie zur Beteiligung gehört (sonst meldet `pruefeTranche` die falsche Beteiligung).
@@ -153,11 +153,11 @@ export async function bucheVorgang(tx: Tx, protokoll: Protokollant, beteiligungI
   }
   if (eingabe.art === "tilgung" || eingabe.art === "zinszahlung") verlangeDarlehensartig(i.art);
   if (eingabe.art === "dividende" && i.art !== "offene_beteiligung") {
-    throw new Fachfehler(409, "INSTRUMENT_PASST_NICHT", "Eine Dividende gibt es nur auf Eigenkapital (offene Beteiligung).", { instrument: i.art });
+    throw new Fachfehler(409, "instrument_mismatch", "A dividend is only possible on equity (direct equity investment).", { instrument: i.art });
   }
   if (eingabe.art === "zinszahlung" && eingabe.beglichenVorgangId) await pruefeBeglichen(vorhandene, i.id, eingabe.beglichenVorgangId);
   const { gesamt } = pruefeNachBuchung(beteiligungId, i, vorhandene, neu, abgang, BERUEHRT_KAPITAL.has(eingabe.art));
-  // Nach den Invarianten: Eine Auszahlung über die Zusage meldet `AUSZAHLUNG_UEBER_ZUSAGE`, erst danach den Rest der Tranche.
+  // Nach den Invarianten: Eine Auszahlung über die Zusage meldet `disbursement_exceeds_commitment`, erst danach den Rest der Tranche.
   if (trancheId) await pruefeTranche(tx, beteiligungId, i.id, trancheId, new Decimal(lokal.fonds), vorhandene);
 
   const [zeile] = await tx.insert(vorgang).values(neu).returning();

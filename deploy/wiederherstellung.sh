@@ -78,5 +78,5 @@ else
   find "$SPEICHER_VERZEICHNIS" -mindepth 1 -delete
   tar -xzf "${sicherung}/speicher.tar.gz" -C "$SPEICHER_VERZEICHNIS"
 fi
-echo "Wiederherstellung fertig. Kontrolle: /api/v1/gesundheit, Verwaltung → Betrieb, eine Anmeldung, und die Dateien gegen die Datenbank:"
+echo "Wiederherstellung fertig. Kontrolle: /api/v1/health, Verwaltung → Betrieb, eine Anmeldung, und die Dateien gegen die Datenbank:"
 echo "  DATABASE_URL=<Verbindung> SPEICHER_VERZEICHNIS=<Dateiablage> pnpm ops:dateien-pruefen   (Ablauf: docs/betrieb/README.md)"

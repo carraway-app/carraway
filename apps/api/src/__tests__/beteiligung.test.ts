@@ -112,7 +112,38 @@ describe("GET /beteiligungen/:id", () => {
   it("unbekannte Beteiligung ist 404, ungültige Id 400", async () => {
     const a = await get("00000000-0000-4000-8000-0000000000ff");
     expect(a.status).toBe(404);
-    expect((await json(a)).fehler.code).toBe("BETEILIGUNG_NICHT_GEFUNDEN");
+    expect((await json(a)).error.code).toBe("investment_not_found");
     expect((await get("abc")).status).toBe(400);
+  });
+});
+
+describe("Englischer Beteiligungsvertrag", () => {
+  it("liefert den öffentlichen Vertrag auch für bestehende Datensätze", async () => {
+    const antwort = await app.requestApi(`/investments/${ID.b}?asOf=2025-12-31`);
+    expect(antwort.status).toBe(200);
+    const detail = await json(antwort);
+    expect(detail).toMatchObject({
+      asOf: "2025-12-31",
+      investment: { id: ID.b, instrument: "direct_equity", status: "active" },
+      organization: { id: ID.orgA },
+      fund: { id: ID.fonds, shortName: "TF1" },
+      rounds: [{ pricePerShare: "2.0000", positions: [{ role: "lead" }, { role: "co" }] }],
+    });
+    expect(detail).not.toHaveProperty("beteiligung");
+    expect((await app.requestApi(`/beteiligungen/${ID.b}`)).status).toBeGreaterThanOrEqual(400);
+  });
+
+  it("verlangt die englischen Enum-Werte und nennt die öffentlichen Feldnamen im Fehler", async () => {
+    const pruefeInstrument = (type: string) => app.requestApi(`/investments/${ID.b}/instruments`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ type }),
+    });
+    const antwort = await pruefeInstrument("wandeldarlehen");
+    expect(antwort.status).toBe(400);
+    expect(await json(antwort)).toMatchObject({ error: { code: "invalid_input", fields: [{ field: "type" }] } });
+    const neu = await pruefeInstrument("convertible_loan");
+    expect(neu.status).toBe(201);
+    expect(await json(neu)).toMatchObject({ type: "convertible_loan", investmentId: ID.b, status: "active" });
   });
 });

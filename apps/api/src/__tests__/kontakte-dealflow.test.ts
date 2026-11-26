@@ -93,19 +93,19 @@ describe("Organisationen schreiben", () => {
   it("400 sammelt alle Feldfehler", async () => {
     const antwort = await post("/organisationen", { name: "   ", art: "unbekannt", website: 5 });
     expect(antwort.status).toBe(400);
-    const { fehler } = await json(antwort);
-    expect(fehler.code).toBe("EINGABE_UNGUELTIG");
-    expect(fehler.felder.map((f: { feld: string }) => f.feld).sort()).toEqual(["art", "name", "website"]);
+    const { error: fehler } = await json(antwort);
+    expect(fehler.code).toBe("invalid_input");
+    expect(fehler.fields.map((f: { field: string }) => f.field).sort()).toEqual(["art", "name", "website"]);
     expect(await anzahl("organisation")).toBe(0);
     expect(await anzahl("aenderung")).toBe(0);
   });
 
-  it("409 DUBLETTE_MOEGLICH mit Kandidaten, nichts wird geschrieben; Bestätigung legt trotzdem an", async () => {
+  it("409 possible_duplicate mit Kandidaten, nichts wird geschrieben; Bestätigung legt trotzdem an", async () => {
     const vorhanden = await json(await post("/organisationen", { name: "Velmora Robotik GmbH", art: "unternehmen" }));
     const antwort = await post("/organisationen", { name: "velmora robotik", art: "unternehmen" });
     expect(antwort.status).toBe(409);
-    const { fehler } = await json(antwort);
-    expect(fehler.code).toBe("DUBLETTE_MOEGLICH");
+    const { error: fehler } = await json(antwort);
+    expect(fehler.code).toBe("possible_duplicate");
     expect(fehler.kandidaten).toHaveLength(1);
     expect(fehler.kandidaten[0]).toMatchObject({ id: vorhanden.id, name: "Velmora Robotik GmbH" });
     expect(fehler.kandidaten[0].score).toBeGreaterThanOrEqual(0.9);
@@ -138,7 +138,7 @@ describe("Organisationen schreiben", () => {
   it("GET /organisationen/dubletten ohne Name liefert 400", async () => {
     const antwort = await hole("/organisationen/dubletten");
     expect(antwort.status).toBe(400);
-    expect((await json(antwort)).fehler.felder[0].feld).toBe("name");
+    expect((await json(antwort)).error.fields[0].field).toBe("name");
   });
 
   it("PATCH ändert Felder, protokolliert vorher und nachher, leert mit null", async () => {
@@ -154,7 +154,7 @@ describe("Organisationen schreiben", () => {
 
   it("PATCH: 404 bei unbekannter Id, 400 ohne Feld oder mit falscher Id", async () => {
     expect((await patch(`/organisationen/${FREMD}`, { name: "Neu" })).status).toBe(404);
-    expect((await json(await patch(`/organisationen/${FREMD}`, { name: "Neu" }))).fehler.code).toBe("ORGANISATION_NICHT_GEFUNDEN");
+    expect((await json(await patch(`/organisationen/${FREMD}`, { name: "Neu" }))).error.code).toBe("organization_not_found");
     expect((await patch(`/organisationen/${FREMD}`, {})).status).toBe(400);
     expect((await patch("/organisationen/keine-id", { name: "Neu" })).status).toBe(400);
   });
@@ -164,9 +164,9 @@ describe("Website nur http und https", () => {
   it("lehnt javascript: ab und nimmt https an (POST und PATCH Organisation, Deal mit neuer Organisation)", async () => {
     const schlecht = await post("/organisationen", { name: "Web Beispiel", art: "unternehmen", website: "javascript:alert(1)" });
     expect(schlecht.status).toBe(400);
-    const fehler = (await json(schlecht)).fehler;
-    expect(fehler.code).toBe("EINGABE_UNGUELTIG");
-    expect(fehler.felder[0].feld).toBe("website");
+    const fehler = (await json(schlecht)).error;
+    expect(fehler.code).toBe("invalid_input");
+    expect(fehler.fields[0].field).toBe("website");
     expect((await post("/organisationen", { name: "Web Beispiel", art: "unternehmen", website: "ftp://x.example" })).status).toBe(400);
     expect((await post("/organisationen", { name: "Web Beispiel", art: "unternehmen", website: "www.beispiel.example" })).status).toBe(400);
     const gut = await post("/organisationen", { name: "Web Beispiel", art: "unternehmen", website: "https://www.beispiel.example" });
@@ -177,7 +177,7 @@ describe("Website nur http und https", () => {
     expect((await patch(`/organisationen/${id}`, { website: null })).status).toBe(200);
     const deal = await post("/deals", { titel: "Web Deal", organisation: { name: "Web Zwei", website: "javascript:alert(1)" } });
     expect(deal.status).toBe(400);
-    expect((await json(deal)).fehler.felder[0].feld).toBe("organisation.website");
+    expect((await json(deal)).error.fields[0].field).toBe("organisation.website");
   });
 });
 
@@ -203,11 +203,11 @@ describe("Personen", () => {
   it("POST: 400 sammelt Fehler, 404 bei unbekannter Organisation", async () => {
     const antwort = await post("/personen", { vorname: "", email: "kaputt" });
     expect(antwort.status).toBe(400);
-    const felder = (await json(antwort)).fehler.felder.map((f: { feld: string }) => f.feld).sort();
+    const felder = (await json(antwort)).error.fields.map((f: { field: string }) => f.field).sort();
     expect(felder).toEqual(["email", "nachname", "vorname"]);
     const fremd = await post("/personen", { vorname: "A", nachname: "B", organisationId: FREMD });
     expect(fremd.status).toBe(404);
-    expect((await json(fremd)).fehler.code).toBe("ORGANISATION_NICHT_GEFUNDEN");
+    expect((await json(fremd)).error.code).toBe("organization_not_found");
     expect(await anzahl("person")).toBe(0);
   });
 
@@ -250,7 +250,7 @@ describe("Deals anlegen und ändern", () => {
     await db.insert(s.organisation).values({ name: "Velmora Robotik GmbH", art: "unternehmen" });
     const antwort = await post("/deals", { titel: "Velmora, Seed", organisation: { name: "Velmora Robotik" } });
     expect(antwort.status).toBe(409);
-    expect((await json(antwort)).fehler.code).toBe("DUBLETTE_MOEGLICH");
+    expect((await json(antwort)).error.code).toBe("possible_duplicate");
     expect(await anzahl("deal")).toBe(0);
     expect(await anzahl("organisation")).toBe(1);
     expect(await anzahl("aenderung")).toBe(0);
@@ -263,12 +263,12 @@ describe("Deals anlegen und ändern", () => {
     expect(beide.status).toBe(400);
     const sammeln = await post("/deals", { titel: "", ticket: "1,5", organisationId: "nix" });
     expect(sammeln.status).toBe(400);
-    expect((await json(sammeln)).fehler.felder.map((f: { feld: string }) => f.feld).sort()).toEqual(["organisationId", "ticket", "titel"]);
+    expect((await json(sammeln)).error.fields.map((f: { field: string }) => f.field).sort()).toEqual(["organisationId", "ticket", "titel"]);
     expect((await post("/deals", { titel: "x", organisationId: FREMD })).status).toBe(404);
     const [org] = await db.insert(s.organisation).values({ name: "Alpha Beispiel", art: "unternehmen" }).returning();
     const fonds = await post("/deals", { titel: "x", organisationId: org!.id, fondsId: FREMD });
     expect(fonds.status).toBe(404);
-    expect((await json(fonds)).fehler.code).toBe("FONDS_NICHT_GEFUNDEN");
+    expect((await json(fonds)).error.code).toBe("fund_not_found");
     expect(await anzahl("deal")).toBe(0);
   });
 
@@ -294,12 +294,12 @@ describe("Deals anlegen und ändern", () => {
 });
 
 describe("Deals ändern nur solange offen", () => {
-  it("PATCH auf abgesagten oder investierten Deal ist 409 DEAL_NICHT_OFFEN und ändert nichts", async () => {
+  it("PATCH auf abgesagten oder investierten Deal ist 409 deal_not_open und ändert nichts", async () => {
     const { id } = await neuerDeal();
     await post(`/deals/${id}/absage`, { grund: "Passt nicht" });
     const antwort = await patch(`/deals/${id}`, { titel: "Anders" });
     expect(antwort.status).toBe(409);
-    expect((await json(antwort)).fehler.code).toBe("DEAL_NICHT_OFFEN");
+    expect((await json(antwort)).error.code).toBe("deal_not_open");
     expect((await json(await hole(`/deals/${id}`))).titel).toBe("Alpha Beispiel, Seed-Runde");
     await post(`/deals/${id}/wiederaufnahme`);
     expect((await patch(`/deals/${id}`, { titel: "Anders" })).status).toBe(200);
@@ -309,7 +309,7 @@ describe("Deals ändern nur solange offen", () => {
     expect((await post(`/deals/${zweiter}/beteiligung`, { fondsId: FONDS, instrument: "offene_beteiligung", erstinvestment: "2026-04-01" })).status).toBe(201);
     const investiert = await patch(`/deals/${zweiter}`, { titel: "Anders" });
     expect(investiert.status).toBe(409);
-    expect((await json(investiert)).fehler.code).toBe("DEAL_NICHT_OFFEN");
+    expect((await json(investiert)).error.code).toBe("deal_not_open");
   });
 });
 
@@ -340,18 +340,18 @@ describe("Phasen, Absage und Wiederaufnahme", () => {
     const { id } = await neuerDeal();
     const gleich = await post(`/deals/${id}/phase`, { nachPhase: "anfrage" });
     expect(gleich.status).toBe(409);
-    expect((await json(gleich)).fehler.code).toBe("PHASE_UNVERAENDERT");
+    expect((await json(gleich)).error.code).toBe("stage_unchanged");
     const ungueltig = await post(`/deals/${id}/phase`, { nachPhase: "irgendwo", am: "gestern" });
     expect(ungueltig.status).toBe(400);
-    expect((await json(ungueltig)).fehler.felder.map((f: { feld: string }) => f.feld).sort()).toEqual(["am", "nachPhase"]);
+    expect((await json(ungueltig)).error.fields.map((f: { field: string }) => f.field).sort()).toEqual(["am", "nachPhase"]);
     expect((await post(`/deals/${FREMD}/phase`, { nachPhase: "pruefung" })).status).toBe(404);
   });
 
-  it("Closing ohne zustimmenden Beschluss wird mit 409 BESCHLUSS_FEHLT abgelehnt, auch bei Ablehnung oder Vertagung", async () => {
+  it("Closing ohne zustimmenden Beschluss wird mit 409 resolution_missing abgelehnt, auch bei Ablehnung oder Vertagung", async () => {
     const { id } = await neuerDeal();
     const ohne = await post(`/deals/${id}/phase`, { nachPhase: "closing" });
     expect(ohne.status).toBe(409);
-    expect((await json(ohne)).fehler.code).toBe("BESCHLUSS_FEHLT");
+    expect((await json(ohne)).error.code).toBe("resolution_missing");
     await post(`/deals/${id}/beschluesse`, { gremium: "Investitionsausschuss", datum: "2026-03-01", ergebnis: "abgelehnt" });
     await post(`/deals/${id}/beschluesse`, { gremium: "Investitionsausschuss", datum: "2026-03-02", ergebnis: "vertagt" });
     expect((await post(`/deals/${id}/phase`, { nachPhase: "closing" })).status).toBe(409);
@@ -373,7 +373,7 @@ describe("Phasen, Absage und Wiederaufnahme", () => {
     await post(`/deals/${id}/beschluesse`, { gremium: "Investitionsausschuss", datum: "2026-03-05", ergebnis: "abgelehnt" });
     const antwort = await post(`/deals/${id}/phase`, { nachPhase: "closing" });
     expect(antwort.status).toBe(409);
-    expect((await json(antwort)).fehler.code).toBe("BESCHLUSS_FEHLT");
+    expect((await json(antwort)).error.code).toBe("resolution_missing");
     await post(`/deals/${id}/beschluesse`, { gremium: "Investitionsausschuss", datum: "2026-03-10", ergebnis: "zugestimmt", fondsId: FONDS }, {}, FREIGEBER);
     expect((await post(`/deals/${id}/phase`, { nachPhase: "closing" })).status).toBe(200);
   });
@@ -398,7 +398,7 @@ describe("Phasen, Absage und Wiederaufnahme", () => {
 
     const phase = await post(`/deals/${id}/phase`, { nachPhase: "pruefung" });
     expect(phase.status).toBe(409);
-    expect((await json(phase)).fehler.code).toBe("DEAL_NICHT_OFFEN");
+    expect((await json(phase)).error.code).toBe("deal_not_open");
     expect((await post(`/deals/${id}/absage`, { grund: "nochmal" })).status).toBe(409);
 
     const wieder = await post(`/deals/${id}/wiederaufnahme`);
@@ -406,7 +406,7 @@ describe("Phasen, Absage und Wiederaufnahme", () => {
     expect(await json(wieder)).toMatchObject({ status: "offen", absagegrund: null });
     const nochmal = await post(`/deals/${id}/wiederaufnahme`);
     expect(nochmal.status).toBe(409);
-    expect((await json(nochmal)).fehler.code).toBe("DEAL_NICHT_ABGESAGT");
+    expect((await json(nochmal)).error.code).toBe("deal_not_declined");
     expect((await post(`/deals/${FREMD}/absage`, { grund: "x" })).status).toBe(404);
     expect((await post(`/deals/${FREMD}/wiederaufnahme`)).status).toBe(404);
   });
@@ -431,7 +431,7 @@ describe("Beschlüsse und Deal-Detail", () => {
 
     const falsch = await post(`/deals/${id}/beschluesse`, { gremium: "", datum: "05.03.2026", ergebnis: "ja", betrag: "-1" });
     expect(falsch.status).toBe(400);
-    expect((await json(falsch)).fehler.felder.map((f: { feld: string }) => f.feld).sort()).toEqual(["betrag", "datum", "ergebnis", "gremium"]);
+    expect((await json(falsch)).error.fields.map((f: { field: string }) => f.field).sort()).toEqual(["betrag", "datum", "ergebnis", "gremium"]);
     expect((await post(`/deals/${FREMD}/beschluesse`, { gremium: "G", datum: "2026-03-05", ergebnis: "vertagt" })).status).toBe(404);
   });
 
@@ -493,24 +493,24 @@ describe("Übergang ins Portfolio", () => {
     expect(await anzahl("vorgang")).toBe(0);
   });
 
-  it("409 BESCHLUSS_FEHLT ohne zustimmenden Beschluss, nichts wird angelegt", async () => {
+  it("409 resolution_missing ohne zustimmenden Beschluss, nichts wird angelegt", async () => {
     const { id } = await neuerDeal();
     await post(`/deals/${id}/beschluesse`, { gremium: "Investitionsausschuss", datum: "2026-03-01", ergebnis: "vertagt" });
     const antwort = await post(`/deals/${id}/beteiligung`, uebergang);
     expect(antwort.status).toBe(409);
-    expect((await json(antwort)).fehler.code).toBe("BESCHLUSS_FEHLT");
+    expect((await json(antwort)).error.code).toBe("resolution_missing");
     expect(await anzahl("beteiligung")).toBe(0);
     expect(await anzahl("vorgang")).toBe(0);
     expect((await json(await hole(`/deals/${id}`))).status).toBe("offen");
   });
 
-  it("Zustimmung, danach Ablehnung: Übergang ist 409 BESCHLUSS_FEHLT", async () => {
+  it("Zustimmung, danach Ablehnung: Übergang ist 409 resolution_missing", async () => {
     const { id } = await neuerDeal();
     await zustimmung(id);
     await post(`/deals/${id}/beschluesse`, { gremium: "Investitionsausschuss", datum: "2026-03-05", ergebnis: "abgelehnt" });
     const antwort = await post(`/deals/${id}/beteiligung`, uebergang);
     expect(antwort.status).toBe(409);
-    expect((await json(antwort)).fehler.code).toBe("BESCHLUSS_FEHLT");
+    expect((await json(antwort)).error.code).toBe("resolution_missing");
     expect(await anzahl("beteiligung")).toBe(0);
   });
 
@@ -528,7 +528,7 @@ describe("Übergang ins Portfolio", () => {
     await db.execute(sql`UPDATE beschluss SET erfasst_von = ${andereId} WHERE deal_id = ${id}`);
     const antwort = await post(`/deals/${id}/beteiligung`, uebergang);
     expect(antwort.status).toBe(409);
-    expect((await json(antwort)).fehler.code).toBe("BESCHLUSS_FONDS_ABWEICHEND");
+    expect((await json(antwort)).error.code).toBe("resolution_fund_mismatch");
     // Mit Dealflow am Fonds gilt der Beschluss.
     await db.execute(sql`UPDATE nutzergruppe_fonds SET bereiche = '{kontakte,dealflow}' WHERE gruppe_id = ${gruppe!.id}`);
     expect((await post(`/deals/${id}/beteiligung`, uebergang)).status).toBe(201);
@@ -536,12 +536,12 @@ describe("Übergang ins Portfolio", () => {
     await db.delete(s.rechterolle);
   });
 
-  it("Zusage über dem beschlossenen Betrag ist 409 ZUSAGE_UEBER_BESCHLUSS, gleicher oder kleinerer Betrag geht", async () => {
+  it("Zusage über dem beschlossenen Betrag ist 409 commitment_exceeds_resolution, gleicher oder kleinerer Betrag geht", async () => {
     const { id } = await neuerDeal();
     await zustimmung(id); // Betrag 1000000.00
     const zuHoch = await post(`/deals/${id}/beteiligung`, { ...uebergang, zusage: "1000000.01" });
     expect(zuHoch.status).toBe(409);
-    expect((await json(zuHoch)).fehler.code).toBe("ZUSAGE_UEBER_BESCHLUSS");
+    expect((await json(zuHoch)).error.code).toBe("commitment_exceeds_resolution");
     expect(await anzahl("beteiligung")).toBe(0);
     expect(await anzahl("vorgang")).toBe(0);
     expect((await json(await hole(`/deals/${id}`))).status).toBe("offen");
@@ -557,7 +557,7 @@ describe("Übergang ins Portfolio", () => {
     expect((await post(`/deals/${id}/beteiligung`, { ...uebergang, zusage: "99999999.00" })).status).toBe(201);
   });
 
-  it("409 BETEILIGUNG_VORHANDEN, wenn der Fonds die Organisation mit diesem Instrument schon hält", async () => {
+  it("409 investment_exists, wenn der Fonds die Organisation mit diesem Instrument schon hält", async () => {
     const { id, organisationId } = await neuerDeal();
     const zweiter = await post("/deals", { titel: "Zweite Runde", organisationId });
     const zweiterId = (await json(zweiter)).id as string;
@@ -567,34 +567,34 @@ describe("Übergang ins Portfolio", () => {
 
     const doppelt = await post(`/deals/${zweiterId}/beteiligung`, uebergang);
     expect(doppelt.status).toBe(409);
-    expect((await json(doppelt)).fehler.code).toBe("BETEILIGUNG_VORHANDEN");
+    expect((await json(doppelt)).error.code).toBe("investment_exists");
     expect(await anzahl("beteiligung")).toBe(1);
     expect(await anzahl("vorgang")).toBe(1);
     expect((await json(await hole(`/deals/${zweiterId}`))).status).toBe("offen");
 
-    // anderer Fonds ist erlaubt, wenn der Beschluss für ihn gilt (sonst 409 BESCHLUSS_FONDS_ABWEICHEND)
+    // anderer Fonds ist erlaubt, wenn der Beschluss für ihn gilt (sonst 409 resolution_fund_mismatch)
     expect((await post(`/deals/${zweiterId}/beteiligung`, { ...uebergang, fondsId: FONDS2 })).status).toBe(409);
     await post(`/deals/${zweiterId}/beschluesse`, { gremium: "Investitionsausschuss", datum: "2026-03-02", ergebnis: "zugestimmt", fondsId: FONDS2 }, {}, FREIGEBER);
     expect((await post(`/deals/${zweiterId}/beteiligung`, { ...uebergang, fondsId: FONDS2 })).status).toBe(201);
     expect(await anzahl("beteiligung")).toBe(2);
   });
 
-  it("409 DEAL_NICHT_OFFEN bei abgesagtem Deal; 404 und 400", async () => {
+  it("409 deal_not_open bei abgesagtem Deal; 404 und 400", async () => {
     const { id } = await neuerDeal();
     await zustimmung(id);
     await post(`/deals/${id}/absage`, { grund: "Passt nicht" });
     const antwort = await post(`/deals/${id}/beteiligung`, uebergang);
     expect(antwort.status).toBe(409);
-    expect((await json(antwort)).fehler.code).toBe("DEAL_NICHT_OFFEN");
+    expect((await json(antwort)).error.code).toBe("deal_not_open");
 
     expect((await post(`/deals/${FREMD}/beteiligung`, uebergang)).status).toBe(404);
     const offen = await neuerDeal("Zweite Firma");
     const fremderFonds = await post(`/deals/${offen.id}/beteiligung`, { ...uebergang, fondsId: FREMD });
     expect(fremderFonds.status).toBe(404);
-    expect((await json(fremderFonds)).fehler.code).toBe("FONDS_NICHT_GEFUNDEN");
+    expect((await json(fremderFonds)).error.code).toBe("fund_not_found");
     const falsch = await post(`/deals/${offen.id}/beteiligung`, { fondsId: "x", instrument: "aktie", erstinvestment: "bald", zusage: "0" });
     expect(falsch.status).toBe(400);
-    expect((await json(falsch)).fehler.felder.map((f: { feld: string }) => f.feld).sort()).toEqual(["erstinvestment", "fondsId", "instrument", "zusage"]);
+    expect((await json(falsch)).error.fields.map((f: { field: string }) => f.field).sort()).toEqual(["erstinvestment", "fondsId", "instrument", "zusage"]);
   });
 });
 
@@ -622,11 +622,11 @@ describe("Aktivitäten und Wiedervorlagen", () => {
     expect(ohne.status).toBe(400);
     const sammeln = await post("/aktivitaeten", { art: "fax", datum: "morgen", titel: "", wiedervorlage: "irgendwann", dealId: FREMD });
     expect(sammeln.status).toBe(400);
-    expect((await json(sammeln)).fehler.felder.map((f: { feld: string }) => f.feld).sort()).toEqual(["art", "datum", "titel", "wiedervorlage"]);
+    expect((await json(sammeln)).error.fields.map((f: { field: string }) => f.field).sort()).toEqual(["art", "datum", "titel", "wiedervorlage"]);
     const basis = { art: "notiz", datum: "2026-03-01", titel: "X" };
     expect((await post("/aktivitaeten", { ...basis, dealId: FREMD })).status).toBe(404);
-    expect((await json(await post("/aktivitaeten", { ...basis, personId: FREMD }))).fehler.code).toBe("PERSON_NICHT_GEFUNDEN");
-    expect((await json(await post("/aktivitaeten", { ...basis, organisationId: FREMD }))).fehler.code).toBe("ORGANISATION_NICHT_GEFUNDEN");
+    expect((await json(await post("/aktivitaeten", { ...basis, personId: FREMD }))).error.code).toBe("person_not_found");
+    expect((await json(await post("/aktivitaeten", { ...basis, organisationId: FREMD }))).error.code).toBe("organization_not_found");
     expect(await anzahl("aktivitaet")).toBe(0);
   });
 
@@ -652,7 +652,7 @@ describe("Aktivitäten und Wiedervorlagen", () => {
     expect(danach.daten.map((w: { id: string }) => w.id)).toEqual([mitte, spaet]);
     expect((await hole("/wiedervorlagen?bis=kaputt")).status).toBe(400);
     expect((await post(`/aktivitaeten/${FREMD}/erledigt`)).status).toBe(404);
-    expect((await json(await post(`/aktivitaeten/${FREMD}/erledigt`))).fehler.code).toBe("AKTIVITAET_NICHT_GEFUNDEN");
+    expect((await json(await post(`/aktivitaeten/${FREMD}/erledigt`))).error.code).toBe("activity_not_found");
   });
 });
 
@@ -671,7 +671,7 @@ describe("Zeitgrenzen in Schreibtransaktionen", () => {
     expect(await einstellung("lock_timeout", db)).toBe("0");
   });
 
-  it("wartet eine Schreibanfrage zu lange auf eine Sperre, kommt 503 SPERRE_ZU_LANG", async () => {
+  it("wartet eine Schreibanfrage zu lange auf eine Sperre, kommt 503 lock_too_long", async () => {
     const { id } = await neuerDeal();
     const halter = await pool.connect();
     try {
@@ -679,7 +679,7 @@ describe("Zeitgrenzen in Schreibtransaktionen", () => {
       await halter.query("SELECT id FROM deal WHERE id = $1 FOR UPDATE", [id]);
       const antwort = await patch(`/deals/${id}`, { titel: "Gesperrt" });
       expect(antwort.status).toBe(503);
-      expect((await json(antwort)).fehler.code).toBe("SPERRE_ZU_LANG");
+      expect((await json(antwort)).error.code).toBe("lock_too_long");
     } finally {
       await halter.query("ROLLBACK");
       halter.release();
@@ -824,10 +824,10 @@ describe("Dealflow-Trichter", () => {
   it("400 bei ungültigen Parametern, 404 bei unbekanntem Fonds", async () => {
     const falsch = await hole("/dealflow/trichter?von=gestern&bis=2026-01-01&fondsId=x");
     expect(falsch.status).toBe(400);
-    expect((await json(falsch)).fehler.felder.map((f: { feld: string }) => f.feld).sort()).toEqual(["fondsId", "von"]);
+    expect((await json(falsch)).error.fields.map((f: { field: string }) => f.field).sort()).toEqual(["fondsId", "von"]);
     expect((await hole("/dealflow/trichter?von=2026-05-01&bis=2026-01-01")).status).toBe(400);
     const fremd = await hole(`/dealflow/trichter?fondsId=${FREMD}`);
     expect(fremd.status).toBe(404);
-    expect((await json(fremd)).fehler.code).toBe("FONDS_NICHT_GEFUNDEN");
+    expect((await json(fremd)).error.code).toBe("fund_not_found");
   });
 });

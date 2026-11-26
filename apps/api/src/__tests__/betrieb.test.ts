@@ -68,13 +68,13 @@ describe("Logs", () => {
     const { zeilen, logger } = zeilenLogger();
     const app = erstelleApp(db, { logger });
     const id = "11111111-2222-3333-4444-555555555555";
-    const antwort = await app.request(`/api/v1/fonds/${id}/uebersicht?stichtag=geheim-wert`, { headers: { "X-Request-Id": "abc-12345678" } });
+    const antwort = await app.request(`/api/v1/funds/${id}/overview?asOf=geheim-wert`, { headers: { "X-Request-Id": "abc-12345678" } });
     expect(antwort.status).toBe(401);
     expect(antwort.headers.get("X-Request-Id")).toBe("abc-12345678");
     const zeile = zeilen.find((z) => z.meldung === "anfrage")!;
     expect(zeile).toMatchObject({ stufe: "info", dienst: "api", methode: "GET", status: 401, anfrageId: "abc-12345678" });
     expect(typeof zeile.dauerMs).toBe("number");
-    expect(zeile.route).toBe("/api/v1/fonds/:id/uebersicht");
+    expect(zeile.route).toBe("/api/v1/funds/:id/overview");
     expect(JSON.stringify(zeile)).not.toContain("geheim-wert");
     expect(JSON.stringify(zeile)).not.toContain(id);
   });
@@ -91,11 +91,11 @@ describe("Logs", () => {
 
 describe("Gesundheit mit Worker und Warteschlange", () => {
   it("meldet den Worker als unbekannt, solange nie ein Herzschlag kam, und bleibt trotzdem 200", async () => {
-    const antwort = await erstelleApp(db).request("/api/v1/gesundheit");
+    const antwort = await erstelleApp(db).request("/api/v1/health");
     expect(antwort.status).toBe(200);
     const koerper = await json(antwort);
-    expect(koerper).toMatchObject({ ok: true, datenbank: true, worker: { status: "unbekannt", herzschlagAlterSekunden: null } });
-    expect(koerper.warteschlange).toHaveProperty("ausgangskorb");
+    expect(koerper).toMatchObject({ ok: true, database: true, worker: { status: "unknown", heartbeatAgeSeconds: null } });
+    expect(koerper.queue).toHaveProperty("outbox");
   });
 
   it("zeigt einen frischen Herzschlag als ok und einen alten als ausgefallen", async () => {
@@ -106,7 +106,7 @@ describe("Gesundheit mit Worker und Warteschlange", () => {
     const zustand = await leseBetriebszustand(db);
     expect(zustand.worker.status).toBe("ausgefallen");
     expect(zustand.worker.herzschlagAlterSekunden).toBeGreaterThan(100);
-    expect((await erstelleApp(db).request("/api/v1/gesundheit")).status).toBe(200);
+    expect((await erstelleApp(db).request("/api/v1/health")).status).toBe(200);
   });
 });
 
@@ -125,17 +125,17 @@ describe("Metriken", () => {
     expect((await app.request("/metriken")).status).toBe(401);
     expect((await app.request("/metriken", { headers: { Authorization: "Bearer falsch" } })).status).toBe(401);
     expect((await app.request("/metriken", { headers: { Authorization: TOKEN } })).status).toBe(401);
-    await app.request("/api/v1/gesundheit");
+    await app.request("/api/v1/health");
     const antwort = await app.request("/metriken", { headers: { Authorization: `Bearer ${TOKEN}` } });
     expect(antwort.status).toBe(200);
     expect(antwort.headers.get("Content-Type")).toContain("text/plain; version=0.0.4");
     const text = await antwort.text();
     expect(text).toContain("# TYPE carraway_http_anfrage_dauer_sekunden histogram");
-    expect(text).toContain('carraway_http_anfrage_dauer_sekunden_count{methode="GET",route="/api/v1/gesundheit",status="2xx"} 1');
+    expect(text).toContain('carraway_http_anfrage_dauer_sekunden_count{methode="GET",route="/api/v1/health",status="2xx"} 1');
     expect(text).toMatch(/carraway_db_pool_verbindungen\{zustand="gesamt"\} \d+/);
     expect(text).toContain("carraway_ausgangskorb_auftraege 0");
     expect(text).toContain("carraway_worker_lebt");
-    expect(text).toContain('carraway_http_anfrage_dauer_sekunden_bucket{methode="GET",route="/api/v1/gesundheit",status="2xx",le="+Inf"} 1');
+    expect(text).toContain('carraway_http_anfrage_dauer_sekunden_bucket{methode="GET",route="/api/v1/health",status="2xx",le="+Inf"} 1');
   });
 
   it("Labelwerte werden maskiert und Histogramm-Buckets sind kumulativ", () => {
@@ -206,7 +206,7 @@ describe("Oberfläche vom selben Ursprung", () => {
     const api = await app.request("/api/v1/gibt-es-nicht");
     expect(api.headers.get("Content-Type")).toContain("application/json");
     expect(api.status).toBeGreaterThanOrEqual(401);
-    expect((await app.request("/api/v1/gesundheit")).status).toBe(200);
+    expect((await app.request("/api/v1/health")).status).toBe(200);
     expect((await app.request("/metriken")).status).toBe(404);
     const heraus = await app.request("/..%2f..%2f..%2fetc%2fpasswd");
     expect(await heraus.text()).not.toContain("root:");

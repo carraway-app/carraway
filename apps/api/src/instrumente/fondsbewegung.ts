@@ -24,7 +24,7 @@ export interface BewegungEingabe {
 /** Sperrt die Fondszeile bis zum Ende der Transaktion: serialisiert alle Buchungen von Fondsbewegungen je Fonds. */
 export async function sperreFonds(tx: Tx, fondsId: string) {
   const [f] = await tx.select().from(fonds).where(eq(fonds.id, fondsId)).for("update");
-  if (!f) throw new Fachfehler(404, "FONDS_NICHT_GEFUNDEN", "Fonds nicht gefunden.");
+  if (!f) throw new Fachfehler(404, "fund_not_found", "Fund not found.");
   return f;
 }
 
@@ -37,13 +37,13 @@ export async function abgerufen(tx: Tx, fondsId: string): Promise<Decimal> {
 /** Prüft die Buchbarkeit auch in der Vorschau. Für die Buchung hält der Aufrufer die Fondszeile gesperrt. */
 export async function pruefeFondsbewegung(tx: Tx, f: Pick<typeof fonds.$inferSelect, "id" | "zeichnungskapital">, eingabe: BewegungEingabe) {
   await pruefePeriodensperre(tx, f.id, eingabe.valuta);
-  if (eingabe.art !== "abruf" && eingabe.faelligAm) throw new Fachfehler(400, "EINGABE_UNGUELTIG", "Eine Fälligkeit gehört zu einem Kapitalabruf.");
+  if (eingabe.art !== "abruf" && eingabe.faelligAm) throw new Fachfehler(400, "invalid_input", "A due date belongs to a capital call.");
   const betrag = new Decimal(eingabe.betrag);
   if (eingabe.art === "abruf") {
-    if (eingabe.faelligAm && eingabe.faelligAm < eingabe.valuta) throw new Fachfehler(400, "FAELLIGKEIT_VOR_ABRUF", "Die Fälligkeit liegt vor dem Abruf.");
+    if (eingabe.faelligAm && eingabe.faelligAm < eingabe.valuta) throw new Fachfehler(400, "due_date_before_call", "The due date is before the call.");
     const bisher = await abgerufen(tx, f.id);
     if (bisher.plus(betrag).greaterThan(f.zeichnungskapital)) {
-      throw new Fachfehler(409, "ABRUF_UEBER_ZEICHNUNGSKAPITAL", "Die Abrufe würden das Zeichnungskapital übersteigen.", {
+      throw new Fachfehler(409, "call_exceeds_subscribed_capital", "The calls would exceed the subscribed capital.", {
         zeichnungskapital: new Decimal(f.zeichnungskapital).toFixed(2),
         abgerufen: bisher.toFixed(2),
         betrag: betrag.toFixed(2),
@@ -121,14 +121,14 @@ export async function ladeGebuchteBewegungsaufteilung(tx: Tx, bewegung: Pick<Fon
 /** Storno einer Fondsbewegung: Gegenbuchung mit negiertem Betrag, Valuta nicht vor dem Original (Vorgabe: heute oder die des Originals). */
 export async function storniereFondsbewegung(tx: Tx, protokoll: Protokollant, id: string, grund: string, gewuenschteValuta: string | undefined) {
   const [original] = await tx.select().from(fondsBewegung).where(eq(fondsBewegung.id, id));
-  if (!original) throw new Fachfehler(404, "FONDSBEWEGUNG_NICHT_GEFUNDEN", "Fondsbewegung nicht gefunden.");
+  if (!original) throw new Fachfehler(404, "fund_movement_not_found", "Fund movement not found.");
   await sperreFonds(tx, original.fondsId);
-  if (original.storniertBewegungId) throw new Fachfehler(409, "STORNO_UNZULAESSIG", "Ein Storno kann nicht selbst storniert werden.");
+  if (original.storniertBewegungId) throw new Fachfehler(409, "reversal_not_allowed", "A reversal cannot itself be reversed.");
   const [schon] = await tx.select({ id: fondsBewegung.id }).from(fondsBewegung).where(eq(fondsBewegung.storniertBewegungId, id));
-  if (schon) throw new Fachfehler(409, "BEREITS_STORNIERT", "Die Fondsbewegung ist bereits storniert.");
+  if (schon) throw new Fachfehler(409, "already_reversed", "The fund movement is already reversed.");
   if (gewuenschteValuta !== undefined && gewuenschteValuta < original.valuta) {
-    throw new Fachfehler(400, "EINGABE_UNGUELTIG", "Die Eingabe ist ungültig.", {
-      felder: [{ feld: "valuta", code: "storno_vor_original", meldung: `Die Valuta des Storno darf nicht vor der des Originals (${original.valuta}) liegen` }],
+    throw new Fachfehler(400, "invalid_input", "The input is invalid.", {
+      felder: [{ feld: "valuta", code: "reversal_before_original", meldung: `The value date of the reversal must not be before that of the original (${original.valuta})` }],
     });
   }
   const heutigerTag = heute();
@@ -137,7 +137,7 @@ export async function storniereFondsbewegung(tx: Tx, protokoll: Protokollant, id
   const zahlungen = await tx.select().from(lpZahlung).where(eq(lpZahlung.bewegungId, id));
   const aufgehoben = new Set(zahlungen.filter((z) => z.valuta <= stornoValuta).map((z) => z.storniertZahlungId));
   if (zahlungen.some((z) => !z.storniertZahlungId && !aufgehoben.has(z.id))) {
-    throw new Fachfehler(409, "ABRUF_MIT_ZAHLUNGEN", "Zuerst die Zahlungseingänge zum Abruf stornieren.");
+    throw new Fachfehler(409, "call_has_payments", "Reverse the incoming payments for the call first.");
   }
   const [storno] = await tx
     .insert(fondsBewegung)

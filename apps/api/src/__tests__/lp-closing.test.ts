@@ -2,7 +2,7 @@ import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import * as s from "@carraway/db";
 import { Decimal } from "@carraway/rechenkern";
-import { ladeKapitalkonten, ladeVerteilung } from "../berichte/daten";
+import { kontenAusVerteilung, ladeKapitalkonten, ladeVerteilung } from "../berichte/daten";
 import { ladeVerteilungsgrundlageZum } from "../instrumente/lp-verteilung";
 import { json, leeren, oeffneTestdb } from "./hilfen";
 import { aufrufe, grundbestand, ID, protokollZeilen } from "./hilfen-instrumente";
@@ -27,7 +27,7 @@ const investor1 = person("closing-inv1");
 const investor3 = person("closing-inv3");
 const freigeber = person("closing-freigeber", { rollen: { [ID.fonds]: "freigeber" } });
 
-const abruf = (valuta: string, betrag: string) => ({ typ: "fondsbewegung", art: "abruf", valuta, betrag });
+const abruf = (valueDate: string, amount: string) => ({ kind: "fund_posting", type: "capital_call", valueDate, amount });
 const aufteilung = async (bewegungId: string) => {
   const antwort = await json(await get(`/fondsbewegungen/${bewegungId}`));
   return Object.fromEntries(antwort.aufteilung.map((a: { organisationId: string; betrag: string }) => [a.organisationId, a.betrag])) as Record<string, string>;
@@ -50,7 +50,7 @@ beforeEach(async () => {
   await legeInvestorAn(db, investor3, [INV3]);
   // Ersterfassung: 6 und 4 Millionen bei 10 Millionen Zeichnungskapital, danach der erste Abruf.
   expect((await post(`${zugangsPfad}/zeichnungen`, { zeichnungen: [{ organisationId: INV1, zusage: "6000000" }, { organisationId: INV2, zusage: "4000000" }] })).status).toBe(201);
-  abruf1 = (await json(await post(`${fondsPfad}/buchungen`, abruf("2026-05-01", "1000000.01")))).bewegung.id;
+  abruf1 = (await json(await post(`/funds/${ID.fonds}/postings`, abruf("2026-05-01", "1000000.01")))).movement.id;
 });
 afterAll(async () => {
   await leeren(db);
@@ -98,12 +98,12 @@ describe("Weiteres Closing", () => {
 
     expect(await aufteilung(abruf1)).toEqual(vorher);
     // Ein Abruf mit Valuta vor dem Wirksamkeitsdatum, erst später gebucht, behält ebenfalls die frühere Aufteilung.
-    const nachgetragen = (await json(await post(`${fondsPfad}/buchungen`, abruf("2026-05-20", "100.01")))).bewegung.id;
+    const nachgetragen = (await json(await post(`/funds/${ID.fonds}/postings`, abruf("2026-05-20", "100.01")))).movement.id;
     expect(await aufteilung(nachgetragen)).toEqual({ [INV1]: "60.01", [INV2]: "40.00" });
 
     // Valuta gleich dem Wirksamkeitsdatum: schon die neue Grundlage.
-    const amTag = (await json(await post(`${fondsPfad}/buchungen`, abruf("2026-06-01", "1600000.03")))).bewegung.id;
-    abruf2 = (await json(await post(`${fondsPfad}/buchungen`, abruf("2026-07-01", "1600000.03")))).bewegung.id;
+    const amTag = (await json(await post(`/funds/${ID.fonds}/postings`, abruf("2026-06-01", "1600000.03")))).movement.id;
+    abruf2 = (await json(await post(`/funds/${ID.fonds}/postings`, abruf("2026-07-01", "1600000.03")))).movement.id;
     for (const id of [amTag, abruf2]) {
       const teile = await aufteilung(id);
       expect(Object.keys(teile).sort()).toEqual([INV1, INV2, INV3]);
@@ -111,15 +111,35 @@ describe("Weiteres Closing", () => {
       expect(teile).toEqual({ [INV1]: "700000.01", [INV2]: "400000.01", [INV3]: "500000.01" });
     }
     // Die Vorschau eines Abrufs vor dem Beitritt folgt der Grundlage seiner Valuta.
-    const vorschau = await json(await get(`${fondsPfad}/fondsbewegungen/vorschau?art=abruf&valuta=2026-05-10&betrag=100.00`));
-    expect(vorschau.aufteilung.map((a: { organisationId: string }) => a.organisationId).sort()).toEqual([INV1, INV2]);
+    const vorschau = await json(await get(`/funds/${ID.fonds}/fund-movements/preview?type=capital_call&valueDate=2026-05-10&amount=100.00`));
+    expect(vorschau.allocation.map((a: { organizationId: string }) => a.organizationId).sort()).toEqual([INV1, INV2]);
+  });
+
+  it("Kostenbuchungen behalten ihre Aufteilung, sperren frühere Closings und werden im NAV-Anteil ausgeglichen (Issue #157)", async () => {
+    const kosten = `${fondsPfad}/kosten`;
+    const vorher = await json(await post(kosten, { art: "verwaltungsverguetung", valuta: "2026-05-15", betrag: "1000.00" }));
+    expect(Object.fromEntries(vorher.aufteilung.map((a: { organisationId: string; betrag: string }) => [a.organisationId, a.betrag]))).toEqual({ [INV1]: "600.00", [INV2]: "400.00" });
+    expect((await json(await post(closingPfad, closing({ wirksamAm: "2026-05-15" })))).error.code).toBe("lp_closing_before_movement");
+    expect((await post(closingPfad, closing())).status).toBe(201);
+    const nachher = await json(await post(kosten, { art: "fondskosten", valuta: "2026-06-02", betrag: "160.00" }));
+    expect(Object.fromEntries(nachher.aufteilung.map((a: { organisationId: string; betrag: string }) => [a.organisationId, a.betrag]))).toEqual({ [INV1]: "70.00", [INV2]: "40.00", [INV3]: "50.00" });
+    const closingId = (await json(await get(zugangsPfad))).closings[0].id as string;
+    expect((await json(await post(`${closingPfad}/${closingId}/storno`, { grund: "Test" }))).error.code).toBe("lp_closing_movement_posted");
+
+    const verteilung = await ladeVerteilung(db, ID.fonds, "2026-07-01", undefined);
+    const konten = kontenAusVerteilung(verteilung, "16000.00");
+    const je = Object.fromEntries(konten.map((k) => [k.organisationId, k]));
+    expect([je[INV1]!.verwaltungsverguetung, je[INV2]!.verwaltungsverguetung, je[INV3]!.verwaltungsverguetung]).toEqual(["600.00", "400.00", "0.00"]);
+    // Der später beigetretene Investor trug die frühere Vergütung nicht: sein NAV-Anteil steigt um seinen Anteil daran, die Summe bleibt der NAV.
+    expect(Number(je[INV3]!.kostenausgleich)).toBeGreaterThan(0);
+    expect(summe(Object.fromEntries(konten.map((k) => [k.organisationId, k.navAnteil!])))).toBe("16000.00");
   });
 
   it("hält Kapitalkonten und Grundlagen an Stichtagen vor und nach dem Beitritt reproduzierbar", async () => {
     const stand0 = new Date().toISOString();
     await new Promise((r) => setTimeout(r, 20));
     expect((await post(closingPfad, closing())).status).toBe(201);
-    abruf2 = (await json(await post(`${fondsPfad}/buchungen`, abruf("2026-07-01", "1600000.03")))).bewegung.id;
+    abruf2 = (await json(await post(`/funds/${ID.fonds}/postings`, abruf("2026-07-01", "1600000.03")))).movement.id;
 
     const konten = async (stichtag: string, stand?: string) => Object.fromEntries((await ladeKapitalkonten(db, ID.fonds, stichtag, stand, "0")).map((k) => [k.investor, k]));
     const vor = await konten("2026-05-31");
@@ -152,24 +172,24 @@ describe("Weiteres Closing", () => {
   it("verlangt Rechte und wehrt unzulässige Closings ab", async () => {
     expect((await anfrage("POST", closingPfad, verwalterF1, closing())).status).toBe(403); // nur globale Verwalter, wie bei den Zeichnungen
     expect((await anfrage("POST", closingPfad, investor1, closing())).status).toBe(403);
-    const fehler = async (body: unknown) => (await json(await post(closingPfad, body))).fehler.code;
-    expect(await fehler(closing({ wirksamAm: "2026-05-01" }))).toBe("LP_CLOSING_VOR_BEWEGUNG");
-    expect(await fehler(closing({ wirksamAm: "2026-04-30" }))).toBe("LP_CLOSING_VOR_BEWEGUNG");
-    expect(await fehler(closing({ zusagen: [{ organisationId: INV3, zusage: "1" }, { organisationId: INV3, zusage: "2" }] }))).toBe("LP_ZEICHNUNG_DOPPELT");
-    expect(await fehler(closing({ zusagen: [{ organisationId: ID.orgA, zusage: "1000" }] }))).toBe("ORGANISATION_KEIN_INVESTOR");
-    expect(await fehler(closing({ zusagen: [{ organisationId: INV3, zusage: "1000", ausgleich: { betrag: "0", datum: "2026-06-15" } }] }))).toBe("EINGABE_UNGUELTIG");
-    expect(await fehler(closing({ zusagen: [{ organisationId: INV3, zusage: "0" }] }))).toBe("EINGABE_UNGUELTIG");
+    const fehler = async (body: unknown) => (await json(await post(closingPfad, body))).error.code;
+    expect(await fehler(closing({ wirksamAm: "2026-05-01" }))).toBe("lp_closing_before_movement");
+    expect(await fehler(closing({ wirksamAm: "2026-04-30" }))).toBe("lp_closing_before_movement");
+    expect(await fehler(closing({ zusagen: [{ organisationId: INV3, zusage: "1" }, { organisationId: INV3, zusage: "2" }] }))).toBe("lp_subscription_duplicate");
+    expect(await fehler(closing({ zusagen: [{ organisationId: ID.orgA, zusage: "1000" }] }))).toBe("organization_not_investor");
+    expect(await fehler(closing({ zusagen: [{ organisationId: INV3, zusage: "1000", ausgleich: { betrag: "0", datum: "2026-06-15" } }] }))).toBe("invalid_input");
+    expect(await fehler(closing({ zusagen: [{ organisationId: INV3, zusage: "0" }] }))).toBe("invalid_input");
     await db.execute(sql`INSERT INTO periodensperre (fonds_id, gesperrt_bis, gesetzt_von) VALUES (${ID.fonds}, '2026-06-30', 'system')`);
-    expect(await fehler(closing({ wirksamAm: "2026-06-30" }))).toBe("PERIODE_GESPERRT");
+    expect(await fehler(closing({ wirksamAm: "2026-06-30" }))).toBe("period_locked");
     await db.execute(sql`DELETE FROM periodensperre`);
     expect((await post(closingPfad, closing())).status).toBe(201);
-    expect(await fehler(closing({ wirksamAm: "2026-05-15" }))).toBe("LP_CLOSING_VOR_VORHERIGEM");
+    expect(await fehler(closing({ wirksamAm: "2026-05-15" }))).toBe("lp_closing_before_previous");
     expect(await db.select().from(s.fondsClosing)).toHaveLength(1);
   });
 
   it("verlangt die Ersterfassung der Zeichnungen", async () => {
     const antwort = await post(`/fonds/${ID.anderer}/investorenzugaenge/closings`, closing());
-    expect((await json(antwort)).fehler.code).toBe("LP_CLOSING_OHNE_ERSTANLAGE");
+    expect((await json(antwort)).error.code).toBe("lp_closing_without_initial");
   });
 
   it("ein Closing ohne Ausgleich ist möglich", async () => {
@@ -186,7 +206,7 @@ describe("Closing stornieren und korrigieren (Issue #126)", () => {
   const legeAn = async (body: object = closing()) => (await json(await post(closingPfad, body))).id as string;
   const zeichnungen = async () => Object.fromEntries((await db.select().from(s.fondsZeichnung).where(eq(s.fondsZeichnung.fondsId, ID.fonds))).map((z) => [z.organisationId, z]));
   const kapital = async () => (await db.select().from(s.fonds).where(eq(s.fonds.id, ID.fonds)))[0]!.zeichnungskapital;
-  const fehler = async (antwort: Response) => (await json(antwort)).fehler.code as string;
+  const fehler = async (antwort: Response) => (await json(antwort)).error.code as string;
 
   it("stellt Zusagen, Anteile und Zeichnungskapital vor dem Closing wieder her und behält den Vorgang", async () => {
     const vorher = await zeichnungen();
@@ -212,7 +232,7 @@ describe("Closing stornieren und korrigieren (Issue #126)", () => {
     expect(sicht.closings).toEqual([expect.objectContaining({ id, stornierbar: false, storno: expect.objectContaining({ grund: "Zusage falsch erfasst", ersetztDurch: null }) })]);
 
     // Spätere Abrufe verteilen wieder nach den ursprünglichen Zusagen; Stichtage nach dem früheren Wirksamkeitsdatum zeigen keinen Beitritt.
-    const spaeter = (await json(await post(`${fondsPfad}/buchungen`, abruf("2026-07-01", "1000000.00")))).bewegung.id;
+    const spaeter = (await json(await post(`/funds/${ID.fonds}/postings`, abruf("2026-07-01", "1000000.00")))).movement.id;
     expect(await aufteilung(spaeter)).toEqual({ [INV1]: "600000.00", [INV2]: "400000.00" });
     expect(Object.keys((await ladeKapitalkonten(db, ID.fonds, "2026-07-31", undefined, "0")).reduce((a, k) => ({ ...a, [k.investor]: k }), {}))).toHaveLength(2);
     expect((await ladeVerteilungsgrundlageZum(db, ID.fonds, "2026-07-31")).zeichnungen.map((z) => z.zusage)).toEqual(["6000000.00", "4000000.00"]);
@@ -220,31 +240,31 @@ describe("Closing stornieren und korrigieren (Issue #126)", () => {
 
   it("lehnt das Storno ab, sobald ab dem Wirksamkeitsdatum eine Kapitalbewegung gebucht ist", async () => {
     const id = await legeAn();
-    expect((await post(`${fondsPfad}/buchungen`, abruf("2026-06-01", "1600000.03"))).status).toBe(201);
+    expect((await post(`/funds/${ID.fonds}/postings`, abruf("2026-06-01", "1600000.03"))).status).toBe(201);
     const antwort = await post(stornoPfad(id), { grund: "Irrtum" });
     expect(antwort.status).toBe(409);
     const body = await json(antwort);
-    expect(body.fehler.code).toBe("LP_CLOSING_BEWEGUNG_GEBUCHT");
-    expect(body.fehler.meldung).toContain("2026-06-01");
+    expect(body.error.code).toBe("lp_closing_movement_posted");
+    expect(body.error.message).toContain("2026-06-01");
     expect(await db.select().from(s.fondsClosingStorno)).toHaveLength(0);
     expect(Object.keys(await zeichnungen())).toHaveLength(3);
     expect(await kapital()).toBe("16000000.00");
     // Auch Korrektur geht dann nicht.
-    expect(await fehler(await post(korrekturPfad(id), { ...closing(), grund: "Irrtum" }))).toBe("LP_CLOSING_BEWEGUNG_GEBUCHT");
+    expect(await fehler(await post(korrekturPfad(id), { ...closing(), grund: "Irrtum" }))).toBe("lp_closing_movement_posted");
   });
 
   it("storniert nur das letzte nicht stornierte Closing, einmal und nur im eigenen Fonds", async () => {
     const erstes = await legeAn();
     const zweites = await legeAn({ wirksamAm: "2026-07-01", zusagen: [{ organisationId: INV3, zusage: "1000000" }] });
-    expect(await fehler(await post(stornoPfad(erstes), { grund: "x" }))).toBe("LP_CLOSING_NICHT_LETZTES");
+    expect(await fehler(await post(stornoPfad(erstes), { grund: "x" }))).toBe("lp_closing_not_latest");
     expect((await post(stornoPfad(zweites), { grund: "x" })).status).toBe(200);
-    expect(await fehler(await post(stornoPfad(zweites), { grund: "x" }))).toBe("LP_CLOSING_STORNIERT");
+    expect(await fehler(await post(stornoPfad(zweites), { grund: "x" }))).toBe("lp_closing_reversed");
     // Danach ist das erste das letzte aktive.
     expect(await kapital()).toBe("16000000.00");
     expect((await post(stornoPfad(erstes), { grund: "y" })).status).toBe(200);
     expect(await kapital()).toBe("10000000.00");
-    expect(await fehler(await post(`/fonds/${ID.anderer}/investorenzugaenge/closings/${erstes}/storno`, { grund: "z" }))).toBe("LP_CLOSING_NICHT_GEFUNDEN");
-    expect(await fehler(await post(stornoPfad("00000000-0000-4000-8000-000000000999"), { grund: "z" }))).toBe("LP_CLOSING_NICHT_GEFUNDEN");
+    expect(await fehler(await post(`/fonds/${ID.anderer}/investorenzugaenge/closings/${erstes}/storno`, { grund: "z" }))).toBe("lp_closing_not_found");
+    expect(await fehler(await post(stornoPfad("00000000-0000-4000-8000-000000000999"), { grund: "z" }))).toBe("lp_closing_not_found");
     expect((await post(stornoPfad(erstes), {})).status).toBe(400);
   });
 
@@ -267,7 +287,7 @@ describe("Closing stornieren und korrigieren (Issue #126)", () => {
 
     // Scheitert das neue Closing, bleibt das alte bestehen.
     const fehlerhaft = { wirksamAm: "2026-05-01", zusagen: [{ organisationId: INV3, zusage: "1" }], grund: "Test" };
-    expect(await fehler(await post(korrekturPfad(neu.id), fehlerhaft))).toBe("LP_CLOSING_VOR_BEWEGUNG");
+    expect(await fehler(await post(korrekturPfad(neu.id), fehlerhaft))).toBe("lp_closing_before_movement");
     expect(await db.select().from(s.fondsClosingStorno)).toHaveLength(1);
     expect(await kapital()).toBe("12000000.00");
     expect((await json(await get(zugangsPfad))).closings.find((cl: { id: string }) => cl.id === neu.id).stornierbar).toBe(true);
@@ -307,7 +327,7 @@ describe("Closing stornieren und korrigieren (Issue #126)", () => {
       expect((await anfrage("POST", korrekturPfad(id), als, { ...closing(), grund: "x" })).status).toBe(403);
     }
     await db.execute(sql`INSERT INTO periodensperre (fonds_id, gesperrt_bis, gesetzt_von) VALUES (${ID.fonds}, '2026-06-30', 'system')`);
-    expect(await fehler(await post(stornoPfad(id), { grund: "x" }))).toBe("PERIODE_GESPERRT");
+    expect(await fehler(await post(stornoPfad(id), { grund: "x" }))).toBe("period_locked");
     expect(await db.select().from(s.fondsClosingStorno)).toHaveLength(0);
   });
 });

@@ -1,6 +1,6 @@
 import { bearer, gleicherHost, rufeAuf, rufeBinaerAuf, type Abrufer } from "./http";
 import type { OAuthAnbieter } from "./konfiguration";
-import { ERSTER_ABGLEICH_TAGE, MAX_MAILS_JE_ABGLEICH, PostfachFehler, type MailAbruf, type MailKopf, type PostfachAnbieter, type Termin, type Zugang } from "./typen";
+import { ERSTER_ABGLEICH_TAGE, namenAus, optional, MAX_MAILS_JE_ABGLEICH, PostfachFehler, type MailAbruf, type MailKopf, type PostfachAnbieter, type Termin, type Zugang } from "./typen";
 
 /**
  * Microsoft Graph (v1.0), nur lesend, ohne SDK. NICHT gegen den echten Dienst geprüft (siehe oauth.ts).
@@ -10,7 +10,7 @@ import { ERSTER_ABGLEICH_TAGE, MAX_MAILS_JE_ABGLEICH, PostfachFehler, type MailA
  */
 
 interface Adresse {
-  emailAddress?: { address?: string };
+  emailAddress?: { address?: string; name?: string };
 }
 interface GraphMail {
   id: string;
@@ -31,6 +31,8 @@ interface GraphTermin {
   organizer?: Adresse;
   attendees?: Adresse[];
   isCancelled?: boolean;
+  isOrganizer?: boolean;
+  responseStatus?: { response?: string };
   type?: string;
   originalStart?: string | null;
 }
@@ -39,6 +41,13 @@ interface Seite<T> {
   "@odata.nextLink"?: string;
 }
 
+/** Antwort der Person selbst auf einen Termin (Graph `isOrganizer` und `responseStatus.response`). */
+export function eigeneAntwortGraph(t: { isOrganizer?: boolean; responseStatus?: { response?: string } }): NonNullable<Termin["eigeneAntwort"]> {
+  const r = t.responseStatus?.response;
+  if (t.isOrganizer === true || r === "organizer") return "organisator";
+  return r === "accepted" ? "angenommen" : r === "tentativelyAccepted" ? "vorbehalt" : r === "declined" ? "abgelehnt" : "offen";
+}
+const namen = (l: (Adresse | undefined)[]) => namenAus(l.map((a) => ({ adresse: a?.emailAddress?.address, name: a?.emailAddress?.name })));
 const adressen = (l: Adresse[] | undefined) => (l ?? []).map((a) => a.emailAddress?.address?.trim().toLowerCase() ?? "").filter((a) => a.includes("@"));
 /** Graph liefert mit `Prefer: outlook.timezone="UTC"` Zeiten ohne Versatz, die UTC sind. */
 const alsUtc = (s: string | undefined) => (s ? new Date(/[zZ]|[+-]\d\d:\d\d$/.test(s) ? s : `${s}Z`) : null);
@@ -83,6 +92,7 @@ export function erstelleMicrosoft(k: OAuthAnbieter, abrufer: Abrufer): PostfachA
         }
         return spaet;
       };
+      const ausGesendet = new Set(gesendet.map((m) => m.id));
       for (const m of [...eingang, ...gesendet]) {
         const datum = new Date(m.receivedDateTime ?? m.sentDateTime ?? "");
         if (Number.isNaN(datum.getTime())) continue;
@@ -94,6 +104,8 @@ export function erstelleMicrosoft(k: OAuthAnbieter, abrufer: Abrufer): PostfachA
           von: adressen(m.from ? [m.from] : undefined)[0] ?? "",
           an: adressen(m.toRecipients),
           cc: adressen(m.ccRecipients),
+          ...optional("namen", namen([m.from, ...(m.toRecipients ?? []), ...(m.ccRecipients ?? [])])),
+          ...(ausGesendet.has(m.id) ? { gesendet: true } : {}),
         });
       }
       koepfe.sort((a, b) => a.datum.getTime() - b.datum.getTime());
@@ -130,7 +142,7 @@ export function erstelleMicrosoft(k: OAuthAnbieter, abrufer: Abrufer): PostfachA
       const u = new URL(`${k.apiBasis}/me/calendarView`);
       u.searchParams.set("startDateTime", von.toISOString());
       u.searchParams.set("endDateTime", bis.toISOString());
-      u.searchParams.set("$select", "id,iCalUId,subject,start,end,organizer,attendees,isCancelled,type,originalStart");
+      u.searchParams.set("$select", "id,iCalUId,subject,start,end,organizer,attendees,isCancelled,type,originalStart,isOrganizer,responseStatus");
       u.searchParams.set("$top", "100");
       const liste = await alleSeiten<GraphTermin>(u.toString(), z, { Prefer: 'outlook.timezone="UTC"' }, 1000);
       const termine: Termin[] = [];
@@ -145,6 +157,8 @@ export function erstelleMicrosoft(k: OAuthAnbieter, abrufer: Abrufer): PostfachA
           ende: alsUtc(t.end?.dateTime),
           teilnehmer: [...adressen(t.organizer ? [t.organizer] : undefined), ...adressen(t.attendees)],
           organisator: adressen(t.organizer ? [t.organizer] : undefined)[0] ?? null,
+          ...optional("namen", namen([t.organizer, ...(t.attendees ?? [])])),
+          eigeneAntwort: eigeneAntwortGraph(t),
           abgesagt: t.isCancelled === true,
         });
       }

@@ -77,7 +77,7 @@ export interface SzenarioErgebnis {
   bewertungsszenario?: BewertungsszenarioErgebnis;
 }
 
-const ungueltig = (meldung: string, zusatz: Record<string, unknown> = {}) => new Fachfehler(422, "SZENARIO_ANNAHMEN_UNGUELTIG", meldung, zusatz);
+const ungueltig = (meldung: string, zusatz: Record<string, unknown> = {}) => new Fachfehler(422, "scenario_assumptions_invalid", meldung, zusatz);
 
 const D = (w: Decimal.Value) => new Decimal(w);
 
@@ -112,14 +112,14 @@ const text = (w: Decimal | null) => (w === null ? null : w.toString());
 
 /** Rechnet ein Szenario. `stand` ist der Wissensstand der Eingangsdaten (leer = heute). */
 export async function rechneSzenario(tx: Tx, fondsId: string, basisStichtag: string, annahmen: Annahmen, stand?: string): Promise<SzenarioErgebnis> {
-  if (basisStichtag > heute()) throw ungueltig("Der Basistag darf nicht in der Zukunft liegen.", { feld: "basisStichtag" });
+  if (basisStichtag > heute()) throw ungueltig("The base date must not be in the future.", { feld: "basisStichtag" });
   const [f] = await tx.select().from(fonds).where(eq(fonds.id, fondsId));
-  if (!f) throw new Fachfehler(404, "FONDS_NICHT_GEFUNDEN", "Fonds nicht gefunden.");
+  if (!f) throw new Fachfehler(404, "fund_not_found", "Fund not found.");
   const basisJahr = Number(basisStichtag.slice(0, 4));
   const endJahr = annahmen.endJahr ?? basisJahr + 10;
-  if (endJahr < basisJahr || endJahr > basisJahr + 30) throw ungueltig("Das Prognoseende liegt außerhalb des Zeitraums (Basisjahr bis 30 Jahre danach).", { feld: "endJahr" });
+  if (endJahr < basisJahr || endJahr > basisJahr + 30) throw ungueltig("The forecast end is outside the period (base year to 30 years later).", { feld: "endJahr" });
   const imFenster = (jahr: number, feld: string) => {
-    if (jahr < basisJahr || jahr > endJahr) throw ungueltig(`Jahr ${jahr} liegt außerhalb von ${basisJahr} bis ${endJahr}.`, { feld, jahr });
+    if (jahr < basisJahr || jahr > endJahr) throw ungueltig(`Year ${jahr} is outside ${basisJahr} to ${endJahr}.`, { feld, jahr });
   };
 
   const ue = await berechneFondsUebersicht(tx, fondsId, basisStichtag, stand);
@@ -127,7 +127,7 @@ export async function rechneSzenario(tx: Tx, fondsId: string, basisStichtag: str
   const befunde: Befund[] = [];
 
   for (const id of Object.keys(annahmen.beteiligungen)) {
-    if (!ue.beteiligungen.some((b) => b.id === id)) throw ungueltig("Eine Annahme nennt eine Beteiligung, die es in diesem Fonds zum Basistag nicht gibt.", { feld: `beteiligungen.${id}`, beteiligungId: id });
+    if (!ue.beteiligungen.some((b) => b.id === id)) throw ungueltig("An assumption names an investment that does not exist in this fund on the base date.", { feld: `beteiligungen.${id}`, beteiligungId: id });
   }
 
   // Erlös des Fonds aus dem Exit-Wasserfall je Unternehmen und Exit-Annahme (`null`: keine Positionen des Fonds in der Kapitaltabelle).
@@ -217,7 +217,7 @@ export async function rechneSzenario(tx: Tx, fondsId: string, basisStichtag: str
     let ausstieg: PrognoseBeteiligung["ausstieg"] = null;
     if (n.ausstiegJahr !== undefined) {
       imFenster(n.ausstiegJahr, `neuinvestitionen.${i}.ausstiegJahr`);
-      if (n.ausstiegJahr < n.jahr) throw ungueltig("Der Ausstieg einer Neuinvestition liegt vor der Investition.", { feld: `neuinvestitionen.${i}.ausstiegJahr` });
+      if (n.ausstiegJahr < n.jahr) throw ungueltig("The exit of a new investment is before the investment.", { feld: `neuinvestitionen.${i}.ausstiegJahr` });
       ausstieg = { jahr: n.ausstiegJahr, erloes: D(n.betrag).times(n.multiple ?? 1), wahrscheinlichkeit: 1 };
     }
     const id = `neu-${i + 1}`;

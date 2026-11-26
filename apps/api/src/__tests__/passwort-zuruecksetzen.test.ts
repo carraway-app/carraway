@@ -30,7 +30,7 @@ const gesperrt = person("pw-gesperrt", { aktiv: false });
 
 const roh = (app: ReturnType<typeof erstelleTestApp>, pfad: string, body?: unknown, cookie?: string) =>
   app.app.request(`/api/v1${pfad}`, { method: body === undefined ? "GET" : "POST", headers: jsonKopf(cookie, TESTORIGIN), ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
-const vergessen = (app: ReturnType<typeof erstelleTestApp>, email: string, sprache?: "de" | "en") => roh(app, "/passwort/vergessen", { email, ...(sprache ? { sprache } : {}) });
+const vergessen = (app: ReturnType<typeof erstelleTestApp>, email: string, sprache?: "de" | "en") => roh(app, "/password/forgot", { email, ...(sprache ? { language: sprache } : {}) });
 const einloesen = (token: string, newPassword = NEUES_PASSWORT) => roh(t, "/auth/reset-password", { token, newPassword });
 const anmelden = (email: string, password: string) => roh(t, "/auth/sign-in/email", { email, password });
 
@@ -57,12 +57,12 @@ afterAll(async () => {
 });
 
 describe("Passwort vergessen", () => {
-  it("ohne eingerichteten Mailversand: Anmeldeseite blendet es aus, die Anfrage ist 409 MAIL_NICHT_EINGERICHTET", async () => {
-    expect((await json(await roh(ohneMail, "/umgebung"))).anmeldung.passwortZuruecksetzen).toBe(false);
-    expect((await json(await roh(t, "/umgebung"))).anmeldung.passwortZuruecksetzen).toBe(true);
+  it("ohne eingerichteten Mailversand: Anmeldeseite blendet es aus, die Anfrage ist 409 mail_not_configured", async () => {
+    expect((await json(await roh(ohneMail, "/environment"))).signIn.passwordResetAvailable).toBe(false);
+    expect((await json(await roh(t, "/environment"))).signIn.passwordResetAvailable).toBe(true);
     const antwort = await vergessen(ohneMail, anna.email);
     expect(antwort.status).toBe(409);
-    expect((await json(antwort)).fehler.code).toBe("MAIL_NICHT_EINGERICHTET");
+    expect((await json(antwort)).error.code).toBe("mail_not_configured");
   });
 
   it("bekannte, unbekannte, gesperrte und technische Adressen bekommen dieselbe Antwort; nur bekannte lösen eine Mail aus", async () => {
@@ -94,7 +94,7 @@ describe("Passwort vergessen", () => {
   it("ungültige Adresse ist 400, ohne Hinweis auf Konten", async () => {
     const antwort = await vergessen(t, "kein-adresse");
     expect(antwort.status).toBe(400);
-    expect((await json(antwort)).fehler.code).toBe("EINGABE_UNGUELTIG");
+    expect((await json(antwort)).error.code).toBe("invalid_input");
   });
 
   it("Token steht nur als Hash in der Datenbank, gilt höchstens 30 Minuten und die Mail nennt Link, Dauer und den bleibenden zweiten Faktor", async () => {
@@ -125,7 +125,7 @@ describe("Passwort vergessen", () => {
     expect((await vergessen(t, anna.email)).status).toBe(200);
     const code = await roh(t, "/auth/two-factor/verify-totp", { code: totpCode(TESTGEHEIMNIS) }, zwischen);
     expect(code.status).toBe(200);
-    expect((await roh(t, "/ich", undefined, cookieKopf(code.headers.getSetCookie()))).status).toBe(200);
+    expect((await roh(t, "/me", undefined, cookieKopf(code.headers.getSetCookie()))).status).toBe(200);
   });
 
   it("Mail-Sprache: eigene Einstellung vor dem Hinweis der Oberfläche, sonst Deutsch", async () => {
@@ -139,14 +139,14 @@ describe("Passwort vergessen", () => {
 
   it("Zurücksetzen: neues Passwort gilt, das alte nicht, andere Sitzungen enden, der zweite Faktor wird weiter verlangt", async () => {
     const alteSitzung = await meldeAn(t.app, anna);
-    expect((await roh(t, "/ich", undefined, alteSitzung)).status).toBe(200);
+    expect((await roh(t, "/me", undefined, alteSitzung)).status).toBe(200);
     await vergessen(t, anna.email);
     const token = tokenAus((await versende())[0]!.text);
 
     const erledigt = await einloesen(token);
     expect(erledigt.status).toBe(200);
     // andere Sitzungen sind beendet
-    expect((await roh(t, "/ich", undefined, alteSitzung)).status).toBe(401);
+    expect((await roh(t, "/me", undefined, alteSitzung)).status).toBe(401);
     // altes Passwort geht nicht mehr
     expect((await anmelden(anna.email, TESTPASSWORT)).status).toBeGreaterThanOrEqual(400);
     // neues Passwort führt in den zweiten Faktor, nicht in eine Sitzung
@@ -154,14 +154,14 @@ describe("Passwort vergessen", () => {
     expect(neu.status).toBe(200);
     expect((await json(neu)).twoFactorRedirect).toBe(true);
     const zwischen = cookieKopf(neu.headers.getSetCookie());
-    expect((await roh(t, "/ich", undefined, zwischen)).status).toBe(401);
+    expect((await roh(t, "/me", undefined, zwischen)).status).toBe(401);
     // der zweite Faktor ist unverändert da und löst die Anmeldung ein
     const [b] = await db.select().from(s.benutzer).where(eq(s.benutzer.email, anna.email));
     expect(b!.twoFactorEnabled).toBe(true);
     expect(await db.select().from(s.zweiFaktor).where(eq(s.zweiFaktor.userId, b!.id))).toHaveLength(1);
     const code = await roh(t, "/auth/two-factor/verify-totp", { code: totpCode(TESTGEHEIMNIS) }, zwischen);
     expect(code.status).toBe(200);
-    expect((await roh(t, "/ich", undefined, cookieKopf(code.headers.getSetCookie()))).status).toBe(200);
+    expect((await roh(t, "/me", undefined, cookieKopf(code.headers.getSetCookie()))).status).toBe(200);
   });
 
   it("ein Token gilt genau einmal und verfällt mit einer neuen Anfrage", async () => {
@@ -248,23 +248,23 @@ describe("Passwort vergessen", () => {
 
 describe("Einladung per Mail", () => {
   const einladen = (body: object, als: Testperson | null = verwalter, app = t) =>
-    app.request("/benutzer", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), als });
+    app.request("/users", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), als });
 
   it("ohne eingerichteten Mailversand bleibt es beim Startpasswort: Anlage ohne Passwort ist 409", async () => {
     const antwort = await einladen({ name: "Neue Person", email: "neu@extern.example" }, verwalter, ohneMail);
     expect(antwort.status).toBe(409);
-    expect((await json(antwort)).fehler.code).toBe("MAIL_NICHT_EINGERICHTET");
+    expect((await json(antwort)).error.code).toBe("mail_not_configured");
     expect(await db.select().from(s.benutzer).where(eq(s.benutzer.email, "neu@extern.example"))).toHaveLength(0);
     // mit Startpasswort geht es wie bisher
-    const mitPasswort = await einladen({ name: "Neue Person", email: "neu@extern.example", passwort: "Start-Passwort-nur-lokal-1" }, verwalter, ohneMail);
+    const mitPasswort = await einladen({ name: "Neue Person", email: "neu@extern.example", password: "Start-Passwort-nur-lokal-1" }, verwalter, ohneMail);
     expect(mitPasswort.status).toBe(201);
-    expect((await json(mitPasswort)).einladung).toBe(false);
+    expect((await json(mitPasswort)).invited).toBe(false);
   });
 
   it("Anlage ohne Passwort sendet eine Einladung (72 Stunden); Passwort festlegen, dann zweiten Faktor einrichten", async () => {
-    const antwort = await einladen({ name: "Neue Person", email: "neu@extern.example", sprache: "en" });
+    const antwort = await einladen({ name: "Neue Person", email: "neu@extern.example", language: "en" });
     expect(antwort.status).toBe(201);
-    expect(await json(antwort)).toMatchObject({ einladung: true, email: "neu@extern.example" });
+    expect(await json(antwort)).toMatchObject({ invited: true, email: "neu@extern.example" });
     const [mail] = await versende();
     expect(mail!.an).toBe("neu@extern.example");
     expect(mail!.betreff).toBe("Invitation to Carraway");
@@ -278,32 +278,32 @@ describe("Einladung per Mail", () => {
 
     // bis dahin kein Zugang, und die Verwaltung zeigt die offene Einladung
     expect((await anmelden("neu@extern.example", NEUES_PASSWORT)).status).toBeGreaterThanOrEqual(400);
-    const liste = await json(await t.request("/benutzer", { als: verwalter }));
-    expect(liste.daten.find((b: { email: string }) => b.email === "neu@extern.example")).toMatchObject({ einladungOffen: true, passwortAendern: false });
+    const liste = await json(await t.request("/users", { als: verwalter }));
+    expect(liste.data.find((b: { email: string }) => b.email === "neu@extern.example")).toMatchObject({ invitationPending: true, passwordChangeRequired: false });
 
     expect((await einloesen(token)).status).toBe(200);
     expect((await einloesen(token)).status).toBe(400);
     const angemeldet = await anmelden("neu@extern.example", NEUES_PASSWORT);
     expect(angemeldet.status).toBe(200);
     const cookie = cookieKopf(angemeldet.headers.getSetCookie());
-    const ich = await json(await roh(t, "/ich", undefined, cookie));
+    const ich = await json(await roh(t, "/me", undefined, cookie));
     // weiter wie bei Startpasswort: zweiter Faktor ist Pflicht, ein Passwortwechsel nicht mehr
-    expect(ich).toMatchObject({ passwortAendern: false, zweiFaktorErforderlich: true, zweiFaktorAktiv: false });
-    const nachher = await json(await t.request("/benutzer", { als: verwalter }));
-    expect(nachher.daten.find((b: { email: string }) => b.email === "neu@extern.example").einladungOffen).toBe(false);
+    expect(ich).toMatchObject({ passwordChangeRequired: false, twoFactorSetupRequired: true, twoFactorEnabled: false });
+    const nachher = await json(await t.request("/users", { als: verwalter }));
+    expect(nachher.data.find((b: { email: string }) => b.email === "neu@extern.example").invitationPending).toBe(false);
   });
 
   it("erneut einladen ersetzt den Link; nach dem Festlegen des Passworts ist es 409", async () => {
     const neu = await json(await einladen({ name: "Neue Person", email: "neu@extern.example" }));
     const erster = tokenAus((await versende())[0]!.text);
-    const nochmal = await t.request(`/benutzer/${neu.id}/einladung`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({}), als: verwalter });
+    const nochmal = await t.request(`/users/${neu.id}/invitation`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({}), als: verwalter });
     expect(nochmal.status).toBe(204);
     const zweiter = tokenAus((await versende())[0]!.text);
     expect((await einloesen(erster)).status).toBe(400);
     expect((await einloesen(zweiter)).status).toBe(200);
-    const spaet = await t.request(`/benutzer/${neu.id}/einladung`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({}), als: verwalter });
+    const spaet = await t.request(`/users/${neu.id}/invitation`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({}), als: verwalter });
     expect(spaet.status).toBe(409);
-    expect((await json(spaet)).fehler.code).toBe("EINLADUNG_NICHT_MOEGLICH");
+    expect((await json(spaet)).error.code).toBe("invitation_not_possible");
     expect(await db.select().from(s.verifizierung)).toHaveLength(0);
   });
 

@@ -18,10 +18,14 @@ import { lese } from "../zeitlimit";
 export const THEMEN = ["system", "hell", "dunkel"] as const;
 export type Thema = (typeof THEMEN)[number];
 
-const aendern = z.object({ thema: z.enum(THEMEN) }).strict();
+/** In der Datenbank stehen `system`, `hell` und `dunkel`; an der Schnittstelle `system`, `light` und `dark`. */
+const THEMA_AN_API = { system: "system", hell: "light", dunkel: "dark" } as const;
+const THEMA_AUS_API = { system: "system", light: "hell", dark: "dunkel" } as const;
+
+const aendern = z.object({ theme: z.enum(["system", "light", "dark"]) }).strict();
 
 const keinSchluessel = (technisch: boolean) => {
-  if (technisch) throw new Fachfehler(403, "TECHNISCHER_BENUTZER", "Ein API-Schlüssel hat kein Thema.");
+  if (technisch) throw new Fachfehler(403, "technical_user", "An API key has no theme.");
 };
 
 export function themaRouten(db: Db) {
@@ -30,15 +34,15 @@ export function themaRouten(db: Db) {
       const akteur = aktuellerAkteur(c);
       keinSchluessel(akteur.technisch);
       const [zeile] = await lese(db, (tx) => tx.select({ thema: benutzerEinstellung.thema }).from(benutzerEinstellung).where(eq(benutzerEinstellung.benutzerId, akteur.id)));
-      return c.json({ thema: THEMEN.find((t) => t === zeile?.thema) ?? "system" }, 200);
+      return c.json({ theme: THEMA_AN_API[THEMEN.find((t) => t === zeile?.thema) ?? "system"] }, 200);
     })
     .patch("/", pruefe("json", aendern), async (c) => {
       const akteur = aktuellerAkteur(c);
       keinSchluessel(akteur.technisch);
-      const { thema } = c.req.valid("json");
+      const thema = THEMA_AUS_API[c.req.valid("json").theme];
       await schreibe(db, c, async (tx) => {
         await tx.insert(benutzerEinstellung).values({ benutzerId: akteur.id, thema }).onConflictDoUpdate({ target: benutzerEinstellung.benutzerId, set: { thema, aktualisiertAm: new Date() } });
       });
-      return c.json({ thema }, 200);
+      return c.json({ theme: THEMA_AN_API[thema] }, 200);
     });
 }

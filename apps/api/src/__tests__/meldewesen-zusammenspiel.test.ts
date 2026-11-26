@@ -42,34 +42,34 @@ afterAll(async () => {
 describe("Änderungsprotokoll der Meldeberichte nach Fondsrechten", () => {
   it("ein Benutzer des Fonds B sieht keine Änderungen an Lauf, Wert, Aktivierung und Schlüsseln des Fonds A, auch keine gelöschten Zeilen", async () => {
     const SCHLUESSEL = "foerderbericht_quartal";
-    expect((await anfrage("POST", "/foerderprogramme", admin, { schluessel: "test_zs", bezeichnung: "Programm Zusammenspiel" })).status).toBe(201);
-    const aktivieren = (aktiv: boolean) => anfrage("PUT", `/fonds/${F1}/meldedefinitionen/${SCHLUESSEL}`, verwalterF1, { aktiv });
+    expect((await anfrage("POST", "/funding-programs", admin, { schluessel: "test_zs", bezeichnung: "Programm Zusammenspiel" })).status).toBe(201);
+    const aktivieren = (aktiv: boolean) => anfrage("PUT", `/funds/${F1}/reporting-definitions/${SCHLUESSEL}`, verwalterF1, { aktiv });
     expect((await aktivieren(true)).status).toBe(200);
     expect((await aktivieren(false)).status).toBe(200); // Löschzeile der Aktivierung
     expect((await aktivieren(true)).status).toBe(200);
     // Schlüssel der Beteiligung: Anlegen und Ändern
-    const pfad = `/beteiligungen/${ID.darlehen}/buchhaltungsschluessel`;
-    expect((await anfrage("PUT", pfad, bearbeiterF1, { foerderprogramm: "test_zs", projektnummer: "P-1" })).status).toBe(200);
-    expect((await anfrage("PUT", pfad, bearbeiterF1, { foerderprogramm: null, projektnummer: "P-2" })).status).toBe(200);
-    expect((await anfrage("PUT", `/organisationen/${ID.orgB}/meldedaten`, bearbeiterF1, { sitzland: "DE", region: null })).status).toBe(200);
-    const lauf = await anfrage("POST", "/meldelaeufe", bearbeiterF1, { fondsId: F1, definition: SCHLUESSEL, jahr: 2026, nummer: 3 });
+    const pfad = `/investments/${ID.darlehen}/accounting-keys`;
+    expect((await anfrage("PUT", pfad, bearbeiterF1, { fundingProgram: "test_zs", projectNumber: "P-1" })).status).toBe(200);
+    expect((await anfrage("PUT", pfad, bearbeiterF1, { fundingProgram: null, projectNumber: "P-2" })).status).toBe(200);
+    expect((await anfrage("PUT", `/organizations/${ID.orgB}/reporting-data`, bearbeiterF1, { sitzland: "DE", region: null })).status).toBe(200);
+    const lauf = await anfrage("POST", "/reporting-runs", bearbeiterF1, { fondsId: F1, definition: SCHLUESSEL, jahr: 2026, nummer: 3 });
     expect(lauf.status, await lauf.clone().text()).toBe(201);
     const laufJson = await json(lauf);
-    expect((await anfrage("PUT", `/meldelaeufe/${laufJson.id}/eingaben`, bearbeiterF1, { schluessel: "stammdaten.verantwortlich", wert: "Erika Beispiel" })).status).toBe(200);
+    expect((await anfrage("PUT", `/reporting-runs/${laufJson.id}/inputs`, bearbeiterF1, { schluessel: "stammdaten.verantwortlich", wert: "Erika Beispiel" })).status).toBe(200);
 
     const lies = async (als: Testperson, tabelle?: string) =>
-      (await json(await anfrage("GET", `/aenderungen?limit=1000${tabelle ? `&tabelle=${tabelle}` : ""}`, als))).daten as { aktion: string; tabelle: string; datensatzId: string; fondsId: string | null }[];
+      (await json(await anfrage("GET", `/changes?limit=1000${tabelle ? `&table=${tabelle}` : ""}`, als))).data as { action: string; table: string; recordId: string; fundId: string | null }[];
     const MIT_FONDS = ["melde_aktivierung", "melde_lauf", "melde_wert", "beteiligung_buchhaltung"];
     for (const tabelle of MIT_FONDS) {
       const eigene = await lies(verwalterF1, tabelle);
       expect(eigene.length, `${tabelle} für Fonds A`).toBeGreaterThan(0);
-      expect(eigene.every((z) => z.fondsId === F1), `${tabelle} trägt den Fonds`).toBe(true);
+      expect(eigene.every((z) => z.fundId === F1), `${tabelle} trägt den Fonds`).toBe(true);
       expect(await lies(verwalterF2, tabelle), `${tabelle} für Fonds B`).toEqual([]);
     }
-    expect((await lies(verwalterF1, "melde_aktivierung")).map((z) => z.aktion)).toContain("deaktivieren");
-    expect((await lies(verwalterF1, "melde_lauf")).map((z) => z.datensatzId)).toContain(laufJson.id);
+    expect((await lies(verwalterF1, "melde_aktivierung")).map((z) => z.action)).toContain("deaktivieren");
+    expect((await lies(verwalterF1, "melde_lauf")).map((z) => z.recordId)).toContain(laufJson.id);
     // ohne Tabellenfilter: keine Zeile dieser Tabellen für Fonds B
-    expect((await lies(verwalterF2)).filter((z) => MIT_FONDS.includes(z.tabelle))).toEqual([]);
+    expect((await lies(verwalterF2)).filter((z) => MIT_FONDS.includes(z.table))).toEqual([]);
     // Stammdaten ohne Fonds (Programm, Meldedaten der Organisation) sehen alle mit einer Rolle
     expect((await lies(verwalterF2, "foerderprogramm")).length).toBeGreaterThan(0);
     expect((await lies(verwalterF2, "organisation_meldedaten")).length).toBeGreaterThan(0);
@@ -101,7 +101,7 @@ describe("Mittelherkunft: Beträge nach den Quoten je Zeitraum, gegen unabhängi
       { beteiligungId: ID.darlehen, art: "auszahlung", valuta: "2026-09-15", betrag: "99.99", erfasstAm: ALT },
       { beteiligungId: ID.eigen, art: "auszahlung", valuta: "2026-09-03", betrag: "-333.33", storniertVorgangId: storniert!.id, erfasstAm: ALT },
     ]);
-    expect((await anfrage("PUT", `/fonds/${F1}/meldedefinitionen/${SCHLUESSEL}`, admin, { aktiv: true })).status).toBe(200);
+    expect((await anfrage("PUT", `/funds/${F1}/reporting-definitions/${SCHLUESSEL}`, admin, { aktiv: true })).status).toBe(200);
   }
 
   /**
@@ -125,7 +125,7 @@ describe("Mittelherkunft: Beträge nach den Quoten je Zeitraum, gegen unabhängi
 
   it("Fördermittel und Kofinanzierung folgen den Quoten ihres Valuta; ein Storno folgt seinem Original; der Rest ohne Meldeart zählt nirgends", async () => {
     await aufsetzen();
-    const l = await json(await anfrage("POST", "/meldelaeufe", admin, { fondsId: F1, definition: SCHLUESSEL, jahr: 2026 }));
+    const l = await json(await anfrage("POST", "/reporting-runs", admin, { fondsId: F1, definition: SCHLUESSEL, jahr: 2026 }));
     const wert = (schluessel: string) => Number(l.werte.find((w: { schluessel: string }) => w.schluessel === schluessel)?.wert);
     const foerder = wert("finanzinstrument.foerdermittel_periode");
     const kofi = wert("finanzinstrument.kofinanzierung_periode");

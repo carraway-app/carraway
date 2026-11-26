@@ -9,7 +9,7 @@ import { useT } from "../i18n";
 
 /**
  * Erste Verwalterperson einer leeren Installation. Die API kennt dafür keinen Lesezugriff; ob schon jemand eingerichtet ist,
- * zeigt erst die Antwort (403 `REGISTRIERUNG_GESCHLOSSEN`). Danach folgt die Anmeldung, die den zweiten Faktor verlangt.
+ * zeigt erst die Antwort (403 `registration_closed`). Danach folgt die Anmeldung, die den zweiten Faktor verlangt.
  */
 export function EinrichtungSeite() {
   const t = useT();
@@ -26,7 +26,7 @@ export function EinrichtungSeite() {
     setVersucht(true);
     if (zuKurz || ungleich) return;
     void ausfuehren(async () => {
-      await auspacken(api.api.v1.einrichtung.$post({ json: { name: werte.name.trim(), email: werte.email.trim(), passwort: werte.passwort } }));
+      await auspacken(api.api.v1.setup.$post({ json: { name: werte.name.trim(), email: werte.email.trim(), password: werte.passwort } }));
       setWerte({ name: "", email: "", passwort: "", wiederholt: "" });
       await router.navigate({ to: "/anmelden", search: { eingerichtet: true }, replace: true });
     });
@@ -39,7 +39,7 @@ export function EinrichtungSeite() {
       </h1>
       <Hinweis>{e.einleitung}</Hinweis>
       <form className="app-formular" onSubmit={einrichten} noValidate>
-        <FehlerHinweis fehler={fehler} bekannt={["name", "email", "passwort"]} />
+        <FehlerHinweis fehler={fehler} bekannt={["name", "email", "password"]} />
         <Feld label={e.name} name="name" value={werte.name} onChange={(ev) => setWerte((w) => ({ ...w, name: ev.target.value }))} autoComplete="name" required autoFocus />
         <Feld label={e.email} name="email" type="email" value={werte.email} onChange={(ev) => setWerte((w) => ({ ...w, email: ev.target.value }))} autoComplete="username" required />
         <Feld

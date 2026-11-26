@@ -31,7 +31,11 @@ export function navLauf(fondsId: string, stichtag: string, stand?: string) {
 }
 
 /** Einzelkonten bleiben intern. Die Fondsübersicht bekommt nur die Summen der Bilanzgruppen. */
-export async function ermittleNavBestandteile(tx: Abfrage, fondsId: string, stichtag: string, stand: string | undefined, portfolio: PortfolioPosition[]) {
+/**
+ * `zielfonds`: Wert der Anteile an Zielfonds (Dachfonds) samt Herkunftsschritt; nur gesetzt, wenn der Fonds Zielfondsbeteiligungen hat. Sonst bleiben NAV und
+ * Herkunft wie bisher. Die Saldenliste führt solche Anteile wie Beteiligungen in der Gruppe „portfolio“, die hier nicht zählt (der Wert kommt aus der Rechnung).
+ */
+export async function ermittleNavBestandteile(tx: Abfrage, fondsId: string, stichtag: string, stand: string | undefined, portfolio: PortfolioPosition[], zielfonds?: { wert: Decimal; schritt: Rechenschritt } | null) {
   const { rows } = await tx.execute<SaldoPosition>(sql`
     SELECT id, lauf_id AS "laufId", konto_nummer AS konto, bezeichnung, nav_gruppe AS gruppe, saldo::text
     FROM saldo WHERE lauf_id = (${navLauf(fondsId, stichtag, stand)}) ORDER BY konto_nummer`);
@@ -42,10 +46,12 @@ export async function ermittleNavBestandteile(tx: Abfrage, fondsId: string, stic
   const sonstiges = summe("sonstiges");
   const schulden = summe("schulden").neg();
   const komplett = rows.some((p) => p.gruppe === "bank") && rows.every((p) => p.gruppe !== null || new Decimal(p.saldo).isZero());
-  const nav = komplett ? portfoliowert.plus(bank).plus(sonstiges).minus(schulden) : null;
+  const zielwert = zielfonds?.wert ?? new Decimal(0);
+  const nav = komplett ? portfoliowert.plus(zielwert).plus(bank).plus(sonstiges).minus(schulden) : null;
   const schritte: Rechenschritt[] = [
     { zeichen: "", bezeichnung: "Portfoliowert", wert: portfoliowert.toString(), quellen: portfolio.map((p) => p.beteiligungId) },
   ];
+  if (zielfonds) schritte.push(zielfonds.schritt);
   if (komplett) {
     schritte.push(
       { zeichen: "+", bezeichnung: "Bankguthaben laut Saldenliste", wert: bank.toString() },
@@ -56,5 +62,5 @@ export async function ermittleNavBestandteile(tx: Abfrage, fondsId: string, stic
     schritte.push({ zeichen: "", bezeichnung: NAV_LUECKE, wert: "—" });
   }
   schritte.push({ zeichen: "=", bezeichnung: "Fonds-NAV", wert: nav?.toString() ?? "—" });
-  return { portfolio, salden: rows, portfoliowert, nav, schritte };
+  return { portfolio, salden: rows, portfoliowert, zielfondswert: zielfonds ? zielwert : null, nav, schritte };
 }

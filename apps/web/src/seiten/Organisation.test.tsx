@@ -42,8 +42,8 @@ describe("Organisation", () => {
 
   it("bearbeitet Rechtsform, Sitzland, Region und NACE-Abschnitt an einer Stelle", async () => {
     const api = spieleApi({
-      [`/api/v1/organisationen/${ORG_A}/meldedaten`]: { koerper: { organisationId: ORG_A, sitzland: "DE", region: "Bayern" } },
-      [`PUT /api/v1/organisationen/${ORG_A}/meldedaten`]: { koerper: { organisationId: ORG_A, sitzland: "AT", region: "Bayern" } },
+      [`/api/v1/organizations/${ORG_A}/reporting-data`]: { koerper: { organisationId: ORG_A, sitzland: "DE", region: "Bayern" } },
+      [`PUT /api/v1/organizations/${ORG_A}/reporting-data`]: { koerper: { organisationId: ORG_A, sitzland: "AT", region: "Bayern" } },
       [`PATCH /api/v1/organisationen/${ORG_A}`]: { koerper: organisationDaten },
     });
     const nutzer = userEvent.setup();
@@ -58,8 +58,8 @@ describe("Organisation", () => {
     await nutzer.type(within(dialog).getByLabelText("Rechtsform"), "GmbH");
     await nutzer.selectOptions(within(dialog).getByLabelText(/NACE-Abschnitt/), "J");
     await nutzer.click(within(dialog).getByRole("button", { name: "Änderungen speichern" }));
-    await waitFor(() => expect(api.anfragen("PUT", `/api/v1/organisationen/${ORG_A}/meldedaten`)).toHaveLength(1));
-    expect(api.anfragen("PUT", `/api/v1/organisationen/${ORG_A}/meldedaten`)[0]!.koerper).toEqual({ sitzland: "AT", region: "Bayern" });
+    await waitFor(() => expect(api.anfragen("PUT", `/api/v1/organizations/${ORG_A}/reporting-data`)).toHaveLength(1));
+    expect(api.anfragen("PUT", `/api/v1/organizations/${ORG_A}/reporting-data`)[0]!.koerper).toEqual({ sitzland: "AT", region: "Bayern" });
     await waitFor(() => expect(api.anfragen("PATCH", `/api/v1/organisationen/${ORG_A}`)).toHaveLength(1));
     expect(api.anfragen("PATCH", `/api/v1/organisationen/${ORG_A}`)[0]!.koerper).toMatchObject({ naceAbschnitt: "J", rechtsform: "GmbH" });
   });

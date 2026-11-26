@@ -40,7 +40,7 @@ describe("Zinsläufe: Liste", () => {
 
   it("meldet einen Stichtag außerhalb am Feld", async () => {
     spieleApi({
-      "POST /api/v1/zinslaeufe": { status: 400, koerper: { fehler: { code: "EINGABE_UNGUELTIG", meldung: "x", felder: [{ feld: "stichtag", code: "stichtag_ausserhalb", meldung: "x" }] } } },
+      "POST /api/v1/zinslaeufe": { status: 400, koerper: { error: { code: "invalid_input", message: "x", fields: [{ field: "stichtag", code: "as_of_out_of_range", message: "x" }] } } },
     });
     rendereApp("/zinslaeufe");
     const nutzer = userEvent.setup();
@@ -95,8 +95,8 @@ describe("Zinslauf: Detail", () => {
     expect(abweichung.textContent).not.toContain("b9");
   });
 
-  it("zeigt VIER_AUGEN_VERLETZT übersetzt mit der Erklärung, in beiden Sprachen", async () => {
-    const freigegeben = fehler(409, "VIER_AUGEN_VERLETZT");
+  it("zeigt four_eyes_violated übersetzt mit der Erklärung, in beiden Sprachen", async () => {
+    const freigegeben = fehler(409, "four_eyes_violated");
     spieleApi({ [`POST /api/v1/zinslaeufe/${ZL_ID}/freigeben`]: freigegeben });
     rendereApp(`/zinslaeufe/${ZL_ID}`);
     const nutzer = userEvent.setup();
@@ -196,12 +196,12 @@ describe("Zinsläufe: Bereiche je Fonds", () => {
     } as never);
 
   it("ohne Bereich Finanzen an diesem Fonds fehlt „Neuer Zinslauf“, mit ihm erscheint der Knopf", async () => {
-    spieleApi({ "/api/v1/ich": jeFonds(null) });
+    spieleApi({ "/api/v1/me": jeFonds(null) });
     const ohne = rendereApp("/zinslaeufe");
     await screen.findByRole("heading", { level: 1, name: "Zinsen" });
     expect(screen.queryByRole("button", { name: "Neuer Zinslauf" })).toBeNull();
     ohne.unmount();
-    spieleApi({ "/api/v1/ich": jeFonds("bearbeiter") });
+    spieleApi({ "/api/v1/me": jeFonds("bearbeiter") });
     rendereApp("/zinslaeufe");
     expect(await screen.findByRole("button", { name: "Neuer Zinslauf" })).toBeTruthy();
   });

@@ -34,7 +34,7 @@ const KENNUNG = (token: string) => `reset-password:${token}`;
 const anfrage = z.object({
   email: z.string().trim().toLowerCase().pipe(z.email().max(320)),
   /** Sprache der Oberfläche; gilt nur, wenn die Person keine eigene Mail-Sprache gespeichert hat. */
-  sprache: z.enum(["de", "en"]).optional(),
+  language: z.enum(["de", "en"]).optional(),
 });
 
 const neuesToken = () => randomBytes(24).toString("base64url");
@@ -114,10 +114,10 @@ async function stelleZuruecksetzenAus(db: Db, auth: Auth, kontext: MailKontext, 
 
 /** Öffentliche Wege rund ums Passwort (ohne Anmeldung). */
 export function passwortRouten(db: Db, auth: Auth, konfig: Konfiguration) {
-  return new Hono().post("/vergessen", pruefe("json", anfrage), async (c) => {
+  return new Hono().post("/forgot", pruefe("json", anfrage), async (c) => {
     const kontext = c.get("mail");
     verlangeMail(kontext);
-    const { email, sprache } = c.req.valid("json");
+    const { email, language: sprache } = c.req.valid("json");
     const start = performance.now();
     // Jede Anfrage zählt, ob es die Adresse gibt oder nicht; sonst ließe sich an der Sperre erkennen, welche Adressen es gibt.
     const schluessel = [`reset:ip:${clientIp(c, konfig)}`, `reset:adr:${adressHash(email)}`];
@@ -125,7 +125,7 @@ export function passwortRouten(db: Db, auth: Auth, konfig: Konfiguration) {
     const [ipAnzahl, adressAnzahl] = await Promise.all(schluessel.map((s) => fehlversuche(db, s, fensterMs)));
     if ((ipAnzahl ?? 0) >= proIp || (adressAnzahl ?? 0) >= proAdresse) {
       c.header("Retry-After", String(Math.round(fensterMs / 1000)));
-      throw new Fachfehler(429, "ZU_VIELE_VERSUCHE", "Zu viele Anfragen. Bitte später erneut versuchen.");
+      throw new Fachfehler(429, "too_many_attempts", "Too many requests. Please try again later.");
     }
     await merkeFehlversuch(db, schluessel, fensterMs);
     await stelleZuruecksetzenAus(db, auth, kontext, email, sprache);

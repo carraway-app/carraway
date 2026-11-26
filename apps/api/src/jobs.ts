@@ -6,6 +6,7 @@ import { rechneUndSpeichere, stichtageZumNeuRechnen, wirdGespeichert } from "./k
 import { schreibe } from "./schreiben";
 import { lese } from "./zeitlimit";
 import { REGISTER_PRUEFUNG } from "./register/beobachtung";
+import { WARTESCHLANGE, WEBHOOK_ZUSTELLUNG } from "./webhooks/zustellung";
 import type { ApiErweiterung } from "./erweiterung";
 
 /**
@@ -35,6 +36,8 @@ export async function starteJobs(url: string, logger: Logger = loggerAusUmgebung
   await boss.createQueue(NEUBERECHNUNG, { policy: "short", retryLimit: 3, retryDelay: 5 });
   // Registerbeobachtung (Etappe 18): geplant nur, wenn der Worker einen Plan und einen Anbieter hat.
   await boss.createQueue(REGISTER_PRUEFUNG, { retryLimit: 0, expireInSeconds: 1800 });
+  // Webhooks (#154): eine Zustellung je Job, Wiederholung mit wachsender Wartezeit (`webhooks/zustellung.ts`).
+  await boss.createQueue(WEBHOOK_ZUSTELLUNG, { ...WARTESCHLANGE });
   // Warteschlangen der Erweiterungen (z. B. die KI-Auslesung).
   for (const e of erweiterungen) await e.warteschlangen?.(boss);
   return boss;

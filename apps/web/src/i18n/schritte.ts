@@ -69,6 +69,8 @@ const englisch: Record<string, string> = {
   "Kapitalisierte Zinsen": "Capitalised interest",
   "Tilgungen": "Repayments",
   "Wertberichtigungen (netto)": "Write-downs (net)",
+  "Buchwertabgang durch Verkäufe": "Carrying amount disposed in sales",
+  // Frühere Bezeichnung, steht noch in gespeicherten Rechenwegen (Verkäufe, Snapshots).
   "Buchwertabgang früherer Teilverkäufe": "Carrying amount disposed in earlier partial sales",
   "Buchwert": "Carrying amount",
   "Kapital": "Capital",
@@ -121,6 +123,18 @@ const englisch: Record<string, string> = {
   "Treuhandanteil": "Escrow share",
   "Einbehalt Treuhand (auf Cent)": "Escrow holdback (to the cent)",
   "Sofort ausgezahlt": "Paid out immediately",
+  // Verwaltungsvergütung, Fondskosten und Kapitalkonten (Issue #157)
+  "Ausschüttungen": "Distributions",
+  "Verwaltungsvergütung": "Management fees",
+  "Fondskosten": "Fund expenses",
+  "Wertentwicklung und übriges Ergebnis": "Performance and other result",
+  "NAV-Anteil": "Share of NAV",
+  "davon NAV des Fonds nach Anteil": "of which fund NAV by share",
+  "davon Ausgleich abweichender Kostenverteilung": "of which offset for costs allocated differently",
+  "Jahressatz": "Annual rate",
+  "Vergütung (auf den Cent gerundet)": "Fee (rounded to the cent)",
+  "Verwaltungsvergütung und Fondskosten (gebucht)": "Management fees and fund expenses (booked)",
+  "Differenz (u. a. nicht gebuchte Kosten des Fonds)": "Difference (including fund costs not booked)",
 };
 
 /** Präfixe, die der Rechenkern vor eine Bezeichnung setzt; der Rest wird für sich übersetzt. */
@@ -135,6 +149,14 @@ const datumsMuster = /\d{4}-\d{2}-\d{2}/g;
 
 /** Bezeichnungen mit eingebetteten Werten (Datum, Anzahl, Methode): der Rechenkern setzt sie als Text zusammen. */
 const muster: { re: RegExp; text: (treffer: string[], sprache: Sprache) => string }[] = [
+  {
+    re: /^Summe der Zusagen am (\d{4}-\d{2}-\d{2})$/,
+    text: ([datum], sprache) => (sprache === "en" ? `Total commitments on ${formatDatum(datum!, sprache)}` : `Summe der Zusagen am ${formatDatum(datum!, sprache)}`),
+  },
+  {
+    re: /^Tage (\d{4}-\d{2}-\d{2}) bis (\d{4}-\d{2}-\d{2}) \(einschließlich\) \/ 365$/,
+    text: ([von, bis], sprache) => (sprache === "en" ? `Days ${formatDatum(von!, sprache)} to ${formatDatum(bis!, sprache)} (inclusive) / 365` : `Tage ${formatDatum(von!, sprache)} bis ${formatDatum(bis!, sprache)} (einschließlich) / 365`),
+  },
   // Exit-Wasserfall: Klassennamen sind Daten und bleiben unübersetzt
   { re: /^Umwandlung (.+): Rückfluss bei Umwandlung$/, text: ([k], sprache) => (sprache === "en" ? `Conversion ${k}: proceeds if converted` : `Umwandlung ${k}: Rückfluss bei Umwandlung`) },
   { re: /^Umwandlung (.+): Rückfluss ohne Umwandlung$/, text: ([k], sprache) => (sprache === "en" ? `Conversion ${k}: proceeds if not converted` : `Umwandlung ${k}: Rückfluss ohne Umwandlung`) },
@@ -210,6 +232,19 @@ const muster: { re: RegExp; text: (treffer: string[], sprache: Sprache) => strin
   },
   { re: /^kein Bestand im Sektor ([A-U])$/, text: ([sektor], sprache) => (sprache === "en" ? `no holdings in sector ${sektor}` : `kein Bestand im Sektor ${sektor}`) },
   { re: /^Durchschnitt der Quartale mit Wert \((\d+) von (\d+)\)$/, text: ([n, von], sprache) => (sprache === "en" ? `Average of the quarters with a value (${n} of ${von})` : `Durchschnitt der Quartale mit Wert (${n} von ${von})`) },
+  { re: /^Gemeldete NAV zum (\d{4}-\d{2}-\d{2})$/, text: ([d], sprache) => `${sprache === "en" ? "Reported NAV as of" : "Gemeldete NAV zum"} ${formatDatum(d!, sprache)}` },
+  {
+    re: /^(Kapitalabrufe|Ausschüttungen) nach dem (\d{4}-\d{2}-\d{2}) bis zum (\d{4}-\d{2}-\d{2})$/,
+    text: ([art, von, bis], sprache) => (sprache === "en" ? `${art === "Kapitalabrufe" ? "Capital calls" : "Distributions"} after ${formatDatum(von!, sprache)} up to ${formatDatum(bis!, sprache)}` : `${art} nach dem ${formatDatum(von!, sprache)} bis zum ${formatDatum(bis!, sprache)}`),
+  },
+  { re: /^NAV des Zielfonds (.+) am (\d{4}-\d{2}-\d{2}) \(durchgerechnet\)$/, text: ([name, d], sprache) => (sprache === "en" ? `NAV of the target fund ${name} on ${formatDatum(d!, sprache)} (look-through)` : `NAV des Zielfonds ${name} am ${formatDatum(d!, sprache)} (durchgerechnet)`) },
+  { re: /^Anteil am Zielfonds laut Meldung zum (\d{4}-\d{2}-\d{2})$/, text: ([d], sprache) => `${sprache === "en" ? "Share of the target fund per report as of" : "Anteil am Zielfonds laut Meldung zum"} ${formatDatum(d!, sprache)}` },
+  { re: /^Wert des Anteils als Endwert am (\d{4}-\d{2}-\d{2})$/, text: ([d], sprache) => `${sprache === "en" ? "Value of the interest as terminal value on" : "Wert des Anteils als Endwert am"} ${formatDatum(d!, sprache)}` },
+  {
+    re: /^(Zusage an einen eigenen Zielfonds|Abrufe eines eigenen Zielfonds|Ausschüttungen eines eigenen Zielfonds|Wert des Anteils an einem eigenen Zielfonds): (.+)$/,
+    text: ([art, name], sprache) =>
+      `${sprache === "en" ? (({ "Zusage an einen eigenen Zielfonds": "Commitment to an own target fund", "Abrufe eines eigenen Zielfonds": "Capital calls of an own target fund", "Ausschüttungen eines eigenen Zielfonds": "Distributions of an own target fund", "Wert des Anteils an einem eigenen Zielfonds": "Value of the interest in an own target fund" }) as Record<string, string>)[art!] : art}: ${name}`,
+  },
   {
     re: /^Offenes Kapital ab (\d{4}-\d{2}-\d{2})$/,
     text: ([datum], sprache) => `${sprache === "en" ? "Outstanding capital from" : "Offenes Kapital ab"} ${formatDatum(datum!, sprache)}`,
@@ -232,6 +267,32 @@ const englischPai: Record<string, string> = {
   "Wert der Beteiligungen mit Angabe": "Value of the holdings with a figure",
   "gewichteter Durchschnitt": "weighted average",
   "keine Daten": "no data",
+};
+
+/** Rechenschritte der Dachfonds und der fondsübergreifenden Summen (Rechenkern `dachfonds.ts`). */
+const englischDachfonds: Record<string, string> = {
+  "Anteile an Zielfonds (durchgerechnet oder fortgeschriebene NAV-Meldung)": "Interests in target funds (look-through or reported NAV rolled forward)",
+  "Wert des Anteils (auf Cent gerundet)": "Value of the interest (rounded to cents)",
+  "Fortgeschriebene NAV des Anteils": "NAV of the interest rolled forward",
+  "Kapitalabrufe kumuliert (keine NAV-Meldung bis zum Stichtag)": "Capital calls to date (no NAV report up to the reporting date)",
+  "Fortgeführte Anschaffungskosten (nicht unter null)": "Cost rolled forward (not below zero)",
+  "Zusagen an den Zielfonds kumuliert": "Commitments to the target fund to date",
+  "Kapitalabrufe des Zielfonds kumuliert": "Capital calls of the target fund to date",
+  "Ausschüttungen des Zielfonds kumuliert": "Distributions of the target fund to date",
+  "Zusagen kumuliert": "Commitments to date",
+  "Kapitalabrufe kumuliert": "Capital calls to date",
+  "Offene Zusage (nicht unter null)": "Unfunded commitment (not below zero)",
+  "Wert des Anteils": "Value of the interest",
+  "Kapitalabrufe (Valuta)": "Capital calls (value date)",
+  "Ausschüttungen (Valuta)": "Distributions (value date)",
+  "Zusagen der Investoren, ohne Doppelzählung": "Investor commitments, without double counting",
+  "Eingezahltes Kapital, ohne Doppelzählung": "Paid-in capital, without double counting",
+  "Ausschüttungen, ohne Doppelzählung": "Distributions, without double counting",
+  "NAV, ohne Doppelzählung": "NAV, without double counting",
+  "TVPI über alle Fonds": "TVPI across all funds",
+  "DPI über alle Fonds": "DPI across all funds",
+  "RVPI über alle Fonds": "RVPI across all funds",
+  "Lücke": "Gap",
 };
 
 const englischMelde: Record<string, string> = {
@@ -292,7 +353,7 @@ export function uebersetzeSchritt(text: string, sprache: Sprache): string {
     const treffer = re.exec(text);
     if (treffer) return setze(treffer.slice(1), sprache);
   }
-  const treffer = sprache === "en" ? (englisch[text] ?? englischMelde[text] ?? englischPai[text] ?? text) : text;
+  const treffer = sprache === "en" ? (englisch[text] ?? englischMelde[text] ?? englischPai[text] ?? englischDachfonds[text] ?? text) : text;
   return treffer.replace(datumsMuster, (d) => formatDatum(d, sprache));
 }
 

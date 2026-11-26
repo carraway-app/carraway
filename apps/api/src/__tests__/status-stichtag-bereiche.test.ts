@@ -37,8 +37,8 @@ const fondssicht = async (stichtag: string, stand?: string) => (await db.transac
 beforeEach(async () => {
   await grundbestand(db);
   await db.update(beteiligung).set({ erstinvestment: "2024-01-01" });
-  await post(`/beteiligungen/${b}/vorgaenge`, { art: "zusage", valuta: "2024-01-01", betrag: "1000000" });
-  await post(`/beteiligungen/${b}/vorgaenge`, { art: "auszahlung", valuta: "2024-02-01", betrag: "500000" });
+  await post(`/investments/${b}/transactions`, { type: "commitment", valueDate: "2024-01-01", amount: "1000000" });
+  await post(`/investments/${b}/transactions`, { type: "disbursement", valueDate: "2024-02-01", amount: "500000" });
   await db.insert(bewertung).values({ beteiligungId: b, stichtag: "2024-12-31", wert: "450000.00", methode: "letzte_runde", status: "freigegeben" as const });
 });
 afterAll(async () => {

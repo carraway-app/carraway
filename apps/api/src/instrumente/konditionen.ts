@@ -38,19 +38,19 @@ export async function legeKonditionAn(tx: Tx, protokoll: Protokollant, id: strin
   const vorhandene = await tx.select().from(darlehenKondition).where(eq(darlehenKondition.instrumentId, instrument.id)).orderBy(asc(darlehenKondition.gueltigAb));
   const erste = vorhandene[0];
   if (vorhandene.some((k) => k.gueltigAb === eingabe.gueltigAb)) {
-    throw new Fachfehler(409, "KONDITION_VORHANDEN", "Für dieses Datum gibt es bereits Konditionen.");
+    throw new Fachfehler(409, "terms_exist", "Terms already exist for this date.");
   }
   const zinsperiode = eingabe.zinsperiode ?? erste?.zinsperiode;
   const anker = eingabe.anker ?? (zinsperiode === "endfaellig" ? eingabe.faelligAm : undefined) ?? erste?.anker;
   const fehlt = (feld: string, meldung: string) =>
-    new Fachfehler(400, "EINGABE_UNGUELTIG", "Die Eingabe ist ungültig.", { felder: [{ feld, code: "invalid_value", meldung }] });
-  if (!zinsperiode) throw fehlt("zinsperiode", "Zinsperiode ist bei der ersten Version erforderlich");
-  if (!anker) throw fehlt("anker", "Anker (bei endfällig auch faelligAm) ist bei der ersten Version erforderlich");
+    new Fachfehler(400, "invalid_input", "The input is invalid.", { felder: [{ feld, code: "invalid_value", meldung }] });
+  if (!zinsperiode) throw fehlt("zinsperiode", "Interest period is required for the first version");
+  if (!anker) throw fehlt("anker", "Anchor (for bullet repayment also faelligAm) is required for the first version");
   if (erste && zinsperiode !== erste.zinsperiode) {
-    throw new Fachfehler(409, "KONDITION_RASTER_UNGLEICH", "Die Zinsperiode darf sich in späteren Versionen nicht ändern.", { zinsperiode: erste.zinsperiode });
+    throw new Fachfehler(409, "terms_schedule_mismatch", "The interest period must not change in later versions.", { zinsperiode: erste.zinsperiode });
   }
   if (erste && zinsperiode !== "endfaellig" && anker !== erste.anker) {
-    throw new Fachfehler(409, "KONDITION_RASTER_UNGLEICH", "Der Anker darf sich in späteren Versionen nur bei endfälliger Verzinsung ändern.", { anker: erste.anker });
+    throw new Fachfehler(409, "terms_schedule_mismatch", "The anchor may change in later versions only with bullet interest.", { anker: erste.anker });
   }
   const [zeile] = await tx
     .insert(darlehenKondition)

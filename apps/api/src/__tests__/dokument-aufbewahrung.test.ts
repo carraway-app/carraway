@@ -57,7 +57,7 @@ function hochladen(bytes: Uint8Array, name: string, als: Testperson = BEARB1) {
   const f = new FormData();
   f.append("datei", new File([new Uint8Array(bytes)], name));
   f.append("ziele", JSON.stringify([{ typ: "beteiligung", id: w.beteiligung1 }]));
-  return t.request("/dokumente", { method: "POST", body: f, als });
+  return t.request("/documents", { method: "POST", body: f, als });
 }
 async function lege(name = "vertrag.pdf") {
   const pdf = erzeugePdf([`Aufbewahrung ${Math.random().toString(36).slice(2)}`, "Zweite Seite mit Text."]);
@@ -67,7 +67,7 @@ async function lege(name = "vertrag.pdf") {
   const [zeile] = await db.select().from(s.dokument).where(eq(s.dokument.id, d.id));
   return { id: d.id, schluessel: zeile!.gespeichertUnter, hash: zeile!.sha256, pdf };
 }
-const loescheWeich = async (id: string) => expect((await t.request(`/dokumente/${id}`, { method: "DELETE", als: VERWALTER1 })).status).toBe(204);
+const loescheWeich = async (id: string) => expect((await t.request(`/documents/${id}`, { method: "DELETE", als: VERWALTER1 })).status).toBe(204);
 const zeile = async (id: string) => (await db.select().from(s.dokument).where(eq(s.dokument.id, id)))[0]!;
 /** Eine zweite Zeile, die dieselbe Datei teilt (gleiche Bytes ergeben denselben Schlüssel). */
 async function teileDatei(d: { id: string }, status: "aktiv" | "geloescht" = "aktiv", geloeschtVorTagen = 0) {
@@ -134,16 +134,16 @@ describe("Aufbewahrungslauf", () => {
     const d = await lege();
     await loescheWeich(d.id);
     await lauf(31);
-    const datei = await t.request(`/dokumente/${d.id}/datei`, { als: ADMIN });
+    const datei = await t.request(`/documents/${d.id}/file`, { als: ADMIN });
     expect(datei.status).toBe(410);
-    expect((await json(datei)).fehler.code).toBe("DOKUMENT_ENDGUELTIG_GELOESCHT");
-    expect((await t.request(`/dokumente/${d.id}`, { als: BEARB1 })).status).toBe(404);
-    expect((await t.request(`/dokumente/${d.id}/datei`, { als: BEARB1 })).status).toBe(404);
-    const liste = await json(await t.request("/dokumente?status=endgueltig_geloescht", { als: VERWALTER1 }));
+    expect((await json(datei)).error.code).toBe("document_permanently_deleted");
+    expect((await t.request(`/documents/${d.id}`, { als: BEARB1 })).status).toBe(404);
+    expect((await t.request(`/documents/${d.id}/file`, { als: BEARB1 })).status).toBe(404);
+    const liste = await json(await t.request("/documents?status=endgueltig_geloescht", { als: VERWALTER1 }));
     expect(liste.daten.map((x: { id: string }) => x.id)).toEqual([d.id]);
     expect(liste.daten[0].endgueltigGeloeschtAm).toBeTruthy();
-    expect((await json(await t.request("/dokumente?status=endgueltig_geloescht", { als: BEARB1 }))).daten).toEqual([]);
-    expect((await t.request(`/dokumente/${d.id}`, { method: "DELETE", als: VERWALTER1 })).status).toBe(204);
+    expect((await json(await t.request("/documents?status=endgueltig_geloescht", { als: BEARB1 }))).daten).toEqual([]);
+    expect((await t.request(`/documents/${d.id}`, { method: "DELETE", als: VERWALTER1 })).status).toBe(204);
     expect((await zeile(d.id)).status).toBe("endgueltig_geloescht");
   });
 
@@ -157,7 +157,7 @@ describe("Aufbewahrungslauf", () => {
     expect(await existiert(d.schluessel)).toBe(true);
     expect((await zeile(d.id)).status).toBe("geloescht");
     // die aktive Kopie ist weiter lesbar
-    expect((await t.request(`/dokumente/${kopie.id}/datei`, { als: ADMIN })).status).toBe(200);
+    expect((await t.request(`/documents/${kopie.id}/file`, { als: ADMIN })).status).toBe(200);
 
     // Die Kopie wird gelöscht: Solange ihre Frist läuft, bleibt die Datei auch für die abgelaufene Zeile.
     await loescheWeich(kopie.id);
@@ -275,7 +275,7 @@ describe("Aufbewahrungslauf", () => {
     );
     expect(neu.id).not.toBe(d.id);
     expect(await existiert(d.schluessel)).toBe(true);
-    expect((await t.request(`/dokumente/${neu.id}/datei`, { als: ADMIN })).status).toBe(200);
+    expect((await t.request(`/documents/${neu.id}/file`, { als: ADMIN })).status).toBe(200);
   });
 
   it("nebenläufig: ein Lauf und ein Anlegen derselben Bytes lassen die Datei nie ohne Zeile zurück oder eine aktive Zeile ohne Datei", async () => {
@@ -300,9 +300,9 @@ describe("Verwaltung: anstehende Löschungen", () => {
     await loescheWeich(offen.id);
     await loescheWeich(alt.id);
     await db.update(s.dokument).set({ geloeschtAm: new Date(Date.now() - 40 * TAG) }).where(eq(s.dokument.id, alt.id));
-    expect((await t.request("/dokumente/aufbewahrung", { als: VERWALTER1 })).status).toBe(403);
-    expect((await t.request("/dokumente/aufbewahrung", { als: BEARB1 })).status).toBe(403);
-    const antwort = await t.request("/dokumente/aufbewahrung", { als: ADMIN });
+    expect((await t.request("/documents/retention", { als: VERWALTER1 })).status).toBe(403);
+    expect((await t.request("/documents/retention", { als: BEARB1 })).status).toBe(403);
+    const antwort = await t.request("/documents/retention", { als: ADMIN });
     expect(antwort.status).toBe(200);
     const k = await json(antwort);
     expect(k.aufbewahrungTage).toBe(30);
@@ -315,13 +315,13 @@ describe("Verwaltung: anstehende Löschungen", () => {
     expect(tage).toBeCloseTo(30, 5);
 
     await lauf(0);
-    const danach = await json(await t.request("/dokumente/aufbewahrung", { als: ADMIN }));
+    const danach = await json(await t.request("/documents/retention", { als: ADMIN }));
     expect(danach.endgueltigGeloescht).toBe(1);
     expect(danach.daten.map((x: { id: string }) => x.id)).toEqual([offen.id]);
   });
 
   it("ohne Anmeldung 401", async () => {
-    expect((await t.request("/dokumente/aufbewahrung", { als: null })).status).toBe(401);
+    expect((await t.request("/documents/retention", { als: null })).status).toBe(401);
   });
 });
 

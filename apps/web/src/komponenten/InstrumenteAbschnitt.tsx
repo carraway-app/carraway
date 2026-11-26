@@ -5,10 +5,11 @@ import { instrumentdaten } from "../api/abfragen";
 import { heuteIso } from "../api/datum";
 import { aufzaehlung, useSprache, useT } from "../i18n";
 import { geltendeKondition, trancheOffen, type InstrumentZeile, type Kondition, type Tranche } from "../lib/instrumente";
-import { formatBetragCent, formatSatz } from "../lib/zahl";
+import { formatAnzahl, formatBetragCent, formatPreis, formatSatz } from "../lib/zahl";
 import { FehlerHinweis } from "./FehlerHinweis";
 import { ErfuelltDialog, KonditionDialog } from "./InstrumentDialoge";
 import { Skelettzeilen } from "./Skelett";
+import type { AusuebungZeile } from "./OptionsscheinDialoge";
 import type { WandlungRunde } from "./WandlungDialog";
 
 // Dialoge dieses Bereichs laden erst beim Öffnen.
@@ -16,6 +17,8 @@ const TrancheAnlegenDialog = lazy(() => import("./TrancheDialoge").then((m) => (
 const TrancheBearbeitenDialog = lazy(() => import("./TrancheDialoge").then((m) => ({ default: m.TrancheBearbeitenDialog })));
 const InstrumentAnlegenDialog = lazy(() => import("./TrancheDialoge").then((m) => ({ default: m.InstrumentAnlegenDialog })));
 const InstrumentBearbeitenDialog = lazy(() => import("./TrancheDialoge").then((m) => ({ default: m.InstrumentBearbeitenDialog })));
+const AusuebungDialog = lazy(() => import("./OptionsscheinDialoge").then((m) => ({ default: m.AusuebungDialog })));
+const AusuebungStornoDialog = lazy(() => import("./OptionsscheinDialoge").then((m) => ({ default: m.AusuebungStornoDialog })));
 const WandlungDialog = lazy(() => import("./WandlungDialog").then((m) => ({ default: m.WandlungDialog })));
 
 const STATUS: Record<string, StatusVariante> = { aktiv: "freigegeben", gewandelt: "entwurf", getilgt: "entwurf", verkauft: "entwurf", abgeschrieben: "fehlt" };
@@ -27,6 +30,8 @@ type Offen =
   | { art: "bearbeiten"; instrument: InstrumentZeile }
   | { art: "kondition"; instrument: InstrumentZeile }
   | { art: "wandlung"; instrument: InstrumentZeile }
+  | { art: "ausueben"; instrument: InstrumentZeile }
+  | { art: "ausuebungStorno"; instrumentId: string; ausuebung: AusuebungZeile }
   | { art: "erfuellt"; tranche: Tranche }
   | { art: "trancheBearbeiten"; tranche: Tranche };
 
@@ -68,7 +73,9 @@ export function InstrumenteAbschnitt({ beteiligungId, organisationId, runden, sc
         {data && offen?.art === "tranche" ? <TrancheAnlegenDialog instrumente={data.instrumente} instrumentId={offen.instrumentId} onSchliessen={schliessen} /> : null}
         {offen?.art === "bearbeiten" ? <InstrumentBearbeitenDialog instrument={offen.instrument} organisationId={organisationId} artGesperrt={data ? artGesperrt(offen.instrument, data.konditionen) : true} waehrung={data?.beteiligung.waehrung} onSchliessen={schliessen} /> : null}
         {offen?.art === "trancheBearbeiten" ? <TrancheBearbeitenDialog tranche={offen.tranche} onSchliessen={schliessen} /> : null}
-        {offen?.art === "wandlung" ? <WandlungDialog beteiligungId={beteiligungId} organisationId={organisationId} instrumentId={offen.instrument.id} vorbelegung={offen.instrument} runden={runden} onSchliessen={schliessen} /> : null}
+        {offen?.art === "wandlung" ? <WandlungDialog beteiligungId={beteiligungId} organisationId={organisationId} instrumentId={offen.instrument.id} vorbelegung={offen.instrument} safe={offen.instrument.art === "safe"} runden={runden} onSchliessen={schliessen} /> : null}
+        {offen?.art === "ausueben" ? <AusuebungDialog instrument={offen.instrument} onSchliessen={schliessen} /> : null}
+        {offen?.art === "ausuebungStorno" ? <AusuebungStornoDialog instrumentId={offen.instrumentId} ausuebung={offen.ausuebung} onSchliessen={schliessen} /> : null}
       </Suspense>
       {data && offen?.art === "kondition" ? (
         <KonditionDialog beteiligungId={beteiligungId} instrumentId={offen.instrument.id} konditionen={data.konditionen.filter((k) => k.instrumentId === offen.instrument.id)} onSchliessen={schliessen} />
@@ -102,6 +109,16 @@ function InstrumentKarte({ instrument: i, konditionen, schreiben, waehrung, onWa
       {aktiv && i.art === "wandeldarlehen" ? (
         <Button variante="sekundaer" groesse="s" aria-label={fuer(a.aktionen.wandlung)} onClick={() => onWahl({ art: "wandlung", instrument: i })}>
           {a.aktionen.wandlung}
+        </Button>
+      ) : null}
+      {aktiv && i.art === "safe" ? (
+        <Button variante="sekundaer" groesse="s" aria-label={fuer(t.optionsschein.wandeln)} onClick={() => onWahl({ art: "wandlung", instrument: i })}>
+          {t.optionsschein.wandeln}
+        </Button>
+      ) : null}
+      {aktiv && i.optionsschein && Number(i.optionsschein.offen) > 0 ? (
+        <Button variante="sekundaer" groesse="s" aria-label={fuer(t.optionsschein.ausueben)} onClick={() => onWahl({ art: "ausueben", instrument: i })}>
+          {t.optionsschein.ausueben}
         </Button>
       ) : null}
       <Button variante="ruhig" groesse="s" aria-label={fuer(a.aktionen.bearbeiten)} onClick={() => onWahl({ art: "bearbeiten", instrument: i })}>
@@ -140,11 +157,13 @@ function InstrumentKarte({ instrument: i, konditionen, schreiben, waehrung, onWa
                 { id: "tr", label: a.fortschritt, wert: a.fortschrittWert(gezahlt, i.tranchen.length), ruhig: i.tranchen.length === 0 },
               ],
             },
-            ...(i.art === "wandeldarlehen" ? [{ id: "wandlung", titel: a.gruppen.wandlung, eintraege: wandlungEintraege(i, t, sprache, waehrung) }] : []),
+            ...(i.art === "wandeldarlehen" || i.art === "safe" ? [{ id: "wandlung", titel: a.gruppen.wandlung, eintraege: wandlungEintraege(i, t, sprache, waehrung) }] : []),
+            ...(i.optionsschein ? [{ id: "optionsschein", titel: t.optionsschein.gruppe, eintraege: optionsscheinEintraege(i.optionsschein, t, sprache, waehrung) }] : []),
             ...(i.darlehensartig && aktuell ? [{ id: "konditionen", titel: a.gruppen.konditionen, eintraege: konditionenEintraege(aktuell, t, sprache) }] : []),
           ]}
         />
         {i.darlehensartig && !aktuell ? <KonditionenZeile aktuell={aktuell} name={i.bezeichnung} schreiben={schreiben} onErfassen={() => onWahl({ art: "kondition", instrument: i })} /> : null}
+        {i.optionsschein ? <Ausuebungen instrumentId={i.id} optionsschein={i.optionsschein} name={i.bezeichnung} schreiben={schreiben} onWahl={onWahl} /> : null}
         <Tranchen instrument={i} schreiben={schreiben} onWahl={onWahl} />
       </Karte>
       {meine.length > 1 ? <KonditionenVerlauf konditionen={meine} aktuell={aktuell} name={i.bezeichnung} /> : null}
@@ -156,11 +175,55 @@ function InstrumentKarte({ instrument: i, konditionen, schreiben, waehrung, onWa
 function wandlungEintraege(i: InstrumentZeile, t: ReturnType<typeof useT>, sprache: ReturnType<typeof useSprache>, waehrung: string) {
   const w = t.instrumenteAbschnitt.wandlung;
   const keinWert = t.gemeinsam.keinWert;
+  const ohneZinsen = i.art === "safe";
   return [
     { id: "abschlag", label: w.abschlag, wert: i.wandlungsabschlag === null ? keinWert : zahl(formatSatz(i.wandlungsabschlag, sprache)), ruhig: i.wandlungsabschlag === null },
     { id: "cap", label: w.obergrenze, wert: i.bewertungsobergrenze === null ? keinWert : zahl(formatBetragCent(i.bewertungsobergrenze, sprache, waehrung)), ruhig: i.bewertungsobergrenze === null },
-    { id: "zinsen", label: w.zinsen, wert: i.zinsenWandeln === null ? keinWert : i.zinsenWandeln ? w.ja : w.nein, ruhig: i.zinsenWandeln === null },
+    ...(ohneZinsen ? [] : [{ id: "zinsen", label: w.zinsen, wert: i.zinsenWandeln === null ? keinWert : i.zinsenWandeln ? w.ja : w.nein, ruhig: i.zinsenWandeln === null }]),
   ];
+}
+
+/** Optionsscheine als Kennwerte: Bedingungen und Stand zum Tag der Seite (ausgeübt, offen, verfallen). */
+function optionsscheinEintraege(o: NonNullable<InstrumentZeile["optionsschein"]>, t: ReturnType<typeof useT>, sprache: ReturnType<typeof useSprache>, waehrung: string) {
+  const c = t.optionsschein;
+  const keinWert = t.gemeinsam.keinWert;
+  return [
+    { id: "anzahl", label: c.anzahl, wert: zahl(formatAnzahl(o.anzahl, sprache)), primaer: true },
+    { id: "ausgeuebt", label: c.ausgeuebt, wert: zahl(formatAnzahl(o.ausgeuebt, sprache)), ruhig: Number(o.ausgeuebt) === 0 },
+    { id: "offen", label: c.offen, wert: zahl(formatAnzahl(o.offen, sprache)), hinweis: `${aufzaehlung(c.status, o.status)} · ${c.stand(formatDatum(o.stichtag, sprache))}`, ruhig: Number(o.offen) === 0 },
+    ...(Number(o.verfallen) > 0 ? [{ id: "verfallen", label: c.verfallen, wert: zahl(formatAnzahl(o.verfallen, sprache)), ruhig: true }] : []),
+    { id: "preis", label: c.preis, wert: zahl(`${formatPreis(o.ausuebungspreis, sprache)} ${waehrung}`) },
+    { id: "ausgabe", label: c.ausgabe, wert: o.ausgabeAm ? zahl(formatDatum(o.ausgabeAm, sprache)) : keinWert, ruhig: !o.ausgabeAm },
+    { id: "laufzeit", label: c.laufzeit, wert: o.laufzeitBis ? zahl(formatDatum(o.laufzeitBis, sprache)) : keinWert, ruhig: !o.laufzeitBis },
+  ];
+}
+
+/** Ausübungen der Optionsscheine; jede lässt sich als Ganzes stornieren. */
+function Ausuebungen({ instrumentId, optionsschein, name, schreiben, onWahl }: { instrumentId: string; optionsschein: NonNullable<InstrumentZeile["optionsschein"]>; name: string; schreiben: boolean; onWahl: (o: Offen) => void }) {
+  const t = useT();
+  const sprache = useSprache();
+  const m = t.optionsschein.ausuebungen;
+  if (optionsschein.ausuebungen.length === 0) return <p className="app-leer-text">{m.keine}</p>;
+  const spalten: TabelleSpalte<AusuebungZeile>[] = [
+    { schluessel: "datum", kopf: m.spalten.datum, zelle: (x) => formatDatum(x.datum, sprache) },
+    { schluessel: "anzahl", kopf: m.spalten.anzahl, zahl: true, zelle: (x) => formatAnzahl(x.anzahl, sprache) },
+    { schluessel: "preis", kopf: m.spalten.preis, zahl: true, zelle: (x) => formatPreis(x.preisJeAnteil, sprache) },
+    { schluessel: "betrag", kopf: m.spalten.betrag, zahl: true, zelle: (x) => formatBetragCent(x.betrag, sprache) },
+    ...(schreiben
+      ? [
+          {
+            schluessel: "aktion",
+            kopf: m.spalten.aktion,
+            zelle: (x: AusuebungZeile) => (
+              <Button variante="ruhig" groesse="s" aria-label={m.stornierenFuer(formatDatum(x.datum, sprache), formatAnzahl(x.anzahl, sprache))} onClick={() => onWahl({ art: "ausuebungStorno", instrumentId, ausuebung: x })}>
+                {m.stornieren}
+              </Button>
+            ),
+          },
+        ]
+      : []),
+  ];
+  return <Tabelle dicht beschriftung={`${m.titel}: ${name}`} spalten={spalten} zeilen={optionsschein.ausuebungen} zeilenSchluessel={(x) => x.id} />;
 }
 
 /** Konditionen als Kennwerte: Zins mit Methode und Periode in einem Eintrag; Standardwerte gedämpft. */

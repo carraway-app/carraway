@@ -7,6 +7,7 @@ import { ladeKapitalstand } from "../instrumente/kapitalstand";
 import { geldlos } from "../instrumente/geldfluss";
 import { ermittleNavBestandteile, NAV_LUECKE, type PortfolioPosition } from "./nav";
 import { ermittleBeteiligungsstatus } from "./beteiligungsstatus";
+import { hatZielfonds, ladeZielfonds, zielfondsEingang, zielfondsSchritt, type Durchsicht, type ZielfondsPosition } from "./zielfonds";
 
 /**
  * Kennzahlen eines Fonds zu einem Stichtag. Beteiligungswerte, Abrufe, tatsächliche Zahlungsströme und übernommene Bilanzsalden
@@ -102,7 +103,11 @@ export async function standardStichtag(tx: Abfrage, fondsId: string, stand?: str
         (SELECT max(v.valuta) FROM vorgang v JOIN beteiligung b ON b.id = v.beteiligung_id
          WHERE b.fonds_id = ${fondsId} AND v.valuta <= ${heuteTag}::date${bisStand(sql.raw("v.erfasst_am"), stand)}),
         (SELECT max(zeitraum_bis) FROM saldenlauf WHERE fonds_id = ${fondsId} AND status = 'uebernommen'
-         AND zeitraum_bis <= ${heuteTag}::date${bisStand(sql.raw("uebernommen_am"), stand)})
+         AND zeitraum_bis <= ${heuteTag}::date${bisStand(sql.raw("uebernommen_am"), stand)}),
+        (SELECT max(w.valuta) FROM zielfonds_bewegung w JOIN zielfonds_beteiligung z ON z.id = w.beteiligung_id
+         WHERE z.fonds_id = ${fondsId} AND w.valuta <= ${heuteTag}::date${bisStand(sql.raw("w.erfasst_am"), stand)}),
+        (SELECT max(m.stichtag) FROM zielfonds_meldung m JOIN zielfonds_beteiligung z ON z.id = m.beteiligung_id
+         WHERE z.fonds_id = ${fondsId} AND m.stichtag <= ${heuteTag}::date${bisStand(sql.raw("m.erfasst_am"), stand)})
       ), ${heuteTag}::date),
       (SELECT max(fb.valuta) FROM fonds_bewegung fb WHERE fb.fonds_id = ${fondsId} AND fb.valuta <= ${heuteTag}::date${bisStand(sql.raw("fb.erfasst_am"), stand)}),
       (SELECT max(z.valuta) FROM lp_zahlung z JOIN fonds_bewegung fb ON fb.id = z.bewegung_id WHERE fb.fonds_id = ${fondsId} AND z.valuta <= ${heuteTag}::date${bisStand(sql.raw("z.erfasst_am"), stand)})
@@ -125,7 +130,8 @@ export async function juengsterEingang(tx: Abfrage, fondsId: string): Promise<st
       (SELECT max(m) FROM (SELECT (SELECT max(erfasst_am) FROM vorgang WHERE beteiligung_id = b.id) AS m FROM beteiligung b WHERE b.fonds_id = ${fondsId}) x),
       (SELECT max(m) FROM (SELECT ${sql.raw(bewertungsAenderung("b.id"))} AS m FROM beteiligung b WHERE b.fonds_id = ${fondsId}) y),
       (SELECT max(i.erstellt_am) FROM instrument i JOIN beteiligung b ON b.id = i.beteiligung_id WHERE b.fonds_id = ${fondsId}),
-      (SELECT greatest(max(vk.erfasst_am), max(vk.storniert_am)) FROM verkauf vk JOIN beteiligung b ON b.id = vk.beteiligung_id WHERE b.fonds_id = ${fondsId})
+      (SELECT greatest(max(vk.erfasst_am), max(vk.storniert_am)) FROM verkauf vk JOIN beteiligung b ON b.id = vk.beteiligung_id WHERE b.fonds_id = ${fondsId}),
+      ${zielfondsEingang(sql`${fondsId}::uuid`)}
     )::text AS t`);
   return rows[0]?.t ?? null;
 }
@@ -207,13 +213,37 @@ async function ladeBeteiligungswerte(tx: Abfrage, fondsId: string, stichtag: str
   return { zeilen, portfolio };
 }
 
-/** Interne Herkunft mit Bewertungs-IDs, Saldo-IDs und Konten am selben Schnitt wie die Fondsübersicht. */
-export async function ladeNavBestandteile(tx: Abfrage, fondsId: string, stichtag: string, stand?: string) {
-  const { portfolio } = await ladeBeteiligungswerte(tx, fondsId, stichtag, stand);
-  return ermittleNavBestandteile(tx, fondsId, stichtag, stand, portfolio);
+/**
+ * Zielfondsbeteiligungen des Fonds zum Stichtag (Dachfonds), mit Durchrechnung der Zielfonds derselben Installation; `null`, wenn der Fonds keine hat.
+ * `besucht` sind die Fonds, deren NAV gerade gerechnet wird (Schutz vor Kreisen).
+ */
+export async function ladeZielfondsZum(tx: Abfrage, fondsId: string, stichtag: string, stand: string | undefined, besucht: ReadonlySet<string> = new Set(), durchsicht: Durchsicht = {}): Promise<ZielfondsPosition[] | null> {
+  if (!(await hatZielfonds(tx, fondsId, stand))) return null;
+  const d: Durchsicht = { ...durchsicht, cache: durchsicht.cache ?? new Map() };
+  const navVon = (ziel: string, kette: ReadonlySet<string>) => {
+    const schluessel = `${ziel}|${stichtag}|${stand ?? ""}|${kette.size}`;
+    let wert = d.cache!.get(schluessel);
+    if (!wert) {
+      wert = ladeNavBestandteile(tx, ziel, stichtag, stand, kette, d).then((b) => b.nav);
+      d.cache!.set(schluessel, wert);
+    }
+    return wert;
+  };
+  return ladeZielfonds(tx, fondsId, stichtag, stand, navVon, besucht, d);
 }
 
-export async function berechneFondsUebersicht(tx: Pick<Tx, "execute" | "select">, fondsId: string, stichtagVorgabe?: string, stand?: string): Promise<FondsUebersicht> {
+/** Interne Herkunft mit Bewertungs-IDs, Saldo-IDs und Konten am selben Schnitt wie die Fondsübersicht. */
+export async function ladeNavBestandteile(tx: Abfrage, fondsId: string, stichtag: string, stand?: string, besucht: ReadonlySet<string> = new Set(), durchsicht: Durchsicht = {}) {
+  const { portfolio } = await ladeBeteiligungswerte(tx, fondsId, stichtag, stand);
+  const zielfonds = await ladeZielfondsZum(tx, fondsId, stichtag, stand, besucht, durchsicht);
+  return ermittleNavBestandteile(tx, fondsId, stichtag, stand, portfolio, zielfonds ? zielfondsSchritt(zielfonds) : null);
+}
+
+/**
+ * `durchsicht.sieht`: nur Zielfonds durchrechnen, die die anfragende Person sehen darf (für Antworten an Personen, deren Sicht nicht alle erreichbaren
+ * Zielfonds umfasst; Snapshots rechnen ohne Einschränkung).
+ */
+export async function berechneFondsUebersicht(tx: Pick<Tx, "execute" | "select">, fondsId: string, stichtagVorgabe?: string, stand?: string, durchsicht: Durchsicht = {}): Promise<FondsUebersicht> {
   const stichtag = stichtagVorgabe ?? (await standardStichtag(tx, fondsId, stand));
 
   const { zeilen, portfolio } = await ladeBeteiligungswerte(tx, fondsId, stichtag, stand);
@@ -258,7 +288,8 @@ export async function berechneFondsUebersicht(tx: Pick<Tx, "execute" | "select">
   const verteilungen = kapital.bewegungen.filter((b) => b.art === "ausschuettung");
   const ausschuettungen = verteilungen.reduce((s, b) => s.plus(b.betrag), new Decimal(0));
 
-  const { nav, schritte, portfoliowert } = await ermittleNavBestandteile(tx, fondsId, stichtag, stand, portfolio);
+  const zielfonds = await ladeZielfondsZum(tx, fondsId, stichtag, stand, new Set(), durchsicht);
+  const { nav, schritte, portfoliowert } = await ermittleNavBestandteile(tx, fondsId, stichtag, stand, portfolio, zielfonds ? zielfondsSchritt(zielfonds) : null);
   const m = multiples({ eingezahlt, ausschuettungen, nav });
 
   const strom: Zahlungsstrom[] = [...kapital.zahlungsstrom];

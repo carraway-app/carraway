@@ -1,46 +1,70 @@
 import { useState, type FormEvent } from "react";
-import { Auswahl, Button, CaretDownIcon, CaretUpIcon, Dialog, Feld as Eingabe } from "@carraway/ui";
+import { Auswahl, Button, Dialog, Feld as Eingabe, SortierbareListe } from "@carraway/ui";
 import type { Ansicht, Feld, Konfig } from "../../api/crm";
 import { useT } from "../../i18n";
 import { feldName } from "./typen";
 
-/** Spalten einer Ansicht: sichtbar machen, ausblenden und ordnen (mit Knöpfen, nicht nur per Maus). */
+/** Spalten einer Ansicht: oben die angezeigten (per Ziehgriff oder Tastatur sortierbar), darunter die ausgeblendeten (alphabetisch); Einblenden hängt unten an. */
 export function SpaltenDialog({ felder, spalten, onAendern, onSchliessen }: { felder: Feld[]; spalten: Konfig["spalten"]; onAendern: (s: Konfig["spalten"]) => void; onSchliessen: () => void }) {
   const t = useT();
-  const sichtbar = spalten.map((s) => s.feld);
-  const reihenfolge = [...spalten.map((s) => felder.find((f) => f.schluessel === s.feld)).filter((f): f is Feld => Boolean(f)), ...felder.filter((f) => !sichtbar.includes(f.schluessel))];
+  const [suche, setSuche] = useState("");
+  const sichtbar = spalten.flatMap((s) => {
+    const feld = felder.find((f) => f.schluessel === s.feld);
+    return feld ? [feld] : [];
+  });
+  const gezeigt = new Set(spalten.map((s) => s.feld));
+  const unbekannt = spalten.filter((s) => !felder.some((f) => f.schluessel === s.feld));
+  const suchtext = suche.trim().toLocaleLowerCase();
+  // Ausgeblendete Felder stehen alphabetisch, die Suche filtert nur sie (die angezeigten bleiben vollständig sortierbar).
+  const ausgeblendet = felder
+    .filter((f) => !gezeigt.has(f.schluessel))
+    .sort((a, b) => feldName(a, t).localeCompare(feldName(b, t)))
+    .filter((f) => !suchtext || feldName(f, t).toLocaleLowerCase().includes(suchtext));
   const schalte = (f: Feld, an: boolean) => onAendern(an ? [...spalten, { feld: f.schluessel }] : spalten.filter((s) => s.feld !== f.schluessel));
-  const verschiebe = (f: Feld, richtung: -1 | 1) => {
-    const i = spalten.findIndex((s) => s.feld === f.schluessel);
-    const j = i + richtung;
-    if (i < 0 || j < 0 || j >= spalten.length) return;
-    const neu = [...spalten];
-    [neu[i], neu[j]] = [neu[j]!, neu[i]!];
-    onAendern(neu);
-  };
+  // Neue Reihenfolge der angezeigten Spalten; Breiten bleiben an ihren Spalten, unbekannte Einträge bleiben hinten.
+  const ordne = (neu: Feld[]) => onAendern([...neu.flatMap((f) => spalten.filter((s) => s.feld === f.schluessel)), ...unbekannt]);
   return (
     <Dialog titel={t.crm.spaltenTitel} onSchliessen={onSchliessen}>
       <p className="app-leer-text">{t.crm.spaltenHinweis}</p>
-      <ul className="app-spaltenliste">
-        {reihenfolge.map((f) => {
-          const an = sichtbar.includes(f.schluessel);
-          const i = sichtbar.indexOf(f.schluessel);
-          return (
+      {felder.length > 10 ? <Eingabe kompakt labelVersteckt type="search" label={t.crm.spaltenSuche} placeholder={t.crm.spaltenSuche} value={suche} onChange={(e) => setSuche(e.target.value)} /> : null}
+      <h3 className="app-spaltenliste__titel">{t.crm.spaltenAngezeigt}</h3>
+      <SortierbareListe
+        className="app-spaltenliste"
+        aria-label={t.crm.spaltenAngezeigt}
+        eintraege={sichtbar}
+        schluessel={(f) => f.schluessel}
+        name={(f) => feldName(f, t)}
+        onAendern={ordne}
+        texte={{
+          griff: t.crm.spalteGriff,
+          hinweis: t.crm.spalteBedienung,
+          aufgenommen: t.crm.spalteAufgenommen,
+          verschoben: t.crm.spalteVerschoben,
+          abgelegt: t.crm.spalteAbgelegt,
+          abgebrochen: t.crm.spalteAbgebrochen,
+        }}
+        zeile={(f) => (
+          <label className="app-spaltenliste__name">
+            <input type="checkbox" checked disabled={sichtbar.length === 1} onChange={() => schalte(f, false)} />
+            {feldName(f, t)}
+          </label>
+        )}
+      />
+      <h3 className="app-spaltenliste__titel">{t.crm.spaltenAusgeblendet}</h3>
+      {ausgeblendet.length === 0 ? (
+        <p className="app-leer-text">{suchtext ? t.crm.spaltenKeineTreffer : t.crm.spaltenKeineAusgeblendeten}</p>
+      ) : (
+        <ul className="app-spaltenliste" aria-label={t.crm.spaltenAusgeblendet}>
+          {ausgeblendet.map((f) => (
             <li key={f.schluessel}>
-              <label>
-                <input type="checkbox" checked={an} disabled={an && spalten.length === 1} onChange={(e) => schalte(f, e.target.checked)} />
+              <label className="app-spaltenliste__name">
+                <input type="checkbox" checked={false} onChange={() => schalte(f, true)} />
                 {feldName(f, t)}
               </label>
-              {an ? (
-                <span className="app-spaltenliste__knoepfe">
-                  <Button variante="ruhig" icon={<CaretUpIcon />} aria-label={t.crm.spalteNachOben(feldName(f, t))} disabled={i === 0} onClick={() => verschiebe(f, -1)} />
-                  <Button variante="ruhig" icon={<CaretDownIcon />} aria-label={t.crm.spalteNachUnten(feldName(f, t))} disabled={i === spalten.length - 1} onClick={() => verschiebe(f, 1)} />
-                </span>
-              ) : null}
             </li>
-          );
-        })}
-      </ul>
+          ))}
+        </ul>
+      )}
     </Dialog>
   );
 }

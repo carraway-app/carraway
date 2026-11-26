@@ -1,12 +1,12 @@
-import { and, desc, eq, lte } from "drizzle-orm";
-import { finanzierungsrunde, mitarbeiterpool, mitarbeiterzuteilung } from "@carraway/db";
+import { and, desc, eq, gt, isNull, lte } from "drizzle-orm";
+import { finanzierungsrunde, mitarbeiterpool, mitarbeiterzuteilung, optionsscheinAusuebung, instrument, beteiligung } from "@carraway/db";
 import { Decimal } from "@carraway/rechenkern";
 import type { Tx } from "../zeitlimit";
 
 /**
  * Ausgegebene Anteile vor einer neuen Runde am `datum` (für den Vorschlag des Option Pool Shuffle): Gesamtzahl der letzten abgeschlossenen
- * Eigenkapitalrunde bis zum Datum, dazu ESOP-Optionen, die nach dieser Runde und bis zum Datum ausgeübt wurden (wie die unverwässerte Sicht
- * der Kapitaltabelle). `null` ohne abgeschlossene Runde: Dann fehlt die Bezugsgröße, die Oberfläche fragt die Zahl ab.
+ * Eigenkapitalrunde bis zum Datum, dazu ESOP-Optionen und Optionsscheine der Fonds, die nach dieser Runde und bis zum Datum ausgeübt wurden
+ * (nicht stornierte Ausübungen; wie die unverwässerte Sicht der Kapitaltabelle). `null` ohne abgeschlossene Runde: Dann fehlt die Bezugsgröße, die Oberfläche fragt die Zahl ab.
  */
 export async function anteileVorRunde(tx: Tx, organisationId: string, datum: string): Promise<string | null> {
   const [letzte] = await tx
@@ -22,5 +22,12 @@ export async function anteileVorRunde(tx: Tx, organisationId: string, datum: str
     .innerJoin(mitarbeiterpool, eq(mitarbeiterpool.id, mitarbeiterzuteilung.poolId))
     .where(and(eq(mitarbeiterpool.organisationId, organisationId), eq(mitarbeiterpool.art, "esop"), eq(mitarbeiterzuteilung.status, "ausgeuebt")));
   const danach = ausgeuebt.filter((z) => z.statusAm !== null && z.statusAm > letzte.datum && z.statusAm <= datum).reduce((s, z) => s.plus(z.anzahl), new Decimal(0));
-  return new Decimal(letzte.anteileGesamtNach).plus(danach).toFixed(0);
+  const optionsscheine = await tx
+    .select({ anzahl: optionsscheinAusuebung.anzahl })
+    .from(optionsscheinAusuebung)
+    .innerJoin(instrument, eq(instrument.id, optionsscheinAusuebung.instrumentId))
+    .innerJoin(beteiligung, eq(beteiligung.id, instrument.beteiligungId))
+    .where(and(eq(beteiligung.organisationId, organisationId), isNull(optionsscheinAusuebung.storniertAm), gt(optionsscheinAusuebung.datum, letzte.datum), lte(optionsscheinAusuebung.datum, datum)));
+  const ausgeuebteScheine = optionsscheine.reduce((s, z) => s.plus(z.anzahl), new Decimal(0));
+  return new Decimal(letzte.anteileGesamtNach).plus(danach).plus(ausgeuebteScheine).toFixed(0);
 }

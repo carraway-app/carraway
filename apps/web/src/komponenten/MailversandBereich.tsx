@@ -1,16 +1,16 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Auswahl, Button, Hinweis, Leer, Seitenkopf, Status, Tabelle, type TabelleSpalte } from "@carraway/ui";
+import { Auswahl, Button, Hinweis, Leer, Status, Tabelle, type TabelleSpalte } from "@carraway/ui";
 import { mailAuftraege, useMailTest, versandStatus, type MailAuftrag } from "../api/mail";
-import { FehlerHinweis } from "../komponenten/FehlerHinweis";
-import { Skelettzeilen } from "../komponenten/Skelett";
+import { FehlerHinweis } from "./FehlerHinweis";
+import { Skelettzeilen } from "./Skelett";
 import { aufzaehlung, useSprache, useT } from "../i18n";
 import { formatZeitpunkt } from "../lib/zeit";
 
 type Filter = "" | "wartend" | "gesendet" | "fehlgeschlagen";
 
-/** Verwaltung des Mailversands (nur globale Verwalter): Status der Einrichtung ohne Geheimnisse, Testmail an die eigene Adresse, Ausgangskorb ohne Inhalte. */
-export function MailversandSeite() {
+/** Bereich „Mailversand“ der Verwaltung (nur globale Verwalter): Status der Einrichtung ohne Geheimnisse, Testmail an die eigene Adresse, Ausgangskorb ohne Inhalte. */
+export function MailversandBereich() {
   const t = useT();
   const v = t.mail.versand;
   const sprache = useSprache();
@@ -37,8 +37,7 @@ export function MailversandSeite() {
   ];
 
   return (
-    <div className="app-seite">
-      <Seitenkopf meta={t.nav.verwaltung} titel={v.titel} />
+    <>
       <p className="app-leer-text">{v.beschreibung}</p>
 
       <section className="app-karte" aria-labelledby="mv-status">
@@ -120,6 +119,6 @@ export function MailversandSeite() {
         {auftraege.data && auftraege.data.length === 0 ? <Leer zeichen="M" titel={v.korb.keine} beschreibung="" /> : null}
         {auftraege.data && auftraege.data.length > 0 ? <Tabelle beschriftung={v.korb.tabelle} spalten={spalten} zeilen={auftraege.data} zeilenSchluessel={(z) => z.id} /> : null}
       </section>
-    </div>
+    </>
   );
 }

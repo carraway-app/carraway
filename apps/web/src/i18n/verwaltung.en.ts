@@ -5,7 +5,7 @@ export const verwaltungEn: Texte["verwaltung"] = {
   etikett: "Administration",
   titel: "Users, permissions and locks",
   bereiche: "Areas of administration",
-  reiter: { benutzer: "Users", investoren: "Investors", rollen: "Roles per fund", rechte: "Roles and groups", schluessel: "API keys", sperre: "Period lock", kennzahlen: "Key figures", daten: "Export and API", meldewesen: "Reporting", kurse: "Exchange rates", betrieb: "Operations" },
+  reiter: { benutzer: "Users", investoren: "Investors", rollen: "Roles per fund", rechte: "Roles and groups", schluessel: "API keys", sperre: "Period lock", kennzahlen: "Key figures", daten: "Export and API", meldewesen: "Reporting", profil: "Manager profile", kurse: "Exchange rates", kontaktabgleich: "Contacts from mailbox", betrieb: "Operations", mail: "Mail delivery" },
   gruppen: { zugaenge: "Access", vorgaben: "Business rules", betrieb: "Operations" },
   fonds: "Fund",
   einladung: {
@@ -245,6 +245,7 @@ export const verwaltungEn: Texte["verwaltung"] = {
   schluessel: {
     titel: "API keys",
     einleitung: "For programs that read or record data. A key has read or write rights at the chosen funds only and can never approve.",
+    api: { titel: "API help", text: "The interface reads and records data like the application, using one of the keys above. The documentation describes paths, fields and error codes.", basis: "Base address", doku: "Open API documentation", spec: "Open openapi.json" },
     anlegen: "Create key",
     keine: "There is no API key yet.",
     spalten: { name: "Name", vorschau: "Starts with", rechte: "Rights", ablauf: "Expires", genutzt: "Last used", status: "Status", aktion: "Action" },

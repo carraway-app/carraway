@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { getRouteApi } from "@tanstack/react-router";
-import { Button, Feld, Hinweis } from "@carraway/ui";
+import { Button, CodeEingabe, Feld, Hinweis } from "@carraway/ui";
 import { authAnfrage } from "../api/client";
 import { useAbmelden } from "../komponenten/abmelden";
 import { useAnmeldeschritt, useAnmeldungAbschliessen } from "../komponenten/anmeldeschritt";
@@ -126,8 +126,9 @@ export function ZweiFaktorSeite() {
             <li>
               <h2 className="cw-t-untertitel">{z.schritt3}</h2>
               <FehlerHinweis fehler={fehler} />
-              <Feld label={z.code} hilfe={z.codeHilfe} name="code" value={code} onChange={(e) => setCode(e.target.value)} inputMode="numeric" autoComplete="one-time-code" spellCheck={false} required zahl />
-              <Button type="submit" disabled={laeuft || !gesichert || code.trim() === ""} aria-describedby={gesichert ? undefined : "zf-gesichert-hinweis"}>
+              <p className="app-leer-text">{z.codeHilfe}</p>
+              <CodeEingabe label={z.code} ziffer={t.anmeldung.ziffer} name="code" value={code} onChange={setCode} />
+              <Button type="submit" disabled={laeuft || !gesichert || code.length < 6} aria-describedby={gesichert ? undefined : "zf-gesichert-hinweis"}>
                 {z.aktivieren}
               </Button>
               {gesichert ? null : (

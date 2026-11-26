@@ -40,6 +40,7 @@ import { AufgabenListe } from "../komponenten/crm/Datensatzpanel";
 import { useT } from "../i18n";
 import { useRechte } from "../lib/rechte";
 import { recordLink } from "../komponenten/crm/typen";
+import { KontaktvorschlaegeHinweis } from "../komponenten/KontakteAusPostfach";
 
 const route = getRouteApi("/kontakte");
 const OBJEKTE: Objekt[] = ["organisation", "person", "deal"];
@@ -139,6 +140,15 @@ export function KontaktePage() {
   };
   const breite = (schluessel: string, neu: number) => z.setzeKonfig({ spalten: spaltenKonfig.map((s) => (s.feld === schluessel ? { ...s, breite: Math.max(80, Math.min(800, Math.round(neu))) } : s)) });
 
+  // Spalte im Tabellenkopf verschoben: `nach` zählt in den angezeigten Spalten; Einträge zu unbekannten Feldern bleiben hinten.
+  const verschiebe = (schluessel: string, nach: number) => {
+    const von = spalten.findIndex((s) => s.feld.schluessel === schluessel);
+    if (von < 0 || nach === von) return;
+    const reihe = spalten.map((s) => s.feld.schluessel);
+    reihe.splice(nach, 0, ...reihe.splice(von, 1));
+    z.setzeKonfig({ spalten: [...reihe.flatMap((k) => spaltenKonfig.filter((s) => s.feld === k)), ...spaltenKonfig.filter((s) => !felderNachSchluessel.has(s.feld))] });
+  };
+
   const aendereZeile = (zeile: Zeile, feld: Feld, wert: unknown) => {
     setSchreibFehler(null);
     // Listenfelder gehören zum Eintrag in der Liste, nicht zum Datensatz.
@@ -188,6 +198,7 @@ export function KontaktePage() {
         }
       />
       <NurLesen />
+      <KontaktvorschlaegeHinweis />
 
       <Tabs
         aria-label={t.crm.objekte.beschriftung}
@@ -301,6 +312,7 @@ export function KontaktePage() {
                 sortierung={z.konfig.sortierung}
                 onSortieren={sortiere}
                 onBreite={breite}
+                onVerschieben={verschiebe}
                 auswahl={auswahl}
                 onAuswahl={setAuswahl}
                 darfSchreiben={darfFeldSchreiben}
@@ -327,6 +339,7 @@ export function KontaktePage() {
                 sortierung={z.konfig.sortierung}
                 onSortieren={sortiere}
                 onBreite={breite}
+                onVerschieben={verschiebe}
                 auswahl={auswahl}
                 onAuswahl={setAuswahl}
                 darfSchreiben={darfFeldSchreiben}

@@ -45,7 +45,7 @@ const definiere = async (objekt: string, name: string, typ: string, optionen?: u
   return (await json(a)).id as string;
 };
 const setzeWerte = async (pfad: string, werte: Record<string, unknown>) => expect((await put(pfad, { werte }, ADMIN)).status).toBe(200);
-const vorlage = (art: string, konfiguration: Record<string, unknown>) => put(`/fonds/${F1}/berichtsvorlagen/${art}`, konfiguration, ADMIN);
+const vorlage = (art: string, konfiguration: Record<string, unknown>) => put(`/funds/${F1}/report-templates/${art}`, konfiguration, ADMIN);
 
 beforeEach(async () => {
   await grundbestand(db);
@@ -80,16 +80,16 @@ describe("Eigene Felder als Spalten in Berichten", () => {
 
   it("die Vorlage prüft die Felder: Definition muss bestehen, aktiv sein und zu Fonds, Runde, Instrument oder Beteiligung gehören", async () => {
     const ids = await aufbau();
-    expect((await vorlage("portfolioliste", { zusatzfelder: [ids.board, ids.sicherheit] })).status).toBe(200);
+    expect((await vorlage("portfolio_list", { zusatzfelder: [ids.board, ids.sicherheit] })).status).toBe(200);
     for (const falsch of [[ids.vorgang], ["00000000-0000-4000-8000-00000000dead"], ["kein-uuid"], [ids.board, ids.board], Array.from({ length: 9 }, (_, i) => `00000000-0000-4000-8000-00000000000${i}`)]) {
-      expect((await vorlage("portfolioliste", { zusatzfelder: falsch })).status, JSON.stringify(falsch)).toBe(400);
+      expect((await vorlage("portfolio_list", { zusatzfelder: falsch })).status, JSON.stringify(falsch)).toBe(400);
     }
     // nur Arten mit Tabellenspalten
     expect((await vorlage("gremienvorlage", { zusatzfelder: [ids.board] })).status).toBe(400);
     const archiviert = await post(`/crm/felder/${ids.board}/archivieren`, undefined, ADMIN);
     expect(archiviert.status).toBe(200);
-    expect((await vorlage("exitliste", { zusatzfelder: [ids.board] })).status).toBe(400);
-    const lesen = await json(await get(`/fonds/${F1}/berichtsvorlagen`, ADMIN));
+    expect((await vorlage("exit_list", { zusatzfelder: [ids.board] })).status).toBe(400);
+    const lesen = await json(await get(`/funds/${F1}/report-templates`, ADMIN));
     const liste = lesen.daten.find((d: { art: string }) => d.art === "portfolioliste");
     expect(liste.konfiguration.zusatzfelder).toEqual([ids.board, ids.sicherheit]);
     expect(liste.erlaubt.zusatzfelder).toBe(true);
@@ -99,21 +99,21 @@ describe("Eigene Felder als Spalten in Berichten", () => {
   it("Portfolioliste (Excel und PDF) und Fondsbericht tragen die gewählten Felder aller vier Objekte; die Werte folgen dem Wissensstand", async () => {
     const ids = await aufbau();
     const gewaehlt = [ids.board, ids.sicherheit, ids.lead, ids.strategie, ids.lizenz];
-    expect((await vorlage("portfolioliste", { zusatzfelder: gewaehlt })).status).toBe(200);
-    expect((await vorlage("fondsbericht", { zusatzfelder: gewaehlt })).status).toBe(200);
+    expect((await vorlage("portfolio_list", { zusatzfelder: gewaehlt })).status).toBe(200);
+    expect((await vorlage("fund_report", { zusatzfelder: gewaehlt })).status).toBe(200);
 
-    const bericht = await json(await post("/berichte", { art: "portfolioliste", format: "xlsx", fondsId: F1, stichtag: "2025-12-31" }, ADMIN));
-    const xlsx = await blatt(await get(`/berichte/${bericht.id}/datei`, ADMIN), "Portfolioliste");
+    const bericht = await json(await post("/reports", { art: "portfolioliste", format: "xlsx", fondsId: F1, stichtag: "2025-12-31" }, ADMIN));
+    const xlsx = await blatt(await get(`/reports/${bericht.id}/file`, ADMIN), "Portfolioliste");
     const alpha = zeilen(xlsx).find((z) => z["Unternehmen"] === "Alpha Beispiel")!;
     expect(alpha).toMatchObject({ "Board-Sitz": "ja", Sicherheit: "Grundschuld", "Lead-Investor": "Beispiel Kapital", Strategie: "Wachstum", "Lizenzgebühr (USD)": 1234.5 });
     // Unternehmen ohne Werte: leer, nie erfunden
     expect(zeilen(xlsx).find((z) => z["Unternehmen"] === "Beta Beispiel")).toMatchObject({ "Board-Sitz": null, Sicherheit: null, "Lead-Investor": null, Strategie: "Wachstum" });
 
     // Direkter Download des Fondsberichts (PDF) und der Portfolioliste (Excel) nutzt dieselbe Vorlage.
-    const pdf = await pdfText(await get(`/fonds/${F1}/berichte/fondsbericht?stichtag=2025-12-31&format=pdf`, ADMIN));
+    const pdf = await pdfText(await get(`/funds/${F1}/reports/fund-report?stichtag=2025-12-31&format=pdf`, ADMIN));
     // Überschriften sind im PDF gesperrt gesetzt: Vergleich ohne Leerraum.
     for (const erwartet of ["Board-Sitz", "Grundschuld", "Beispiel Kapital", "Wachstum", "Lizenzgebühr (USD)", "1.234,50"]) expect(normal(pdf), erwartet).toContain(normal(erwartet));
-    const direkt = zeilen(await blatt(await get(`/fonds/${F1}/berichte/portfolioliste?stichtag=2025-12-31`, ADMIN), "Portfolio"));
+    const direkt = zeilen(await blatt(await get(`/funds/${F1}/reports/portfolio-list?stichtag=2025-12-31`, ADMIN), "Portfolio"));
     expect(direkt.find((z) => z["Unternehmen"] === "Alpha Beispiel")).toMatchObject({ Sicherheit: "Grundschuld" });
 
     // Wissensstand: ein späterer Wert ändert den früheren Stand nicht.
@@ -121,14 +121,14 @@ describe("Eigene Felder als Spalten in Berichten", () => {
     const vorher = new Date().toISOString();
     await new Promise((r) => setTimeout(r, 30));
     await setzeWerte(`/beteiligungen/${B}/instrumentfelder`, { [ids.sicherheit]: "Bürgschaft" });
-    const alt = zeilen(await blatt(await get(`/fonds/${F1}/berichte/portfolioliste?stichtag=2025-12-31&stand=${encodeURIComponent(vorher)}`, ADMIN), "Portfolio"));
+    const alt = zeilen(await blatt(await get(`/funds/${F1}/reports/portfolio-list?stichtag=2025-12-31&stand=${encodeURIComponent(vorher)}`, ADMIN), "Portfolio"));
     expect(alt.find((z) => z["Unternehmen"] === "Alpha Beispiel")).toMatchObject({ Sicherheit: "Grundschuld" });
-    const neu = zeilen(await blatt(await get(`/fonds/${F1}/berichte/portfolioliste?stichtag=2025-12-31`, ADMIN), "Portfolio"));
+    const neu = zeilen(await blatt(await get(`/funds/${F1}/reports/portfolio-list?stichtag=2025-12-31`, ADMIN), "Portfolio"));
     expect(neu.find((z) => z["Unternehmen"] === "Alpha Beispiel")).toMatchObject({ Sicherheit: "Bürgschaft" });
 
     // Die beim Anlegen festgehaltene Vorlage gilt, auch wenn die Vorlage des Fonds danach anders ist.
-    expect((await vorlage("portfolioliste", { zusatzfelder: [] })).status).toBe(200);
-    const festgehalten = await blatt(await get(`/berichte/${bericht.id}/datei`, ADMIN), "Portfolioliste");
+    expect((await vorlage("portfolio_list", { zusatzfelder: [] })).status).toBe(200);
+    const festgehalten = await blatt(await get(`/reports/${bericht.id}/file`, ADMIN), "Portfolioliste");
     expect(zeilen(festgehalten)[0]).toHaveProperty("Board-Sitz");
   });
 });
@@ -138,12 +138,12 @@ describe("Währungssicht in Berichten", () => {
   async function aufbau(mitAuszahlung = true) {
     await put(`/beteiligungen/${B}/waehrung`, { waehrung: "USD" }, bearbeiter);
     for (const [d, q, k] of [["2025-02-01", "USD", "1.0800"], ["2025-02-01", "GBP", "0.8300"], ["2026-06-30", "USD", "1.1000"], ["2026-06-30", "GBP", "0.8700"]] as const) expect((await kurs(d, q, k)).status).toBe(201);
-    await post(`/beteiligungen/${B}/vorgaenge`, { art: "zusage", valuta: "2025-02-01", betragLokal: "200000.00" }, bearbeiter);
-    if (mitAuszahlung) await post(`/beteiligungen/${B}/vorgaenge`, { art: "auszahlung", valuta: "2025-02-01", betragLokal: "100000.00" }, bearbeiter);
+    await post(`/investments/${B}/transactions`, { type: "commitment", valueDate: "2025-02-01", localAmount: "200000.00" }, bearbeiter);
+    if (mitAuszahlung) await post(`/investments/${B}/transactions`, { type: "disbursement", valueDate: "2025-02-01", localAmount: "100000.00" }, bearbeiter);
     const b = await json(await post(`/beteiligungen/${B}/bewertungen`, { stichtag: "2026-06-30", wertLokal: "160000.00", methode: "sonstige", begruendung: "Beispiel" }, ADMIN));
     expect((await post(`/bewertungen/${b.bewertung.id}/freigeben`, undefined, ADMIN2)).status).toBe(200);
   }
-  const liste = (suche: string) => get(`/fonds/${F1}/berichte/portfolioliste?stichtag=2026-06-30&${suche}`, ADMIN);
+  const liste = (suche: string) => get(`/funds/${F1}/reports/portfolio-list?stichtag=2026-06-30&${suche}`, ADMIN);
 
   it("Vergleich: Beträge in der gewählten Währung, Kurse mit Datum im Blatt „Währungssicht“; die Fondswährung bleibt der Standard", async () => {
     await aufbau();
@@ -163,12 +163,12 @@ describe("Währungssicht in Berichten", () => {
 
   it("lokal: je Beteiligung in ihrer Währung, in der Liste ohne Summe in gemischten Währungen; PDF nennt Kurse und Regel", async () => {
     await aufbau();
-    const wb = await mappe(await get(`/fonds/${F1}/berichte/fondsbericht?stichtag=2026-06-30&format=xlsx&waehrungssicht=lokal`, ADMIN));
+    const wb = await mappe(await get(`/funds/${F1}/reports/fund-report?stichtag=2026-06-30&format=xlsx&waehrungssicht=lokal`, ADMIN));
     const alpha = zeilen(wb.getWorksheet("Portfolio")!).find((z) => z["Unternehmen"] === "Alpha Beispiel")!;
     expect(alpha["Investiert (lokal)"]).toBe(100000);
     expect(alpha["Bewertung (lokal)"]).toBe(160000);
     // Beteiligungen in Fondswährung: lokal = Fonds
-    const pdf = await pdfText(await get(`/fonds/${F1}/berichte/fondsbericht?stichtag=2026-06-30&format=pdf&waehrungssicht=vergleich&vergleichswaehrung=GBP`, ADMIN));
+    const pdf = await pdfText(await get(`/funds/${F1}/reports/fund-report?stichtag=2026-06-30&format=pdf&waehrungssicht=vergleich&vergleichswaehrung=GBP`, ADMIN));
     expect(pdf).toContain("Währungssicht: Vergleich in GBP");
     expect(pdf).toContain("1 EUR = 0,87 GBP (Kurs vom 30.06.2026, für 30.06.2026)");
     expect(pdf).toContain("1 EUR = 0,83 GBP (Kurs vom 01.02.2025, für 01.02.2025)");
@@ -186,8 +186,8 @@ describe("Währungssicht in Berichten", () => {
     const luecken = zeilen(wb.getWorksheet("Währungssicht")!).filter((z) => String(z["Grund"] ?? "").startsWith("Kurs fehlt"));
     expect(luecken.length).toBeGreaterThan(0);
     // als PDF-Bericht mit Summenzeile (Portfolioliste): die Summe ist eine Lücke
-    const bericht = await json(await post("/berichte", { art: "portfolioliste", format: "pdf", fondsId: F1, stichtag: "2026-06-30", waehrungssicht: "vergleich", vergleichswaehrung: "CHF" }, ADMIN));
-    const text = await pdfText(await get(`/berichte/${bericht.id}/datei`, ADMIN));
+    const bericht = await json(await post("/reports", { art: "portfolioliste", format: "pdf", fondsId: F1, stichtag: "2026-06-30", waehrungssicht: "vergleich", vergleichswaehrung: "CHF" }, ADMIN));
+    const text = await pdfText(await get(`/reports/${bericht.id}/file`, ADMIN));
     expect(text).toContain("Kurs fehlt");
     expect(text).toContain("Kurs fehlt: EUR/CHF");
     expect(normal(text)).toContain(normal("Investiert (CHF)"));
@@ -195,13 +195,13 @@ describe("Währungssicht in Berichten", () => {
 
   it("die Sicht wird mit dem Bericht festgehalten und geprüft: Vergleich braucht eine Währung, nicht jede Art hat eine Sicht", async () => {
     await aufbau();
-    const fehler = async (koerper: object) => (await post("/berichte", { fondsId: F1, stichtag: "2026-06-30", ...koerper }, ADMIN)).status;
+    const fehler = async (koerper: object) => (await post("/reports", { fondsId: F1, stichtag: "2026-06-30", ...koerper }, ADMIN)).status;
     expect(await fehler({ art: "portfolioliste", format: "xlsx", waehrungssicht: "vergleich" })).toBe(400);
     expect(await fehler({ art: "portfolioliste", format: "xlsx", waehrungssicht: "lokal", vergleichswaehrung: "GBP" })).toBe(400);
     expect(await fehler({ art: "portfolioliste", format: "xlsx", waehrungssicht: "vergleich", vergleichswaehrung: "gbp" })).toBe(400);
     expect(await fehler({ art: "gremienvorlage", waehrungssicht: "lokal" })).toBe(400);
-    const angelegt = await json(await post("/berichte", { art: "exitliste", format: "xlsx", fondsId: F1, stichtag: "2026-06-30", waehrungssicht: "vergleich", vergleichswaehrung: "GBP" }, ADMIN));
+    const angelegt = await json(await post("/reports", { art: "exitliste", format: "xlsx", fondsId: F1, stichtag: "2026-06-30", waehrungssicht: "vergleich", vergleichswaehrung: "GBP" }, ADMIN));
     expect(angelegt.parameter).toEqual({ waehrung: { sicht: "vergleich", vergleich: "GBP" } });
-    expect((await get(`/fonds/${F1}/berichte/portfolioliste?waehrungssicht=vergleich`, ADMIN)).status).toBe(400);
+    expect((await get(`/funds/${F1}/reports/portfolio-list?waehrungssicht=vergleich`, ADMIN)).status).toBe(400);
   });
 });

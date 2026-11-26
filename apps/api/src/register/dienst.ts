@@ -49,14 +49,14 @@ export async function legeEintragAn(
 ): Promise<{ eintrag: EintragZeile; neu: boolean }> {
   if (dokumentId) {
     const [d] = await tx.select({ status: dokument.status }).from(dokument).where(eq(dokument.id, dokumentId));
-    if (!d) throw new Fachfehler(404, "DOKUMENT_NICHT_GEFUNDEN", "Dokument nicht gefunden.");
-    if (d.status !== "aktiv") throw new Fachfehler(409, "DOKUMENT_NICHT_AKTIV", "Das Dokument ist nicht aktiv.");
+    if (!d) throw new Fachfehler(404, "document_not_found", "Document not found.");
+    if (d.status !== "aktiv") throw new Fachfehler(409, "document_not_active", "The document is not active.");
     // Nur ein Auszug, der an dieser Organisation hängt: sonst ließe sich über den Eintrag der Dateiname eines fremden Dokuments lesen.
     const [verknuepft] = await tx
       .select({ id: dokumentVerknuepfung.dokumentId })
       .from(dokumentVerknuepfung)
       .where(and(eq(dokumentVerknuepfung.dokumentId, dokumentId), eq(dokumentVerknuepfung.zielTyp, "organisation"), eq(dokumentVerknuepfung.zielId, organisationId)));
-    if (!verknuepft) throw new Fachfehler(409, "ZIEL_NICHT_AM_DOKUMENT", "Das Dokument ist nicht mit dieser Organisation verknüpft.");
+    if (!verknuepft) throw new Fachfehler(409, "target_not_on_document", "The document is not linked to this organization.");
   }
   const aktuell = await aktuellerEintrag(tx, organisationId);
   const zeile = {
@@ -156,15 +156,15 @@ async function aktiveGeschaeftsfuehrung(tx: Tx, organisationId: string) {
 
 /**
  * Übernimmt Felder aus dem aktuellen Registerstand in die Stammdaten. Jedes Feld mit Unterschied wird einzeln geändert und protokolliert
- * (Aktion `register_uebernehmen`, Akteur, Registereintrag). Felder ohne Unterschied sind 409 `REGISTER_KEIN_UNTERSCHIED`.
+ * (Aktion `register_uebernehmen`, Akteur, Registereintrag). Felder ohne Unterschied sind 409 `register_no_difference`.
  */
 export async function uebernehme(tx: Tx, protokoll: Protokollant, organisationId: string, felder: UebernahmeFeld[]): Promise<{ uebernommen: UebernahmeFeld[] }> {
   const org = await ladeOrganisation(tx, organisationId);
   const eintrag = await aktuellerEintrag(tx, organisationId);
-  if (!eintrag) throw new Fachfehler(404, "REGISTER_EINTRAG_FEHLT", "Für diese Organisation gibt es keinen Registereintrag.");
+  if (!eintrag) throw new Fachfehler(404, "register_entry_missing", "There is no register entry for this organization.");
   const abweichungen = await ladeAbweichungen(tx, organisationId, eintrag);
   const nachFeld = new Map(abweichungen.map((a) => [a.feld, a]));
-  for (const f of felder) if (!nachFeld.has(f)) throw new Fachfehler(409, "REGISTER_KEIN_UNTERSCHIED", "Für dieses Feld gibt es keinen Unterschied zum Register.", { feld: f });
+  for (const f of felder) if (!nachFeld.has(f)) throw new Fachfehler(409, "register_no_difference", "There is no difference from the register for this field.", { feld: f });
 
   const aenderungen: Partial<typeof organisation.$inferInsert> = {};
   for (const f of felder) {

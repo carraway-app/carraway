@@ -54,7 +54,7 @@ then expose to the network:
 4. Further people are created by the administration under "Verwaltung" (start password, to be changed at first sign-in), or they
    sign in with company sign-in (Entra ID/Google, `OIDC_*`) if they were created beforehand with the same address.
 
-Afterwards `/einrichtung` answers `REGISTRIERUNG_GESCHLOSSEN`.
+Afterwards `/einrichtung` answers `registration_closed`.
 
 ## Environments: demo, test, echt (production)
 
@@ -107,14 +107,14 @@ Put the API behind a reverse proxy (Caddy, nginx, Traefik or your hosting provid
 - **Logs:** one JSON line per event on standard output (`docker compose logs -f api worker`), minimum level `LOG_STUFE`. Request
   lines carry request ID, method, route pattern, status, duration in milliseconds and the user ID; no addresses, names, amounts,
   query strings or secrets. Errors are logged without query parameters.
-- **Health:** `GET /api/v1/gesundheit` needs no sign-in. 200 means the database answers; 503 means it does not. In addition:
+- **Health:** `GET /api/v1/health` needs no sign-in. 200 means the database answers; 503 means it does not. In addition:
   `worker.status` (`ok`, `ausgefallen` after more than 30 seconds without heartbeat, `unbekannt` if there never was one),
   `warteschlange.wartend` and `aeltesterWartenderSekunden` (lag in pg-boss) and `ausgangskorb` (jobs the worker has not picked up
   yet; grows when the worker is dead). A worker outage does not make the API unready.
 - **Metrics:** `GET /metriken` (Prometheus text format, `Authorization: Bearer <METRIKEN_TOKEN>`). Without `METRIKEN_TOKEN` the
   endpoint is off. Request duration as a histogram per method, route pattern and status class, database connections, queue,
   outbox, worker heartbeat.
-- **Operating status:** Administration → Operations (`GET /api/v1/betrieb/status`, global administrators only): database, migration state, age of
+- **Operating status:** Administration → Operations (`GET /api/v1/operations/status`, global administrators only): database, migration state, age of
   the worker heartbeat, backlogs (snapshots, mail, AI extraction, register monitoring), whether file storage is writable, SMTP configured yes or no,
   AI provider. `/metriken` carries heartbeat age and backlogs (`carraway_rueckstand_*`) for alerts.
 - **Container health:** `api` through the health request, `worker` through its heartbeat file. Docker does not restart unhealthy
@@ -135,7 +135,7 @@ All routes run through the application and appear in the change log; none needs 
   backup remains responsible for technical recovery.
 - **API:** the OpenAPI description (`/api/v1/openapi.json`) and a documentation page (`/api/v1/docs`, no scripts and no external files) are
   reachable without signing in; block both paths in the proxy if that is not wanted. Writing calls accept `Idempotency-Key` (24 hours),
-  `POST /api/v1/stapel` combines up to 100 operations in one transaction, `GET /api/v1/aenderungen` returns changes since a point in time.
+  `POST /api/v1/stapel` combines up to 100 operations in one transaction, `GET /api/v1/changes` returns changes since a point in time.
 - **Fonts:** the interface serves Instrument Sans and IBM Plex Mono itself; opening the page sends no requests to third parties.
 
 ## Database privileges
@@ -175,7 +175,7 @@ a second run resets the passwords. Give each customer its own `BETTER_AUTH_SECRE
 cd carraway && git pull && cd deploy
 ./sicherung.sh                           # always back up first
 docker compose up -d --build             # rebuilds the image, migrate runs before api and worker
-docker compose ps && curl -s http://127.0.0.1:8787/api/v1/gesundheit
+docker compose ps && curl -s http://127.0.0.1:8787/api/v1/health
 ```
 
 ### Moving from the former product name
@@ -247,7 +247,7 @@ passwords themselves are hashed and stay valid.
 |---|---|
 | `docker compose` aborts with "… fehlt" | a required variable is missing in `.env` (name in the message and in `.env.beispiel`) |
 | `api` does not start: `BETTER_AUTH_SECRET … Pflicht` | secret too short (at least 32 characters) or not set for an `https` address |
-| sign-in fails with `ORIGIN_UNGUELTIG` | `APP_ORIGIN` does not match the address in the browser (scheme, host, port) |
+| sign-in fails with `origin_invalid` | `APP_ORIGIN` does not match the address in the browser (scheme, host, port) |
 | many failed attempts, lockout for everyone behind the proxy | `PROXY_VERTRAUEN=1` missing, the API only sees the proxy's address |
 | `worker.status` is `ausgefallen` or `unbekannt` | `docker compose logs worker`; if it runs, check that `migrate` succeeded |
 | `ausgangskorb` grows | worker is stopped or cannot reach the database; jobs are not lost and are caught up |

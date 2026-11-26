@@ -213,8 +213,8 @@ export const datenuebernahmeEn: typeof datenuebernahmeDe = {
     hilfe: [
       "Create API keys under “API keys”. Send the key as a bearer token in the Authorization header. A key has rights per fund (read or write) and cannot give four-eyes approvals.",
       "Idempotency-Key: with write calls, send your own unique value in the Idempotency-Key header. If you repeat an interrupted call with the same key and the same content, you get the same response without a double booking. The key is valid for 24 hours, per person. The same key with different content is rejected.",
-      "POST /api/v1/stapel (batch): up to 100 write calls in one transaction, all or nothing. Each operation consists of methode, pfad (below /api/v1) and koerper. If one fails, nothing is saved, and the response lists the errors per operation.",
-      "Fetching changes: GET /api/v1/aenderungen?seit=… returns the changes since a point in time page by page, filtered by your permissions. The lists also accept the parameter geaendertSeit.",
+      "POST /api/v1/batch (batch): up to 100 write calls in one transaction, all or nothing. Each operation consists of method, path (below /api/v1) and body. If one fails, nothing is saved, and the response lists the errors per operation.",
+      "Fetching changes: GET /api/v1/changes?since=… returns the changes since a point in time page by page, filtered by your permissions. The lists also accept the parameter geaendertSeit.",
     ],
   },
 };

@@ -17,12 +17,12 @@ const dateien = new Map<string, Uint8Array>();
 const { post, get } = aufrufe(erstelleTestApp(db, { speicher: {
   schreibe: async (key, bytes) => { dateien.set(key, bytes); }, lese: async (key) => dateien.get(key)!,
 } }));
-const buchungen = `/fonds/${ID.fonds}/buchungen`;
-const aufruf = { typ: "fondsbewegung", art: "abruf", betrag: "200000", valuta: "2025-01-01", faelligAm: "2025-02-01" };
-const zahlung = (id: string, organisationId: string, betrag: string, valuta = aufruf.faelligAm) =>
+const buchungen = `/funds/${ID.fonds}/postings`;
+const aufruf = { kind: "fund_posting", type: "capital_call", amount: "200000", valueDate: "2025-01-01", dueDate: "2025-02-01" };
+const zahlung = (id: string, organisationId: string, betrag: string, valuta = aufruf.dueDate) =>
   post(`/fondsbewegungen/${id}/zahlungen`, { organisationId, betrag, valuta });
 const stand = (tag: string, wissen?: string) => ladeKapitalstand(db, ID.fonds, tag, wissen);
-const abruf = async () => (await json(await post(buchungen, aufruf))).bewegung.id as string;
+const abruf = async () => (await json(await post(buchungen, aufruf))).movement.id as string;
 
 beforeEach(async () => {
   await leeren(db);
@@ -49,10 +49,10 @@ describe("Abrufe und Zahlungseingänge je LP", () => {
   });
 
   it("stimmt Teilzahlungen je LP mit dem Fonds ab und grenzt die Fälligkeit tagesgenau ab", async () => {
-    const falsch = await get(`/fonds/${ID.fonds}/fondsbewegungen/vorschau?art=abruf&betrag=200000&valuta=2025-01-10&faelligAm=2025-01-09`);
-    expect((await json(falsch)).fehler.code).toBe("FAELLIGKEIT_VOR_ABRUF");
+    const falsch = await get(`/funds/${ID.fonds}/fund-movements/preview?type=capital_call&amount=200000&valueDate=2025-01-10&dueDate=2025-01-09`);
+    expect((await json(falsch)).error.code).toBe("due_date_before_call");
     const id = await abruf();
-    expect((await json(await get(`/fondsbewegungen/${id}`))).faelligAm).toBe(aufruf.faelligAm);
+    expect((await json(await get(`/fondsbewegungen/${id}`))).faelligAm).toBe(aufruf.dueDate);
     expect((await zahlung(id, ID.orgA, "100000")).status).toBe(201);
     expect((await zahlung(id, ID.orgB, "40000")).status).toBe(201);
     const tag = await json(await get(`/fonds/${ID.fonds}/bewegungen/kapitalstand?stichtag=2025-02-01`));
@@ -98,7 +98,7 @@ describe("Abrufe und Zahlungseingänge je LP", () => {
     const id = await abruf();
     await zahlung(id, ID.orgA, "100000");
     await zahlung(id, ID.orgB, "40000", "2025-05-01");
-    await post(buchungen, { typ: "fondsbewegung", art: "ausschuettung", betrag: "154000", valuta: "2026-02-01" });
+    await post(buchungen, { kind: "fund_posting", type: "distribution", amount: "154000", valueDate: "2026-02-01" });
     await buchhaltungAufsetzen(db, ID.fonds);
     await uebernehmeSalden(db, ID.fonds, "2026-02-01", { "1200": "35000.00", "2000": "-35000.00" });
     const { kennzahlen: k } = await berechneFondsUebersicht(db, ID.fonds, "2026-02-01");
@@ -114,7 +114,7 @@ describe("Abrufe und Zahlungseingänge je LP", () => {
       ["de", "Abrufe", "Eingezahltes Kapital", "Offene Abrufe"],
       ["en", "Capital calls", "Paid-in capital", "Outstanding calls"],
     ]) {
-      const antwort = await get(`/fonds/${ID.fonds}/berichte/fondsbericht?format=xlsx&sprache=${sprache}&stichtag=2025-02-01`);
+      const antwort = await get(`/funds/${ID.fonds}/reports/fund-report?format=xlsx&sprache=${sprache}&stichtag=2025-02-01`);
       expect(antwort.status).toBe(200);
       const wb = new ExcelJS.Workbook();
       await wb.xlsx.load(await antwort.arrayBuffer());
@@ -125,7 +125,7 @@ describe("Abrufe und Zahlungseingänge je LP", () => {
   });
 
   it("erhält die freigegebene Altdatei und klärt eine Altbuchung nur in Höhe belegter Eingänge", async () => {
-    const [alt] = await db.insert(s.fondsBewegung).values({ fondsId: ID.fonds, art: "abruf", valuta: aufruf.valuta, betrag: aufruf.betrag }).returning();
+    const [alt] = await db.insert(s.fondsBewegung).values({ fondsId: ID.fonds, art: "abruf", valuta: aufruf.valueDate, betrag: aufruf.amount }).returning();
     const wb = new ExcelJS.Workbook();
     wb.addWorksheet("Kennzahlen").addRow(["Paid-in capital", 200000]);
     const bytes = new Uint8Array(await wb.xlsx.writeBuffer());
@@ -133,13 +133,13 @@ describe("Abrufe und Zahlungseingänge je LP", () => {
     const hash = sha256(bytes);
     const key = dateiSchluessel(id, hash, "xlsx");
     dateien.set(key, bytes);
-    await db.insert(s.bericht).values({ id, fondsId: ID.fonds, art: "fondsbericht", format: "xlsx", sprache: "en", stichtag: aufruf.faelligAm,
+    await db.insert(s.bericht).values({ id, fondsId: ID.fonds, art: "fondsbericht", format: "xlsx", sprache: "en", stichtag: aufruf.dueDate,
       status: "freigegeben", stand: new Date(), erstelltVon: "system", freigabestufen: [], dateiName: "fund.xlsx", dateiSchluessel: key, dateiSha256: hash, dateiGroesse: bytes.length });
-    expect((await stand(aufruf.faelligAm)).fonds).toMatchObject({ eingezahlt: "0.00", ungeklaert: "200000.00" });
-    const beleg = await post(`/fondsbewegungen/${alt!.id}/zahlungen`, { organisationId: ID.orgB, betrag: "40000", valuta: aufruf.faelligAm, belegreferenz: "Kontoauszug 2, Position 4" });
+    expect((await stand(aufruf.dueDate)).fonds).toMatchObject({ eingezahlt: "0.00", ungeklaert: "200000.00" });
+    const beleg = await post(`/fondsbewegungen/${alt!.id}/zahlungen`, { organisationId: ID.orgB, betrag: "40000", valuta: aufruf.dueDate, belegreferenz: "Kontoauszug 2, Position 4" });
     expect(await json(beleg)).toMatchObject({ belegreferenz: "Kontoauszug 2, Position 4" });
-    expect((await stand(aufruf.faelligAm)).jeLp.get(ID.orgB)).toMatchObject({ eingezahlt: "40000.00", ungeklaert: "60000.00" });
-    const download = await get(`/berichte/${id}/datei`);
+    expect((await stand(aufruf.dueDate)).jeLp.get(ID.orgB)).toMatchObject({ eingezahlt: "40000.00", ungeklaert: "60000.00" });
+    const download = await get(`/reports/${id}/file`);
     expect(download.status).toBe(200);
     expect(sha256(new Uint8Array(await download.arrayBuffer()))).toBe(hash);
   });
@@ -150,11 +150,11 @@ describe("Abrufe und Zahlungseingänge je LP", () => {
     await legePersonAn(db, betrachter);
     const pfad = `/fondsbewegungen/${id}/zahlungen`;
     expect((await get(pfad, betrachter)).status).toBe(200);
-    expect((await post(pfad, { organisationId: ID.orgA, betrag: "5", valuta: aufruf.faelligAm }, betrachter)).status).toBe(403);
+    expect((await post(pfad, { organisationId: ID.orgA, betrag: "5", valuta: aufruf.dueDate }, betrachter)).status).toBe(403);
     const parallel = await Promise.all([zahlung(id, ID.orgA, "70000"), zahlung(id, ID.orgA, "70000")]);
     expect(parallel.map((r) => r.status).sort()).toEqual([201, 409]);
-    await db.insert(s.periodensperre).values({ fondsId: ID.fonds, gesperrtBis: aufruf.faelligAm, gesetztVon: "system" });
-    expect((await json(await zahlung(id, ID.orgB, "1000"))).fehler.code).toBe("PERIODE_GESPERRT");
+    await db.insert(s.periodensperre).values({ fondsId: ID.fonds, gesperrtBis: aufruf.dueDate, gesetztVon: "system" });
+    expect((await json(await zahlung(id, ID.orgB, "1000"))).error.code).toBe("period_locked");
   });
 });
 
@@ -216,7 +216,7 @@ it("liefert zum Abruf die freigegebenen Dateien und wahrt Wissensstand und Fonds
   expect(daten.nachweise.abruf).toMatchObject({ id, betrag: "200000.00" });
   expect(daten.nachweise.mitteilungen).toHaveLength(2);
   expect(daten.nachweise.belege).toMatchObject([{ id: beleg!.id, datei: "Abrufbeleg.pdf" }]);
-  const belegDatei = await get(`/belege/${beleg!.id}/datei`, lesen);
+  const belegDatei = await get(`/vouchers/${beleg!.id}/file`, lesen);
   expect(belegDatei.status).toBe(200);
   expect(sha256(new Uint8Array(await belegDatei.arrayBuffer()))).toBe(sha256(bytes));
   const m = daten.nachweise.mitteilungen[0];
@@ -232,4 +232,33 @@ it("liefert zum Abruf die freigegebenen Dateien und wahrt Wissensstand und Fonds
   expect((await get(download(ID.fonds, nachher), fremd)).status).toBe(403);
   expect((await get(download(ID.anderer, nachher), fremd)).status).toBe(404);
   expect(await json(await get(herkunft(tag, nachher, id).replace(ID.fonds, ID.anderer), fremd))).toMatchObject({ abgerufen: [], eingezahlt: [], nachweise: null });
+});
+
+describe("Liquiditätsabstimmung nach tatsächlichen LP-Zahlungen (Issue #173)", () => {
+  it("zählt Teil- und Restzahlung ab Wertstellung, ein Storno ab seiner eigenen Wertstellung; die Abrufe bleiben im Rechenweg sichtbar", async () => {
+    const id = await abruf();
+    // LP A: Teilzahlung im ersten Quartal, Rest im zweiten. LP B: Zahlung, Storno und neue Zahlung im ersten Quartal, Storno der neuen Zahlung im zweiten.
+    expect((await zahlung(id, ID.orgA, "60000", "2025-01-20")).status).toBe(201);
+    expect((await zahlung(id, ID.orgA, "40000", "2025-04-05")).status).toBe(201);
+    const b1 = await json(await zahlung(id, ID.orgB, "100000", "2025-02-01"));
+    expect((await post(`/fondsbewegungen/${id}/zahlungen/storno`, { zahlungId: b1.id, valuta: "2025-03-10", grund: "Falsches Konto" })).status).toBe(201);
+    const b2 = await json(await zahlung(id, ID.orgB, "100000", "2025-03-15"));
+    expect((await post(`/fondsbewegungen/${id}/zahlungen/storno`, { zahlungId: b2.id, valuta: "2025-04-10", grund: "Rücklastschrift" })).status).toBe(201);
+
+    await buchhaltungAufsetzen(db, ID.fonds);
+    const abstimmung = async (bis: string) => {
+      const a = (await get(`/funds/${ID.fonds}/reconciliation?to=${bis}`).then(json)).liquidity as { carraway: string; steps: { symbol: string; label: string; value: string }[] };
+      return { carraway: a.carraway, steps: a.steps.slice(0, 3).map((x) => `${x.symbol}${x.label}: ${x.value}`) };
+    };
+    for (const bis of ["2025-03-31", "2025-06-30"]) await uebernehmeSalden(db, ID.fonds, bis, { "1200": "0.00" });
+    // 31.03.: A 60.000, B 100.000 (erste Zahlung storniert, zweite noch nicht) = 160.000; der Rest von A fehlt noch.
+    expect(await abstimmung("2025-03-31")).toEqual({
+      carraway: "160000.00",
+      steps: ["Abrufe: 200000.00", "−Zum Periodenende nicht eingegangen: 40000.00", "=Eingegangene LP-Zahlungen (Wertstellung bis Periodenende): 160000.00"],
+    });
+    // 30.06.: A vollständig 100.000, B nach dem zweiten Storno nichts.
+    expect((await abstimmung("2025-06-30")).carraway).toBe("100000.00");
+    // Dieselbe Größe wie „Eingezahltes Kapital“ der Fondskennzahlen.
+    for (const tag of ["2025-03-31", "2025-06-30"]) expect((await abstimmung(tag)).carraway).toBe(new Decimal((await stand(tag)).fonds.eingezahlt).toFixed(2));
+  });
 });

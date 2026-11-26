@@ -16,9 +16,9 @@ const maskiere = (text: string) => text.replace(/[\\%_]/g, (z) => `\\${z}`);
 export async function dealFondsFuerAufgabe(tx: Tx, c: Context, dealId: string | undefined): Promise<string | null | undefined> {
   if (!dealId) return undefined;
   const [d] = await tx.select({ fondsId: deal.fondsId }).from(deal).where(eq(deal.id, dealId));
-  if (!d) throw new Fachfehler(404, "DEAL_NICHT_GEFUNDEN", "Deal nicht gefunden.");
+  if (!d) throw new Fachfehler(404, "deal_not_found", "Deal not found.");
   const sicht = sichtbareFonds(aktuellerAkteur(c), "betrachter", "dealflow");
-  if (d.fondsId !== null && sicht !== "alle" && !sicht.includes(d.fondsId)) throw new Fachfehler(404, "DEAL_NICHT_GEFUNDEN", "Deal nicht gefunden.");
+  if (d.fondsId !== null && sicht !== "alle" && !sicht.includes(d.fondsId)) throw new Fachfehler(404, "deal_not_found", "Deal not found.");
   return d.fondsId;
 }
 
@@ -67,5 +67,5 @@ export async function sucheZustaendige(tx: Tx, c: Context, eingabe: { q?: string
 export async function pruefeZustaendigerZugriff(tx: Tx, id: string | null | undefined, dealFondsId: string | null | undefined, kriterien: Kandidatenkriterien = {}): Promise<void> {
   if (!id) return;
   const zeilen = await tx.execute<{ id: string }>(sql`SELECT b.id FROM ${benutzer} b WHERE b.id = ${id}::uuid AND ${kandidatenSql(dealFondsId, kriterien)}`);
-  if (zeilen.rows.length === 0) throw new Fachfehler(400, "ZUSTAENDIG_UNGUELTIG", "Zuständig kann nur eine aktive angemeldete Person mit Zugriff sein.");
+  if (zeilen.rows.length === 0) throw new Fachfehler(400, "assignee_invalid", "Only an active signed-in person with access can be the assignee.");
 }

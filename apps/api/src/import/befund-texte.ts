@@ -1,0 +1,80 @@
+/** Englische Befundtexte für HTTP und Oberfläche. Die Parameter stammen aus der fachlichen Importprüfung. */
+type BefundParams = Record<string, string | number>;
+
+const w = (p: BefundParams, schluessel: string) => (p[schluessel] !== undefined && p[schluessel] !== "" ? `“${p[schluessel]}”` : "the value");
+
+export const importBefundText: Record<string, (p: BefundParams) => string> = {
+  BLATT_DOPPELT: (p) => `The sheet ${w(p, "blatt")} appears more than once.`,
+  BLATT_UNBEKANNT: (p) => `The sheet ${w(p, "blatt")} is not part of the template and is ignored.`,
+  SPALTE_UNBEKANNT: (p) => `The column ${w(p, "spalte")} is not part of the template and is ignored.`,
+  SPALTE_DOPPELT: (p) => `The column ${w(p, "spalte")} appears more than once in the header.`,
+  SPALTE_FEHLT: (p) => `The required column ${w(p, "spalte")} is missing from the header.`,
+  KOPF_SPRACHE_GEMISCHT: () => "The column headers mix German and English names.",
+  PFLICHTFELD_FEHLT: (p) => `The required field ${w(p, "spalte")} is empty.`,
+  TEXT_ZU_LANG: (p) => (p.max ? `The text is longer than the allowed ${p.max} characters.` : "The text is longer than allowed."),
+  AUSWAHL_UNGUELTIG: (p) => `${w(p, "wert")} is not an allowed value; allowed: ${p.erlaubtEn ?? "see the template"}.`,
+  DATUM_UNGUELTIG: (p) => `${w(p, "wert")} is not a valid date (YYYY-MM-DD or DD.MM.YYYY).`,
+  JA_NEIN_UNGUELTIG: (p) => `${w(p, "wert")} is neither yes nor no.`,
+  EMAIL_UNGUELTIG: (p) => `${w(p, "wert")} is not a valid email address.`,
+  URL_UNGUELTIG: (p) => `${w(p, "wert")} is not an address starting with http:// or https://.`,
+  UUID_UNGUELTIG: (p) => `${w(p, "wert")} is not a valid ID.`,
+  WAEHRUNG_UNGUELTIG: (p) => `${w(p, "wert")} is not a three-letter currency code.`,
+  ZAHL_UNGUELTIG: (p) => (p.art === "ganzzahl" ? `${w(p, "wert")} is not a whole number from zero up.` : `${w(p, "wert")} is not a valid number.`),
+  ZAHL_MEHRDEUTIG: (p) => `${w(p, "wert")} is ambiguous (thousands separator or three decimal places); please write amounts with a decimal comma, for example 1234,00.`,
+  SATZ_UNGUELTIG: (p) => `${w(p, "wert")} is not a share from 0 to 1 with at most six decimal places (6 % = 0.06).`,
+  BETRAG_NACHKOMMASTELLEN: (p) => `${w(p, "wert")} has more than ${p.max ?? "the allowed number of"} decimal places.`,
+  BETRAG_UNGUELTIG: (p) => ({ zu_gross: "The amount is too large.", nicht_positiv: "The amount must be greater than zero.", negativ: "The amount must not be negative.", null: "The amount must not be zero." })[String(p.grund)] ?? "The amount is not allowed here.",
+  BETRAG_VORZEICHEN: () => "Only write-downs (reversals) and reversals of entries may be negative.",
+  BEGRUENDUNG_FEHLT: () => "This valuation method requires a justification.",
+  OPTIONSSCHEIN_FELD_FALSCH: () => "This field applies to warrants only.",
+  OPTIONSSCHEIN_FELD_FEHLT: () => "This field is required for a warrant.",
+  OPTIONSSCHEIN_LAUFZEIT: () => "The term must not end before the issue date.",
+  SCHLUESSEL_DOPPELT: (p) => `${p.schluessel ? `The key ${w(p, "schluessel")}` : "This record"} already appears in row ${p.zeile ?? "?"} of the file.`,
+  VERWEIS_UNBEKANNT: (p) => `${w(p, "wert")} exists neither in the file nor in the existing data.`,
+  POSITION_INVESTOR: () => "Exactly one of fund and investor must be filled in.",
+  RUNDE_POST_KLEINER_PRE: () => "Post-money must be above pre-money (post-money = pre-money + round volume).",
+  RUNDE_SUMME_ABWEICHEND: (p) => `The positions of the round (${p.positionen ?? ""}) add up to ${p.summe ?? ""}, the round volume (post-money minus pre-money) is ${p.volumen ?? ""}.`,
+  KAPITALISIERT_NUR_ZINS: () => "“Capitalised” applies to interest only.",
+  STORNO_DOPPELT: (p) => `The entry ${w(p, "schluessel")} is already reversed in row ${p.zeile ?? "?"}.`,
+  STORNO_UNGUELTIG: (p) => ({ selbst: "An entry cannot reverse itself.", storno_von_storno: "A reversal cannot be reversed.", betrag: `The amount of a reversal must be ${p.erwartet ?? "the negative of the original"}.`, art: "A reversal has the same type as the original.", beteiligung: "A reversal belongs to the same holding as the original.", valuta: `The value date of the reversal must not be earlier than that of the original (${p.erwartet ?? ""}).` })[String(p.grund)] ?? "The reversal does not match its original.",
+  BEREITS_STORNIERT: (p) => `The entry ${w(p, "schluessel")} is already reversed in the existing data.`,
+  VORGANG_ABWEICHEND: (p) => `The entry ${w(p, "schluessel")} is already imported but booked differently. Imported entries are never changed; correct it with a reversal of the existing entry under a new key.`,
+  BETEILIGUNG_NICHT_AKTIV: (p) => `The holding is not active${p.status ? ` (${p.status})` : ""}.`,
+  INSTRUMENT_PASST_NICHT: (p) => (p.instrument ? `The instrument of the holding (${p.instrument}) does not allow this.` : "The instrument of the holding does not allow this."),
+  PERIODE_GESPERRT: (p) => (p.bis ? `The period is locked until ${p.bis}; ${p.datum ?? "this date"} cannot be booked.` : "The period is locked; this date cannot be booked."),
+  BEWERTUNG_ABWEICHEND: (p) => `The valuation ${w(p, "schluessel")} is already imported but differs; released valuations are not changed, a correction is a new valuation.`,
+  BEWERTUNG_STICHTAG_DOPPELT: (p) => `The file already contains a valuation for this holding and reporting date${p.zeile ? ` (row ${p.zeile})` : ""}.`,
+  BEWERTUNG_VORHANDEN: () => "A released valuation for this holding and reporting date already exists without this key.",
+  KONDITION_GEWINN_PAAR: () => "Give the profit-linked rate and the cap together or not at all.",
+  KONDITION_ABWEICHEND: () => "Different terms already exist for this date; a change is a new version with a new date.",
+  KONDITION_RASTER_UNGLEICH: (p) => (p.grund === "anker" ? "The anchor may only change for bullet interest." : "The interest period must not change in later versions."),
+  DATUM_AUSSERHALB: (p) => `${p.datum ? `The date ${w(p, "datum")}` : "The date"} lies outside the permitted range.`,
+  FONDSBEWEGUNG_ABWEICHEND: (p) => `The movement ${w(p, "schluessel")} is already imported but differs; it is not changed.`,
+  KONTROLLSUMME_STICHTAG: () => "The NAV needs a reporting date; without one the fund's default reporting date applies.",
+  KONTROLLSUMME_ABWEICHEND: (p) => `The total according to the source (${p.quelle ?? ""}) differs from the total after the import (${p.uebernahme ?? ""}).`,
+  ABRUFE_UEBER_ZEICHNUNGSKAPITAL: (p) => `The capital calls of the fund ${w(p, "fonds")} (${p.summe ?? ""}) exceed the subscribed capital (${p.kapital ?? ""}).`,
+  ZUSAGEN_UEBER_ZEICHNUNGSKAPITAL: (p) => `The commitments of the fund ${w(p, "fonds")} (${p.summe ?? ""}) exceed the subscribed capital (${p.kapital ?? ""}).`,
+  FONDS_ABWEICHEND: (p) => `The fund ${w(p, "schluessel")} already exists with different master data; it is not overwritten.`,
+  ORGANISATION_ABWEICHEND: (p) => `The organisation ${w(p, "schluessel")} already exists with different master data; it is not overwritten.`,
+  BESTEHENDE_ID_UNBEKANNT: () => "No organisation with this ID exists.",
+  ORGANISATION_DUBLETTE_MOEGLICH: (p) => `Similar to ${p.kandidaten ?? "an existing organisation"}. Use “bestehende_id” to reuse it or confirm with “dublette_bestaetigt = ja”.`,
+  ORGANISATION_DOPPELT_IN_DATEI: (p) => `Similar to ${w(p, "name")} in row ${p.zeile ?? "?"} of the same file. Confirm with “dublette_bestaetigt = ja”.`,
+  BETEILIGUNG_ABWEICHEND: (p) => `The holding ${w(p, "schluessel")} already exists with a different fund, organisation or instrument; holdings are not moved.`,
+  BETEILIGUNG_STATUS_ABWEICHEND: (p) => `The status of the holding in the existing data is ${w(p, "bestand")}, the file says ${w(p, "datei")}; it is not changed.`,
+  EXIT_MIT_BUCHWERT: (p) => `The holding ${w(p, "beteiligung")} has the status “exit” but still has a carrying amount of ${w(p, "buchwert")} and outstanding capital of ${w(p, "offenesKapital")} after the import. An exit removes the carrying amount through a full sale; please check the data.`,
+  BETEILIGUNG_VORHANDEN: (p) => `This holding (fund, organisation) already exists${p.id ? ` (${p.id})` : ""}, but without this key.`,
+  INSTRUMENT_UNBEKANNT: (p) => `The holding has no instrument ${w(p, "wert")}.`,
+  INSTRUMENT_MEHRDEUTIG: (p) => `${w(p, "wert")} matches several instruments of the holding; please give the label.`,
+  RUNDE_ABWEICHEND: (p) => `The round ${w(p, "schluessel")} already exists with different values; it is not changed.`,
+  POSITION_ABWEICHEND: () => "This position already exists with different values; it is not changed.",
+  KEINE_BERECHTIGUNG_FONDS: (p) => `You lack the required permission for the fund that ${w(p, "wert")} belongs to. The record is not checked.`,
+  FONDS_NEU_NUR_VERWALTER: () => "Only global administrators create new funds.",
+};
+
+export function englischerImportBefund(code: string, params: unknown) {
+  const werte = params && typeof params === "object"
+    ? Object.fromEntries(Object.entries(params).filter(([, wert]) => typeof wert === "number" || typeof wert === "string")) as BefundParams
+    : {};
+  const text = Object.hasOwn(importBefundText, code) ? importBefundText[code] : undefined;
+  return text?.(werte) ?? "The import validation found an issue with this entry.";
+}

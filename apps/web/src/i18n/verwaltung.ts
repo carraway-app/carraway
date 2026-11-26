@@ -4,7 +4,7 @@ export const verwaltungDe = {
   etikett: "Verwaltung",
   titel: "Benutzer, Rechte und Sperren",
   bereiche: "Bereiche der Verwaltung",
-  reiter: { benutzer: "Benutzer", investoren: "Investoren", rollen: "Rollen je Fonds", rechte: "Rollen und Gruppen", schluessel: "API-Schlüssel", sperre: "Periodensperre", kennzahlen: "Kennzahlen", daten: "Export und API", meldewesen: "Meldewesen", kurse: "Wechselkurse", betrieb: "Betrieb" },
+  reiter: { benutzer: "Benutzer", investoren: "Investoren", rollen: "Rollen je Fonds", rechte: "Rollen und Gruppen", schluessel: "API-Schlüssel", sperre: "Periodensperre", kennzahlen: "Kennzahlen", daten: "Export und API", meldewesen: "Meldewesen", profil: "Manager-Profil", kurse: "Wechselkurse", kontaktabgleich: "Kontakte aus Postfach", betrieb: "Betrieb", mail: "Mailversand" },
   gruppen: { zugaenge: "Zugänge", vorgaben: "Fachliche Vorgaben", betrieb: "Betrieb" },
   fonds: "Fonds",
   einladung: {
@@ -244,6 +244,7 @@ export const verwaltungDe = {
   schluessel: {
     titel: "API-Schlüssel",
     einleitung: "Für Programme, die Daten lesen oder erfassen. Ein Schlüssel hat nur Lese- oder Schreibrechte an den gewählten Fonds und kann nie freigeben.",
+    api: { titel: "API-Hilfe", text: "Die Schnittstelle liest und erfasst Daten wie die Anwendung, mit einem der Schlüssel oben. Die Dokumentation beschreibt Pfade, Felder und Fehlercodes.", basis: "Basis-Adresse", doku: "API-Dokumentation öffnen", spec: "openapi.json öffnen" },
     anlegen: "Schlüssel anlegen",
     keine: "Es gibt noch keinen API-Schlüssel.",
     spalten: { name: "Name", vorschau: "Beginnt mit", rechte: "Rechte", ablauf: "Läuft ab", genutzt: "Zuletzt genutzt", status: "Status", aktion: "Aktion" },

@@ -1,3 +1,4 @@
+import { kontaktJson, pruefeKontakt } from "../kontakte/http";
 import { and, asc, desc, eq, inArray, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
 import { Hono, type Context } from "hono";
 import { z } from "zod";
@@ -7,7 +8,6 @@ import { schreibeErwaehnungen } from "../crm/verknuepfungen";
 import { Fachfehler } from "../fehler";
 import { aktivitaetMitHerkunft } from "../postfach/abgleich";
 import { protokollSicht } from "../postfach/sync";
-import { pruefe } from "../pruefung";
 import { hatBereich } from "../rechte/bereiche";
 import { dealSichtbar } from "../rechte/sichtbarkeit";
 import { heute, idParam, ladeDeal, ladeOrganisation, ladePerson, optionalerText, schreibe, textEingabe } from "../schreiben";
@@ -27,16 +27,16 @@ const neueAktivitaet = z
     zustaendigId: z.uuid().optional(),
   })
   .refine((w) => w.organisationId || w.personId || w.dealId, {
-    message: "Mindestens eine Verknüpfung (organisationId, personId oder dealId) angeben",
+    message: "At least one link (organizationId, personId or dealId) must be given",
     path: ["organisationId"],
   })
-  .refine((w) => w.zustaendigId === undefined || w.wiedervorlage !== undefined, { message: "zustaendigId gilt nur mit wiedervorlage", path: ["zustaendigId"] });
+  .refine((w) => w.zustaendigId === undefined || w.wiedervorlage !== undefined, { message: "assigneeId requires followUp", path: ["zustaendigId"] });
 
 export function aktivitaetRouten(db: Db) {
   return new Hono()
     .get(
       "/",
-      pruefe(
+      pruefeKontakt(
         "query",
         z.object({ dealId: z.uuid().optional(), organisationId: z.uuid().optional(), personId: z.uuid().optional(), limit: z.coerce.number().int().min(1).max(500).default(200) }),
       ),
@@ -58,10 +58,10 @@ export function aktivitaetRouten(db: Db) {
             .orderBy(desc(aktivitaet.datum), desc(aktivitaet.erstelltAm), asc(aktivitaet.id))
             .limit(limit),
         );
-        return c.json({ daten: zeilen }, 200);
+        return kontaktJson(c, { daten: zeilen }, 200);
       },
     )
-    .post("/", pruefe("json", neueAktivitaet), async (c) => {
+    .post("/", pruefeKontakt("json", neueAktivitaet), async (c) => {
       const { zustaendigId, ...werte } = c.req.valid("json");
       const akteur = aktuellerAkteur(c);
       const neu = await schreibe(db, c, async (tx, protokoll) => {
@@ -73,7 +73,7 @@ export function aktivitaetRouten(db: Db) {
           zustaendig = zustaendigId ?? akteur.id;
           if (zustaendigId) {
             const [b] = await tx.select({ aktiv: benutzer.aktiv, technisch: benutzer.technisch }).from(benutzer).where(eq(benutzer.id, zustaendigId));
-            if (!b || !b.aktiv || b.technisch) throw new Fachfehler(400, "ZUSTAENDIG_UNGUELTIG", "Zuständig kann nur eine aktive angemeldete Person sein.");
+            if (!b || !b.aktiv || b.technisch) throw new Fachfehler(400, "assignee_invalid", "Only an active signed-in person can be the assignee.");
           }
         }
         const [zeile] = await tx.insert(aktivitaet).values({ ...werte, zustaendig }).returning();
@@ -88,52 +88,52 @@ export function aktivitaetRouten(db: Db) {
         await schreibeErwaehnungen(tx, zeile.id, von, werte.notiz);
         return zeile;
       });
-      return c.json(neu, 201);
+      return kontaktJson(c, neu, 201);
     })
     /**
      * Entfernt eine synchronisierte Mail oder einen Termin (Etappe 17): nur die Person, deren Abgleich sie angelegt hat. Der Abgleich holt das Element
      * danach für diese Person nicht erneut (Ausschluss über den Hash der Nachrichten- oder Termin-ID, ohne Inhalt).
      */
-    .post("/:id/sync-entfernen", pruefe("param", idParam), async (c) => {
+    .post("/:id/remove-sync", pruefeKontakt("param", idParam), async (c) => {
       const { id } = c.req.valid("param");
       const akteur = aktuellerAkteur(c);
       await schreibe(db, c, async (tx, protokoll) => {
         const [vorher] = await tx.select().from(aktivitaet).where(eq(aktivitaet.id, id)).for("update");
-        if (!vorher) throw new Fachfehler(404, "AKTIVITAET_NICHT_GEFUNDEN", "Aktivität nicht gefunden.");
+        if (!vorher) throw new Fachfehler(404, "activity_not_found", "Activity not found.");
         const [herkunft] = await tx.select().from(aktivitaetSync).where(eq(aktivitaetSync.aktivitaetId, id));
-        if (!herkunft) throw new Fachfehler(409, "KEINE_SYNC_AKTIVITAET", "Diese Aktivität stammt nicht aus einer Postfach- oder Kalenderanbindung.");
-        if (herkunft.benutzerId !== akteur.id) throw new Fachfehler(403, "FREMDE_SYNC_AKTIVITAET", "Nur die Person, deren Postfach oder Kalender die Aktivität angelegt hat, kann sie entfernen.");
+        if (!herkunft) throw new Fachfehler(409, "not_synced_activity", "This activity does not come from a mailbox or calendar connection.");
+        if (herkunft.benutzerId !== akteur.id) throw new Fachfehler(403, "synced_activity_foreign", "Only the person whose mailbox or calendar created the activity can remove it.");
         await tx.insert(syncAusschluss).values({ benutzerId: akteur.id, externHash: herkunft.externHash }).onConflictDoNothing();
         await tx.delete(aktivitaet).where(eq(aktivitaet.id, id));
         await protokoll("loeschen", "aktivitaet", id, protokollSicht(vorher), null);
       });
       return c.body(null, 204);
     })
-    .post("/:id/erledigt", pruefe("param", idParam), async (c) => {
+    .post("/:id/complete", pruefeKontakt("param", idParam), async (c) => {
       const { id } = c.req.valid("param");
       const neu = await schreibe(db, c, async (tx, protokoll) => {
         const [vorher] = await tx.select().from(aktivitaet).where(eq(aktivitaet.id, id)).for("update");
-        if (!vorher) throw new Fachfehler(404, "AKTIVITAET_NICHT_GEFUNDEN", "Aktivität nicht gefunden.");
+        if (!vorher) throw new Fachfehler(404, "activity_not_found", "Activity not found.");
         if (!vorher.wiedervorlage || vorher.wiedervorlageErledigtAm) return vorher;
         const [nachher] = await tx.update(aktivitaet).set({ wiedervorlageErledigtAm: new Date() }).where(eq(aktivitaet.id, id)).returning();
         await protokoll("aendern", "aktivitaet", id, vorher, nachher);
         return nachher;
       });
-      return c.json(neu, 200);
+      return kontaktJson(c, neu, 200);
     })
-    .post("/:id/zurueckstellen", pruefe("param", idParam), pruefe("json", z.object({ datum: z.iso.date() })), async (c) => {
+    .post("/:id/reschedule", pruefeKontakt("param", idParam), pruefeKontakt("json", z.object({ datum: z.iso.date() })), async (c) => {
       const { id } = c.req.valid("param");
       const { datum } = c.req.valid("json");
       const neu = await schreibe(db, c, async (tx, protokoll) => {
         const [vorher] = await tx.select().from(aktivitaet).where(eq(aktivitaet.id, id)).for("update");
-        if (!vorher) throw new Fachfehler(404, "AKTIVITAET_NICHT_GEFUNDEN", "Aktivität nicht gefunden.");
-        if (!vorher.wiedervorlage || vorher.wiedervorlageErledigtAm) throw new Fachfehler(409, "KEINE_WIEDERVORLAGE", "Es gibt keine offene Wiedervorlage.");
-        if (datum < heute()) throw new Fachfehler(400, "EINGABE_UNGUELTIG", "Die Eingabe ist ungültig.", { felder: [{ feld: "datum", code: "too_small", meldung: "Das Datum liegt in der Vergangenheit" }] });
+        if (!vorher) throw new Fachfehler(404, "activity_not_found", "Activity not found.");
+        if (!vorher.wiedervorlage || vorher.wiedervorlageErledigtAm) throw new Fachfehler(409, "no_follow_up", "There is no open follow-up.");
+        if (datum < heute()) throw new Fachfehler(400, "invalid_input", "The input is invalid.", { felder: [{ feld: "datum", code: "too_small", meldung: "The date is in the past" }] });
         const [nachher] = await tx.update(aktivitaet).set({ wiedervorlage: datum }).where(eq(aktivitaet.id, id)).returning();
         await protokoll("zurueckstellen", "aktivitaet", id, vorher, nachher);
         return nachher;
       });
-      return c.json(neu, 200);
+      return kontaktJson(c, neu, 200);
     });
 }
 
@@ -182,23 +182,24 @@ async function ladeWiedervorlagen(tx: Tx, c: Context, bis: string, zustaendigId?
  */
 export function wiedervorlageRouten(db: Db) {
   return new Hono()
-    .get("/anzahl", async (c) => {
+    .get("/count", async (c) => {
       const akteur = aktuellerAkteur(c);
       // Der Zähler steht in der Kopfzeile jeder Seite: ohne Bereich Kontakte (Rechtemodell) nichts zählen statt 403.
-      if (!hatBereich(akteur, "kontakte")) return c.json({ ueberfaellig: 0, heute: 0, gesamt: 0 }, 200);
+      if (!hatBereich(akteur, "kontakte")) return kontaktJson(c, { ueberfaellig: 0, heute: 0, gesamt: 0 }, 200);
       const heuteIso = heute();
       const zeilen = await lese(db, (tx) => ladeWiedervorlagen(tx, c, heuteIso, akteur.id));
       const ueberfaellig = zeilen.filter((z) => z.ueberfaellig).length;
-      return c.json({ ueberfaellig, heute: zeilen.length - ueberfaellig, gesamt: zeilen.length }, 200);
+      return kontaktJson(c, { ueberfaellig, heute: zeilen.length - ueberfaellig, gesamt: zeilen.length }, 200);
     })
-    .get("/zusammenfassung", async (c) => {
+    .get("/summary", async (c) => {
       const akteur = aktuellerAkteur(c);
       const heuteIso = heute();
       const zeilen = await lese(db, (tx) => ladeWiedervorlagen(tx, c, tage(heuteIso, 7), akteur.id));
       const ueberfaellig = zeilen.filter((z) => z.ueberfaellig);
       const heuteFaellig = zeilen.filter((z) => z.wiedervorlage === heuteIso);
       const kommende = zeilen.filter((z) => z.wiedervorlage !== null && z.wiedervorlage > heuteIso);
-      return c.json(
+      return kontaktJson(
+        c,
         {
           datum: heuteIso,
           benutzer: { id: akteur.id, name: akteur.name },
@@ -210,10 +211,10 @@ export function wiedervorlageRouten(db: Db) {
         200,
       );
     })
-    .get("/", pruefe("query", z.object({ bis: z.iso.date().optional(), zustaendig: z.enum(["ich", "alle"]).default("alle") })), async (c) => {
+    .get("/", pruefeKontakt("query", z.object({ bis: z.iso.date().optional(), zustaendig: z.enum(["ich", "alle"]).default("alle") })), async (c) => {
       const { bis, zustaendig } = c.req.valid("query");
       const akteur = aktuellerAkteur(c);
       const zeilen = await lese(db, (tx) => ladeWiedervorlagen(tx, c, bis ?? heute(), zustaendig === "ich" ? akteur.id : undefined));
-      return c.json({ daten: zeilen }, 200);
+      return kontaktJson(c, { daten: zeilen }, 200);
     });
 }

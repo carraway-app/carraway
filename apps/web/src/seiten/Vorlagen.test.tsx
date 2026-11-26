@@ -6,8 +6,15 @@ import { de } from "../i18n/de";
 import { en } from "../i18n/en";
 
 const URL_VORLAGEN = `/berichte/vorlagen?fondsId=${FONDS_ID}`;
-const PUT_LP = `PUT /api/v1/fonds/${FONDS_ID}/berichtsvorlagen/lp_bericht`;
-const PUT_STUFEN = `PUT /api/v1/fonds/${FONDS_ID}/freigabestufen`;
+const PUT_LP = `PUT /api/v1/funds/${FONDS_ID}/report-templates/lp_report`;
+const PUT_STUFEN = `PUT /api/v1/funds/${FONDS_ID}/approval-stages`;
+
+/** Ordnet per Tastatur: Griff aufnehmen, mit den Pfeiltasten bewegen, ablegen. */
+const ordne = (griff: HTMLElement, ...tasten: string[]) => {
+  fireEvent.keyDown(griff, { key: " " });
+  for (const taste of tasten) fireEvent.keyDown(griff, { key: taste });
+  fireEvent.keyDown(griff, { key: " " });
+};
 
 describe("Vorlagen und Freigabestufen", () => {
   it("ist für Verwalter von der Berichtsliste aus erreichbar", async () => {
@@ -26,7 +33,7 @@ describe("Vorlagen und Freigabestufen", () => {
         gespeichert = anfrage.koerper as Record<string, unknown>;
         return { koerper: { art: "lp_bericht", angepasst: true, konfiguration: gespeichert } };
       },
-      [`/api/v1/fonds/${FONDS_ID}/berichtsvorlagen`]: () => ({ koerper: { daten: vorlagenDaten.daten.map((v) => (v.art === "lp_bericht" && gespeichert ? { ...v, konfiguration: gespeichert } : v)) } }),
+      [`/api/v1/funds/${FONDS_ID}/report-templates`]: () => ({ koerper: { daten: vorlagenDaten.daten.map((v) => (v.art === "lp_bericht" && gespeichert ? { ...v, konfiguration: gespeichert } : v)) } }),
     });
     rendereApp(URL_VORLAGEN);
     const nutzer = userEvent.setup();
@@ -35,12 +42,12 @@ describe("Vorlagen und Freigabestufen", () => {
     // Einheit TEUR ist aus der Vorlage gesetzt
     expect(bereich.getByRole("button", { name: "Tausend Euro" }).getAttribute("aria-pressed")).toBe("true");
     await nutzer.click(bereich.getByRole("button", { name: "Euro" }));
-    await nutzer.click(bereich.getByRole("button", { name: "Nach oben: Kapitalkonten" }));
+    ordne(bereich.getByRole("button", { name: "Eintrag verschieben: Kapitalkonten" }), "ArrowUp");
     await nutzer.click(bereich.getByRole("checkbox", { name: "Herkunft der Zahlen" }));
     await nutzer.click(bereich.getByRole("checkbox", { name: "Zeichnungskapital" }));
     await nutzer.click(bereich.getByRole("button", { name: "Vorlage speichern" }));
-    await waitFor(() => expect(api.anfragen("PUT", `/api/v1/fonds/${FONDS_ID}/berichtsvorlagen/lp_bericht`)).toHaveLength(1));
-    expect(api.anfragen("PUT", `/api/v1/fonds/${FONDS_ID}/berichtsvorlagen/lp_bericht`)[0]!.koerper).toEqual({
+    await waitFor(() => expect(api.anfragen("PUT", `/api/v1/funds/${FONDS_ID}/report-templates/lp_report`)).toHaveLength(1));
+    expect(api.anfragen("PUT", `/api/v1/funds/${FONDS_ID}/report-templates/lp_report`)[0]!.koerper).toEqual({
       einheit: "EUR",
       abschnitte: ["vorwort", "kennzahlen", "kapitalkonten", "marktumfeld", "portfolio", "realisierungen", "bewertung", "ausblick"],
       kennzahlen: ["nav", "tvpi", "zeichnungskapital"],
@@ -60,7 +67,7 @@ describe("Vorlagen und Freigabestufen", () => {
         v.art === "lp_bericht" ? { ...v, erlaubt: { ...v.erlaubt, spalten: ["unternehmen", "bewertung"], kennzahlen: ["nav", "tvpi"] } } : v,
       ),
     };
-    spieleApi({ [`/api/v1/fonds/${FONDS_ID}/berichtsvorlagen`]: { koerper: daten } });
+    spieleApi({ [`/api/v1/funds/${FONDS_ID}/report-templates`]: { koerper: daten } });
     rendereApp(URL_VORLAGEN);
     const bereich = within(await screen.findByRole("region", { name: "Berichtsvorlagen" }));
     await bereich.findByText("Angepasst");
@@ -75,7 +82,7 @@ describe("Vorlagen und Freigabestufen", () => {
       daten: vorlagenDaten.daten.map((v) => (v.art === "lp_bericht" ? { ...v, konfiguration: { ...v.konfiguration, zusatzfelder: [] }, erlaubt: { ...v.erlaubt, zusatzfelder: true } } : v)),
     };
     const api = spieleApi({
-      [`/api/v1/fonds/${FONDS_ID}/berichtsvorlagen`]: { koerper: daten },
+      [`/api/v1/funds/${FONDS_ID}/report-templates`]: { koerper: daten },
       "/api/v1/zusatzfelder/fonds/definitionen": { koerper: { daten: [definition("fonds", "11111111-1111-4111-8111-111111111111", "Strategie")] } },
       "/api/v1/zusatzfelder/runde/definitionen": { koerper: { daten: [] } },
       "/api/v1/zusatzfelder/instrument/definitionen": { koerper: { daten: [definition("instrument", "22222222-2222-4222-8222-222222222222", "Sicherheit")] } },
@@ -88,8 +95,8 @@ describe("Vorlagen und Freigabestufen", () => {
     await nutzer.click(await bereich.findByRole("checkbox", { name: "Board-Sitz (Beteiligung)" }));
     await nutzer.click(bereich.getByRole("checkbox", { name: "Strategie (Fonds)" }));
     await nutzer.click(bereich.getByRole("button", { name: "Vorlage speichern" }));
-    await waitFor(() => expect(api.anfragen("PUT", `/api/v1/fonds/${FONDS_ID}/berichtsvorlagen/lp_bericht`)).toHaveLength(1));
-    expect(api.anfragen("PUT", `/api/v1/fonds/${FONDS_ID}/berichtsvorlagen/lp_bericht`)[0]!.koerper).toMatchObject({ zusatzfelder: ["33333333-3333-4333-8333-333333333333", "11111111-1111-4111-8111-111111111111"] });
+    await waitFor(() => expect(api.anfragen("PUT", `/api/v1/funds/${FONDS_ID}/report-templates/lp_report`)).toHaveLength(1));
+    expect(api.anfragen("PUT", `/api/v1/funds/${FONDS_ID}/report-templates/lp_report`)[0]!.koerper).toMatchObject({ zusatzfelder: ["33333333-3333-4333-8333-333333333333", "11111111-1111-4111-8111-111111111111"] });
   });
 
   it("setzt Standardwerte ein, ohne zu speichern", async () => {
@@ -101,11 +108,11 @@ describe("Vorlagen und Freigabestufen", () => {
     expect((bereich.getByRole("checkbox", { name: "Rückflüsse" }) as HTMLInputElement).checked).toBe(false);
     await nutzer.click(bereich.getByRole("button", { name: "Standardwerte einsetzen" }));
     expect((bereich.getByRole("checkbox", { name: "Rückflüsse" }) as HTMLInputElement).checked).toBe(true);
-    expect(api.anfragen("PUT", `/api/v1/fonds/${FONDS_ID}/berichtsvorlagen/lp_bericht`)).toHaveLength(0);
+    expect(api.anfragen("PUT", `/api/v1/funds/${FONDS_ID}/report-templates/lp_report`)).toHaveLength(0);
   });
 
   it("Quartalsbericht: Einheit und Abschnitte (mit Kennzahlen des Unternehmens), leere Auswahl wird abgelehnt", async () => {
-    const api = spieleApi({ [`PUT /api/v1/fonds/${FONDS_ID}/berichtsvorlagen/quartalsbericht`]: { koerper: { art: "quartalsbericht", angepasst: true, konfiguration: {} } } });
+    const api = spieleApi({ [`PUT /api/v1/funds/${FONDS_ID}/report-templates/quarterly_report`]: { koerper: { art: "quartalsbericht", angepasst: true, konfiguration: {} } } });
     rendereApp(URL_VORLAGEN);
     const nutzer = userEvent.setup();
     const bereich = within(await screen.findByRole("region", { name: "Berichtsvorlagen" }));
@@ -115,15 +122,15 @@ describe("Vorlagen und Freigabestufen", () => {
     await nutzer.click(bereich.getByRole("button", { name: "Tausend Euro" }));
     await nutzer.click(bereich.getByRole("checkbox", { name: "Vorgänge des Quartals" }));
     await nutzer.click(bereich.getByRole("button", { name: "Vorlage speichern" }));
-    await waitFor(() => expect(api.anfragen("PUT", `/api/v1/fonds/${FONDS_ID}/berichtsvorlagen/quartalsbericht`)).toHaveLength(1));
-    expect(api.anfragen("PUT", `/api/v1/fonds/${FONDS_ID}/berichtsvorlagen/quartalsbericht`)[0]!.koerper).toEqual({ einheit: "TEUR", abschnitte: ["bewertungsverlauf", "unternehmenskennzahlen"], kennzahlen: [], spalten: [], unternehmenskennzahlen: [] });
+    await waitFor(() => expect(api.anfragen("PUT", `/api/v1/funds/${FONDS_ID}/report-templates/quarterly_report`)).toHaveLength(1));
+    expect(api.anfragen("PUT", `/api/v1/funds/${FONDS_ID}/report-templates/quarterly_report`)[0]!.koerper).toEqual({ einheit: "TEUR", abschnitte: ["bewertungsverlauf", "unternehmenskennzahlen"], kennzahlen: [], spalten: [], unternehmenskennzahlen: [] });
 
     await nutzer.selectOptions(bereich.getByLabelText("Berichtsart"), "portfolioliste");
     await nutzer.click(await bereich.findByRole("button", { name: "Standardwerte einsetzen" }));
     for (const box of bereich.getAllByRole("checkbox")) if ((box as HTMLInputElement).checked) await nutzer.click(box);
     await nutzer.click(bereich.getByRole("button", { name: "Vorlage speichern" }));
     expect(await bereich.findByText(de.vorlagen.vorlage.mindestensEins)).toBeTruthy();
-    expect(api.anfragen("PUT", `/api/v1/fonds/${FONDS_ID}/berichtsvorlagen/portfolioliste`)).toHaveLength(0);
+    expect(api.anfragen("PUT", `/api/v1/funds/${FONDS_ID}/report-templates/portfolio_list`)).toHaveLength(0);
   });
 
   it("Quartalsbericht: Kennzahlen des Unternehmens aus der Auswahl des Fonds wählen und mitspeichern", async () => {
@@ -134,7 +141,7 @@ describe("Vorlagen und Freigabestufen", () => {
     ] };
     const api = spieleApi({
       [`/api/v1/fonds/${FONDS_ID}/kennzahlen/auswahl`]: { koerper: auswahl },
-      [`PUT /api/v1/fonds/${FONDS_ID}/berichtsvorlagen/quartalsbericht`]: { koerper: { art: "quartalsbericht", angepasst: true, konfiguration: {} } },
+      [`PUT /api/v1/funds/${FONDS_ID}/report-templates/quarterly_report`]: { koerper: { art: "quartalsbericht", angepasst: true, konfiguration: {} } },
     });
     rendereApp(URL_VORLAGEN);
     const nutzer = userEvent.setup();
@@ -144,17 +151,17 @@ describe("Vorlagen und Freigabestufen", () => {
     expect(gruppe.getByRole("checkbox", { name: "Umsatz" })).toBeTruthy();
     await nutzer.click(gruppe.getByRole("checkbox", { name: "EBITDA" }));
     await nutzer.click(gruppe.getByRole("checkbox", { name: "Umsatz" }));
-    await nutzer.click(gruppe.getByRole("button", { name: "Nach oben: EBITDA" }));
+    ordne(gruppe.getByRole("button", { name: "Eintrag verschieben: EBITDA" }), "ArrowUp");
     await nutzer.click(bereich.getByRole("button", { name: "Vorlage speichern" }));
-    await waitFor(() => expect(api.anfragen("PUT", `/api/v1/fonds/${FONDS_ID}/berichtsvorlagen/quartalsbericht`)).toHaveLength(1));
-    expect(api.anfragen("PUT", `/api/v1/fonds/${FONDS_ID}/berichtsvorlagen/quartalsbericht`)[0]!.koerper).toMatchObject({ unternehmenskennzahlen: ["ebitda", "umsatz"] });
+    await waitFor(() => expect(api.anfragen("PUT", `/api/v1/funds/${FONDS_ID}/report-templates/quarterly_report`)).toHaveLength(1));
+    expect(api.anfragen("PUT", `/api/v1/funds/${FONDS_ID}/report-templates/quarterly_report`)[0]!.koerper).toMatchObject({ unternehmenskennzahlen: ["ebitda", "umsatz"] });
     // Ohne den Abschnitt gibt es die Auswahl nicht.
     await nutzer.click(bereich.getByRole("checkbox", { name: "Kennzahlen des Unternehmens" }));
     expect(bereich.queryByRole("group", { name: de.vorlagen.vorlage.unternehmenskennzahlen })).toBeNull();
   });
 
   it("zeigt Feldfehler der API", async () => {
-    spieleApi({ [PUT_LP]: fehler(400, "EINGABE_UNGUELTIG", { felder: [{ feld: "abschnitte", code: "custom", meldung: "x" }] }) });
+    spieleApi({ [PUT_LP]: fehler(400, "invalid_input", { felder: [{ feld: "abschnitte", code: "custom", meldung: "x" }] }) });
     rendereApp(URL_VORLAGEN);
     const nutzer = userEvent.setup();
     const bereich = within(await screen.findByRole("region", { name: "Berichtsvorlagen" }));
@@ -164,7 +171,7 @@ describe("Vorlagen und Freigabestufen", () => {
   });
 
   it("bearbeitet die Stufen: umbenennen, ergänzen, keine doppelten Namen, speichern", async () => {
-    const api = spieleApi({ [PUT_STUFEN]: { koerper: { stufen: [] } } });
+    const api = spieleApi({ [PUT_STUFEN]: { koerper: { stages: [] } } });
     rendereApp(URL_VORLAGEN);
     const nutzer = userEvent.setup();
     const bereich = within(await screen.findByRole("region", { name: "Freigabestufen" }));
@@ -178,16 +185,16 @@ describe("Vorlagen und Freigabestufen", () => {
     fireEvent.change(bereich.getByLabelText("Name der Stufe 4"), { target: { value: "teamleitung" } });
     await nutzer.click(bereich.getByRole("button", { name: "Stufen speichern" }));
     expect(await bereich.findByText(de.vorlagen.stufen.doppelt)).toBeTruthy();
-    expect(api.anfragen("PUT", `/api/v1/fonds/${FONDS_ID}/freigabestufen`)).toHaveLength(0);
+    expect(api.anfragen("PUT", `/api/v1/funds/${FONDS_ID}/approval-stages`)).toHaveLength(0);
     fireEvent.change(bereich.getByLabelText("Name der Stufe 4"), { target: { value: "Aufsicht" } });
-    await nutzer.click(bereich.getByRole("button", { name: "Stufe nach oben: Aufsicht" }));
+    ordne(bereich.getByRole("button", { name: "Stufe verschieben: Aufsicht" }), "ArrowUp");
     await nutzer.click(bereich.getByRole("button", { name: "Stufen speichern" }));
-    await waitFor(() => expect(api.anfragen("PUT", `/api/v1/fonds/${FONDS_ID}/freigabestufen`)).toHaveLength(1));
-    expect(api.anfragen("PUT", `/api/v1/fonds/${FONDS_ID}/freigabestufen`)[0]!.koerper).toEqual({ stufen: ["Fachbereich", "Teamleitung", "Aufsicht", "Geschäftsführung"] });
+    await waitFor(() => expect(api.anfragen("PUT", `/api/v1/funds/${FONDS_ID}/approval-stages`)).toHaveLength(1));
+    expect(api.anfragen("PUT", `/api/v1/funds/${FONDS_ID}/approval-stages`)[0]!.koerper).toEqual({ stages: ["Fachbereich", "Teamleitung", "Aufsicht", "Geschäftsführung"] });
   });
 
   it("erlaubt keine Stufe unter zwei und keine über sechs", async () => {
-    spieleApi({ [`/api/v1/fonds/${FONDS_ID}/freigabestufen`]: { koerper: { stufen: ["A", "B"] } } });
+    spieleApi({ [`/api/v1/funds/${FONDS_ID}/approval-stages`]: { koerper: { stages: ["A", "B"] } } });
     rendereApp(URL_VORLAGEN);
     const nutzer = userEvent.setup();
     const bereich = within(await screen.findByRole("region", { name: "Freigabestufen" }));
@@ -198,14 +205,14 @@ describe("Vorlagen und Freigabestufen", () => {
   });
 
   it("zeigt Freigebern und Bearbeitern nur den Hinweis ohne Formulare, in beiden Sprachen", async () => {
-    spieleApi({ "/api/v1/ich": alsRolle("freigeber") });
+    spieleApi({ "/api/v1/me": alsRolle("freigeber") });
     const { unmount } = rendereApp(URL_VORLAGEN);
     expect(await screen.findByText(de.vorlagen.nurVerwalter)).toBeTruthy();
     expect(screen.queryByRole("region", { name: "Berichtsvorlagen" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Stufen speichern" })).toBeNull();
     unmount();
 
-    spieleApi({ "/api/v1/ich": alsRolle("freigeber") });
+    spieleApi({ "/api/v1/me": alsRolle("freigeber") });
     localStorage.setItem("carraway.sprache", "en");
     rendereApp("/berichte");
     await screen.findByRole("heading", { level: 1, name: "Reports" });

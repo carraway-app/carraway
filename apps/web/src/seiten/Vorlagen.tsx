@@ -1,8 +1,8 @@
 import { KeinFonds } from "./Platzhalter";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { getRouteApi, Link } from "@tanstack/react-router";
-import { Auswahl, Button, Feld, Hinweis, Segment, Seitenkopf, Status } from "@carraway/ui";
+import { Auswahl, Button, Feld, Hinweis, Segment, Seitenkopf, SortierbareListe, Status } from "@carraway/ui";
 import { berichtsvorlagen, fondsListe, freigabestufen, type Vorlage } from "../api/abfragen";
 import { kennzahlAuswahl } from "../api/kennzahlen";
 import { zusatzDefinitionen } from "../api/zusatzfelder";
@@ -92,16 +92,6 @@ function VorlagenFuerFonds({ fondsId, fondsName }: { fondsId: string; fondsName:
   );
 }
 
-/** Verschiebt den Eintrag `index` um `schritt` Stellen (−1 nach oben, +1 nach unten). */
-function verschiebe<T>(liste: T[], index: number, schritt: -1 | 1): T[] {
-  const ziel = index + schritt;
-  if (ziel < 0 || ziel >= liste.length) return liste;
-  const kopie = [...liste];
-  const [eintrag] = kopie.splice(index, 1);
-  kopie.splice(ziel, 0, eintrag as T);
-  return kopie;
-}
-
 function StufenEditor({ fondsId }: { fondsId: string }) {
   const t = useT();
   const s = t.vorlagen.stufen;
@@ -124,13 +114,16 @@ function StufenEditor({ fondsId }: { fondsId: string }) {
 function StufenFormular({ speichern, start }: { speichern: ReturnType<typeof useStufenSetzen>; start: string[] }) {
   const t = useT();
   const s = t.vorlagen.stufen;
-  const [namen, setNamenRoh] = useState(start);
+  // Jede Stufe hat eine stabile Kennung, damit die Zeilen beim Ordnen ihre Eingaben behalten.
+  const naechste = useRef(start.length);
+  const [stufen, setStufenRoh] = useState(() => start.map((name, id) => ({ id, name })));
   // Eine weitere Änderung nimmt die Meldung „gespeichert“ zurück.
-  const setNamen: typeof setNamenRoh = (neu) => (speichern.reset(), setNamenRoh(neu));
+  const setStufen: typeof setStufenRoh = (neu) => (speichern.reset(), setStufenRoh(neu));
   const [lokal, setLokal] = useState<string | null>(null);
+  const anzeige = (name: string) => name || s.leerAnzeige;
 
   function absenden() {
-    const getrimmt = namen.map((n) => n.trim());
+    const getrimmt = stufen.map((x) => x.name.trim());
     setLokal(null);
     if (getrimmt.some((n) => n === "")) return setLokal(s.leer);
     if (getrimmt.length < 2) return setLokal(s.minimum);
@@ -149,31 +142,30 @@ function StufenFormular({ speichern, start }: { speichern: ReturnType<typeof use
     >
       {lokal ? <Hinweis variante="fehler">{lokal}</Hinweis> : null}
       <FehlerHinweis fehler={speichern.error} />
-      <ol className="app-stufenliste">
-        {namen.map((name, i) => (
-          <li key={i} className="app-stufenzeile">
-            <Feld label={s.name(i + 1)} autoComplete="off" value={name} onChange={(e) => setNamen((alt) => alt.map((n, j) => (j === i ? e.target.value : n)))} />
-            <div className="app-aktionen__knoepfe">
-              <Button variante="ruhig" disabled={i === 0} aria-label={s.nachOben(name || s.leerAnzeige)} onClick={() => setNamen((alt) => verschiebe(alt, i, -1))}>
-                ↑
-              </Button>
-              <Button variante="ruhig" disabled={i === namen.length - 1} aria-label={s.nachUnten(name || s.leerAnzeige)} onClick={() => setNamen((alt) => verschiebe(alt, i, 1))}>
-                ↓
-              </Button>
-              <Button variante="ruhig" disabled={namen.length <= 2} aria-label={s.entfernen(name || s.leerAnzeige)} onClick={() => setNamen((alt) => alt.filter((_, j) => j !== i))}>
-                ×
-              </Button>
-            </div>
-          </li>
-        ))}
-      </ol>
+      <SortierbareListe
+        className="app-stufenliste"
+        aria-label={s.titel}
+        eintraege={stufen}
+        schluessel={(x) => String(x.id)}
+        name={(x) => anzeige(x.name)}
+        onAendern={setStufen}
+        texte={{ griff: s.griff, hinweis: s.bedienung, aufgenommen: s.aufgenommen, verschoben: s.verschoben, abgelegt: s.abgelegt, abgebrochen: s.abgebrochen }}
+        zeile={(x) => (
+          <div className="app-stufenzeile">
+            <Feld label={s.name(stufen.findIndex((y) => y.id === x.id) + 1)} autoComplete="off" value={x.name} onChange={(e) => setStufen((alt) => alt.map((y) => (y.id === x.id ? { ...y, name: e.target.value } : y)))} />
+            <Button variante="ruhig" disabled={stufen.length <= 2} aria-label={s.entfernen(anzeige(x.name))} onClick={() => setStufen((alt) => alt.filter((y) => y.id !== x.id))}>
+              ×
+            </Button>
+          </div>
+        )}
+      />
       {speichern.isSuccess ? (
         <p className="app-leer-text" role="status">
           {s.gespeichert}
         </p>
       ) : null}
       <div className="app-aktionen__knoepfe">
-        <Button variante="sekundaer" disabled={namen.length >= 6} onClick={() => setNamen((alt) => [...alt, ""])}>
+        <Button variante="sekundaer" disabled={stufen.length >= 6} onClick={() => setStufen((alt) => [...alt, { id: naechste.current++, name: "" }])}>
           {s.hinzufuegen}
         </Button>
         <Button type="submit" disabled={speichern.isPending}>
@@ -340,23 +332,22 @@ function Auswahlliste({ titel, alle, gewaehlt, name, onChange }: { titel: string
     <fieldset className="app-gruppe">
       <legend className="cw-feld__label">{titel}</legend>
       <span className="cw-feld__hilfe">{v.reihenfolgeHilfe}</span>
+      <SortierbareListe
+        className="app-liste"
+        aria-label={titel}
+        eintraege={gewaehlt}
+        schluessel={(x) => x}
+        name={name}
+        onAendern={onChange}
+        texte={{ griff: v.griff, hinweis: v.bedienung, aufgenommen: v.aufgenommen, verschoben: v.verschoben, abgelegt: v.abgelegt, abgebrochen: v.abgebrochen }}
+        zeile={(x) => (
+          <label className="app-haken">
+            <input type="checkbox" checked onChange={() => onChange(gewaehlt.filter((g) => g !== x))} />
+            <span>{name(x)}</span>
+          </label>
+        )}
+      />
       <ul className="app-liste">
-        {gewaehlt.map((x, i) => (
-          <li key={x} className="app-reihenfolge">
-            <label className="app-haken">
-              <input type="checkbox" checked onChange={() => onChange(gewaehlt.filter((g) => g !== x))} />
-              <span>{name(x)}</span>
-            </label>
-            <div className="app-aktionen__knoepfe">
-              <Button variante="ruhig" disabled={i === 0} aria-label={v.nachOben(name(x))} onClick={() => onChange(verschiebe(gewaehlt, i, -1))}>
-                ↑
-              </Button>
-              <Button variante="ruhig" disabled={i === gewaehlt.length - 1} aria-label={v.nachUnten(name(x))} onClick={() => onChange(verschiebe(gewaehlt, i, 1))}>
-                ↓
-              </Button>
-            </div>
-          </li>
-        ))}
         {uebrige.map((x) => (
           <li key={x} className="app-reihenfolge">
             <label className="app-haken">

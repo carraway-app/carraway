@@ -380,6 +380,23 @@ describe("Prüfregeln ohne Bestand", () => {
     expect(codes(b)).toEqual(expect.arrayContaining(["KAPITALISIERT_NUR_ZINS", "BEGRUENDUNG_FEHLT", "KONDITION_GEWINN_PAAR"]));
   });
 
+  it("Optionsscheine: Anzahl, Ausübungspreis und Ausgabe nötig, Felder nur bei Optionsscheinen, Laufzeit nicht vor der Ausgabe", async () => {
+    const b = await pruefe((z) => {
+      z.beteiligungen![0]!.instrument = "optionsschein";
+      z.beteiligungen![0]!.laufzeit_bis = "2020-01-01";
+      z.beteiligungen![0]!.ausgabe_am = "2021-01-01";
+    });
+    expect(codes(b)).toEqual(expect.arrayContaining(["OPTIONSSCHEIN_FELD_FEHLT", "OPTIONSSCHEIN_LAUFZEIT"]));
+    const c = await pruefe((z) => {
+      z.beteiligungen![0]!.ausuebungspreis = "1.5000";
+    });
+    expect(codes(c)).toContain("OPTIONSSCHEIN_FELD_FALSCH");
+    const ok = await pruefe((z) => {
+      Object.assign(z.beteiligungen![0]!, { instrument: "optionsschein", optionsschein_anzahl: "1000", ausuebungspreis: "1.5000", ausgabe_am: "2021-01-01", laufzeit_bis: "2028-01-01" });
+    });
+    expect(codes(ok).filter((x) => x.startsWith("OPTIONSSCHEIN"))).toEqual([]);
+  });
+
   it("Köpfe: fehlende Pflichtspalte, doppelte Spalte, unbekannte Spalte, unbekanntes Blatt", async () => {
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet("Fonds");

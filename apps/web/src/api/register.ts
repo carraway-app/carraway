@@ -1,6 +1,6 @@
+import { auspackenPortfolio, type PortfolioEingabe } from "./abbildung-portfolio";
 import { queryOptions } from "@tanstack/react-query";
-import type { InferRequestType } from "hono/client";
-import { api, auspacken } from "./client";
+import { api } from "./client";
 import { schluessel } from "./abfragen";
 import { useApiMutation } from "./mutationen";
 
@@ -8,13 +8,13 @@ import { useApiMutation } from "./mutationen";
 
 const wurzel = ["register"] as const;
 
-const ladeRegister = (id: string) => auspacken(api.api.v1.organisationen[":id"].register.$get({ param: { id } }));
-const ladeHinweise = async (id: string) => (await auspacken(api.api.v1.beteiligungen[":id"]["register-hinweise"].$get({ param: { id } }))).daten;
-const ladeMeldungen = async (organisationId: string) => (await auspacken(api.api.v1.register.meldungen.$get({ query: { organisationId } }))).daten;
+const ladeRegister = (id: string) => auspackenPortfolio(api.api.v1.organizations[":id"].register.$get, { param: { id } });
+const ladeHinweise = async (id: string) => (await auspackenPortfolio(api.api.v1.investments[":id"]["register-notices"].$get, { param: { id } })).daten;
+const ladeMeldungen = async (organisationId: string) => (await auspackenPortfolio(api.api.v1.register.notifications.$get, { query: { organisationId } })).daten;
 
-const ladeStatus = () => auspacken(api.api.v1.register.status.$get());
-const ladeAlleMeldungen = async (nurUngelesen: boolean) => (await auspacken(api.api.v1.register.meldungen.$get({ query: { ...(nurUngelesen ? { ungelesen: "true" as const } : {}), limit: "100" } }))).daten;
-const ladeSuche = async (frage: { firma?: string; nummer?: string }) => (await auspacken(api.api.v1.register.suche.$get({ query: frage }))).daten;
+const ladeStatus = () => auspackenPortfolio(api.api.v1.register.status.$get);
+const ladeAlleMeldungen = async (nurUngelesen: boolean) => (await auspackenPortfolio(api.api.v1.register.notifications.$get, { query: { ...(nurUngelesen ? { ungelesen: "true" as const } : {}), limit: "100" } })).daten;
+const ladeSuche = async (frage: { firma?: string; nummer?: string }) => (await auspackenPortfolio(api.api.v1.register.search.$get, { query: frage })).daten;
 
 export type RegisterStatus = Awaited<ReturnType<typeof ladeStatus>>;
 export type SammelMeldung = Awaited<ReturnType<typeof ladeAlleMeldungen>>[number];
@@ -22,8 +22,8 @@ export type RegisterTreffer = Awaited<ReturnType<typeof ladeSuche>>[number];
 export type RegisterDaten = Awaited<ReturnType<typeof ladeRegister>>;
 export type RegisterHinweis = Awaited<ReturnType<typeof ladeHinweise>>[number];
 export type RegisterMeldung = Awaited<ReturnType<typeof ladeMeldungen>>[number];
-export type NeuerEintrag = InferRequestType<(typeof api.api.v1.organisationen)[":id"]["register"]["eintraege"]["$post"]>["json"];
-export type NeuesEreignis = InferRequestType<(typeof api.api.v1.organisationen)[":id"]["register"]["ereignisse"]["$post"]>["json"];
+export type NeuerEintrag = PortfolioEingabe<(typeof api.api.v1.organizations)[":id"]["register"]["entries"]["$post"]>["json"];
+export type NeuesEreignis = PortfolioEingabe<(typeof api.api.v1.organizations)[":id"]["register"]["events"]["$post"]>["json"];
 
 export const registerOrganisation = (id: string) => queryOptions({ queryKey: [...wurzel, "organisation", id], queryFn: () => ladeRegister(id) });
 export const registerHinweise = (beteiligungId: string) => queryOptions({ queryKey: [...wurzel, "hinweise", beteiligungId], queryFn: () => ladeHinweise(beteiligungId), retry: false });
@@ -41,56 +41,56 @@ const alles = (organisationId: string) => [wurzel, schluessel.organisationDetail
 
 export const useEintragErfassen = (organisationId: string) =>
   useApiMutation({
-    aufruf: (json: NeuerEintrag) => auspacken(api.api.v1.organisationen[":id"].register.eintraege.$post({ param: { id: organisationId }, json })),
+    aufruf: (json: NeuerEintrag) => auspackenPortfolio(api.api.v1.organizations[":id"].register.entries.$post, { param: { id: organisationId }, json }),
     invalidiert: () => alles(organisationId),
   });
 
 export const useUebernehmen = (organisationId: string) =>
   useApiMutation({
-    aufruf: (felder: ("firma" | "sitz" | "rechtsform" | "geschaeftsfuehrung")[]) => auspacken(api.api.v1.organisationen[":id"].register.uebernehmen.$post({ param: { id: organisationId }, json: { felder } })),
+    aufruf: (felder: ("firma" | "sitz" | "rechtsform" | "geschaeftsfuehrung")[]) => auspackenPortfolio(api.api.v1.organizations[":id"].register.apply.$post, { param: { id: organisationId }, json: { felder } }),
     invalidiert: () => [...alles(organisationId), schluessel.beteiligungen],
   });
 
 export const useEreignisErfassen = (organisationId: string) =>
   useApiMutation({
-    aufruf: (json: NeuesEreignis) => auspacken(api.api.v1.organisationen[":id"].register.ereignisse.$post({ param: { id: organisationId }, json })),
+    aufruf: (json: NeuesEreignis) => auspackenPortfolio(api.api.v1.organizations[":id"].register.events.$post, { param: { id: organisationId }, json }),
     invalidiert: () => alles(organisationId),
   });
 
 export const useEreignisErledigen = (organisationId: string) =>
   useApiMutation({
-    aufruf: (ereignisId: string) => auspacken(api.api.v1.organisationen[":id"].register.ereignisse[":ereignisId"].erledigen.$post({ param: { id: organisationId, ereignisId } })),
+    aufruf: (ereignisId: string) => auspackenPortfolio(api.api.v1.organizations[":id"].register.events[":eventId"].resolve.$post, { param: { id: organisationId, ereignisId } }),
     invalidiert: () => alles(organisationId),
   });
 
 export const useBeobachtung = (organisationId: string) =>
   useApiMutation({
-    aufruf: (aktiv: boolean) => auspacken(api.api.v1.organisationen[":id"].register.beobachtung.$put({ param: { id: organisationId }, json: { aktiv } })),
+    aufruf: (aktiv: boolean) => auspackenPortfolio(api.api.v1.organizations[":id"].register.monitoring.$put, { param: { id: organisationId }, json: { aktiv } }),
     invalidiert: () => alles(organisationId),
   });
 
 export const useRegisterAbruf = (organisationId: string) =>
   useApiMutation({
-    aufruf: () => auspacken(api.api.v1.organisationen[":id"].register.abruf.$post({ param: { id: organisationId }, json: {} })),
+    aufruf: () => auspackenPortfolio(api.api.v1.organizations[":id"].register.fetch.$post, { param: { id: organisationId }, json: {} }),
     invalidiert: () => alles(organisationId),
   });
 
 export const useMeldungGelesen = (organisationId: string) =>
   useApiMutation({
-    aufruf: (id: string) => auspacken(api.api.v1.register.meldungen[":id"].gelesen.$post({ param: { id } })),
+    aufruf: (id: string) => auspackenPortfolio(api.api.v1.register.notifications[":id"]["mark-read"].$post, { param: { id } }),
     invalidiert: () => alles(organisationId),
   });
 
 /** Meldung aus der Gesamtliste als gelesen markieren (kein einzelnes Unternehmen offen). */
 export const useMeldungGelesenGesamt = () =>
   useApiMutation({
-    aufruf: (id: string) => auspacken(api.api.v1.register.meldungen[":id"].gelesen.$post({ param: { id } })),
+    aufruf: (id: string) => auspackenPortfolio(api.api.v1.register.notifications[":id"]["mark-read"].$post, { param: { id } }),
     invalidiert: () => [wurzel],
   });
 
 /** Sammelaktualisierung aus einer JSON- oder CSV-Datei; mit `nurPruefen` wird nichts übernommen. */
 export const useRegisterImport = () =>
   useApiMutation({
-    aufruf: (json: { format: "json" | "csv"; inhalt: string; nurPruefen: boolean }) => auspacken(api.api.v1.register.import.$post({ json })),
+    aufruf: (json: { format: "json" | "csv"; inhalt: string; nurPruefen: boolean }) => auspackenPortfolio(api.api.v1.register.import.$post, { json }),
     invalidiert: () => [wurzel, schluessel.organisationListe],
   });

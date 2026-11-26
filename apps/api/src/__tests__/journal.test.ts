@@ -28,16 +28,16 @@ beforeEach(async () => {
   await db.insert(s.beteiligung).values({ id: B_F2, fondsId: F2, organisationId: ID.orgA, instrument: "offene_beteiligung", erstinvestment: "2025-01-01" });
   await legePersonAn(db, betrachterF1);
   await legePersonAn(db, betrachterF2);
-  const buche = async (beteiligung: string, koerper: object) => (await json(await post(`/beteiligungen/${beteiligung}/vorgaenge`, koerper))).vorgang.id as string;
+  const buche = async (beteiligung: string, koerper: object) => (await json(await post(`/investments/${beteiligung}/transactions`, koerper))).transaction.id as string;
   vorgangIds = {};
-  vorgangIds.zusage = await buche(ID.darlehen, { art: "zusage", valuta: "2025-01-10", betrag: "100000" });
-  vorgangIds.auszahlung = await buche(ID.darlehen, { art: "auszahlung", valuta: "2025-02-10", betrag: "60000" });
-  vorgangIds.falsch = await buche(ID.darlehen, { art: "auszahlung", valuta: "2025-03-10", betrag: "10000" });
-  vorgangIds.rueckfluss = await buche(ID.eigen, { art: "rueckfluss", valuta: "2025-04-10", betrag: "2500.50" });
-  vorgangIds.tilgung = await buche(ID.darlehen, { art: "tilgung", valuta: "2025-05-10", betrag: "5000" });
-  vorgangIds.wertberichtigung = await buche(ID.darlehen, { art: "wertberichtigung", valuta: "2025-06-10", betrag: "1000" });
-  const storno = await json(await post(`/vorgaenge/${vorgangIds.falsch}/storno`, { grund: "Falscher Betrag", valuta: "2025-03-20" }));
-  vorgangIds.storno = storno.storno.id;
+  vorgangIds.zusage = await buche(ID.darlehen, { type: "commitment", valueDate: "2025-01-10", amount: "100000" });
+  vorgangIds.auszahlung = await buche(ID.darlehen, { type: "disbursement", valueDate: "2025-02-10", amount: "60000" });
+  vorgangIds.falsch = await buche(ID.darlehen, { type: "disbursement", valueDate: "2025-03-10", amount: "10000" });
+  vorgangIds.rueckfluss = await buche(ID.eigen, { type: "return_flow", valueDate: "2025-04-10", amount: "2500.50" });
+  vorgangIds.tilgung = await buche(ID.darlehen, { type: "repayment", valueDate: "2025-05-10", amount: "5000" });
+  vorgangIds.wertberichtigung = await buche(ID.darlehen, { type: "impairment", valueDate: "2025-06-10", amount: "1000" });
+  const storno = await json(await post(`/transactions/${vorgangIds.falsch}/reverse`, { reason: "Falscher Betrag", valueDate: "2025-03-20" }));
+  vorgangIds.storno = storno.reversal.id;
   // Zins direkt (Zinsläufe sind eigene Wege): einer ausgezahlt, einer kapitalisiert
   const [zins, kapitalisiert] = await vorgaengeEinfuegen(db, [
       { beteiligungId: ID.darlehen, art: "zins", valuta: "2025-07-10", betrag: "300.00" },
@@ -45,16 +45,16 @@ beforeEach(async () => {
     ]);
   vorgangIds.zins = zins!.id;
   vorgangIds.kapitalisiert = kapitalisiert!.id;
-  const bewegung = async (koerper: object) => (await json(await post(`/fonds/${F1}/buchungen`, { typ: "fondsbewegung", ...koerper }))).bewegung.id as string;
+  const bewegung = async (koerper: object) => (await json(await post(`/funds/${F1}/postings`, { kind: "fund_posting", ...koerper }))).movement.id as string;
   bewegungIds = {};
-  bewegungIds.abruf = await bewegung({ art: "abruf", valuta: "2025-02-01", betrag: "1000000" });
-  bewegungIds.ausschuettung = await bewegung({ art: "ausschuettung", valuta: "2025-09-01", betrag: "50000" });
+  bewegungIds.abruf = await bewegung({ type: "capital_call", valueDate: "2025-02-01", amount: "1000000" });
+  bewegungIds.ausschuettung = await bewegung({ type: "distribution", valueDate: "2025-09-01", amount: "50000" });
   await db.insert(s.bewertung).values({ beteiligungId: ID.eigen, stichtag: "2025-06-30", wert: "900000.00", methode: "anschaffungskosten", status: "freigegeben", freigegebenVon: "x", freigegebenAm: new Date("2025-07-05T10:00:00Z"), erstelltVon: "y" });
   await db.insert(s.verkauf).values({ beteiligungId: ID.wandel, datum: "2025-10-01", anteilVerkauft: "1", kaufpreis: "7000.00", kosten: "0", buchwertVorher: "0", buchwertAbgang: "0", erloes: "7000.00", ergebnis: "7000.00", barzufluss: "7000.00", schritte: [] });
   await post(`/beteiligungen/${ID.eigen}/insolvenz`, { datum: "2025-11-01" });
   // Von anderen Quellen: Import und Fonds Zwei
   await db.insert(s.importZuordnung).values({ objekt: "vorgang", schluessel: "k1", datensatzId: vorgangIds.zins! });
-  await post(`/beteiligungen/${B_F2}/vorgaenge`, { art: "zusage", valuta: "2025-01-11", betrag: "5" });
+  await post(`/investments/${B_F2}/transactions`, { type: "commitment", valueDate: "2025-01-11", amount: "5" });
 });
 afterAll(async () => {
   await leeren(db);
@@ -119,8 +119,8 @@ describe("GET /fonds/:id/journal", () => {
     for (const z of d2.daten) expect(z.herkunft).toEqual({ art: "runde", id: runde.id });
     expect(abschluss.buchungen[0].vorgangIds).toHaveLength(2);
     // Wandlung
-    await post(`/beteiligungen/${ID.wandel}/vorgaenge`, { art: "zusage", valuta: "2026-01-01", betrag: "200000" });
-    await post(`/beteiligungen/${ID.wandel}/vorgaenge`, { art: "auszahlung", valuta: "2026-01-01", betrag: "100000" });
+    await post(`/investments/${ID.wandel}/transactions`, { type: "commitment", valueDate: "2026-01-01", amount: "200000" });
+    await post(`/investments/${ID.wandel}/transactions`, { type: "disbursement", valueDate: "2026-01-01", amount: "100000" });
     await post(`/beteiligungen/${ID.wandel}/konditionen`, { gueltigAb: "2026-01-01", satzFix: "0.06", methode: "30E/360", zinsperiode: "jaehrlich", anker: "2027-01-01" });
     const wandlung = await json(await post(`/beteiligungen/${ID.wandel}/wandlung`, { cutoff: "2026-07-01", zinsenWandeln: true, preisregel: { rundenpreisJeAnteil: "12.5", discount: "0.2" }, nennwertJeAnteil: "1", runde: { neu: { bezeichnung: "Serie B", preMoney: "8000000", postMoney: "10000000", preisJeAnteil: "12.5", anteileGesamtNach: "800000" } } }));
     const d3 = await journal("von=2026-07-01&bis=2026-07-01");

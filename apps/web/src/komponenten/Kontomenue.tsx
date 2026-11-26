@@ -1,6 +1,6 @@
 import { useRouter, type NavigateOptions } from "@tanstack/react-router";
 import { lazy, Suspense, type MouseEvent } from "react";
-import { CaretUpIcon, CodeIcon, GearIcon, GlobeSimpleIcon, LockIcon, Menue, SignOutIcon, type MenueEintrag, type Sprache } from "@carraway/ui";
+import { CaretUpIcon, GearIcon, GlobeSimpleIcon, LockIcon, Menue, SignOutIcon, type MenueEintrag, type Sprache } from "@carraway/ui";
 import { aufzaehlung, useSetzeSprache, useSprache, useT } from "../i18n";
 import { hoechsteRolle, useRechte } from "../lib/rechte";
 import { useAbmelden } from "./abmelden";
@@ -19,7 +19,7 @@ export function initialen(name: string): string {
 
 /**
  * Konto unten links in der Seitenleiste: Avatar und Name öffnen nach oben ein Menü mit Sprache, Thema (System, Hell, Dunkel), Einstellungen, Verwaltung (nur
- * globale Verwalter), API-Hilfe und Abmelden. In der schmalen Leiste bleibt nur der Avatar.
+ * globale Verwalter) und Abmelden. Mailversand und API-Hilfe gehören zur Verwaltung (Bereiche „Mailversand“ und „API-Schlüssel“). In der schmalen Leiste bleibt nur der Avatar.
  */
 export function Kontomenue({ schmal }: { schmal?: boolean }) {
   const t = useT();
@@ -50,13 +50,7 @@ export function Kontomenue({ schmal }: { schmal?: boolean }) {
       ...(i === 0 ? { gruppe: t.konto.sprache } : {}),
     })),
     { id: "einstellungen", label: t.nav.einstellungen, icon: <GearIcon />, trennerDavor: true, ...nach({ to: "/einstellungen/postfach", search: {} }) },
-    ...(ich.globalVerwalter
-      ? [
-          { id: "verwaltung", label: t.nav.verwaltung, icon: <LockIcon />, ...nach({ to: "/verwaltung" }) },
-          { id: "mailversand", label: t.nav.mailversand, icon: <GearIcon />, ...nach({ to: "/verwaltung/mail" }) },
-        ]
-      : []),
-    { id: "api", label: t.konto.apiHilfe, icon: <CodeIcon />, href: "/api/v1/docs", extern: true },
+    ...(ich.globalVerwalter ? [{ id: "verwaltung", label: t.nav.verwaltung, icon: <LockIcon />, ...nach({ to: "/verwaltung" }) }] : []),
     { id: "abmelden", label: t.konto.abmelden, icon: <SignOutIcon />, trennerDavor: true, deaktiviert: laeuft, onClick: () => void abmelden() },
   ];
   return (

@@ -211,8 +211,8 @@ export const datenuebernahmeDe = {
     hilfe: [
       "API-Schlüssel legen Sie unter „API-Schlüssel“ an. Sie schicken ihn als Bearer-Token im Kopf Authorization. Ein Schlüssel hat Rechte je Fonds (lesen oder schreiben) und kann keine Vier-Augen-Freigaben erteilen.",
       "Idempotency-Key: Schicken Sie bei schreibenden Aufrufen einen eigenen, eindeutigen Wert im Kopf Idempotency-Key. Wiederholen Sie einen abgebrochenen Aufruf mit demselben Schlüssel und demselben Inhalt, kommt dieselbe Antwort zurück, ohne dass doppelt gebucht wird. Der Schlüssel gilt 24 Stunden, je Person. Derselbe Schlüssel mit anderem Inhalt wird abgelehnt.",
-      "POST /api/v1/stapel: bis zu 100 schreibende Aufrufe in einer Transaktion, alles oder nichts. Jede Operation besteht aus methode, pfad (unter /api/v1) und koerper. Schlägt eine fehl, wird nichts gespeichert, und die Antwort nennt die Fehler je Operation.",
-      "Änderungen abholen: GET /api/v1/aenderungen?seit=… liefert die Änderungen seit einem Zeitpunkt seitenweise, nach Ihren Rechten gefiltert. Die Listen kennen außerdem den Parameter geaendertSeit.",
+      "POST /api/v1/batch: bis zu 100 schreibende Aufrufe in einer Transaktion, alles oder nichts. Jede Operation besteht aus method, path (unter /api/v1) und body. Schlägt eine fehl, wird nichts gespeichert, und die Antwort nennt die Fehler je Operation.",
+      "Änderungen abholen: GET /api/v1/changes?since=… liefert die Änderungen seit einem Zeitpunkt seitenweise, nach Ihren Rechten gefiltert. Die Listen kennen außerdem den Parameter geaendertSeit.",
     ],
   },
 };

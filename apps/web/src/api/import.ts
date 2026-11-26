@@ -1,7 +1,10 @@
 import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
 import { schluessel } from "./abfragen";
-import { api, auspacken, ladeMitSitzung } from "./client";
+import { api } from "./client";
 import { useApiMutation } from "./mutationen";
+import { ausBerichteBereich, bereichAbruf } from "./abbildung-berichte";
+
+const ausImport = ausBerichteBereich("import");
 
 /** Datenübernahme (Etappe 6): Läufe, Befunde, Prüfen und Übernehmen. Alles unter dem Präfix `import`. */
 const wurzel = ["import"] as const;
@@ -48,15 +51,13 @@ export interface Uebernahmeergebnis {
   fonds: FondsSummen[];
 }
 
-const ladeLaeufe = async () => (await auspacken(api.api.v1.import.laeufe.$get())).daten;
-const ladeLauf = (id: string) => auspacken(api.api.v1.import.laeufe[":id"].$get({ param: { id } }));
+const ladeLaeufe = async () => (await ausImport(api.api.v1.import.runs.$get)).daten;
+const ladeLauf = (id: string) => ausImport(api.api.v1.import.runs[":id"].$get, { param: { id } });
 const ladeBefunde = (id: string, filter: BefundFilter, ab: number) =>
-  auspacken(
-    api.api.v1.import.laeufe[":id"].befunde.$get({
+  ausImport(api.api.v1.import.runs[":id"].findings.$get, {
       param: { id },
       query: { ab: String(ab), limit: String(BEFUNDE_JE_SEITE), ...(filter.schweregrad ? { schweregrad: filter.schweregrad } : {}), ...(filter.blatt ? { blatt: filter.blatt } : {}) },
-    }),
-  );
+    });
 
 export type Importlauf = Awaited<ReturnType<typeof ladeLauf>>;
 export type LaufStatus = "hochgeladen" | "geprueft" | "uebernommen";
@@ -84,16 +85,16 @@ export const importBefunde = (id: string, filter: BefundFilter) =>
   });
 
 /** Pfade der Downloads (normale Links; Cookie und Rechte prüft die API). */
-export const vorlageUrl = (sprache: "de" | "en") => `/api/v1/import/vorlage?sprache=${sprache}`;
-export const protokollUrl = (id: string, format: "pdf" | "xlsx", sprache: "de" | "en") => `/api/v1/import/laeufe/${id}/protokoll?format=${format}&sprache=${sprache}`;
+export const vorlageUrl = (sprache: "de" | "en") => `/api/v1/import/template?language=${sprache}`;
+export const protokollUrl = (id: string, format: "pdf" | "xlsx", sprache: "de" | "en") => `/api/v1/import/runs/${id}/log?format=${format}&language=${sprache}`;
 export const EXPORT_URL = "/api/v1/export?format=zip";
 export const DOKU_URL = "/api/v1/docs";
 
-/** Lädt die Datei als multipart-Feld `datei` hoch (kein JSON, deshalb ohne den Hono-Client). */
+/** Lädt die Datei als multipart-Feld `file` hoch (kein JSON, deshalb ohne den Hono-Client). */
 export const ladeHoch = (datei: File) => {
   const formular = new FormData();
-  formular.append("datei", datei);
-  return auspacken(ladeMitSitzung(`${window.location.origin}/api/v1/import/laeufe`, { method: "POST", body: formular })) as Promise<Importlauf>;
+  formular.append("file", datei);
+  return bereichAbruf("import", "/import/runs", "POST", formular) as Promise<Importlauf>;
 };
 
 export const useLaufHochladen = () =>
@@ -104,13 +105,13 @@ export const useLaufHochladen = () =>
 
 export const useLaufPruefen = (id: string) =>
   useApiMutation({
-    aufruf: () => auspacken(api.api.v1.import.laeufe[":id"].pruefen.$post({ param: { id } })),
+    aufruf: () => ausImport(api.api.v1.import.runs[":id"].validate.$post, { param: { id } }),
     invalidiert: () => [wurzel],
   });
 
 export const useLaufUebernehmen = (id: string) =>
   useApiMutation({
-    aufruf: () => auspacken(api.api.v1.import.laeufe[":id"].uebernehmen.$post({ param: { id } })),
+    aufruf: () => ausImport(api.api.v1.import.runs[":id"].apply.$post, { param: { id } }),
     // Die Übernahme legt Datensätze in allen Bereichen an.
     invalidiert: () => [wurzel, schluessel.fonds, schluessel.beteiligungen, schluessel.organisationen, schluessel.bewertungen, schluessel.zinslaeufe, schluessel.berichte],
   });

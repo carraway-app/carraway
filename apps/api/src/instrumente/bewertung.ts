@@ -31,7 +31,7 @@ export async function letzteBewertung(tx: Tx, beteiligungId: string, stichtag: s
 /** Vier-Augen-Prinzip auf angemeldeten Personen: Die Freigabe verlangt eine andere Benutzer-ID als die Erstellung. */
 export function verlangeAnderenAkteur(erstelltVon: string, akteur: string) {
   if (erstelltVon === akteur) {
-    throw new Fachfehler(409, "VIER_AUGEN_VERLETZT", "Die Freigabe muss von einem anderen Akteur kommen als die Erstellung.");
+    throw new Fachfehler(409, "four_eyes_violated", "The approval must come from a different actor than the creation.");
   }
 }
 
@@ -118,8 +118,8 @@ export interface NeueBewertungEingabe {
 /** Prüft die Regel „Begründung bei allen Methoden außer Anschaffungskosten“. */
 export function pruefeBegruendung(methode: Methode, begruendung: string | null | undefined) {
   if (!METHODEN_OHNE_BEGRUENDUNG.includes(methode) && !begruendung?.trim()) {
-    throw new Fachfehler(400, "EINGABE_UNGUELTIG", "Die Eingabe ist ungültig.", {
-      felder: [{ feld: "begruendung", code: "begruendung_erforderlich", meldung: "Für diese Methode ist eine Begründung erforderlich" }],
+    throw new Fachfehler(400, "invalid_input", "The input is invalid.", {
+      felder: [{ feld: "begruendung", code: "justification_required", meldung: "A justification is required for this method" }],
     });
   }
 }
@@ -133,7 +133,7 @@ export async function legeEntwurfAn(tx: Tx, protokoll: Protokollant, beteiligung
     .select({ id: bewertung.id })
     .from(bewertung)
     .where(and(eq(bewertung.beteiligungId, beteiligungId), eq(bewertung.stichtag, e.stichtag), eq(bewertung.status, "entwurf")));
-  if (offen) throw new Fachfehler(409, "BEWERTUNG_ENTWURF_VORHANDEN", "Zu diesem Stichtag gibt es bereits einen Entwurf.", { bewertungId: offen.id });
+  if (offen) throw new Fachfehler(409, "valuation_draft_exists", "A draft already exists for this as-of date.", { bewertungId: offen.id });
   const geltend = await aktuelleFreigegeben(tx, beteiligungId, e.stichtag);
   const [neu] = await tx
     .insert(bewertung)
@@ -164,12 +164,12 @@ export async function legeEntwurfAn(tx: Tx, protokoll: Protokollant, beteiligung
  */
 export async function gibBewertungFrei(tx: Tx, protokoll: Protokollant, bewertungId: string) {
   const [vorab] = await tx.select().from(bewertung).where(eq(bewertung.id, bewertungId));
-  if (!vorab) throw new Fachfehler(404, "BEWERTUNG_NICHT_GEFUNDEN", "Bewertung nicht gefunden.");
+  if (!vorab) throw new Fachfehler(404, "valuation_not_found", "Valuation not found.");
   const b = await sperreBeteiligung(tx, vorab.beteiligungId);
   const [vorher] = await tx.select().from(bewertung).where(eq(bewertung.id, bewertungId)).for("update");
-  if (!vorher) throw new Fachfehler(404, "BEWERTUNG_NICHT_GEFUNDEN", "Bewertung nicht gefunden.");
+  if (!vorher) throw new Fachfehler(404, "valuation_not_found", "Valuation not found.");
   if (vorher.status !== "entwurf") {
-    throw new Fachfehler(409, "BEWERTUNG_STATUS_UNGUELTIG", `Die Bewertung hat den Status „${vorher.status}“.`, { status: vorher.status });
+    throw new Fachfehler(409, "valuation_status_invalid", `The valuation has the status "${vorher.status}".`, { status: vorher.status });
   }
   verlangeAnderenAkteur(vorher.erstelltVon, protokoll.akteur);
   // Freigabe und Ersetzung buchen einen Wert zum Stichtag: in gesperrter Periode nicht erlaubt (zusätzlich der Trigger).
@@ -203,11 +203,11 @@ export interface EntwurfAenderung {
  */
 export async function aendereEntwurf(tx: Tx, protokoll: Protokollant, bewertungId: string, e: EntwurfAenderung) {
   const [vorab] = await tx.select().from(bewertung).where(eq(bewertung.id, bewertungId));
-  if (!vorab) throw new Fachfehler(404, "BEWERTUNG_NICHT_GEFUNDEN", "Bewertung nicht gefunden.");
+  if (!vorab) throw new Fachfehler(404, "valuation_not_found", "Valuation not found.");
   const b = await sperreBeteiligung(tx, vorab.beteiligungId);
   const [vorher] = await tx.select().from(bewertung).where(eq(bewertung.id, bewertungId)).for("update");
   if (!vorher || vorher.status !== "entwurf") {
-    throw new Fachfehler(409, "BEWERTUNG_STATUS_UNGUELTIG", `Die Bewertung hat den Status „${vorher?.status ?? "?"}“.`, { status: vorher?.status ?? null });
+    throw new Fachfehler(409, "valuation_status_invalid", `The valuation has the status "${vorher?.status ?? "?"}".`, { status: vorher?.status ?? null });
   }
   await pruefePeriodensperre(tx, b.fondsId, vorher.stichtag);
   const methode = e.methode ?? vorher.methode;
@@ -231,11 +231,11 @@ export async function aendereEntwurf(tx: Tx, protokoll: Protokollant, bewertungI
 
 export async function verwirfEntwurf(tx: Tx, protokoll: Protokollant, bewertungId: string) {
   const [vorab] = await tx.select().from(bewertung).where(eq(bewertung.id, bewertungId));
-  if (!vorab) throw new Fachfehler(404, "BEWERTUNG_NICHT_GEFUNDEN", "Bewertung nicht gefunden.");
+  if (!vorab) throw new Fachfehler(404, "valuation_not_found", "Valuation not found.");
   await sperreBeteiligung(tx, vorab.beteiligungId);
   const [vorher] = await tx.select().from(bewertung).where(eq(bewertung.id, bewertungId)).for("update");
   if (!vorher || vorher.status !== "entwurf") {
-    throw new Fachfehler(409, "BEWERTUNG_STATUS_UNGUELTIG", `Die Bewertung hat den Status „${vorher?.status ?? "?"}“.`, { status: vorher?.status ?? null });
+    throw new Fachfehler(409, "valuation_status_invalid", `The valuation has the status "${vorher?.status ?? "?"}".`, { status: vorher?.status ?? null });
   }
   const [nachher] = await tx.update(bewertung).set({ status: "verworfen" }).where(eq(bewertung.id, bewertungId)).returning();
   await protokoll("verwerfen", "bewertung", bewertungId, vorher, nachher);

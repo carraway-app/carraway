@@ -5,7 +5,7 @@ import { ermittleAkteur, fuerBereich, hatIrgendwoRolle, hatRolle, hatRolleOhneFo
 import type { Auth } from "../anmeldung/auth";
 import { Fachfehler } from "../fehler";
 import type { Konfiguration } from "../konfiguration";
-import { lese, type Tx } from "../zeitlimit";
+import { lese, stapelSpeicher, type Tx } from "../zeitlimit";
 import { hatBereich } from "./bereiche";
 import { erstelleRegelwerk, type Aufloesung, type Regel, type Regelwerk, type Ziel } from "./tabelle";
 
@@ -166,7 +166,7 @@ async function wertAus(c: Context, ziel: Ziel, parameter: Record<string, string>
   return typeof roh === "string" && UUID.test(roh) ? roh : undefined;
 }
 
-const keineBerechtigung = () => new Fachfehler(403, "KEINE_BERECHTIGUNG", "Dafür fehlt die Berechtigung.");
+const keineBerechtigung = () => new Fachfehler(403, "forbidden", "You lack permission for this.");
 
 /**
  * Prüft die Rolle an allen Zielen der Regel; ohne Treffer genügt die Rolle an irgendeinem Fonds. `akteur` ist schon auf den Bereich der Regel
@@ -201,30 +201,30 @@ export function relativerPfad(c: Context): string {
 
 /**
  * Meldet an und prüft Rechte für jede Anfrage unter `/api/v1`, nach der Tabelle in `tabelle.ts`:
- * unbekannte Routen → 401 ohne Anmeldung, sonst 403; ohne zweiten Faktor → 403 `ZWEI_FAKTOR_FEHLT` (außer `/ich`);
- * Investor-Benutzer → nur die Portal-Routen, überall sonst 403 `NUR_PORTAL`; Portal-Routen für alle anderen → 403 `KEINE_BERECHTIGUNG`;
- * Freigaben durch technische Benutzer → 403 `TECHNISCHER_BENUTZER`; Bereich nicht in den Rollen der Gruppen oder zu geringe Rolle → 403 `KEINE_BERECHTIGUNG`.
+ * unbekannte Routen → 401 ohne Anmeldung, sonst 403; ohne zweiten Faktor → 403 `two_factor_required` (außer `/me`);
+ * Investor-Benutzer → nur die Portal-Routen, überall sonst 403 `portal_only`; Portal-Routen für alle anderen → 403 `forbidden`;
+ * Freigaben durch technische Benutzer → 403 `technical_user`; Bereich nicht in den Rollen der Gruppen oder zu geringe Rolle → 403 `forbidden`.
  */
 export function rechtePruefung(db: Db, auth: Auth, konfig: Konfiguration, regelwerk: Regelwerk = erstelleRegelwerk()): MiddlewareHandler {
   return async (c, next) => {
     const regel = regelwerk.finde(c.req.method, relativerPfad(c));
     if (regel?.zugriff === "oeffentlich") return next();
 
-    const akteur = await ermittleAkteur(db, auth, konfig, c);
+    const akteur = await ermittleAkteur(db, auth, konfig, c, regel?.werteSchreiben === true && regel.muster.startsWith("/values/"));
     c.set("akteur", akteur);
-    // Ein persönlicher Werteschlüssel (`cww_`) liest nur die Werte-Schnittstelle, nie eine andere Route.
-    if (akteur.quelle === "werteschluessel" && !regel?.muster.startsWith("/werte/")) throw keineBerechtigung();
+    // Werteschlüssel sind auf die Werte-Schnittstelle beschränkt. Schreibrollen gelten nur für ausdrücklich markierte Routen.
+    if (akteur.quelle === "werteschluessel" && !regel?.muster.startsWith("/values/")) throw keineBerechtigung();
     if (!regel) throw keineBerechtigung();
     if (regel.zugriff === "angemeldet") return next();
 
     if (akteur.passwortAendern) {
-      throw new Fachfehler(403, "PASSWORT_AENDERN", "Das Startpasswort muss zuerst geändert werden (POST /auth/change-password).");
+      throw new Fachfehler(403, "password_change_required", "The initial password must be changed first (POST /auth/change-password).");
     }
     if (akteur.zweiFaktorFehlt) {
-      throw new Fachfehler(403, "ZWEI_FAKTOR_FEHLT", "Für den Zugriff muss zuerst ein zweiter Faktor eingerichtet werden.");
+      throw new Fachfehler(403, "two_factor_required", "A second factor must be set up before access.");
     }
     if (regel.nurMensch && akteur.technisch) {
-      throw new Fachfehler(403, "TECHNISCHER_BENUTZER", "Freigaben brauchen eine angemeldete Person; ein API-Schlüssel darf nicht freigeben.");
+      throw new Fachfehler(403, "technical_user", "Approvals require a signed-in person; an API key may not approve.");
     }
     if (regel.zugriff === "investor") {
       // Portal: nur Investor-Benutzer (nie API-Schlüssel, nie interne Benutzer). Die Organisationen prüfen die Handler.
@@ -232,7 +232,14 @@ export function rechtePruefung(db: Db, auth: Auth, konfig: Konfiguration, regelw
       return next();
     }
     if (akteur.investor) {
-      throw new Fachfehler(403, "NUR_PORTAL", "Dieser Zugang gehört zum LP-Portal und hat keinen Zugriff auf die internen Daten.");
+      throw new Fachfehler(403, "portal_only", "This access belongs to the LP portal and has no access to internal data.");
+    }
+    if (regel.leseTransport) {
+      if (akteur.quelle !== "schluessel") throw keineBerechtigung();
+      // Ein Leseprotokoll darf weder im Idempotenzspeicher landen noch daraus mit früheren Rechten beantwortet werden.
+      if (stapelSpeicher.getStore() || c.req.header("Idempotency-Key") !== undefined) {
+        throw new Fachfehler(400, "invalid_input", "This transport requires a standalone request without an Idempotency-Key.");
+      }
     }
     if (regel.zugriff === "globalverwalter") {
       if (!akteur.globalVerwalter) throw keineBerechtigung();
@@ -240,7 +247,7 @@ export function rechtePruefung(db: Db, auth: Auth, konfig: Konfiguration, regelw
     }
     // Bereich der Route (Rechtemodell): Personen in Nutzergruppen nur mit einer Rolle, die ihn enthält. Fehlt die Zuordnung, gilt „alle Bereiche“.
     if (!hatBereich(akteur, regel.bereich ?? "alle")) {
-      throw new Fachfehler(403, "KEINE_BERECHTIGUNG", "Dieser Bereich gehört nicht zu den Rollen der Person.");
+      throw new Fachfehler(403, "forbidden", "This area is not part of the person's roles.");
     }
     // Bereiche je Fonds: Ab hier gelten Stufen nur im Bereich der Route, auch für die Listen und Prüfungen in den Handlern.
     const imBereich = fuerBereich(akteur, regel.bereich ?? "alle");

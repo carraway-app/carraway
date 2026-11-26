@@ -32,7 +32,7 @@ export type Rohzeile = Partial<Record<Spalte, string>>;
 const normKopf = (kopf: string) => kopf.trim().toLowerCase().replace(/[\s-]+/g, "_").replace(/^_+|_+$/g, "");
 
 function ungueltig(grund: string): Fachfehler {
-  return new Fachfehler(400, "IMPORT_UNGUELTIG", "Die Datei lässt sich nicht einlesen.", { grund });
+  return new Fachfehler(400, "import_invalid", "The file cannot be read.", { grund });
 }
 
 // CSV ------------------------------------------------------------------------------------------------------------

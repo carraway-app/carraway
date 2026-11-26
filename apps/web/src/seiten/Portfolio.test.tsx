@@ -34,7 +34,7 @@ describe("Portfolio", () => {
     expect(screen.getByRole("heading", { level: 2, name: "3 Beteiligungen" })).toBeTruthy();
     expect((screen.getByRole("combobox", { name: "Fonds" }) as HTMLSelectElement).value).toBe(FONDS_ID);
     // Fondsliste und Übersicht werden je einmal geholt, nicht mehrfach
-    expect(fetch.mock.calls.filter(([u]) => String(u).includes("/uebersicht"))).toHaveLength(1);
+    expect(fetch.mock.calls.filter(([u]) => String(u).includes("/overview"))).toHaveLength(1);
   });
 
   it("zeigt den Portfoliowert auch bei fehlenden Bilanzsalden", async () => {
@@ -156,7 +156,7 @@ describe("Portfolio", () => {
     expect(await screen.findByRole("cell", { name: /12,34/ })).toBeTruthy();
     expect(fetch.anfragen("GET", `/api/v1/beteiligungen/${BET_ID}/bewertungen`).at(-1)?.query.get("stand")).toBe(stand);
     expect(fetch.anfragen("GET", `/api/v1/beteiligungen/${BET_ID}/bewertungen`).at(-1)?.query.get("bewertungId")).toBe("w1");
-    expect(fetch.mock.calls.some(([u]) => String(u).includes("nav-einzelwerte") && new URL(String(u)).searchParams.get("stand") === stand)).toBe(true);
+    expect(fetch.mock.calls.some(([u]) => String(u).includes("nav-components") && new URL(String(u)).searchParams.get("knowledgeDate") === stand)).toBe(true);
   });
 
   it("hält den Tabulator im Dialog", async () => {
@@ -193,17 +193,17 @@ describe("Portfolio", () => {
     await nutzer.clear(feld);
     await nutzer.type(feld, "2026-06-30");
     expect(router.state.location.search).toEqual({ stichtag: "2026-06-30" });
-    expect(fetch.mock.calls.some(([u]) => String(u).includes("stichtag=2026-06-30"))).toBe(true);
+    expect(fetch.mock.calls.some(([u]) => String(u).includes("asOf=2026-06-30"))).toBe(true);
   });
 
   it("zeigt einen übersetzten Fehler zum API-Code und fällt bei unbekannten Codes zurück", async () => {
-    spieleApi({ [`/api/v1/fonds/${FONDS_ID}/uebersicht`]: { status: 404, koerper: { fehler: { code: "FONDS_NICHT_GEFUNDEN", meldung: "x" } } } });
+    spieleApi({ [`/api/v1/fonds/${FONDS_ID}/uebersicht`]: { status: 404, koerper: { error: { code: "fund_not_found", message: "x" } } } });
     rendereApp(url);
     expect((await screen.findByRole("alert")).textContent).toContain("Der Fonds wurde nicht gefunden.");
   });
 
   it("verwendet für unbekannte Fehlercodes die allgemeine Meldung", async () => {
-    spieleApi({ [`/api/v1/fonds/${FONDS_ID}/uebersicht`]: { status: 500, koerper: { fehler: { code: "NEUER_CODE", meldung: "x" } } } });
+    spieleApi({ [`/api/v1/fonds/${FONDS_ID}/uebersicht`]: { status: 500, koerper: { error: { code: "NEUER_CODE", message: "x" } } } });
     rendereApp(url);
     expect((await screen.findByRole("alert")).textContent).toContain("Es ist ein unbekannter Fehler aufgetreten.");
   });
@@ -263,7 +263,7 @@ describe("Snapshot und Wissensstand", () => {
     spieleApi({
       [uebersichtUrl]: { koerper: veraltet },
       [`POST /api/v1/fonds/${FONDS_ID}/neuberechnen`]: () =>
-        fehler(400, "EINGABE_UNGUELTIG", { felder: [{ feld: "stichtag", code: "stichtag_nicht_gespeichert", meldung: "x" }] }),
+        fehler(400, "invalid_input", { felder: [{ feld: "stichtag", code: "as_of_not_stored", meldung: "x" }] }),
     });
     rendereApp(url);
     await userEvent.setup().click(await screen.findByRole("button", { name: "Neu berechnen" }));

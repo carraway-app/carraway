@@ -37,13 +37,13 @@ function datei(): Blattzeilen {
 async function importiere(z: Blattzeilen, als: Testperson = ANNA) {
   const f = new FormData();
   f.append("datei", new File([new Uint8Array(await erzeugeMappe("de", z))], "import.xlsx"));
-  const angelegt = await t.request("/import/laeufe", { method: "POST", body: f, als });
+  const angelegt = await t.request("/import/runs", { method: "POST", body: f, als });
   expect(angelegt.status).toBe(201);
   const id = (await json(angelegt)).id as string;
-  const gepruefte = await json(await t.request(`/import/laeufe/${id}/pruefen`, { method: "POST", als }));
-  const befunde = (await json(await t.request(`/import/laeufe/${id}/befunde?limit=100`, { als }))).daten;
+  const gepruefte = await json(await t.request(`/import/runs/${id}/validate`, { method: "POST", als }));
+  const befunde = (await json(await t.request(`/import/runs/${id}/findings?limit=100`, { als }))).daten;
   expect(gepruefte.fehlerAnzahl, JSON.stringify(befunde.filter((b: { schweregrad: string }) => b.schweregrad === "fehler"))).toBe(0);
-  const antwort = await t.request(`/import/laeufe/${id}/uebernehmen`, { method: "POST", als: BERTA });
+  const antwort = await t.request(`/import/runs/${id}/apply`, { method: "POST", als: BERTA });
   expect(antwort.status, await antwort.clone().text()).toBe(200);
 }
 const zaehle = async (tabelle: string, bedingung = "true") => ((await db.execute(sql.raw(`SELECT count(*)::int AS n FROM ${tabelle} WHERE ${bedingung}`))).rows[0] as { n: number }).n;
@@ -63,10 +63,10 @@ describe("Import neben manuell angelegten Daten", () => {
       body: JSON.stringify({ bezeichnung: "Seed", datum: "2022-01-15", preMoney: "4000000.00", preisJeAnteil: "10.0000", positionen: [{ fondsId, betrag: "1000000", anteile: "100000", rolle: "lead" }] }),
     });
     expect(runde.status).toBe(201);
-    const bewegung = await t.request(`/fonds/${fondsId}/buchungen`, {
+    const bewegung = await t.request(`/funds/${fondsId}/postings`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ typ: "fondsbewegung", art: "abruf", valuta: "2022-02-01", betrag: "100000" }),
+      body: JSON.stringify({ kind: "fund_posting", type: "capital_call", valueDate: "2022-02-01", amount: "100000" }),
     });
     expect(bewegung.status).toBe(201);
     expect(await zaehle("import_zuordnung")).toBe(schluesselVorher);

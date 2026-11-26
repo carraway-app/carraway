@@ -59,7 +59,7 @@ export function erstelleAuth(db: Db, konfig: Konfiguration, oidc: Anmeldeanbiete
       disableSignUp: !konfig.registrierungOffen,
       minPasswordLength: MINDESTLAENGE_PASSWORT,
       maxPasswordLength: 128,
-      // Das Zurücksetzen läuft über `/passwort/vergessen` (`zuruecksetzen.ts`); hier gilt nur das Einlösen des Tokens. Ein Token gilt einmal.
+      // Das Zurücksetzen läuft über `/password/forgot` (`zuruecksetzen.ts`); hier gilt nur das Einlösen des Tokens. Ein Token gilt einmal.
       resetPasswordTokenExpiresIn: 30 * 60,
       revokeSessionsOnPasswordReset: true,
       onPasswordReset: async ({ user }) => {
@@ -90,7 +90,7 @@ export function erstelleAuth(db: Db, konfig: Konfiguration, oidc: Anmeldeanbiete
         if (ctx.path === "/change-password") {
           const { newPassword, currentPassword } = (ctx.body ?? {}) as { newPassword?: unknown; currentPassword?: unknown };
           if (typeof newPassword === "string" && newPassword === currentPassword) {
-            throw new APIError("BAD_REQUEST", { message: "Das neue Passwort muss sich vom bisherigen unterscheiden.", code: "PASSWORT_UNVERAENDERT" });
+            throw new APIError("BAD_REQUEST", { message: "The new password must differ from the previous one.", code: "password_unchanged" });
           }
         }
         // Zuerst die Sperre, dann das Umschreiben: Ein früher Rückgabewert darf die Prüfung nie überspringen.
@@ -98,7 +98,7 @@ export function erstelleAuth(db: Db, konfig: Konfiguration, oidc: Anmeldeanbiete
         const { versuche, fensterMs } = konfig.anmeldeLimit;
         for (const s of schluessel) {
           if ((await fehlversuche(db, s, fensterMs)) >= versuche) {
-            throw new APIError("TOO_MANY_REQUESTS", { message: "Zu viele Fehlversuche. Bitte später erneut versuchen.", code: "ZU_VIELE_VERSUCHE" });
+            throw new APIError("TOO_MANY_REQUESTS", { message: "Too many failed attempts. Please try again later.", code: "too_many_attempts" });
           }
         }
         // Kein "Gerät merken" (Entscheidung 87): Jede Anmeldung verlangt den Code. Ein mitgesendetes `trustDevice` wird

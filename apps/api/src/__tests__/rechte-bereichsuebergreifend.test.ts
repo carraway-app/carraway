@@ -2,9 +2,10 @@ import { randomUUID } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import * as s from "@carraway/db";
+import { STUFE_EN } from "./hilfen-auth";
 import { json, leeren, oeffneTestdb } from "./hilfen";
 import { grundbestand, ID } from "./hilfen-instrumente";
-import { erstelleTestApp, legePersonAn, person, type Testperson } from "./hilfen-auth";
+import { BEREICH_EN, erstelleTestApp, legePersonAn, person, type Testperson } from "./hilfen-auth";
 
 /**
  * Schreibwege, die Daten mehrerer Bereiche berühren, prüfen jeden betroffenen Bereich, nicht nur den der Route (docs/rechte-modell.md,
@@ -33,16 +34,16 @@ const anfrage = (methode: string, pfad: string, als: Testperson | undefined, bod
 const ids: Record<string, string> = {};
 
 async function gruppeMit(name: string, bereiche: string[], stufe: string, mitglied: Testperson) {
-  const r = await anfrage("POST", "/rechte/rollen", undefined, { name: `Rolle ${name}`, bereiche });
+  const r = await anfrage("POST", "/permissions/roles", undefined, { name: `Rolle ${name}`, areas: bereiche.map((b) => BEREICH_EN[b] ?? b) });
   expect(r.status).toBe(201);
-  const g = await anfrage("POST", "/rechte/gruppen", undefined, { name, stufe, rollenIds: [(await json(r)).id], mitglieder: [ids[mitglied.email]] });
+  const g = await anfrage("POST", "/permissions/groups", undefined, { name, level: STUFE_EN[stufe] ?? stufe, roleIds: [(await json(r)).id], memberIds: [ids[mitglied.email]] });
   expect(g.status).toBe(201);
 }
 const zaehle = async (tabelle: string, bedingung = "true") => ((await db.execute(sql.raw(`SELECT count(*)::int AS n FROM ${tabelle} WHERE ${bedingung}`))).rows[0] as { n: number }).n;
 const verweigert = async (antwort: Response, bereich?: string) => {
   expect(antwort.status).toBe(403);
-  const { fehler } = await json(antwort);
-  expect(fehler.code).toBe("KEINE_BERECHTIGUNG");
+  const { error: fehler } = await json(antwort);
+  expect(fehler.code).toBe("forbidden");
   if (bereich) expect(fehler.bereiche).toContain(bereich);
 };
 
@@ -161,17 +162,17 @@ describe("Beteiligung aus einem Deal anlegen", () => {
 
 describe("Stapel", () => {
   it("jede Operation läuft durch dieselbe Rechtsprüfung samt Bereich: ohne Portfolio kein Zusammenführen und keine Beteiligung aus einem Deal", async () => {
-    const antwort = await anfrage("POST", "/stapel", kontaktNurDeals, {
-      operationen: [
-        { methode: "POST", pfad: `/organisationen/${ORG_NEU}/zusammenfuehren`, koerper: { quelleId: ID.orgA } },
-        { methode: "POST", pfad: `/deals/${DEAL}/beteiligung`, koerper: { fondsId: F1, instrument: "offene_beteiligung", erstinvestment: "2025-06-30" } },
-        { methode: "POST", pfad: `/beteiligungen/${ID.eigen}/vorgaenge`, koerper: { art: "zusage", valuta: "2025-01-01", betrag: "1000" } },
+    const antwort = await anfrage("POST", "/batch", kontaktNurDeals, {
+      operations: [
+        { method: "POST", path: `/organisationen/${ORG_NEU}/zusammenfuehren`, body: { quelleId: ID.orgA } },
+        { method: "POST", path: `/deals/${DEAL}/beteiligung`, body: { fondsId: F1, instrument: "offene_beteiligung", erstinvestment: "2025-06-30" } },
+        { method: "POST", path: `/investments/${ID.eigen}/transactions`, body: { type: "commitment", valueDate: "2025-01-01", amount: "1000" } },
       ],
     });
     expect(antwort.status).toBe(409);
-    const { fehler } = await json(antwort);
-    expect(fehler.code).toBe("STAPEL_FEHLGESCHLAGEN");
-    expect(fehler.operationen.map((o: { status: number }) => o.status)).toEqual([403, 403, 403]);
+    const { error: fehler } = await json(antwort);
+    expect(fehler.code).toBe("batch_failed");
+    expect(fehler.operations.map((o: { status: number }) => o.status)).toEqual([403, 403, 403]);
     expect(await zaehle("organisation", `id = '${ID.orgA}' AND zusammengefuehrt_in IS NOT NULL`)).toBe(0);
   });
 });
@@ -185,9 +186,9 @@ describe("Kalenderabonnement", () => {
   const wiedervorlage = (titel: string, benutzerId: string, zusatz: Partial<typeof s.aktivitaet.$inferInsert> = {}) =>
     db.insert(s.aktivitaet).values({ art: "notiz", datum: tag(-3), titel, organisationId: ID.orgA, wiedervorlage: tag(2), zustaendig: benutzerId, ...zusatz });
   const feed = async (als: Testperson) => {
-    const link = await anfrage("POST", "/einstellungen/kalender-link", als);
+    const link = await anfrage("POST", "/settings/calendar-link", als);
     expect(link.status).toBe(201);
-    const antwort = await t.request(`/api/v1/kalender/${(await json(link)).token}.ics`);
+    const antwort = await t.request(`/api/v1/calendar/${(await json(link)).token}.ics`);
     expect(antwort.status).toBe(200);
     return antwort.text();
   };
@@ -214,8 +215,8 @@ describe("Kalenderabonnement", () => {
 
   it("der Bereich wird bei jedem Abruf neu geprüft: Entzug leert den Kalender", async () => {
     await wiedervorlage("Zur Organisation", ids[nurKontakte.email]!);
-    const link = await anfrage("POST", "/einstellungen/kalender-link", nurKontakte);
-    const url = `/api/v1/kalender/${(await json(link)).token}.ics`;
+    const link = await anfrage("POST", "/settings/calendar-link", nurKontakte);
+    const url = `/api/v1/calendar/${(await json(link)).token}.ics`;
     expect(await (await t.request(url)).text()).toContain("Zur Organisation");
     await db.execute(sql`DELETE FROM nutzergruppe_rolle WHERE gruppe_id IN (SELECT id FROM nutzergruppe WHERE name = 'Nur Kontakte')`);
     expect((await (await t.request(url)).text()).match(/BEGIN:VEVENT/g)).toBeNull();
@@ -223,15 +224,15 @@ describe("Kalenderabonnement", () => {
 });
 
 describe("Datenübernahme", () => {
-  const lauf = () => `/import/laeufe/${randomUUID()}`;
+  const lauf = () => `/import/runs/${randomUUID()}`;
 
   it("schreibt in Kontakte, Portfolio und Finanzen: fehlt einer, 403 bei Prüfung und Übernahme", async () => {
     for (const als of [nurDaten, datenOhneFinanzen]) {
-      for (const aktion of ["pruefen", "uebernehmen"]) {
+      for (const aktion of ["validate", "apply"]) {
         await verweigert(await anfrage("POST", `${lauf()}/${aktion}`, als), als === nurDaten ? "kontakte" : "finanzen");
       }
     }
     // Mit allen Bereichen läuft die Prüfung weiter (hier: den Lauf gibt es nicht).
-    for (const aktion of ["pruefen", "uebernehmen"]) expect((await anfrage("POST", `${lauf()}/${aktion}`, vollstaendig)).status).toBe(404);
+    for (const aktion of ["validate", "apply"]) expect((await anfrage("POST", `${lauf()}/${aktion}`, vollstaendig)).status).toBe(404);
   });
 });

@@ -24,13 +24,13 @@ export const FONDS_SICHT: SichtWahl = { sicht: "fonds", vergleich: null };
 /** Eingabe der Währungssicht (Anlegen eines Berichts, Download): `vergleich` verlangt einen Währungscode, die anderen Sichten keinen. */
 export const sichtEingabe = {
   waehrungssicht: z.enum(["fonds", "lokal", "vergleich"]).optional(),
-  vergleichswaehrung: z.string().regex(/^[A-Z]{3}$/, "Währungscode aus drei Großbuchstaben").optional(),
+  vergleichswaehrung: z.string().regex(/^[A-Z]{3}$/, "Currency code of three uppercase letters").optional(),
 };
 
 /** Fehler der Eingabe als Text (leer = gültig). */
 export function pruefeSichtEingabe(e: { waehrungssicht?: SichtWahl["sicht"] | undefined; vergleichswaehrung?: string | undefined }): { feld: string; code: string; meldung: string } | null {
-  if (e.waehrungssicht === "vergleich" && !e.vergleichswaehrung) return { feld: "vergleichswaehrung", code: "erforderlich", meldung: "Die Vergleichssicht braucht eine Vergleichswährung" };
-  if (e.waehrungssicht !== "vergleich" && e.vergleichswaehrung) return { feld: "vergleichswaehrung", code: "nur_vergleich", meldung: "Eine Vergleichswährung gibt es nur bei der Vergleichssicht" };
+  if (e.waehrungssicht === "vergleich" && !e.vergleichswaehrung) return { feld: "vergleichswaehrung", code: "required", meldung: "The comparison view requires a comparison currency" };
+  if (e.waehrungssicht !== "vergleich" && e.vergleichswaehrung) return { feld: "vergleichswaehrung", code: "comparison_only", meldung: "A comparison currency is only available in the comparison view" };
   return null;
 }
 

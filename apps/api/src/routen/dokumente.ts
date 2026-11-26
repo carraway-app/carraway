@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, sql, type SQL } from "drizzle-orm";
 import { Hono, type Context } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { z } from "zod";
@@ -9,11 +9,15 @@ import { ausstehendeLoeschungen } from "../dokumente/aufbewahrung";
 import { STANDARD_AUFBEWAHRUNG_TAGE } from "../konfiguration";
 import { bereiteVor, hatVerknuepfung, ocrAn, legeDokumentAn, sichtbareDubletten, verknuepfungenVon } from "../dokumente/speichern";
 import { dispositionKopf, INLINE_ERLAUBT, MAX_DOKUMENT } from "../dokumente/typ";
-import { darfZiel, dokumentSichtbar, ladeZielFonds, verlangeZiele, ZIEL_TYPEN, zielName, zielSichtbarFuer, type Ziel } from "../dokumente/ziele";
+import { darfZiel, dokumentSichtbar, fundstelleSichtbarFuer, ladeZielFonds, verlangeZiele, ZIEL_TYPEN, zielName, zielSichtbarFuer, type Ziel } from "../dokumente/ziele";
 import { Fachfehler, fehlerAntwort, type Feldfehler } from "../fehler";
-import { pruefe } from "../pruefung";
 import { idParam, protokolliereLesen, schreibe, textEingabe } from "../schreiben";
 import { lese, type Tx } from "../zeitlimit";
+import { berichtPruefung, berichtSchema } from "../berichte-pruefung";
+import { berichtAnApi } from "../berichte-vertrag";
+
+const pruefeApi = berichtPruefung("document");
+const anApi = <T>(wert: T) => berichtAnApi("document", wert);
 
 /**
  * Dokumente (Etappe 13): Upload, Liste, Download, Ersetzen, weiches Löschen, Verknüpfungen und Volltextsuche.
@@ -25,9 +29,10 @@ import { lese, type Tx } from "../zeitlimit";
 
 const klassifikationEingabe = z.enum(dokumentKlassifikation.enumValues);
 const zielSchema = z.object({ typ: z.enum(ZIEL_TYPEN), id: z.uuid() });
-const zieleSchema = z.array(zielSchema).min(1, "Mindestens ein Ziel ist nötig").max(20);
+const zieleSchema = berichtSchema("document", z.array(zielSchema).min(1, "At least one target is required").max(20));
+const klassifikationFormular = berichtSchema("document", z.object({ klassifikation: klassifikationEingabe }));
 
-const ungueltig = (felder: Feldfehler[]) => new Fachfehler(400, "EINGABE_UNGUELTIG", "Die Eingabe ist ungültig.", { felder });
+const ungueltig = (felder: Feldfehler[]) => new Fachfehler(400, "invalid_input", "The input is invalid.", { felder });
 
 const listenAbfrage = z.object({
   zielTyp: z.enum(ZIEL_TYPEN).optional(),
@@ -39,7 +44,7 @@ const listenAbfrage = z.object({
 const sucheAbfrage = z.object({ q: z.string().trim().min(2).max(200), limit: z.coerce.number().int().min(1).max(50).default(20) });
 const aenderung = z
   .object({ klassifikation: klassifikationEingabe.optional(), vertraulich: z.boolean().optional(), dateiname: textEingabe(200).optional() })
-  .refine((w) => Object.values(w).some((x) => x !== undefined), { message: "Mindestens ein Feld muss angegeben werden", path: [] });
+  .refine((w) => Object.values(w).some((x) => x !== undefined), { message: "At least one field must be provided", path: [] });
 const verknuepfungParam = z.object({ id: z.uuid(), typ: z.enum(ZIEL_TYPEN), zielId: z.uuid() });
 const dateiAbfrage = z.object({ inline: z.enum(["0", "1"]).optional() });
 const seitenParam = z.object({ id: z.uuid(), seite: z.coerce.number().int().min(1).max(100_000) });
@@ -48,7 +53,7 @@ const seitenParam = z.object({ id: z.uuid(), seite: z.coerce.number().int().min(
 export const TREFFER_START = "⟦";
 export const TREFFER_ENDE = "⟧";
 
-const nicht = () => new Fachfehler(404, "DOKUMENT_NICHT_GEFUNDEN", "Dokument nicht gefunden.");
+const nicht = () => new Fachfehler(404, "document_not_found", "Document not found.");
 
 /** Dokument laden, das die Person sehen darf; weich gelöschte sehen nur Verwalter. Sonst 404. */
 export async function ladeSichtbaresDokument(tx: Tx, akteur: Akteur, id: string, sperren = false, stand?: string): Promise<Dokument> {
@@ -109,23 +114,23 @@ const verlangeAlleZiele = async (tx: Tx, akteur: Akteur, dokumentId: string, rol
 /** Liest die multipart-Felder eines Uploads; der Dateiinhalt wird erst nach der Rechteprüfung in den Speicher gelesen. */
 async function leseFormular(c: Context) {
   const kopf = c.req.header("content-type") ?? "";
-  if (!/^multipart\/form-data/i.test(kopf)) throw new Fachfehler(400, "DATEI_FEHLT", "Erwartet wird multipart/form-data mit dem Feld „datei“.");
+  if (!/^multipart\/form-data/i.test(kopf)) throw new Fachfehler(400, "file_missing", "Expected multipart/form-data with the field \"file\".");
   let formular: Record<string, string | File | (string | File)[]>;
   try {
     formular = await c.req.parseBody();
   } catch {
-    throw new Fachfehler(400, "DATEI_FEHLT", "Erwartet wird multipart/form-data mit dem Feld „datei“.");
+    throw new Fachfehler(400, "file_missing", "Expected multipart/form-data with the field \"file\".");
   }
-  const datei = formular.datei;
-  if (!(datei instanceof File)) throw new Fachfehler(400, "DATEI_FEHLT", "Das Feld „datei“ fehlt.");
-  if (datei.size > MAX_DOKUMENT) throw new Fachfehler(413, "DOKUMENT_ZU_GROSS", `Das Dokument ist größer als ${MAX_DOKUMENT / 1024 / 1024} MB.`);
+  const datei = formular.file;
+  if (!(datei instanceof File)) throw new Fachfehler(400, "file_missing", "The field \"file\" is missing.");
+  if (datei.size > MAX_DOKUMENT) throw new Fachfehler(413, "document_too_large", `The document is larger than ${MAX_DOKUMENT / 1024 / 1024} MB.`);
   const text = (feld: string) => (typeof formular[feld] === "string" ? (formular[feld] as string) : undefined);
   return { datei, text };
 }
 
 const bodyGrenze = bodyLimit({
   maxSize: MAX_DOKUMENT + 256 * 1024,
-  onError: (c) => fehlerAntwort(c, 413, "DOKUMENT_ZU_GROSS", `Das Dokument ist größer als ${MAX_DOKUMENT / 1024 / 1024} MB.`),
+  onError: (c) => fehlerAntwort(c, 413, "document_too_large", `The document is larger than ${MAX_DOKUMENT / 1024 / 1024} MB.`),
 });
 
 function leseZiele(roh: string | undefined): Ziel[] {
@@ -133,7 +138,7 @@ function leseZiele(roh: string | undefined): Ziel[] {
   try {
     wert = JSON.parse(roh ?? "");
   } catch {
-    throw ungueltig([{ feld: "ziele", code: "invalid_type", meldung: "Das Feld „ziele“ muss eine JSON-Liste aus { typ, id } sein" }]);
+    throw ungueltig([{ feld: "ziele", code: "invalid_type", meldung: "The field \"targets\" must be a JSON list of { type, id }" }]);
   }
   const ergebnis = zieleSchema.safeParse(wert);
   if (!ergebnis.success) throw ungueltig(ergebnis.error.issues.map((i) => ({ feld: ["ziele", ...i.path].join("."), code: i.code, meldung: i.message })));
@@ -142,16 +147,16 @@ function leseZiele(roh: string | undefined): Ziel[] {
 
 function leseKlassifikation(roh: string | undefined, standard: Dokument["klassifikation"]): Dokument["klassifikation"] {
   if (roh === undefined || roh === "") return standard;
-  const e = klassifikationEingabe.safeParse(roh);
-  if (!e.success) throw ungueltig([{ feld: "klassifikation", code: "invalid_value", meldung: `Erlaubt: ${dokumentKlassifikation.enumValues.join(", ")}` }]);
-  return e.data;
+  const e = klassifikationFormular.safeParse({ classification: roh });
+  if (!e.success) throw ungueltig([{ feld: "klassifikation", code: "invalid_value", meldung: `Unknown document classification` }]);
+  return e.data.klassifikation;
 }
 
 const leseWahrheitswert = (roh: string | undefined, feld: string, standard: boolean): boolean => {
   if (roh === undefined || roh === "") return standard;
   if (roh === "true" || roh === "1") return true;
   if (roh === "false" || roh === "0") return false;
-  throw ungueltig([{ feld, code: "invalid_type", meldung: "true oder false erwartet" }]);
+  throw ungueltig([{ feld, code: "invalid_type", meldung: "true or false expected" }]);
 };
 
 /** Ausgabe der Datei: Bytes mit sicheren Köpfen. Nur PDF und Bilder gibt es auf Wunsch inline, dann mit strenger Sandbox. */
@@ -170,18 +175,18 @@ function dateiAntwort(d: Dokument, strom: ReadableStream<Uint8Array> | Uint8Arra
       "X-Frame-Options": zeigeInline ? "SAMEORIGIN" : "DENY",
       "Cross-Origin-Resource-Policy": "same-origin",
       "Cache-Control": "private, no-store",
-      "X-Datei-Sha256": d.sha256,
+      "X-File-Sha256": d.sha256,
     },
   });
 }
 
 export function dokumentRouten(db: Db, speicher: Speicher, aufbewahrungTage = STANDARD_AUFBEWAHRUNG_TAGE) {
   return new Hono()
-    /** Liste der sichtbaren Dokumente, optional zu einem Ziel (`zielTyp` und `zielId`), mit sichtbaren Verknüpfungen. */
-    .get("/", pruefe("query", listenAbfrage), async (c) => {
+    /** Liste der sichtbaren Dokumente, optional zu einem Ziel (`targetType` und `targetId`), mit sichtbaren Verknüpfungen. */
+    .get("/", pruefeApi("query", listenAbfrage), async (c) => {
       const q = c.req.valid("query");
       const akteur = aktuellerAkteur(c);
-      if ((q.zielTyp === undefined) !== (q.zielId === undefined)) throw ungueltig([{ feld: q.zielTyp === undefined ? "zielTyp" : "zielId", code: "invalid_type", meldung: "zielTyp und zielId nur gemeinsam" }]);
+      if ((q.zielTyp === undefined) !== (q.zielId === undefined)) throw ungueltig([{ feld: q.zielTyp === undefined ? "zielTyp" : "zielId", code: "invalid_type", meldung: "targetType and targetId must be supplied together" }]);
       // Weich gelöschte Dokumente listen nur Verwalter; `alle` meint aktive und ersetzte.
       const statusBedingung =
         q.status === "alle"
@@ -205,38 +210,38 @@ export function dokumentRouten(db: Db, speicher: Speicher, aufbewahrungTage = ST
         }
         return ergebnis;
       });
-      return c.json({ daten }, 200);
+      return c.json(anApi({ daten }), 200);
     })
     /** Volltextsuche über den Text der aktuellen Versionen (deutsche Wortstämme und wörtliche Treffer), nur in sichtbaren Dokumenten. */
-    .get("/suche", pruefe("query", sucheAbfrage), async (c) => {
+    .get("/search", pruefeApi("query", sucheAbfrage), async (c) => {
       const { q, limit } = c.req.valid("query");
       const akteur = aktuellerAkteur(c);
       const daten = await lese(db, (tx) => sucheDokumentSeiten(tx, akteur, q, limit));
-      return c.json({ q, daten }, 200);
+      return c.json(anApi({ q, daten }), 200);
     })
     /**
      * Aufbewahrung gelöschter Dokumente (globale Verwalter): Frist, gelöschte Dokumente mit Datum, ab dem der Worker die Datei entfernt, und ob eine
      * abgelaufene Datei noch gebraucht wird (geteilte Datei, Fundstelle, Registerauszug, Beleg).
      */
-    .get("/aufbewahrung", async (c) => {
+    .get("/retention", async (c) => {
       const jetzt = new Date();
       const { daten, endgueltig } = await lese(db, (tx) => ausstehendeLoeschungen(tx, aufbewahrungTage, jetzt));
-      return c.json({ aufbewahrungTage, daten, endgueltigGeloescht: endgueltig }, 200);
+      return c.json(anApi({ aufbewahrungTage, daten, endgueltigGeloescht: endgueltig }), 200);
     })
-    /** Hochladen (multipart): Feld `datei`, `ziele` (JSON-Liste aus `{ typ, id }`), optional `klassifikation` und `vertraulich`. */
+    /** Hochladen (multipart): Feld `file`, `targets` (JSON-Liste aus `{ type, id }`), optional `classification` und `confidential`. */
     .post("/", bodyGrenze, async (c) => {
       const { datei, text } = await leseFormular(c);
       const akteur = aktuellerAkteur(c);
-      const ziele = leseZiele(text("ziele"));
-      const klassifikation = leseKlassifikation(text("klassifikation"), "sonstiges");
-      const vertraulich = leseWahrheitswert(text("vertraulich"), "vertraulich", false);
+      const ziele = leseZiele(text("targets"));
+      const klassifikation = leseKlassifikation(text("classification"), "sonstiges");
+      const vertraulich = leseWahrheitswert(text("confidential"), "vertraulich", false);
       await lese(db, (tx) => verlangeZiele(tx, akteur, ziele, "bearbeiter"));
       const vorbereitet = await bereiteVor(speicher, new Uint8Array(await datei.arrayBuffer()), datei.name);
       const ergebnis = await schreibe(db, c, async (tx, protokoll) => {
         await verlangeZiele(tx, akteur, ziele, "bearbeiter");
         const dubletten = await sichtbareDubletten(tx, akteur, vorbereitet.hash);
         if (dubletten[0]) {
-          throw new Fachfehler(409, "DOKUMENT_VORHANDEN", "Dieses Dokument gibt es schon.", {
+          throw new Fachfehler(409, "document_exists", "This document already exists.", {
             dokumentId: dubletten[0].id,
             dateiname: dubletten[0].dateiname,
             verknuepfungen: await sichtbareVerknuepfungen(tx, akteur, dubletten[0].id),
@@ -245,28 +250,34 @@ export function dokumentRouten(db: Db, speicher: Speicher, aufbewahrungTage = ST
         const neu = await legeDokumentAn(tx, protokoll, { id: akteur.id, name: akteur.name }, vorbereitet, { klassifikation, vertraulich, ziele });
         return zeigeDokument(neu, await sichtbareVerknuepfungen(tx, akteur, neu.id));
       });
-      return c.json(ergebnis, 201);
+      return c.json(anApi(ergebnis), 201);
     })
-    .get("/:id", pruefe("param", idParam), pruefe("query", z.object({ stand: z.iso.datetime({ offset: true }).optional() })), async (c) => {
+    .get("/:id", pruefeApi("param", idParam), pruefeApi("query", z.object({ stand: z.iso.datetime({ offset: true }).optional() })), async (c) => {
       const { stand } = c.req.valid("query");
       const { id } = c.req.valid("param");
       const akteur = aktuellerAkteur(c);
       const ergebnis = await lese(db, async (tx) => {
         const d = await ladeSichtbaresDokument(tx, akteur, id, false, stand);
-        const { rows: nachfolger } = await tx.execute<{ id: string }>(sql`SELECT id FROM dokument n WHERE n.vorgaenger_id = ${id}
-          ${stand ? sql`AND n.hochgeladen_am <= ${stand}::timestamptz AND n.status IN ('aktiv', 'ersetzt') AND ${dokumentSichtbar(akteur, sql`n.id`)}` : sql``} LIMIT 1`);
-        // Versionskette: Vorgänger bis zum Anfang (höchstens 50 Schritte), die Nachfolger folgen aus `vorgaengerId`.
+        // Jede Version hat eigene Verknüpfungen: Nachfolger, Vorgänger und Fundstellen erscheinen nur, wenn die Person sie selbst sehen darf (Issue #130).
+        // Wie `ladeSichtbaresDokument`: eine gelöschte Version nur für Verwalter an einem ihrer Ziele. Der Alias darf nicht `v` heißen (Verknüpfungen in `dokumentSichtbar`).
+        const sichtbar = (n: SQL) => sql`${dokumentSichtbar(akteur, sql`${n}.id`)} AND (${n}.status IN ('aktiv', 'ersetzt') OR ${dokumentSichtbar(akteur, sql`${n}.id`, "verwalter")})`;
+        const { rows: nachfolger } = await tx.execute<{ id: string }>(sql`SELECT id FROM dokument nachfolger WHERE nachfolger.vorgaenger_id = ${id} AND ${sichtbar(sql`nachfolger`)}
+          ${stand ? sql`AND nachfolger.hochgeladen_am <= ${stand}::timestamptz AND nachfolger.status IN ('aktiv', 'ersetzt')` : sql``} LIMIT 1`);
+        // Versionskette: Vorgänger bis zum Anfang (höchstens 50 Schritte), die Nachfolger folgen aus `vorgaengerId`. In der aktuellen Ansicht läuft die
+        // Kette über alle Vorgänger weiter und zeigt nur die sichtbaren; eine unsichtbare Version wird übersprungen, ohne etwas über sie preiszugeben.
         const versionen: { id: string; dateiname: string; status: string; hochgeladenAm: string; sha256: string }[] = [];
         let aktuell: Dokument | undefined = d;
         for (let i = 0; i < 50 && aktuell; i++) {
           const vorgaenger: Dokument | undefined = aktuell.vorgaengerId ? (await tx.select().from(dokument).where(and(eq(dokument.id, aktuell.vorgaengerId),
             stand ? sql`${dokument.hochgeladenAm} <= ${stand}::timestamptz AND ${dokument.status} IN ('aktiv', 'ersetzt') AND ${dokumentSichtbar(akteur, sql`${dokument.id}`)}` : undefined)))[0] : undefined;
-          if (vorgaenger) versionen.unshift({ id: vorgaenger.id, dateiname: vorgaenger.dateiname, status: vorgaenger.status, hochgeladenAm: vorgaenger.hochgeladenAm.toISOString(), sha256: vorgaenger.sha256 });
+          if (vorgaenger && (stand || (await tx.execute(sql`SELECT 1 FROM dokument vorgaenger WHERE vorgaenger.id = ${vorgaenger.id} AND ${sichtbar(sql`vorgaenger`)}`)).rows.length > 0)) {
+            versionen.unshift({ id: vorgaenger.id, dateiname: vorgaenger.dateiname, status: vorgaenger.status, hochgeladenAm: vorgaenger.hochgeladenAm.toISOString(), sha256: vorgaenger.sha256 });
+          }
           aktuell = vorgaenger;
         }
         const { rows: fundstellen } = await tx.execute<{ objekt_typ: string; objekt_id: string; feld: string; wert: string; seite: number; zitat: string }>(
           sql`SELECT objekt_typ, objekt_id, feld, wert, seite, zitat FROM wert_quelle q WHERE dokument_id = ${id}
-            ${stand ? sql`AND erstellt_am <= ${stand}::timestamptz AND ${zielSichtbarFuer(akteur, sql`q.objekt_typ`, sql`q.objekt_id`)}` : sql``}
+            ${stand ? sql`AND erstellt_am <= ${stand}::timestamptz` : sql``} AND ${fundstelleSichtbarFuer(akteur, sql`q.objekt_typ`, sql`q.objekt_id`)}
             ORDER BY erstellt_am, feld`,
         );
         return {
@@ -276,10 +287,10 @@ export function dokumentRouten(db: Db, speicher: Speicher, aufbewahrungTage = ST
           fundstellen: fundstellen.map((f) => ({ objektTyp: f.objekt_typ, objektId: f.objekt_id, feld: f.feld, wert: f.wert, seite: f.seite, zitat: f.zitat })),
         };
       });
-      return c.json(ergebnis, 200);
+      return c.json(anApi(ergebnis), 200);
     })
     /** Textseite eines PDF (für Zitate und Fundstellen). */
-    .get("/:id/seiten/:seite", pruefe("param", seitenParam), async (c) => {
+    .get("/:id/pages/:page", pruefeApi("param", seitenParam), async (c) => {
       const { id, seite } = c.req.valid("param");
       const akteur = aktuellerAkteur(c);
       const zeile = await lese(db, async (tx) => {
@@ -287,32 +298,32 @@ export function dokumentRouten(db: Db, speicher: Speicher, aufbewahrungTage = ST
         const [s] = await tx.select({ seite: dokumentSeite.seite, text: dokumentSeite.text, quelle: dokumentSeite.quelle, konfidenz: dokumentSeite.konfidenz }).from(dokumentSeite).where(and(eq(dokumentSeite.dokumentId, id), eq(dokumentSeite.seite, seite)));
         return s;
       });
-      if (!zeile) return fehlerAntwort(c, 404, "NICHT_GEFUNDEN", "Die angeforderte Ressource gibt es nicht.");
-      return c.json(zeile, 200);
+      if (!zeile) return fehlerAntwort(c, 404, "not_found", "The requested resource does not exist.");
+      return c.json(anApi(zeile), 200);
     })
     /** Datei: als Download; mit `inline=1` zeigt der Browser PDF und Bilder in einem Rahmen mit Sandbox. Schreibt eine Zeile `gelesen` ins Protokoll. */
-    .get("/:id/datei", pruefe("param", idParam), pruefe("query", dateiAbfrage), async (c) => {
+    .get("/:id/file", pruefeApi("param", idParam), pruefeApi("query", dateiAbfrage), async (c) => {
       const { id } = c.req.valid("param");
       const { inline } = c.req.valid("query");
       const akteur = aktuellerAkteur(c);
       const d = await lese(db, (tx) => ladeSichtbaresDokument(tx, akteur, id));
-      if (d.status === "endgueltig_geloescht") throw new Fachfehler(410, "DOKUMENT_ENDGUELTIG_GELOESCHT", "Die Datei wurde nach Ablauf der Aufbewahrungsfrist endgültig gelöscht.");
+      if (d.status === "endgueltig_geloescht") throw new Fachfehler(410, "document_permanently_deleted", "The file was permanently deleted after the retention period expired.");
       let quelle: ReadableStream<Uint8Array> | Uint8Array;
       try {
         quelle = speicher.strom ? await speicher.strom(d.gespeichertUnter) : await speicher.lese(d.gespeichertUnter);
       } catch {
-        throw new Fachfehler(500, "DATEI_BESCHAEDIGT", "Die Datei liegt nicht mehr in der Dateiablage.");
+        throw new Fachfehler(500, "file_corrupt", "The file is no longer in the file storage.");
       }
       await protokolliereLesen(db, c, "dokument", id, { dokument: "datei", inline: inline === "1", dateiname: d.dateiname, sha256: d.sha256 });
       return dateiAntwort(d, quelle, inline === "1");
     })
-    .patch("/:id", pruefe("param", idParam), pruefe("json", aenderung), async (c) => {
+    .patch("/:id", pruefeApi("param", idParam), pruefeApi("json", aenderung), async (c) => {
       const { id } = c.req.valid("param");
       const e = c.req.valid("json");
       const akteur = aktuellerAkteur(c);
       const ergebnis = await schreibe(db, c, async (tx, protokoll) => {
         const vorher = await ladeSichtbaresDokument(tx, akteur, id, true);
-        if (vorher.status !== "aktiv") throw new Fachfehler(409, "DOKUMENT_NICHT_AKTIV", "Nur ein aktives Dokument lässt sich ändern.");
+        if (vorher.status !== "aktiv") throw new Fachfehler(409, "document_not_active", "Only an active document can be changed.");
         await verlangeAlleZiele(tx, akteur, id, "bearbeiter");
         const [neu] = await tx
           .update(dokument)
@@ -322,58 +333,58 @@ export function dokumentRouten(db: Db, speicher: Speicher, aufbewahrungTage = ST
         await protokoll("aendern", "dokument", id, { klassifikation: vorher.klassifikation, vertraulich: vorher.vertraulich, dateiname: vorher.dateiname }, { klassifikation: neu!.klassifikation, vertraulich: neu!.vertraulich, dateiname: neu!.dateiname });
         return zeigeDokument(neu!, await sichtbareVerknuepfungen(tx, akteur, id));
       });
-      return c.json(ergebnis, 200);
+      return c.json(anApi(ergebnis), 200);
     })
     /** Neue Version (multipart, Feld `datei`): Die alte bleibt als `ersetzt` les- und herunterladbar, Verknüpfungen und Klassifikation gehen auf die neue über. */
-    .post("/:id/ersetzen", bodyGrenze, pruefe("param", idParam), async (c) => {
+    .post("/:id/replace", bodyGrenze, pruefeApi("param", idParam), async (c) => {
       const { id } = c.req.valid("param");
       const { datei } = await leseFormular(c);
       const akteur = aktuellerAkteur(c);
       await lese(db, async (tx) => {
         const alt = await ladeSichtbaresDokument(tx, akteur, id);
-        if (alt.status !== "aktiv") throw new Fachfehler(409, "DOKUMENT_NICHT_AKTIV", "Nur ein aktives Dokument lässt sich ersetzen.");
+        if (alt.status !== "aktiv") throw new Fachfehler(409, "document_not_active", "Only an active document can be replaced.");
         await verlangeAlleZiele(tx, akteur, id, "bearbeiter");
       });
       const vorbereitet = await bereiteVor(speicher, new Uint8Array(await datei.arrayBuffer()), datei.name);
       const ergebnis = await schreibe(db, c, async (tx, protokoll) => {
         const alt = await ladeSichtbaresDokument(tx, akteur, id, true);
-        if (alt.status !== "aktiv") throw new Fachfehler(409, "DOKUMENT_NICHT_AKTIV", "Nur ein aktives Dokument lässt sich ersetzen.");
+        if (alt.status !== "aktiv") throw new Fachfehler(409, "document_not_active", "Only an active document can be replaced.");
         const ziele = await verknuepfungenVon(tx, id);
         await verlangeZiele(tx, akteur, ziele, "bearbeiter");
         if (alt.sha256 === vorbereitet.hash) {
-          throw new Fachfehler(409, "DOKUMENT_VORHANDEN", "Die neue Datei ist mit der aktuellen Version identisch.", { dokumentId: alt.id, dateiname: alt.dateiname, verknuepfungen: await sichtbareVerknuepfungen(tx, akteur, alt.id) });
+          throw new Fachfehler(409, "document_exists", "The new file is identical to the current version.", { dokumentId: alt.id, dateiname: alt.dateiname, verknuepfungen: await sichtbareVerknuepfungen(tx, akteur, alt.id) });
         }
         const neu = await legeDokumentAn(tx, protokoll, { id: akteur.id, name: akteur.name }, vorbereitet, { klassifikation: alt.klassifikation, vertraulich: alt.vertraulich, ziele, vorgaengerId: alt.id });
         await tx.update(dokument).set({ status: "ersetzt", ersetztAm: new Date() }).where(eq(dokument.id, alt.id));
         await protokoll("ersetzen", "dokument", alt.id, { status: "aktiv" }, { status: "ersetzt", nachfolgerId: neu.id });
         return zeigeDokument(neu, await sichtbareVerknuepfungen(tx, akteur, neu.id));
       });
-      return c.json(ergebnis, 201);
+      return c.json(anApi(ergebnis), 201);
     })
     /**
      * Texterkennung anfordern (nur mit `OCR=lokal`): für einen Scan ohne Text, ein Bild oder einen fehlgeschlagenen Versuch. Der Worker erkennt den Text später;
      * bis dahin steht das Dokument auf `ocr_ausstehend`. Wiederholtes Anfordern ändert nichts.
      */
-    .post("/:id/texterkennung", pruefe("param", idParam), async (c) => {
+    .post("/:id/ocr", pruefeApi("param", idParam), async (c) => {
       const { id } = c.req.valid("param");
       const akteur = aktuellerAkteur(c);
       const ergebnis = await schreibe(db, c, async (tx, protokoll) => {
         const d = await ladeSichtbaresDokument(tx, akteur, id, true);
-        if (d.status !== "aktiv") throw new Fachfehler(409, "DOKUMENT_NICHT_AKTIV", "Nur ein aktives Dokument lässt sich erkennen.");
+        if (d.status !== "aktiv") throw new Fachfehler(409, "document_not_active", "OCR is only possible for an active document.");
         await verlangeAlleZiele(tx, akteur, id, "bearbeiter");
-        if (!ocrAn()) throw new Fachfehler(409, "TEXTERKENNUNG_AUS", "Die Texterkennung ist nicht eingeschaltet.");
+        if (!ocrAn()) throw new Fachfehler(409, "ocr_disabled", "OCR is not enabled.");
         const bild = d.mime === "image/png" || d.mime === "image/jpeg";
         const moeglich = (d.mime === "application/pdf" || bild) && ["kein_text", "nicht_unterstuetzt", "fehler", "ocr_ausstehend"].includes(d.textStatus);
-        if (!moeglich) throw new Fachfehler(409, "TEXTERKENNUNG_NICHT_MOEGLICH", "Für dieses Dokument ist keine Texterkennung nötig oder möglich.", { textStatus: d.textStatus });
+        if (!moeglich) throw new Fachfehler(409, "ocr_not_possible", "OCR is not needed or not possible for this document.", { textStatus: d.textStatus });
         if (d.textStatus === "ocr_ausstehend") return d;
         const [neu] = await tx.update(dokument).set({ textStatus: "ocr_ausstehend", textVersuche: 0, textBegonnenAm: null }).where(eq(dokument.id, id)).returning();
         await protokoll("texterkennung_anfordern", "dokument", id, { textStatus: d.textStatus }, { textStatus: "ocr_ausstehend" });
         return neu!;
       });
-      return c.json(zeigeDokument(ergebnis, await lese(db, (tx) => sichtbareVerknuepfungen(tx, akteur, id))), 200);
+      return c.json(anApi(zeigeDokument(ergebnis, await lese(db, (tx) => sichtbareVerknuepfungen(tx, akteur, id)))), 200);
     })
     /** Weiches Löschen (Verwalter an jedem Ziel): Der Status wird `geloescht`, die Datei bleibt bis zum Aufbewahrungslauf in der Ablage. */
-    .delete("/:id", pruefe("param", idParam), async (c) => {
+    .delete("/:id", pruefeApi("param", idParam), async (c) => {
       const { id } = c.req.valid("param");
       const akteur = aktuellerAkteur(c);
       await schreibe(db, c, async (tx, protokoll) => {
@@ -385,13 +396,13 @@ export function dokumentRouten(db: Db, speicher: Speicher, aufbewahrungTage = ST
       });
       return c.body(null, 204);
     })
-    .post("/:id/verknuepfungen", pruefe("param", idParam), pruefe("json", zielSchema), async (c) => {
+    .post("/:id/links", pruefeApi("param", idParam), pruefeApi("json", zielSchema), async (c) => {
       const { id } = c.req.valid("param");
       const ziel = c.req.valid("json");
       const akteur = aktuellerAkteur(c);
       const ergebnis = await schreibe(db, c, async (tx, protokoll) => {
         const d = await ladeSichtbaresDokument(tx, akteur, id, true);
-        if (d.status !== "aktiv") throw new Fachfehler(409, "DOKUMENT_NICHT_AKTIV", "Nur ein aktives Dokument lässt sich verknüpfen.");
+        if (d.status !== "aktiv") throw new Fachfehler(409, "document_not_active", "Only an active document can be linked.");
         // Eine Verknüpfung erweitert den Kreis, der das Dokument sieht: Bearbeiter an allen bisherigen Zielen und am neuen. Ein Ziel ohne Fonds
         // (Deal vor der Zuordnung) macht es für alle Personen mit einer Rolle sichtbar, ein vertrauliches Dokument darf nur ein Verwalter verknüpfen.
         await verlangeAlleZiele(tx, akteur, id, "bearbeiter");
@@ -403,28 +414,28 @@ export function dokumentRouten(db: Db, speicher: Speicher, aufbewahrungTage = ST
         }
         return zeigeDokument(d, await sichtbareVerknuepfungen(tx, akteur, id));
       });
-      return c.json(ergebnis, 200);
+      return c.json(anApi(ergebnis), 200);
     })
-    .delete("/:id/verknuepfungen/:typ/:zielId", pruefe("param", verknuepfungParam), async (c) => {
+    .delete("/:id/links/:type/:targetId", pruefeApi("param", verknuepfungParam), async (c) => {
       const { id, typ, zielId } = c.req.valid("param");
       const ziel: Ziel = { typ, id: zielId };
       const akteur = aktuellerAkteur(c);
       const ergebnis = await schreibe(db, c, async (tx, protokoll) => {
         const d = await ladeSichtbaresDokument(tx, akteur, id, true);
-        if (d.status !== "aktiv") throw new Fachfehler(409, "DOKUMENT_NICHT_AKTIV", "Nur ein aktives Dokument lässt sich ändern.");
+        if (d.status !== "aktiv") throw new Fachfehler(409, "document_not_active", "Only an active document can be changed.");
         const alle = await verknuepfungenVon(tx, id);
-        if (!alle.some((z) => z.typ === typ && z.id === zielId)) throw new Fachfehler(404, "NICHT_GEFUNDEN", "Die angeforderte Ressource gibt es nicht.");
+        if (!alle.some((z) => z.typ === typ && z.id === zielId)) throw new Fachfehler(404, "not_found", "The requested resource does not exist.");
         // Das Ziel muss die Person bearbeiten dürfen (auch wenn es das Ziel nicht mehr gibt, dann genügt die Rolle am Dokument).
         const zf = await ladeZielFonds(tx, ziel);
-        if (zf !== null && !darfZiel(akteur, zf, "bearbeiter")) throw new Fachfehler(403, "KEINE_BERECHTIGUNG", "Dafür fehlt die Berechtigung am Ziel der Verknüpfung.");
+        if (zf !== null && !darfZiel(akteur, zf, "bearbeiter")) throw new Fachfehler(403, "forbidden", "You lack permission on the link target.");
         // Entfernen verengt den Kreis nur für Berechtigte: auch an den verbleibenden Zielen ist die Rolle Bearbeiter nötig.
         await verlangeZiele(tx, akteur, alle.filter((z) => !(z.typ === typ && z.id === zielId)), "bearbeiter");
-        if (alle.length === 1) throw new Fachfehler(409, "DOKUMENT_LETZTE_VERKNUEPFUNG", "Die letzte Verknüpfung lässt sich nicht entfernen; das Dokument bräuchte sonst kein sichtbares Ziel mehr. Löschen Sie das Dokument stattdessen.");
+        if (alle.length === 1) throw new Fachfehler(409, "document_last_link", "The last link cannot be removed; the document would otherwise have no visible target. Delete the document instead.");
         await tx.delete(dokumentVerknuepfung).where(and(eq(dokumentVerknuepfung.dokumentId, id), eq(dokumentVerknuepfung.zielTyp, typ), eq(dokumentVerknuepfung.zielId, zielId)));
         await protokoll("entknuepfen", "dokument", id, { ziel }, null);
         return zeigeDokument(d, await sichtbareVerknuepfungen(tx, akteur, id));
       });
-      return c.json(ergebnis, 200);
+      return c.json(anApi(ergebnis), 200);
     });
 }
 

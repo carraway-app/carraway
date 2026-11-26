@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import { fuerBereich, hatRolle, type Akteur } from "../anmeldung/akteur";
 import { dokumentSichtbar } from "../dokumente/ziele";
 import { hatBereich } from "../rechte/bereiche";
+import { portfolioSicht } from "../rechte/sichtbarkeit";
 import type { Tx } from "../zeitlimit";
 import { ladeNavBestandteile } from "./fonds";
 
@@ -9,7 +10,8 @@ type Nachweis = { bewertungId: string; dokumentId: string; dateiname: string; se
 
 /** Verweise sind personenbezogen und werden deshalb erst beim Öffnen der Herkunft gelesen. */
 export async function ladeNavEinzelwerte(tx: Tx, akteur: Akteur, fondsId: string, stichtag: string, stand: string) {
-  const { portfolio, salden, nav } = await ladeNavBestandteile(tx, fondsId, stichtag, stand);
+  // Durchrechnung nur für Zielfonds, die die Person sieht (gleiche Zahl wie ihre Fondsübersicht).
+  const { portfolio, salden, nav } = await ladeNavBestandteile(tx, fondsId, stichtag, stand, new Set(), { sieht: portfolioSicht(akteur) });
   const ids = portfolio.map((p) => p.bewertungId);
   const nachweise = new Map<string, Nachweis[]>();
   if (ids.length && hatBereich(akteur, "dokumente") && hatRolle(akteur, fondsId, "betrachter", "dokumente")) {

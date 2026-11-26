@@ -18,47 +18,54 @@ const englisch = () => localStorage.setItem("carraway.sprache", "en");
 const BELEG_ID = "be-1";
 const beleg = (extra: Record<string, unknown> = {}) => ({
   id: BELEG_ID,
-  fondsId: FONDS_ID,
-  art: "auszahlung",
-  bezugArt: "vorgang",
-  bezugId: "v1",
-  beteiligungId: "b1",
-  sprache: "de",
-  status: "entwurf",
-  belegnummer: null as string | null,
-  naechsteStufe: 0,
-  erstelltVon: ANDERE_ID,
-  erstelltAm: "2026-11-20T09:00:00.000Z",
-  freigegebenAm: null,
-  befunde: [] as { feld: string; code: string }[],
-  vorlage: {
-    felder: [
-      { schluessel: "organisation_name", abschnitt: "kopf", pflicht: true },
-      { schluessel: "betrag", abschnitt: "kopf", pflicht: true },
-      { schluessel: "projektnummer", abschnitt: "details", pflicht: true },
+  fundId: FONDS_ID,
+  type: "disbursement",
+  referenceType: "transaction",
+  referenceId: "v1",
+  investmentId: "b1",
+  language: "de",
+  status: "draft",
+  voucherNumber: null as string | null,
+  nextStage: 0,
+  createdBy: ANDERE_ID,
+  createdAt: "2026-11-20T09:00:00.000Z",
+  approvedAt: null,
+  findings: [] as { field: string; code: string }[],
+  template: {
+    fields: [
+      { key: "organizationName", section: "header", required: true },
+      { key: "amount", section: "header", required: true },
+      { key: "projectNumber", section: "details", required: true },
     ],
   },
-  daten: {
-    datum: "2026-03-31",
-    betrag: "100000.00",
-    werte: { organisation_name: "Alpha Energie", betrag: "100000.00", projektnummer: "P-100" } as Record<string, string | null>,
-    mittelherkunft: [
-      { schluessel: "eigenmittel", bezeichnungDe: "Eigenmittel", bezeichnungEn: "Own funds", quote: "0.400000", betrag: "40000.00" },
-      { schluessel: "landesmittel", bezeichnungDe: "Landesmittel", bezeichnungEn: "State funds", quote: "0.600000", betrag: "60000.00" },
+  data: {
+    date: "2026-03-31",
+    amount: "100000.00",
+    values: { organizationName: "Alpha Energie", amount: "100000.00", projectNumber: "P-100" } as Record<string, string | null>,
+    sourcesOfFunds: [
+      { key: "eigenmittel", labelDe: "Eigenmittel", labelEn: "Own funds", ratio: "0.400000", amount: "40000.00" },
+      { key: "landesmittel", labelDe: "Landesmittel", labelEn: "State funds", ratio: "0.600000", amount: "60000.00" },
     ],
   },
-  stufen: ["Prüfung", "Freigabe"],
-  protokoll: [] as unknown[],
-  naechsteStufeName: "Prüfung" as string | null,
-  dateiSha256: null as string | null,
+  stages: ["review", "approval"],
+  history: [] as unknown[],
+  nextStageName: "review" as string | null,
+  fileSha256: null as string | null,
   ...extra,
 });
-const belegZeile = (extra: Record<string, unknown> = {}) => ({ ...beleg(), betrag: "100000.00", datum: "2026-03-31", ...extra });
+const belegZeile = (extra: Record<string, unknown> = {}) => ({ ...beleg(), amount: "100000.00", date: "2026-03-31", ...extra });
+
+/** Ordnet per Tastatur: Griff aufnehmen, mit den Pfeiltasten bewegen, ablegen. */
+const ordne = (griff: HTMLElement, ...tasten: string[]) => {
+  fireEvent.keyDown(griff, { key: " " });
+  for (const taste of tasten) fireEvent.keyDown(griff, { key: taste });
+  fireEvent.keyDown(griff, { key: " " });
+};
 
 describe("Belege: Liste", () => {
   it("listet Nummer, Art, Datum, Betrag, Status und fehlende Angaben und führt zum Beleg", async () => {
     const api = spieleApi({
-      "/api/v1/belege": { koerper: { daten: [belegZeile({ befunde: [{ feld: "projektnummer", code: "pflichtfeld_fehlt" }] }), belegZeile({ id: "be-2", art: "zinsbuchung", status: "freigegeben", belegnummer: "B-000007", betrag: "6000.00", datum: "2026-09-30" })] } },
+      "/api/v1/vouchers": { koerper: { data: [belegZeile({ findings: [{ field: "projectNumber", code: "required_field_missing" }] }), belegZeile({ id: "be-2", type: "interest_posting", status: "approved", voucherNumber: "B-000007", amount: "6000.00", date: "2026-09-30" })] } },
     });
     rendereApp("/belege");
     const nutzer = userEvent.setup();
@@ -72,15 +79,15 @@ describe("Belege: Liste", () => {
     expect(zeilen[1]!.textContent).toContain("1 Angabe fehlt");
     expect(zeilen[2]!.textContent).toContain("B-000007");
     expect(zeilen[2]!.textContent).toContain("Freigegeben");
-    expect(api.anfragen("GET", "/api/v1/belege")[0]!.query.get("fondsId")).toBe(FONDS_ID);
+    expect(api.anfragen("GET", "/api/v1/vouchers")[0]!.query.get("fundId")).toBe(FONDS_ID);
     // Nur über die Navigation erreichbar, Filter nach Status
     await nutzer.selectOptions(screen.getByLabelText("Status"), "freigegeben");
-    await waitFor(() => expect(api.anfragen("GET", "/api/v1/belege").some((a) => a.query.get("status") === "freigegeben")).toBe(true));
+    await waitFor(() => expect(api.anfragen("GET", "/api/v1/vouchers").some((a) => a.query.get("status") === "approved")).toBe(true));
   });
 
   it("englisch: Texte, Beträge und Daten in der Sprache der Oberfläche", async () => {
     englisch();
-    spieleApi({ "/api/v1/belege": { koerper: { daten: [belegZeile()] } } });
+    spieleApi({ "/api/v1/vouchers": { koerper: { data: [belegZeile()] } } });
     rendereApp("/belege");
     const bereich = await screen.findByRole("region", { name: "Vouchers of the fund" });
     const zeile = within(bereich).getAllByRole("row")[1]!;
@@ -92,7 +99,7 @@ describe("Belege: Liste", () => {
   });
 
   it("ist über die Navigation erreichbar", async () => {
-    spieleApi({ "/api/v1/belege": { koerper: { daten: [] } } });
+    spieleApi({ "/api/v1/vouchers": { koerper: { data: [] } } });
     rendereApp(`/fonds/${FONDS_ID}`);
     await userEvent.setup().click(await screen.findByRole("link", { name: "Belege" }));
     expect(await screen.findByRole("heading", { level: 1, name: "Belege" })).toBeTruthy();
@@ -102,18 +109,18 @@ describe("Belege: Liste", () => {
 
 describe("Beleg: Prüfung und Freigabe", () => {
   it("zeigt fehlende eigene Pflichtfelder beim Namen und speichert die Eingabe am Entwurf", async () => {
-    const pfad = `/api/v1/belege/${BELEG_ID}`;
-    const feld = { schluessel: "eigen_referenz", manuell: "text", abschnitt: "details", pflicht: true, bezeichnungDe: "Referenz", bezeichnungEn: "Reference" };
+    const pfad = `/api/v1/vouchers/${BELEG_ID}`;
+    const feld = { key: "custom_referenz", manual: "text", section: "details", required: true, labelDe: "Referenz", labelEn: "Reference" };
     const api = spieleApi({
-      [pfad]: { koerper: beleg({ vorlage: { felder: [feld] }, befunde: [{ feld: feld.schluessel, code: "pflichtfeld_fehlt" }] }) },
-      [`PATCH ${pfad}/feldwerte`]: { koerper: beleg() },
+      [pfad]: { koerper: beleg({ template: { fields: [feld] }, findings: [{ field: feld.key, code: "required_field_missing" }] }) },
+      [`PATCH ${pfad}/field-values`]: { koerper: beleg() },
     });
     rendereApp(`/belege/${BELEG_ID}`);
     const nutzer = userEvent.setup();
     expect(await screen.findByText(/Diese Pflichtfelder sind leer: Referenz/)).toBeTruthy();
     await nutzer.type(screen.getByLabelText("Referenz *"), "V-17");
     await nutzer.click(screen.getByRole("button", { name: "Feldwerte speichern" }));
-    await waitFor(() => expect(api.anfragen("PATCH", `${pfad}/feldwerte`)[0]?.koerper).toEqual({ werte: { eigen_referenz: "V-17" } }));
+    await waitFor(() => expect(api.anfragen("PATCH", `${pfad}/field-values`)[0]?.koerper).toEqual({ values: { custom_referenz: "V-17" } }));
   });
 
   it("verwendet beim Direktlink den Fonds des Belegs und wechselt zur Belegliste", async () => {
@@ -121,8 +128,8 @@ describe("Beleg: Prüfung und Freigabe", () => {
     localStorage.setItem("carraway.fonds", zweiter.id);
     spieleApi({
       "/api/v1/fonds": { koerper: { daten: [...fondsDaten.daten, zweiter] } },
-      [`/api/v1/belege/${BELEG_ID}`]: { koerper: beleg() },
-      "/api/v1/belege": { koerper: { daten: [] } },
+      [`/api/v1/vouchers/${BELEG_ID}`]: { koerper: beleg() },
+      "/api/v1/vouchers": { koerper: { data: [] } },
     });
     const { router } = rendereApp(`/belege/${BELEG_ID}`);
     const nav = within(await screen.findByRole("navigation", { name: "Hauptnavigation" }));
@@ -134,7 +141,7 @@ describe("Beleg: Prüfung und Freigabe", () => {
 
   it("zeigt Angaben, Mittelherkunft und fehlende Pflichtfelder; die Stufe ist gesperrt, bis nichts mehr fehlt", async () => {
     spieleApi({
-      [`/api/v1/belege/${BELEG_ID}`]: { koerper: beleg({ befunde: [{ feld: "projektnummer", code: "pflichtfeld_fehlt" }], daten: { ...beleg().daten, werte: { organisation_name: "Alpha Energie", betrag: "100000.00", projektnummer: null } } }) },
+      [`/api/v1/vouchers/${BELEG_ID}`]: { koerper: beleg({ findings: [{ field: "projectNumber", code: "required_field_missing" }], data: { ...beleg().data, values: { organizationName: "Alpha Energie", amount: "100000.00", projectNumber: null } } }) },
     });
     rendereApp(`/belege/${BELEG_ID}`);
     expect(await screen.findByRole("heading", { level: 1, name: "Auszahlung" })).toBeTruthy();
@@ -150,14 +157,14 @@ describe("Beleg: Prüfung und Freigabe", () => {
     const knopf = screen.getByRole("button", { name: "Prüfung erteilen" }) as HTMLButtonElement;
     expect(knopf.disabled).toBe(true);
     expect(screen.getByText("Pflichtangaben fehlen.")).toBeTruthy();
-    expect(screen.getByRole("link", { name: "PDF-Entwurf öffnen" }).getAttribute("href")).toBe(`/api/v1/belege/${BELEG_ID}/datei`);
+    expect(screen.getByRole("link", { name: "PDF-Entwurf öffnen" }).getAttribute("href")).toBe(`/api/v1/vouchers/${BELEG_ID}/file`);
   });
 
   it("erteilt die Prüfung, verlangt für die Rückgabe einen Kommentar und sperrt die Person, die den Beleg erzeugt hat", async () => {
     const api = spieleApi({
-      [`/api/v1/belege/${BELEG_ID}`]: { koerper: beleg() },
-      "/api/v1/benutzer/namen": { koerper: namenDaten },
-      [`POST /api/v1/belege/${BELEG_ID}/stufe`]: { koerper: beleg({ status: "geprueft", naechsteStufe: 1 }) },
+      [`/api/v1/vouchers/${BELEG_ID}`]: { koerper: beleg() },
+      "/api/v1/users/names": { koerper: namenDaten },
+      [`POST /api/v1/vouchers/${BELEG_ID}/stage`]: { koerper: beleg({ status: "reviewed", nextStage: 1 }) },
     });
     rendereApp(`/belege/${BELEG_ID}`);
     const nutzer = userEvent.setup();
@@ -165,19 +172,19 @@ describe("Beleg: Prüfung und Freigabe", () => {
     expect(erteilen.disabled).toBe(false);
     await nutzer.click(screen.getByRole("button", { name: "Zurückgeben" }));
     expect(await screen.findByText("Für die Rückgabe ist ein Kommentar erforderlich.")).toBeTruthy();
-    expect(api.anfragen("POST", `/api/v1/belege/${BELEG_ID}/stufe`)).toHaveLength(0);
+    expect(api.anfragen("POST", `/api/v1/vouchers/${BELEG_ID}/stage`)).toHaveLength(0);
     await nutzer.click(erteilen);
-    await waitFor(() => expect(api.anfragen("POST", `/api/v1/belege/${BELEG_ID}/stufe`)).toHaveLength(1));
-    expect(api.anfragen("POST", `/api/v1/belege/${BELEG_ID}/stufe`)[0]!.koerper).toEqual({ stufe: "Prüfung", ergebnis: "ok" });
+    await waitFor(() => expect(api.anfragen("POST", `/api/v1/vouchers/${BELEG_ID}/stage`)).toHaveLength(1));
+    expect(api.anfragen("POST", `/api/v1/vouchers/${BELEG_ID}/stage`)[0]!.koerper).toEqual({ stage: "review", result: "ok" });
   });
 
   it("gesperrt für die Person, die den Beleg erzeugt hat, und für Bearbeiter ohne Freigeberrolle; die Gründe stehen da", async () => {
-    spieleApi({ [`/api/v1/belege/${BELEG_ID}`]: { koerper: beleg({ erstelltVon: ICH_ID }) } });
+    spieleApi({ [`/api/v1/vouchers/${BELEG_ID}`]: { koerper: beleg({ createdBy: ICH_ID }) } });
     const a = rendereApp(`/belege/${BELEG_ID}`);
     expect((await screen.findByRole("button", { name: "Prüfung erteilen" }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText(/Sie haben den Beleg erzeugt oder zuletzt neu befüllt/)).toBeTruthy();
     a.unmount();
-    spieleApi({ "/api/v1/ich": alsRolle("bearbeiter"), [`/api/v1/belege/${BELEG_ID}`]: { koerper: beleg() } });
+    spieleApi({ "/api/v1/me": alsRolle("bearbeiter"), [`/api/v1/vouchers/${BELEG_ID}`]: { koerper: beleg() } });
     rendereApp(`/belege/${BELEG_ID}`);
     expect((await screen.findByRole("button", { name: "Prüfung erteilen" }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText("Stufen erteilen nur Personen mit der Rolle Freigeber.")).toBeTruthy();
@@ -187,20 +194,20 @@ describe("Beleg: Prüfung und Freigabe", () => {
   it("freigegeben: Nummer, Hash und Datei, keine Stufen mehr; englisch", async () => {
     englisch();
     spieleApi({
-      [`/api/v1/belege/${BELEG_ID}`]: {
+      [`/api/v1/vouchers/${BELEG_ID}`]: {
         koerper: beleg({
-          status: "freigegeben",
-          belegnummer: "B-000042",
-          naechsteStufe: 2,
-          naechsteStufeName: null,
-          dateiSha256: "ab".repeat(32),
-          protokoll: [
-            { id: "p1", belegId: BELEG_ID, stufeIndex: 0, stufe: "Prüfung", ergebnis: "ok", kommentar: null, akteur: ANDERE_ID, am: "2026-11-20T10:00:00.000Z" },
-            { id: "p2", belegId: BELEG_ID, stufeIndex: 1, stufe: "Freigabe", ergebnis: "ok", kommentar: "in Ordnung", akteur: ICH_ID, am: "2026-11-20T11:00:00.000Z" },
+          status: "approved",
+          voucherNumber: "B-000042",
+          nextStage: 2,
+          nextStageName: null,
+          fileSha256: "ab".repeat(32),
+          history: [
+            { id: "p1", voucherId: BELEG_ID, stageIndex: 0, stage: "review", result: "ok", comment: null, actor: ANDERE_ID, at: "2026-11-20T10:00:00.000Z" },
+            { id: "p2", voucherId: BELEG_ID, stageIndex: 1, stage: "approval", result: "ok", comment: "in Ordnung", actor: ICH_ID, at: "2026-11-20T11:00:00.000Z" },
           ],
         }),
       },
-      "/api/v1/benutzer/namen": { koerper: namenDaten },
+      "/api/v1/users/names": { koerper: namenDaten },
     });
     rendereApp(`/belege/${BELEG_ID}`);
     expect(await screen.findByRole("heading", { level: 1, name: "Disbursement B-000042" })).toBeTruthy();
@@ -216,13 +223,13 @@ describe("Beleg: Prüfung und Freigabe", () => {
 
 describe("Beleg stornieren", () => {
   const frei = (extra: Record<string, unknown> = {}) =>
-    beleg({ status: "freigegeben", belegnummer: "B-000042", naechsteStufe: 2, naechsteStufeName: null, dateiSha256: "ab".repeat(32), stornoAm: null, stornoVon: null, stornoGrund: null, ...extra });
-  const PFAD_STORNO = `POST /api/v1/belege/${BELEG_ID}/storno`;
+    beleg({ status: "approved", voucherNumber: "B-000042", nextStage: 2, nextStageName: null, fileSha256: "ab".repeat(32), reversedAt: null, reversedBy: null, reversalReason: null, ...extra });
+  const PFAD_STORNO = `POST /api/v1/vouchers/${BELEG_ID}/reverse`;
 
   it("Freigeber stornieren mit Grund; ohne Grund ist der Knopf gesperrt, Serverfehler werden gezeigt", async () => {
     const api = spieleApi({
-      [`/api/v1/belege/${BELEG_ID}`]: { koerper: frei() },
-      [PFAD_STORNO]: fehler(409, "BELEG_STORNIERT"),
+      [`/api/v1/vouchers/${BELEG_ID}`]: { koerper: frei() },
+      [PFAD_STORNO]: fehler(409, "voucher_reversed"),
     });
     rendereApp(`/belege/${BELEG_ID}`);
     const nutzer = userEvent.setup();
@@ -233,15 +240,15 @@ describe("Beleg stornieren", () => {
     await nutzer.type(formular.getByLabelText("Grund der Stornierung"), "Betrag falsch");
     expect(knopf.disabled).toBe(false);
     await nutzer.click(knopf);
-    await waitFor(() => expect(api.anfragen("POST", `/api/v1/belege/${BELEG_ID}/storno`)).toHaveLength(1));
-    expect(api.anfragen("POST", `/api/v1/belege/${BELEG_ID}/storno`)[0]!.koerper).toEqual({ grund: "Betrag falsch" });
+    await waitFor(() => expect(api.anfragen("POST", `/api/v1/vouchers/${BELEG_ID}/reverse`)).toHaveLength(1));
+    expect(api.anfragen("POST", `/api/v1/vouchers/${BELEG_ID}/reverse`)[0]!.koerper).toEqual({ reason: "Betrag falsch" });
     expect(await screen.findByText("Der Beleg ist storniert und lässt sich nicht mehr ändern.")).toBeTruthy();
   });
 
   it("storniert: Status, Grund und Person stehen da, die Datei bleibt, es gibt keine Stufen und keinen Stornieren-Knopf", async () => {
     spieleApi({
-      [`/api/v1/belege/${BELEG_ID}`]: { koerper: frei({ status: "storniert", stornoAm: "2026-11-21T08:00:00.000Z", stornoVon: ANDERE_ID, stornoGrund: "Betrag falsch" }) },
-      "/api/v1/benutzer/namen": { koerper: namenDaten },
+      [`/api/v1/vouchers/${BELEG_ID}`]: { koerper: frei({ status: "reversed", reversedAt: "2026-11-21T08:00:00.000Z", reversedBy: ANDERE_ID, reversalReason: "Betrag falsch" }) },
+      "/api/v1/users/names": { koerper: namenDaten },
     });
     rendereApp(`/belege/${BELEG_ID}`);
     expect(await screen.findByText("Der Beleg ist storniert.")).toBeTruthy();
@@ -255,7 +262,7 @@ describe("Beleg stornieren", () => {
   });
 
   it("nur mit Rolle Freigeber und nur beim freigegebenen Beleg; die Liste kennt den Status", async () => {
-    spieleApi({ [`/api/v1/belege/${BELEG_ID}`]: { koerper: frei() }, "/api/v1/ich": alsRolle("bearbeiter") });
+    spieleApi({ [`/api/v1/vouchers/${BELEG_ID}`]: { koerper: frei() }, "/api/v1/me": alsRolle("bearbeiter") });
     rendereApp(`/belege/${BELEG_ID}`);
     await screen.findByText(/Freigegeben als B-000042/);
     expect(screen.queryByRole("button", { name: "Stornieren …" })).toBeNull();
@@ -263,13 +270,13 @@ describe("Beleg stornieren", () => {
   });
 
   it("Liste: stornierter Beleg mit Status, Filter nach Status", async () => {
-    const api = spieleApi({ "/api/v1/belege": { koerper: { daten: [belegZeile({ status: "storniert", belegnummer: "B-000007" }), belegZeile({ id: "be-2", status: "freigegeben", belegnummer: "B-000008" })] } } });
+    const api = spieleApi({ "/api/v1/vouchers": { koerper: { data: [belegZeile({ status: "reversed", voucherNumber: "B-000007" }), belegZeile({ id: "be-2", status: "approved", voucherNumber: "B-000008" })] } } });
     rendereApp("/belege");
     const nutzer = userEvent.setup();
     const bereich = await screen.findByRole("region", { name: "Belege des Fonds" });
     expect(within(bereich).getAllByRole("row")[1]!.textContent).toContain("Storniert");
     await nutzer.selectOptions(screen.getByLabelText("Status"), "storniert");
-    await waitFor(() => expect(api.anfragen("GET", "/api/v1/belege").some((a) => a.query.get("status") === "storniert")).toBe(true));
+    await waitFor(() => expect(api.anfragen("GET", "/api/v1/vouchers").some((a) => a.query.get("status") === "reversed")).toBe(true));
   });
 });
 
@@ -277,33 +284,33 @@ describe("Beleg erzeugen", () => {
   it("am Zinslauf: sendet Art, Bezug und Sprache und führt zum Beleg", async () => {
     const api = spieleApi({
       [`/api/v1/zinslaeufe/${ZL_ID}`]: { koerper: { ...zinslaufDaten, status: "gebucht" } },
-      "POST /api/v1/belege": { status: 201, koerper: beleg({ art: "zinsbuchung", bezugArt: "zinslauf", bezugId: ZL_ID }) },
-      [`/api/v1/belege/${BELEG_ID}`]: { koerper: beleg({ art: "zinsbuchung" }) },
+      "POST /api/v1/vouchers": { status: 201, koerper: beleg({ type: "interest_posting", referenceType: "interest_run", referenceId: ZL_ID }) },
+      [`/api/v1/vouchers/${BELEG_ID}`]: { koerper: beleg({ type: "interest_posting" }) },
     });
     rendereApp(`/zinslaeufe/${ZL_ID}`);
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Beleg erzeugen" }));
     await nutzer.click(dialog().getByRole("button", { name: "Erzeugen" }));
     expect(await screen.findByRole("heading", { level: 1, name: "Zinsbuchung" })).toBeTruthy();
-    expect(api.anfragen("POST", "/api/v1/belege")[0]!.koerper).toEqual({ art: "zinsbuchung", bezugArt: "zinslauf", bezugId: ZL_ID, sprache: "de" });
+    expect(api.anfragen("POST", "/api/v1/vouchers")[0]!.koerper).toEqual({ type: "interest_posting", referenceType: "interest_run", referenceId: ZL_ID, language: "de" });
   });
 
   it("bietet aktive eigene Belegarten derselben Basis-Art an und sendet die gewählte; ohne eigene Art gibt es keine Auswahl", async () => {
-    const eintrag = (art: string, zusatz: object) => ({ art, standard: true, felder: [], kopfDe: "", kopfEn: "", fussDe: "", fussEn: "", katalog: [], eigeneArtId: null, bezeichnungDe: null, bezeichnungEn: null, aktiv: true, ...zusatz });
+    const eintrag = (art: string, zusatz: object) => ({ type: art, standard: true, fields: [], headerDe: "", headerEn: "", footerDe: "", footerEn: "", catalog: [], customTypeId: null, labelDe: null, labelEn: null, active: true, ...zusatz });
     const api = spieleApi({
       [`/api/v1/zinslaeufe/${ZL_ID}`]: { koerper: { ...zinslaufDaten, status: "gebucht" } },
-      [`/api/v1/fonds/${FONDS_ID}/belegvorlagen`]: {
+      [`/api/v1/funds/${FONDS_ID}/voucher-templates`]: {
         koerper: {
-          daten: [
+          data: [
             eintrag("zinsbuchung", {}),
-            eintrag("zinsbuchung", { eigeneArtId: "art-z", bezeichnungDe: "Zinsmeldung", bezeichnungEn: "Interest notice" }),
-            eintrag("zinsbuchung", { eigeneArtId: "art-still", bezeichnungDe: "Alt", bezeichnungEn: "Old", aktiv: false }),
-            eintrag("auszahlung", { eigeneArtId: "art-a", bezeichnungDe: "Andere Basis", bezeichnungEn: "Other base" }),
+            eintrag("zinsbuchung", { customTypeId: "art-z", labelDe: "Zinsmeldung", labelEn: "Interest notice" }),
+            eintrag("zinsbuchung", { customTypeId: "art-still", labelDe: "Alt", labelEn: "Old", active: false }),
+            eintrag("auszahlung", { customTypeId: "art-a", labelDe: "Andere Basis", labelEn: "Other base" }),
           ],
         },
       },
-      "POST /api/v1/belege": { status: 201, koerper: beleg({ art: "zinsbuchung", bezugArt: "zinslauf", bezugId: ZL_ID, eigeneArtId: "art-z", artNameDe: "Zinsmeldung", artNameEn: "Interest notice" }) },
-      [`/api/v1/belege/${BELEG_ID}`]: { koerper: beleg({ art: "zinsbuchung", eigeneArtId: "art-z", artNameDe: "Zinsmeldung", artNameEn: "Interest notice" }) },
+      "POST /api/v1/vouchers": { status: 201, koerper: beleg({ type: "interest_posting", referenceType: "interest_run", referenceId: ZL_ID, customTypeId: "art-z", typeNameDe: "Zinsmeldung", typeNameEn: "Interest notice" }) },
+      [`/api/v1/vouchers/${BELEG_ID}`]: { koerper: beleg({ type: "interest_posting", customTypeId: "art-z", typeNameDe: "Zinsmeldung", typeNameEn: "Interest notice" }) },
     });
     rendereApp(`/zinslaeufe/${ZL_ID}`);
     const nutzer = userEvent.setup();
@@ -314,13 +321,13 @@ describe("Beleg erzeugen", () => {
     await nutzer.click(dialog().getByRole("button", { name: "Erzeugen" }));
     // Detailseite zeigt den eigenen Namen statt der festen Art.
     expect(await screen.findByRole("heading", { level: 1, name: "Zinsmeldung" })).toBeTruthy();
-    expect(api.anfragen("POST", "/api/v1/belege")[0]!.koerper).toEqual({ art: "zinsbuchung", eigeneArtId: "art-z", bezugArt: "zinslauf", bezugId: ZL_ID, sprache: "de" });
+    expect(api.anfragen("POST", "/api/v1/vouchers")[0]!.koerper).toEqual({ type: "interest_posting", customTypeId: "art-z", referenceType: "interest_run", referenceId: ZL_ID, language: "de" });
   });
 
   it("gibt es schon einen Beleg, führt ein Link dorthin; ohne Rolle Bearbeiter gibt es den Knopf nicht", async () => {
     spieleApi({
       [`/api/v1/zinslaeufe/${ZL_ID}`]: { koerper: { ...zinslaufDaten, status: "gebucht" } },
-      "POST /api/v1/belege": fehler(409, "BELEG_VORHANDEN", { belegId: BELEG_ID }),
+      "POST /api/v1/vouchers": fehler(409, "voucher_exists", { voucherId: BELEG_ID }),
     });
     const a = rendereApp(`/zinslaeufe/${ZL_ID}`);
     const nutzer = userEvent.setup();
@@ -329,7 +336,7 @@ describe("Beleg erzeugen", () => {
     expect(await dialog().findByText("Für diesen Vorfall gibt es schon einen Beleg.")).toBeTruthy();
     expect(dialog().getByRole("link", { name: "Beleg öffnen" }).getAttribute("href")).toBe(`/belege/${BELEG_ID}`);
     a.unmount();
-    spieleApi({ "/api/v1/ich": alsRolle("betrachter"), [`/api/v1/zinslaeufe/${ZL_ID}`]: { koerper: { ...zinslaufDaten, status: "gebucht" } } });
+    spieleApi({ "/api/v1/me": alsRolle("betrachter"), [`/api/v1/zinslaeufe/${ZL_ID}`]: { koerper: { ...zinslaufDaten, status: "gebucht" } } });
     rendereApp(`/zinslaeufe/${ZL_ID}`);
     await screen.findByRole("heading", { level: 1 });
     expect(screen.queryByRole("button", { name: "Beleg erzeugen" })).toBeNull();
@@ -339,26 +346,26 @@ describe("Beleg erzeugen", () => {
 const LAUF_ID = "sl-1";
 const lauf = (extra: Record<string, unknown> = {}) => ({
   id: LAUF_ID,
-  fondsId: FONDS_ID,
-  zeitraumVon: "2026-07-01",
-  zeitraumBis: "2026-09-30",
-  dateiname: "susa.csv",
-  dateityp: "csv",
+  fundId: FONDS_ID,
+  periodFrom: "2026-07-01",
+  periodTo: "2026-09-30",
+  sourceFileName: "susa.csv",
+  fileType: "csv",
   format: "datev",
-  groesse: 100,
+  size: 100,
   sha256: "cd".repeat(32),
-  status: "geprueft",
-  hochgeladenVon: ANDERE_ID,
-  hochgeladenAm: "2026-11-20T09:00:00.000Z",
-  geprueftVon: ANDERE_ID,
-  geprueftAm: "2026-11-20T09:05:00.000Z",
-  fehlerAnzahl: 0,
-  warnungAnzahl: 1,
-  summe: { konten: 6, saldensumme: "0.00", soll: "1170.00", haben: "1170.00" },
-  uebernommenVon: null,
-  uebernommenAm: null,
-  ersetztAm: null,
-  ersetztVonLaufId: null,
+  status: "reviewed",
+  uploadedBy: ANDERE_ID,
+  uploadedAt: "2026-11-20T09:00:00.000Z",
+  reviewedBy: ANDERE_ID,
+  reviewedAt: "2026-11-20T09:05:00.000Z",
+  errorCount: 0,
+  warningCount: 1,
+  sum: { accounts: 6, balanceSum: "0.00", debit: "1170.00", credit: "1170.00" },
+  appliedBy: null,
+  appliedAt: null,
+  replacedAt: null,
+  replacedByRunId: null,
   ...extra,
 });
 const buchhaltungUrl = (bereich: string) => `/buchhaltung?bereich=${bereich}`;
@@ -367,8 +374,8 @@ describe("Buchhaltung: Saldenlisten", () => {
   it("öffnet die referenzierte Kontenzeile und zeigt die Übernahme zum historischen Stand", async () => {
     const stand = "2026-11-21T09:00:00Z", stichtag = "2026-09-30";
     spieleApi({
-      [`/api/v1/saldenlaeufe/${LAUF_ID}`]: { koerper: { ...lauf({ status: "uebernommen", uebernommenAm: stand, uebernommenVon: ANDERE_ID }), befunde: [] } },
-      [`/api/v1/saldenlaeufe/${LAUF_ID}/salden`]: { koerper: { daten: [{ konto: "0120", saldo: "-12.34", bezeichnung: "Bankkonto" }] } },
+      [`/api/v1/balance-runs/${LAUF_ID}`]: { koerper: { ...lauf({ status: "applied", appliedAt: stand, appliedBy: ANDERE_ID }), findings: [] } },
+      [`/api/v1/balance-runs/${LAUF_ID}/balances`]: { koerper: { data: [{ account: "0120", balance: "-12.34", label: "Bankkonto" }] } },
     });
     rendereApp(`/buchhaltung?fondsId=${FONDS_ID}&laufId=${LAUF_ID}&konto=0120&stichtag=${stichtag}&stand=${stand}`);
     expect(await screen.findByRole("heading", { name: "susa.csv" })).toBeTruthy();
@@ -380,11 +387,11 @@ describe("Buchhaltung: Saldenlisten", () => {
 
   it("listet die Listen, lädt hoch (multipart), prüft und übernimmt mit Vier-Augen-Hinweis; Befunde in beiden Sprachen", async () => {
     const api = spieleApi({
-      [`/api/v1/fonds/${FONDS_ID}/saldenlaeufe`]: { koerper: { daten: [lauf()] } },
-      [`POST /api/v1/fonds/${FONDS_ID}/saldenlaeufe`]: { status: 201, koerper: lauf({ id: "sl-2", status: "hochgeladen", fehlerAnzahl: null, warnungAnzahl: null, summe: null }) },
-      [`POST /api/v1/saldenlaeufe/${LAUF_ID}/pruefen`]: { koerper: lauf() },
-      [`POST /api/v1/saldenlaeufe/${LAUF_ID}/uebernehmen`]: { koerper: lauf({ status: "uebernommen" }) },
-      [`/api/v1/saldenlaeufe/${LAUF_ID}`]: { koerper: { ...lauf(), befunde: [{ nr: 1, zeile: 4, spalte: null, code: "SUSA_KONTO_UNBEKANNT", schweregrad: "warnung", meldung: "x", params: { konto: "7000" } }] } },
+      [`/api/v1/funds/${FONDS_ID}/balance-runs`]: { koerper: { data: [lauf()] } },
+      [`POST /api/v1/funds/${FONDS_ID}/balance-runs`]: { status: 201, koerper: lauf({ id: "sl-2", status: "uploaded", errorCount: null, warningCount: null, sum: null }) },
+      [`POST /api/v1/balance-runs/${LAUF_ID}/validate`]: { koerper: lauf() },
+      [`POST /api/v1/balance-runs/${LAUF_ID}/apply`]: { koerper: lauf({ status: "applied" }) },
+      [`/api/v1/balance-runs/${LAUF_ID}`]: { koerper: { ...lauf(), findings: [{ sequence: 1, row: 4, column: null, code: "unknown_account", severity: "warning", message: "x", params: { account: "7000" } }] } },
     });
     rendereApp(buchhaltungUrl("saldenlisten"));
     const nutzer = userEvent.setup();
@@ -397,21 +404,21 @@ describe("Buchhaltung: Saldenlisten", () => {
 
     await nutzer.upload(screen.getByLabelText("Datei"), new File(["Konto;Saldo"], "neu.csv", { type: "text/csv" }));
     expect(screen.getByText("neu.csv")).toBeTruthy();
-    expect(api.anfragen("POST", `/api/v1/fonds/${FONDS_ID}/saldenlaeufe`)).toHaveLength(0);
+    expect(api.anfragen("POST", `/api/v1/funds/${FONDS_ID}/balance-runs`)).toHaveLength(0);
     fireEvent.change(screen.getByLabelText("Zeitraum von"), { target: { value: "2026-10-01" } });
     fireEvent.change(screen.getByLabelText("Zeitraum bis"), { target: { value: "2026-12-31" } });
     await nutzer.click(screen.getByRole("button", { name: "Hochladen" }));
-    await waitFor(() => expect(api.anfragen("POST", `/api/v1/fonds/${FONDS_ID}/saldenlaeufe`)).toHaveLength(1));
-    const formular = api.anfragen("POST", `/api/v1/fonds/${FONDS_ID}/saldenlaeufe`)[0]!.formular!;
-    expect((formular.get("datei") as File).name).toBe("neu.csv");
-    expect(formular.get("zeitraumVon")).toBe("2026-10-01");
-    expect(formular.get("zeitraumBis")).toBe("2026-12-31");
+    await waitFor(() => expect(api.anfragen("POST", `/api/v1/funds/${FONDS_ID}/balance-runs`)).toHaveLength(1));
+    const formular = api.anfragen("POST", `/api/v1/funds/${FONDS_ID}/balance-runs`)[0]!.formular!;
+    expect((formular.get("file") as File).name).toBe("neu.csv");
+    expect(formular.get("periodFrom")).toBe("2026-10-01");
+    expect(formular.get("periodTo")).toBe("2026-12-31");
 
     await nutzer.click(within(liste).getAllByRole("button", { name: "Prüfen" })[0]!);
-    await waitFor(() => expect(api.anfragen("POST", `/api/v1/saldenlaeufe/${LAUF_ID}/pruefen`)).toHaveLength(1));
+    await waitFor(() => expect(api.anfragen("POST", `/api/v1/balance-runs/${LAUF_ID}/validate`)).toHaveLength(1));
     // Übernahme: Hochgeladen von einer anderen Person, die angemeldete Verwalterin darf
     await nutzer.click(within(liste).getAllByRole("button", { name: "Übernehmen" })[0]!);
-    await waitFor(() => expect(api.anfragen("POST", `/api/v1/saldenlaeufe/${LAUF_ID}/uebernehmen`)).toHaveLength(1));
+    await waitFor(() => expect(api.anfragen("POST", `/api/v1/balance-runs/${LAUF_ID}/apply`)).toHaveLength(1));
     await nutzer.click(within(liste).getAllByRole("button", { name: "Befunde der Prüfung" })[0]!);
     expect(await screen.findByText(/Das Konto steht nicht im Kontenrahmen des Fonds\. \(7000\)/)).toBeTruthy();
     expect(screen.getByText(/Zeile 4/)).toBeTruthy();
@@ -419,7 +426,7 @@ describe("Buchhaltung: Saldenlisten", () => {
 
   it("Übernehmen ist für die Person gesperrt, die hochgeladen oder geprüft hat; englisch", async () => {
     englisch();
-    spieleApi({ [`/api/v1/fonds/${FONDS_ID}/saldenlaeufe`]: { koerper: { daten: [lauf({ hochgeladenVon: ICH_ID })] } } });
+    spieleApi({ [`/api/v1/funds/${FONDS_ID}/balance-runs`]: { koerper: { data: [lauf({ uploadedBy: ICH_ID })] } } });
     rendereApp(buchhaltungUrl("saldenlisten"));
     const liste = await screen.findByRole("region", { name: "Trial balances of the fund" });
     expect((within(liste).getByRole("button", { name: "Take over" }) as HTMLButtonElement).disabled).toBe(true);
@@ -429,55 +436,55 @@ describe("Buchhaltung: Saldenlisten", () => {
 });
 
 const auswertungDaten = {
-  sicht: "bilanz",
-  zeitraumVon: "2026-07-01",
-  zeitraumBis: "2026-09-30",
-  lauf: { id: LAUF_ID, dateiname: "susa.csv", uebernommenAm: "2026-11-20T10:00:00.000Z", uebernommenVon: ICH_ID },
-  zeilen: [
-    { schluessel: "aktiva", ebene: 0, bezeichnungDe: "Aktiva", bezeichnungEn: "Assets", seite: "soll", wert: "1050.00", blatt: false, konten: [], schritte: [] },
+  view: "balance_sheet",
+  periodFrom: "2026-07-01",
+  periodTo: "2026-09-30",
+  run: { id: LAUF_ID, sourceFileName: "susa.csv", appliedAt: "2026-11-20T10:00:00.000Z", appliedBy: ICH_ID },
+  rows: [
+    { key: "aktiva", level: 0, labelDe: "Aktiva", labelEn: "Assets", side: "debit", value: "1050.00", leaf: false, accounts: [], steps: [] },
     {
-      schluessel: "aktiva.beteiligungen",
-      ebene: 1,
-      bezeichnungDe: "Beteiligungen",
-      bezeichnungEn: "Equity investments",
-      seite: "soll",
-      wert: "750.00",
-      blatt: true,
-      konten: [
-        { konto: "0100", bezeichnung: "Beteiligungen", saldo: "800.00", regelId: "r1", beitrag: "800.00" },
-        { konto: "0110", bezeichnung: "Wertberichtigungen", saldo: "-50.00", regelId: "r1", beitrag: "-50.00" },
+      key: "aktiva.beteiligungen",
+      level: 1,
+      labelDe: "Beteiligungen",
+      labelEn: "Equity investments",
+      side: "debit",
+      value: "750.00",
+      leaf: true,
+      accounts: [
+        { account: "0100", label: "Beteiligungen", balance: "800.00", ruleId: "r1", contribution: "800.00" },
+        { account: "0110", label: "Wertberichtigungen", balance: "-50.00", ruleId: "r1", contribution: "-50.00" },
       ],
-      schritte: [],
+      steps: [],
     },
   ],
-  nichtZugeordnet: [{ konto: "7000", bezeichnung: "Sonstiges", saldo: "5.00" }],
-  mehrdeutig: [],
+  unassigned: [{ account: "7000", label: "Sonstiges", balance: "5.00" }],
+  ambiguous: [],
 };
-const periodenDaten = { daten: [{ laufId: LAUF_ID, zeitraumVon: "2026-07-01", zeitraumBis: "2026-09-30", uebernommenAm: "2026-11-20T10:00:00.000Z" }] };
-const schrittW = (zeichen: string, bezeichnung: string, wert: string) => ({ zeichen, bezeichnung, wert });
+const periodenDaten = { data: [{ runId: LAUF_ID, periodFrom: "2026-07-01", periodTo: "2026-09-30", appliedAt: "2026-11-20T10:00:00.000Z" }] };
+const schrittW = (zeichen: string, bezeichnung: string, wert: string) => ({ symbol: zeichen, label: bezeichnung, value: wert });
 const abstimmungDaten = {
-  zeitraumVon: "2026-07-01",
-  zeitraumBis: "2026-09-30",
+  periodFrom: "2026-07-01",
+  periodTo: "2026-09-30",
   portfolio: {
-    gesamt: { schluessel: "pf.portfolio", bezeichnung: "Portfolio zu Buchwerten", carraway: "500000.00", buchhaltung: "490000.00", differenz: "10000.00", verknuepft: false, schritte: [schrittW("", "Buchwerte", "500000.00"), schrittW("=", "Differenz", "10000.00")] },
-    zeilen: [{ schluessel: "b", bezeichnung: "Beta Medizin (darlehen)", carraway: "100000.00", buchhaltung: "90000.00", differenz: "10000.00", verknuepft: true, schritte: [] }],
-    ohneKonto: [{ beteiligungId: "b9", bezeichnung: "Gamma (darlehen)", buchwert: "5000.00" }],
+    total: { key: "pf.portfolio", label: "Portfolio zu Buchwerten", carraway: "500000.00", accounting: "490000.00", difference: "10000.00", linked: false, steps: [schrittW("", "Buchwerte", "500000.00"), schrittW("=", "Differenz", "10000.00")] },
+    rows: [{ key: "b", label: "Beta Medizin (darlehen)", carraway: "100000.00", accounting: "90000.00", difference: "10000.00", linked: true, steps: [] }],
+    withoutAccount: [{ investmentId: "b9", label: "Gamma (darlehen)", bookValue: "5000.00" }],
   },
-  liquiditaet: null,
+  liquidity: null,
 };
 
 describe("Buchhaltung: Auswertungen", () => {
   it("zeigt die Zeilen, die Herkunft je Zeile, nicht zugeordnete Konten und die Ausgaben als Links", async () => {
     const api = spieleApi({
-      [`/api/v1/fonds/${FONDS_ID}/perioden`]: { koerper: periodenDaten },
-      [`/api/v1/fonds/${FONDS_ID}/auswertung/bilanz`]: { koerper: auswertungDaten },
+      [`/api/v1/funds/${FONDS_ID}/periods`]: { koerper: periodenDaten },
+      [`/api/v1/funds/${FONDS_ID}/evaluation/balance_sheet`]: { koerper: auswertungDaten },
     });
     rendereApp(buchhaltungUrl("auswertung"));
     const nutzer = userEvent.setup();
     const tabelle = within(await screen.findByRole("region", { name: /Bilanz: Zeilen der Auswertung/ }));
     expect(tabelle.getByText("Aktiva")).toBeTruthy();
     expect(schmal(tabelle.getByText("1.050,00 €").textContent)).toBe("1.050,00 €");
-    expect(api.anfragen("GET", `/api/v1/fonds/${FONDS_ID}/auswertung/bilanz`)[0]!.query.get("bis")).toBe("2026-09-30");
+    expect(api.anfragen("GET", `/api/v1/funds/${FONDS_ID}/evaluation/balance_sheet`)[0]!.query.get("to")).toBe("2026-09-30");
     // Herkunft: erst nach dem Öffnen
     expect(screen.queryByText("Wertberichtigungen")).toBeNull();
     await nutzer.click(screen.getByRole("button", { name: "Herkunft von Beteiligungen zeigen" }));
@@ -487,17 +494,17 @@ describe("Buchhaltung: Auswertungen", () => {
     await nutzer.click(screen.getByRole("button", { name: "Herkunft von Beteiligungen verbergen" }));
     expect(screen.queryByRole("region", { name: "Herkunft: Beteiligungen" })).toBeNull();
     expect(screen.getByText("1 Konten haben in dieser Sicht keine gültige Kontenregel und fehlen in den Summen.")).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Ausgabe: PDF" }).getAttribute("href")).toBe(`/api/v1/fonds/${FONDS_ID}/auswertung/bilanz/datei?bis=2026-09-30&format=pdf&sprache=de`);
+    expect(screen.getByRole("link", { name: "Ausgabe: PDF" }).getAttribute("href")).toBe(`/api/v1/funds/${FONDS_ID}/evaluation/balance_sheet/file?to=2026-09-30&format=pdf&language=de`);
     expect(screen.getByRole("link", { name: "Ausgabe: Excel" }).getAttribute("href")).toContain("format=xlsx");
   });
 
   it("Portfolio: Abstimmung mit Differenz und Beteiligungen ohne Konto; englisch", async () => {
     englisch();
     spieleApi({
-      [`/api/v1/fonds/${FONDS_ID}/perioden`]: { koerper: periodenDaten },
-      [`/api/v1/fonds/${FONDS_ID}/auswertung/bilanz`]: { koerper: auswertungDaten },
-      [`/api/v1/fonds/${FONDS_ID}/auswertung/portfolio`]: { koerper: { ...auswertungDaten, sicht: "portfolio" } },
-      [`/api/v1/fonds/${FONDS_ID}/abstimmung`]: { koerper: abstimmungDaten },
+      [`/api/v1/funds/${FONDS_ID}/periods`]: { koerper: periodenDaten },
+      [`/api/v1/funds/${FONDS_ID}/evaluation/balance_sheet`]: { koerper: auswertungDaten },
+      [`/api/v1/funds/${FONDS_ID}/evaluation/portfolio`]: { koerper: { ...auswertungDaten, view: "portfolio" } },
+      [`/api/v1/funds/${FONDS_ID}/reconciliation`]: { koerper: abstimmungDaten },
     });
     rendereApp(buchhaltungUrl("auswertung"));
     const nutzer = userEvent.setup();
@@ -511,7 +518,7 @@ describe("Buchhaltung: Auswertungen", () => {
   });
 
   it("ohne übernommene Saldenliste: Hinweis", async () => {
-    spieleApi({ [`/api/v1/fonds/${FONDS_ID}/perioden`]: { koerper: { daten: [] } } });
+    spieleApi({ [`/api/v1/funds/${FONDS_ID}/periods`]: { koerper: { data: [] } } });
     rendereApp(buchhaltungUrl("auswertung"));
     expect(await screen.findByText(/Es gibt noch keine übernommene Saldenliste/)).toBeTruthy();
   });
@@ -521,20 +528,20 @@ describe("Buchhaltung: Buchungsexport", () => {
   const gebucht = { daten: [{ ...zinslaufListeDaten.daten[0]!, status: "gebucht" }] };
   const vorschau = {
     format: "EXTF 700 / Buchungsstapel 13",
-    datumVon: "2026-09-30",
-    datumBis: "2026-09-30",
-    zeilen: [{ vorgangId: "v1", organisation: "Alpha Energie", art: "zins", valuta: "2026-09-30", betrag: "16200.62", konto: "1200", gegenkonto: "4200", richtung: "S", belegfeld: "FND-ABCDEF01", buchungstext: "Zins Alpha Energie", mitBeleg: false, bereitsExportiert: false }],
-    anzahl: 1,
-    probleme: [{ code: "EXPORT_KONTO_LAENGE" }],
-    ohneBeleg: ["v1"],
+    dateFrom: "2026-09-30",
+    dateTo: "2026-09-30",
+    rows: [{ transactionId: "v1", organization: "Alpha Energie", type: "interest", valueDate: "2026-09-30", amount: "16200.62", account: "1200", contraAccount: "4200", direction: "debit", voucherField: "FND-ABCDEF01", postingText: "Zins Alpha Energie", hasVoucher: false, alreadyExported: false }],
+    count: 1,
+    issues: [{ code: "invalid_account_length" }],
+    withoutVoucher: ["v1"],
   };
 
   it("Vorschau zeigt Konten, Belegfeld und Probleme; Export sendet die Auswahl; schon exportiert wird erklärt", async () => {
     const api = spieleApi({
       "/api/v1/zinslaeufe": { koerper: gebucht },
-      [`/api/v1/fonds/${FONDS_ID}/buchungsexporte`]: { koerper: { daten: [] } },
-      [`POST /api/v1/fonds/${FONDS_ID}/buchungsexport/vorschau`]: { koerper: vorschau },
-      [`POST /api/v1/fonds/${FONDS_ID}/buchungsexport`]: fehler(409, "BUCHUNGSEXPORT_BEREITS_EXPORTIERT", { vorgangIds: ["v1"] }),
+      [`/api/v1/funds/${FONDS_ID}/posting-exports`]: { koerper: { data: [] } },
+      [`POST /api/v1/funds/${FONDS_ID}/posting-exports/preview`]: { koerper: vorschau },
+      [`POST /api/v1/funds/${FONDS_ID}/posting-exports`]: fehler(409, "posting_export_already_exported", { transactionIds: ["v1"] }),
     });
     rendereApp(buchhaltungUrl("export"));
     const nutzer = userEvent.setup();
@@ -544,7 +551,7 @@ describe("Buchhaltung: Buchungsexport", () => {
     expect(zeilen.getByText("1200")).toBeTruthy();
     expect(screen.getByText(/1 Vorgänge haben noch keinen freigegebenen Beleg/)).toBeTruthy();
     expect(screen.getByText(/Kontonummer hat nicht die Länge/)).toBeTruthy();
-    expect(api.anfragen("POST", `/api/v1/fonds/${FONDS_ID}/buchungsexport/vorschau`)[0]!.koerper).toEqual({ zinslaufId: ZL_ID, wiederholung: false });
+    expect(api.anfragen("POST", `/api/v1/funds/${FONDS_ID}/posting-exports/preview`)[0]!.koerper).toEqual({ interestRunId: ZL_ID, repeat: false });
     await nutzer.click(screen.getByRole("button", { name: "Exportieren" }));
     expect(await screen.findByText(/Vorgänge sind schon exportiert/)).toBeTruthy();
     // Wiederholung verlangt einen Grund
@@ -553,17 +560,17 @@ describe("Buchhaltung: Buchungsexport", () => {
     await nutzer.type(screen.getByLabelText("Grund"), "Konten korrigiert");
     expect((screen.getByRole("button", { name: "Exportieren" }) as HTMLButtonElement).disabled).toBe(false);
     await nutzer.click(screen.getByRole("button", { name: "Exportieren" }));
-    await waitFor(() => expect(api.anfragen("POST", `/api/v1/fonds/${FONDS_ID}/buchungsexport`)).toHaveLength(2));
-    expect(api.anfragen("POST", `/api/v1/fonds/${FONDS_ID}/buchungsexport`)[1]!.koerper).toEqual({ zinslaufId: ZL_ID, wiederholung: true, grund: "Konten korrigiert" });
+    await waitFor(() => expect(api.anfragen("POST", `/api/v1/funds/${FONDS_ID}/posting-exports`)).toHaveLength(2));
+    expect(api.anfragen("POST", `/api/v1/funds/${FONDS_ID}/posting-exports`)[1]!.koerper).toEqual({ interestRunId: ZL_ID, repeat: true, reason: "Konten korrigiert" });
   });
 
   it("Liste der Exporte mit Download-Link nur für Bearbeiter; englisch", async () => {
     englisch();
-    const export1 = { id: "ex1", fondsId: FONDS_ID, formatVersion: "EXTF 700 / Buchungsstapel 13", erzeugtVon: ICH_ID, erzeugtAm: "2026-11-20T10:00:00.000Z", datumVon: "2026-09-30", datumBis: "2026-09-30", anzahl: 2, summe: "12000.00", wiederholung: false, grund: null, dateiName: "EXTF_Buchungsstapel.csv", dateiSha256: "ee".repeat(32) };
-    spieleApi({ "/api/v1/zinslaeufe": { koerper: { daten: [] } }, [`/api/v1/fonds/${FONDS_ID}/buchungsexporte`]: { koerper: { daten: [export1] } } });
+    const export1 = { id: "ex1", fundId: FONDS_ID, formatVersion: "EXTF 700 / Buchungsstapel 13", generatedBy: ICH_ID, generatedAt: "2026-11-20T10:00:00.000Z", dateFrom: "2026-09-30", dateTo: "2026-09-30", count: 2, sum: "12000.00", repeat: false, reason: null, fileName: "EXTF_Buchungsstapel.csv", fileSha256: "ee".repeat(32) };
+    spieleApi({ "/api/v1/zinslaeufe": { koerper: { daten: [] } }, [`/api/v1/funds/${FONDS_ID}/posting-exports`]: { koerper: { data: [export1] } } });
     rendereApp(buchhaltungUrl("export"));
     expect(await screen.findByText("There is no booked interest run yet.")).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Download file" }).getAttribute("href")).toBe("/api/v1/buchungsexporte/ex1/datei");
+    expect(screen.getByRole("link", { name: "Download file" }).getAttribute("href")).toBe("/api/v1/posting-exports/ex1/file");
     expect(schmal(screen.getByText("€12,000.00").textContent)).toBe("€12,000.00");
   });
 });
@@ -591,21 +598,21 @@ describe("Buchhaltung: freie Auswahl für den Export", () => {
     ...extra,
   });
   const journalAntwort = (daten: unknown[]) => ({ daten, weitere: false, naechsterCursor: null, summen: { nachTyp: [], gesamt: { anzahl: daten.length, kassenwirkung: "0.00" } } });
-  const VORSCHAU = `POST /api/v1/fonds/${FONDS_ID}/buchungsexport/vorschau`;
-  const EXPORT = `POST /api/v1/fonds/${FONDS_ID}/buchungsexport`;
+  const VORSCHAU = `POST /api/v1/funds/${FONDS_ID}/posting-exports/preview`;
+  const EXPORT = `POST /api/v1/funds/${FONDS_ID}/posting-exports`;
   const vorschau = {
     format: "EXTF 700 / Buchungsstapel 13",
-    datumVon: "2026-09-30",
-    datumBis: "2026-09-30",
-    zeilen: [{ vorgangId: "v1", fondsBewegungId: null, organisation: "Alpha Energie", art: "zins", valuta: "2026-09-30", betrag: "6000.00", konto: "1200", gegenkonto: "4200", richtung: "S", belegfeld: "B-000001", buchungstext: "Zins", mitBeleg: true, bereitsExportiert: false }],
-    anzahl: 1,
-    probleme: [{ code: "EXPORT_BETRAG_NULL" }],
-    ohneBeleg: [],
+    dateFrom: "2026-09-30",
+    dateTo: "2026-09-30",
+    rows: [{ transactionId: "v1", fundMovementId: null, organization: "Alpha Energie", type: "interest", valueDate: "2026-09-30", amount: "6000.00", account: "1200", contraAccount: "4200", direction: "debit", voucherField: "B-000001", postingText: "Zins", hasVoucher: true, alreadyExported: false }],
+    count: 1,
+    issues: [{ code: "zero_amount" }],
+    withoutVoucher: [],
   };
   const aufbauen = () =>
     spieleApi({
       "/api/v1/zinslaeufe": { koerper: { daten: [] } },
-      [`/api/v1/fonds/${FONDS_ID}/buchungsexporte`]: { koerper: { daten: [] } },
+      [`/api/v1/funds/${FONDS_ID}/posting-exports`]: { koerper: { data: [] } },
       [JOURNAL]: {
         koerper: journalAntwort([
           zeile("v1"),
@@ -615,7 +622,7 @@ describe("Buchhaltung: freie Auswahl für den Export", () => {
         ]),
       },
       [VORSCHAU]: { koerper: vorschau },
-      [EXPORT]: { status: 201, koerper: { id: "ex1", ohneBeleg: [] } },
+      [EXPORT]: { status: 201, koerper: { id: "ex1", withoutVoucher: [] } },
     });
 
   async function waehleQuelle() {
@@ -670,11 +677,11 @@ describe("Buchhaltung: freie Auswahl für den Export", () => {
     expect(screen.getByText("2 Buchungen gewählt.")).toBeTruthy();
     await nutzer.click(screen.getByRole("button", { name: "Vorschau" }));
     expect(await screen.findByText(/Betrag von null/)).toBeTruthy();
-    expect(api.anfragen("POST", `/api/v1/fonds/${FONDS_ID}/buchungsexport/vorschau`)[0]!.koerper).toEqual({ vorgangIds: ["v1"], fondsBewegungIds: ["bw1"], wiederholung: false });
+    expect(api.anfragen("POST", `/api/v1/funds/${FONDS_ID}/posting-exports/preview`)[0]!.koerper).toEqual({ transactionIds: ["v1"], fundMovementIds: ["bw1"], repeat: false });
 
     await nutzer.click(screen.getByRole("button", { name: "Exportieren" }));
-    await waitFor(() => expect(api.anfragen("POST", `/api/v1/fonds/${FONDS_ID}/buchungsexport`)).toHaveLength(1));
-    expect(api.anfragen("POST", `/api/v1/fonds/${FONDS_ID}/buchungsexport`)[0]!.koerper).toEqual({ vorgangIds: ["v1"], fondsBewegungIds: ["bw1"], wiederholung: false });
+    await waitFor(() => expect(api.anfragen("POST", `/api/v1/funds/${FONDS_ID}/posting-exports`)).toHaveLength(1));
+    expect(api.anfragen("POST", `/api/v1/funds/${FONDS_ID}/posting-exports`)[0]!.koerper).toEqual({ transactionIds: ["v1"], fundMovementIds: ["bw1"], repeat: false });
     expect(await screen.findByText("Noch nichts gewählt.")).toBeTruthy();
     // Das Journal hinter der Auswahl wird neu gelesen, damit Exportiertes dort nicht weiter als offen erscheint.
     await waitFor(() => expect(api.anfragen("GET", JOURNAL).length).toBeGreaterThanOrEqual(2));
@@ -697,7 +704,7 @@ describe("Buchhaltung: freie Auswahl für den Export", () => {
 
   it("ohne Bearbeiter-Recht gibt es die Auswahl nicht", async () => {
     aufbauen();
-    spieleApi({ "/api/v1/ich": alsRolle("betrachter"), "/api/v1/zinslaeufe": { koerper: { daten: [] } }, [`/api/v1/fonds/${FONDS_ID}/buchungsexporte`]: { koerper: { daten: [] } } });
+    spieleApi({ "/api/v1/me": alsRolle("betrachter"), "/api/v1/zinslaeufe": { koerper: { daten: [] } }, [`/api/v1/funds/${FONDS_ID}/posting-exports`]: { koerper: { data: [] } } });
     rendereApp(buchhaltungUrl("export"));
     await screen.findByText("Bisherige Exporte");
     expect(screen.queryByLabelText("Was exportiert wird")).toBeNull();
@@ -705,15 +712,15 @@ describe("Buchhaltung: freie Auswahl für den Export", () => {
 });
 
 describe("Buchhaltung: Einstellungen", () => {
-  const konfig = { fondsId: FONDS_ID, beraternummer: 1234567, mandantennummer: 12345, wirtschaftsjahrBeginn: 1, sachkontenlaenge: 4, belegpraefix: "B", geaendertVon: "x", geaendertAm: "2026-11-20T09:00:00.000Z", konfiguriert: true };
+  const konfig = { fundId: FONDS_ID, advisorNumber: 1234567, clientNumber: 12345, fiscalYearStart: 1, accountNumberLength: 4, voucherPrefix: "B", updatedBy: "x", updatedAt: "2026-11-20T09:00:00.000Z", configured: true };
   const basis = {
-    [`/api/v1/fonds/${FONDS_ID}/buchhaltung`]: { koerper: konfig },
-    [`/api/v1/fonds/${FONDS_ID}/mittelarten`]: { koerper: { daten: [{ id: "m1", fondsId: FONDS_ID, schluessel: "land", bezeichnungDe: "Landesmittel", bezeichnungEn: "State funds", quote: "0.600000", meldeArt: "foerdermittel", gueltigAb: "2020-01-01", gueltigBis: null }, { id: "m2", fondsId: FONDS_ID, schluessel: "eigen", bezeichnungDe: "Eigenmittel", bezeichnungEn: "Own funds", quote: "0.400000", meldeArt: null, gueltigAb: "2020-01-01", gueltigBis: null }] } },
-    [`/api/v1/fonds/${FONDS_ID}/konten`]: { koerper: { daten: [{ id: "k1", fondsId: FONDS_ID, nummer: "1200", bezeichnung: "Bank", art: "aktiv", beteiligungId: null }] } },
-    [`/api/v1/fonds/${FONDS_ID}/gliederung`]: { koerper: { daten: [{ id: "g1", fondsId: FONDS_ID, sicht: "bilanz", schluessel: "aktiva.liquide", elternSchluessel: null, bezeichnungDe: "Guthaben bei Kreditinstituten", bezeichnungEn: "Cash at bank", reihenfolge: 10, seite: "soll" }] } },
-    [`/api/v1/fonds/${FONDS_ID}/kontenregeln`]: { koerper: { daten: [{ id: "r1", fondsId: FONDS_ID, sicht: "bilanz", kontoVon: "1200", kontoBis: "1299", positionSchluessel: "aktiva.liquide", gueltigAb: "2020-01-01", gueltigBis: null, erstelltVon: "x", erstelltAm: "2026-11-20T09:00:00.000Z" }] } },
-    [`/api/v1/fonds/${FONDS_ID}/belegvorlagen`]: {
-      koerper: { daten: [{ art: "auszahlung", standard: true, felder: [{ schluessel: "betrag", abschnitt: "kopf", pflicht: true }], kopfDe: "", kopfEn: "", fussDe: "", fussEn: "", katalog: [{ schluessel: "betrag", typ: "betrag", bezeichnungDe: "Betrag", bezeichnungEn: "Amount" }, { schluessel: "projektnummer", typ: "text", bezeichnungDe: "Projektnummer", bezeichnungEn: "Project number" }] }] },
+    [`/api/v1/funds/${FONDS_ID}/accounting`]: { koerper: konfig },
+    [`/api/v1/funds/${FONDS_ID}/funding-sources`]: { koerper: { data: [{ id: "m1", fundId: FONDS_ID, key: "land", labelDe: "Landesmittel", labelEn: "State funds", ratio: "0.600000", reportingType: "public_funds", validFrom: "2020-01-01", validTo: null }, { id: "m2", fundId: FONDS_ID, key: "eigen", labelDe: "Eigenmittel", labelEn: "Own funds", ratio: "0.400000", reportingType: null, validFrom: "2020-01-01", validTo: null }] } },
+    [`/api/v1/funds/${FONDS_ID}/accounts`]: { koerper: { data: [{ id: "k1", fundId: FONDS_ID, accountNumber: "1200", label: "Bank", type: "asset", investmentId: null }] } },
+    [`/api/v1/funds/${FONDS_ID}/layout`]: { koerper: { data: [{ id: "g1", fundId: FONDS_ID, view: "balance_sheet", key: "aktiva.liquide", parentKey: null, labelDe: "Guthaben bei Kreditinstituten", labelEn: "Cash at bank", order: 10, side: "debit" }] } },
+    [`/api/v1/funds/${FONDS_ID}/account-rules`]: { koerper: { data: [{ id: "r1", fundId: FONDS_ID, view: "balance_sheet", accountFrom: "1200", accountTo: "1299", itemKey: "aktiva.liquide", validFrom: "2020-01-01", validTo: null, createdBy: "x", createdAt: "2026-11-20T09:00:00.000Z" }] } },
+    [`/api/v1/funds/${FONDS_ID}/voucher-templates`]: {
+      koerper: { data: [{ type: "disbursement", standard: true, fields: [{ key: "amount", section: "header", required: true }], headerDe: "", headerEn: "", footerDe: "", footerEn: "", catalog: [{ key: "betrag", kind: "amount", labelDe: "Betrag", labelEn: "Amount" }, { key: "projektnummer", kind: "text", labelDe: "Projektnummer", labelEn: "Project number" }] }] },
     },
   };
 
@@ -744,19 +751,19 @@ describe("Buchhaltung: Einstellungen", () => {
   it("Verwalter speichern Konfiguration, Mittelarten (als Anteil), Standardgliederung, Regel und Belegvorlage", async () => {
     const api = spieleApi({
       ...basis,
-      [`PUT /api/v1/fonds/${FONDS_ID}/buchhaltung`]: { koerper: konfig },
-      [`PUT /api/v1/fonds/${FONDS_ID}/mittelarten`]: { koerper: { daten: [] } },
-      [`POST /api/v1/fonds/${FONDS_ID}/gliederung/standard`]: { koerper: { neuePositionen: 31 } },
-      [`POST /api/v1/fonds/${FONDS_ID}/kontenregeln`]: { status: 201, koerper: {} },
-      [`PUT /api/v1/fonds/${FONDS_ID}/belegvorlagen/auszahlung`]: { koerper: { art: "auszahlung" } },
+      [`PUT /api/v1/funds/${FONDS_ID}/accounting`]: { koerper: konfig },
+      [`PUT /api/v1/funds/${FONDS_ID}/funding-sources`]: { koerper: { data: [] } },
+      [`POST /api/v1/funds/${FONDS_ID}/layout/standard`]: { koerper: { newItems: 31 } },
+      [`POST /api/v1/funds/${FONDS_ID}/account-rules`]: { status: 201, koerper: {} },
+      [`PUT /api/v1/funds/${FONDS_ID}/voucher-templates/disbursement`]: { koerper: { type: "disbursement" } },
     });
     rendereApp(buchhaltungUrl("einstellungen"));
     const nutzer = userEvent.setup();
     const konfigKarte = within(await karteInnen("Konfiguration"));
     fireEvent.change(konfigKarte.getByLabelText("Mandantennummer"), { target: { value: "777" } });
     await nutzer.click(konfigKarte.getByRole("button", { name: "Speichern" }));
-    await waitFor(() => expect(api.anfragen("PUT", `/api/v1/fonds/${FONDS_ID}/buchhaltung`)).toHaveLength(1));
-    expect(api.anfragen("PUT", `/api/v1/fonds/${FONDS_ID}/buchhaltung`)[0]!.koerper).toEqual({ beraternummer: 1234567, mandantennummer: 777, wirtschaftsjahrBeginn: 1, sachkontenlaenge: 4, belegpraefix: "B" });
+    await waitFor(() => expect(api.anfragen("PUT", `/api/v1/funds/${FONDS_ID}/accounting`)).toHaveLength(1));
+    expect(api.anfragen("PUT", `/api/v1/funds/${FONDS_ID}/accounting`)[0]!.koerper).toEqual({ advisorNumber: 1234567, clientNumber: 777, fiscalYearStart: 1, accountNumberLength: 4, voucherPrefix: "B" });
 
     const mittel = within(screen.getByRole("region", { name: "Mittelarten" }));
     fireEvent.change(mittel.getByLabelText("Gültig ab"), { target: { value: "2027-01-01" } });
@@ -766,12 +773,12 @@ describe("Buchhaltung: Einstellungen", () => {
     expect((mittel.getAllByLabelText("Meldeart")[0] as HTMLSelectElement).value).toBe("foerdermittel");
     fireEvent.change(mittel.getAllByLabelText("Meldeart")[1]!, { target: { value: "eigenmittel" } });
     await nutzer.click(mittel.getByRole("button", { name: "Speichern" }));
-    await waitFor(() => expect(api.anfragen("PUT", `/api/v1/fonds/${FONDS_ID}/mittelarten`)).toHaveLength(1));
-    expect(api.anfragen("PUT", `/api/v1/fonds/${FONDS_ID}/mittelarten`)[0]!.koerper).toEqual({
-      gueltigAb: "2027-01-01",
-      mittelarten: [
-        { schluessel: "land", bezeichnungDe: "Landesmittel", bezeichnungEn: "State funds", quote: "0.500000", meldeArt: "foerdermittel" },
-        { schluessel: "eigen", bezeichnungDe: "Eigenmittel", bezeichnungEn: "Own funds", quote: "0.500000", meldeArt: "eigenmittel" },
+    await waitFor(() => expect(api.anfragen("PUT", `/api/v1/funds/${FONDS_ID}/funding-sources`)).toHaveLength(1));
+    expect(api.anfragen("PUT", `/api/v1/funds/${FONDS_ID}/funding-sources`)[0]!.koerper).toEqual({
+      validFrom: "2027-01-01",
+      fundingSources: [
+        { key: "land", labelDe: "Landesmittel", labelEn: "State funds", ratio: "0.500000", reportingType: "public_funds" },
+        { key: "eigen", labelDe: "Eigenmittel", labelEn: "Own funds", ratio: "0.500000", reportingType: "own_funds" },
       ],
     });
 
@@ -785,8 +792,8 @@ describe("Buchhaltung: Einstellungen", () => {
     await nutzer.selectOptions(regeln.getByLabelText("Position"), "aktiva.liquide");
     fireEvent.change(regeln.getAllByLabelText("Gültig ab").at(-1)!, { target: { value: "2026-10-01" } });
     await nutzer.click(regeln.getByRole("button", { name: "Kontenregel anlegen" }));
-    await waitFor(() => expect(api.anfragen("POST", `/api/v1/fonds/${FONDS_ID}/kontenregeln`)).toHaveLength(1));
-    expect(api.anfragen("POST", `/api/v1/fonds/${FONDS_ID}/kontenregeln`)[0]!.koerper).toEqual({ sicht: "bilanz", kontoVon: "1300", positionSchluessel: "aktiva.liquide", gueltigAb: "2026-10-01" });
+    await waitFor(() => expect(api.anfragen("POST", `/api/v1/funds/${FONDS_ID}/account-rules`)).toHaveLength(1));
+    expect(api.anfragen("POST", `/api/v1/funds/${FONDS_ID}/account-rules`)[0]!.koerper).toEqual({ view: "balance_sheet", accountFrom: "1300", itemKey: "aktiva.liquide", validFrom: "2026-10-01" });
 
     await nutzer.click(screen.getByRole("button", { name: "Belegvorlagen" }));
     const vorlagen = within(await karteInnen("Belegvorlagen"));
@@ -796,27 +803,27 @@ describe("Buchhaltung: Einstellungen", () => {
     expect(vorlagen.queryByRole("button", { name: "Feld hinzufügen: Projektnummer" })).toBeNull();
     await nutzer.click(vorlagen.getByLabelText("Pflicht: Projektnummer"));
     await nutzer.click(vorlagen.getByRole("button", { name: "Speichern: Auszahlung" }));
-    await waitFor(() => expect(api.anfragen("PUT", `/api/v1/fonds/${FONDS_ID}/belegvorlagen/auszahlung`)).toHaveLength(1));
-    expect((api.anfragen("PUT", `/api/v1/fonds/${FONDS_ID}/belegvorlagen/auszahlung`)[0]!.koerper as { felder: unknown[] }).felder).toEqual([
-      { schluessel: "betrag", abschnitt: "kopf", pflicht: true },
-      { schluessel: "projektnummer", abschnitt: "details", pflicht: true },
+    await waitFor(() => expect(api.anfragen("PUT", `/api/v1/funds/${FONDS_ID}/voucher-templates/disbursement`)).toHaveLength(1));
+    expect((api.anfragen("PUT", `/api/v1/funds/${FONDS_ID}/voucher-templates/disbursement`)[0]!.koerper as { fields: unknown[] }).fields).toEqual([
+      { key: "amount", section: "header", required: true },
+      { key: "projectNumber", section: "details", required: true },
     ]);
   });
 
   it("Belegvorlagen: Belegart per Auswahl, Felder hinzufügen, ordnen und entfernen", async () => {
-    const vorlage = (art: string, felder: string[]) => ({ art, standard: true, felder: felder.map((schluessel) => ({ schluessel, abschnitt: "kopf", pflicht: false })), kopfDe: "", kopfEn: "", fussDe: "", fussEn: "", katalog: [{ schluessel: "betrag", typ: "betrag", bezeichnungDe: "Betrag", bezeichnungEn: "Amount" }, { schluessel: "projektnummer", typ: "text", bezeichnungDe: "Projektnummer", bezeichnungEn: "Project number" }, { schluessel: "belegdatum", typ: "datum", bezeichnungDe: "Belegdatum", bezeichnungEn: "Voucher date" }] });
+    const vorlage = (art: string, felder: string[]) => ({ type: art, standard: true, fields: felder.map((schluessel) => ({ key: schluessel, section: "header", required: false })), headerDe: "", headerEn: "", footerDe: "", footerEn: "", catalog: [{ key: "betrag", kind: "amount", labelDe: "Betrag", labelEn: "Amount" }, { key: "projektnummer", kind: "text", labelDe: "Projektnummer", labelEn: "Project number" }, { key: "belegdatum", kind: "date", labelDe: "Belegdatum", labelEn: "Voucher date" }] });
     const api = spieleApi({
       ...basis,
-      [`/api/v1/fonds/${FONDS_ID}/belegvorlagen`]: { koerper: { daten: [vorlage("auszahlung", ["betrag", "projektnummer"]), vorlage("verkauf", ["belegdatum"])] } },
-      [`PUT /api/v1/fonds/${FONDS_ID}/belegvorlagen/verkauf`]: { koerper: { art: "verkauf" } },
+      [`/api/v1/funds/${FONDS_ID}/voucher-templates`]: { koerper: { data: [vorlage("auszahlung", ["betrag", "projektnummer"]), vorlage("verkauf", ["belegdatum"])] } },
+      [`PUT /api/v1/funds/${FONDS_ID}/voucher-templates/sale`]: { koerper: { type: "sale" } },
     });
     rendereApp("/buchhaltung?tab=einstellungen&unter=vorlagen");
     const nutzer = userEvent.setup();
     const vorlagen = within(await karteInnen("Belegvorlagen"));
     expect(vorlagen.getByText(/Eine Belegvorlage legt fest/)).toBeTruthy();
-    const zeilen = () => within(vorlagen.getByRole("table")).getAllByRole("row").slice(1).map((r) => within(r).getAllByRole("cell")[1]!.textContent);
+    const zeilen = () => within(vorlagen.getByRole("list", { name: /^Felder auf dem Beleg/ })).getAllByRole("listitem").map((li) => within(li).getByRole("button", { name: /^Feld verschieben: / }).getAttribute("aria-label")!.replace("Feld verschieben: ", ""));
     expect(zeilen()).toEqual(["Betrag", "Projektnummer"]);
-    await nutzer.click(vorlagen.getByRole("button", { name: "Nach oben: Projektnummer" }));
+    ordne(vorlagen.getByRole("button", { name: "Feld verschieben: Projektnummer" }), "ArrowUp");
     expect(zeilen()).toEqual(["Projektnummer", "Betrag"]);
     await nutzer.click(vorlagen.getByRole("button", { name: "Feld entfernen: Betrag" }));
     expect(zeilen()).toEqual(["Projektnummer"]);
@@ -826,24 +833,24 @@ describe("Buchhaltung: Einstellungen", () => {
     await nutzer.click(vorlagen.getByRole("button", { name: "Feld hinzufügen: Betrag" }));
     await nutzer.click(vorlagen.getByLabelText("Pflicht: Betrag"));
     await nutzer.click(vorlagen.getByRole("button", { name: "Speichern: Verkauf" }));
-    await waitFor(() => expect(api.anfragen("PUT", `/api/v1/fonds/${FONDS_ID}/belegvorlagen/verkauf`)).toHaveLength(1));
-    expect((api.anfragen("PUT", `/api/v1/fonds/${FONDS_ID}/belegvorlagen/verkauf`)[0]!.koerper as { felder: unknown[] }).felder).toEqual([
-      { schluessel: "belegdatum", abschnitt: "kopf", pflicht: false },
-      { schluessel: "betrag", abschnitt: "details", pflicht: true },
+    await waitFor(() => expect(api.anfragen("PUT", `/api/v1/funds/${FONDS_ID}/voucher-templates/sale`)).toHaveLength(1));
+    expect((api.anfragen("PUT", `/api/v1/funds/${FONDS_ID}/voucher-templates/sale`)[0]!.koerper as { fields: unknown[] }).fields).toEqual([
+      { key: "voucherDate", section: "header", required: false },
+      { key: "amount", section: "details", required: true },
     ]);
   });
 
   describe("eigene Belegarten", () => {
-    const katalog = [{ schluessel: "betrag", typ: "betrag", bezeichnungDe: "Betrag", bezeichnungEn: "Amount" }, { schluessel: "projektnummer", typ: "text", bezeichnungDe: "Projektnummer", bezeichnungEn: "Project number" }];
-    const zeile = (art: string, zusatz: object = {}) => ({ art, standard: true, felder: [{ schluessel: "betrag", abschnitt: "kopf", pflicht: true }], kopfDe: "", kopfEn: "", fussDe: "", fussEn: "", katalog, eigeneArtId: null, bezeichnungDe: null, bezeichnungEn: null, aktiv: true, ...zusatz });
-    const eigene = zeile("auszahlung", { eigeneArtId: "art-1", bezeichnungDe: "Abruf Sonderprogramm", bezeichnungEn: "Special programme call", aktiv: true });
-    const url = `/api/v1/fonds/${FONDS_ID}/belegvorlagen`;
-    const arten = `/api/v1/fonds/${FONDS_ID}/belegarten`;
+    const katalog = [{ key: "betrag", kind: "amount", labelDe: "Betrag", labelEn: "Amount" }, { key: "projektnummer", kind: "text", labelDe: "Projektnummer", labelEn: "Project number" }];
+    const zeile = (art: string, zusatz: object = {}) => ({ type: art, standard: true, fields: [{ key: "amount", section: "header", required: true }], headerDe: "", headerEn: "", footerDe: "", footerEn: "", catalog: katalog, customTypeId: null, labelDe: null, labelEn: null, active: true, ...zusatz });
+    const eigene = zeile("auszahlung", { customTypeId: "art-1", labelDe: "Abruf Sonderprogramm", labelEn: "Special programme call", active: true });
+    const url = `/api/v1/funds/${FONDS_ID}/voucher-templates`;
+    const arten = `/api/v1/funds/${FONDS_ID}/voucher-types`;
 
     it("Verwalter legen eine Belegart mit Name in beiden Sprachen und Basis-Art an; sie erscheint in der Auswahl", async () => {
       const api = spieleApi({
         ...basis,
-        [url]: { koerper: { daten: [zeile("auszahlung"), zeile("verkauf")] } },
+        [url]: { koerper: { data: [zeile("auszahlung"), zeile("verkauf")] } },
         [`POST ${arten}`]: { status: 201, koerper: { id: "art-1" } },
       });
       rendereApp("/buchhaltung?tab=einstellungen&unter=vorlagen");
@@ -859,11 +866,11 @@ describe("Buchhaltung: Einstellungen", () => {
       await nutzer.selectOptions(vorlagen.getByLabelText("Basis-Art"), "verkauf");
       await nutzer.click(vorlagen.getByRole("button", { name: "Belegart anlegen" }));
       await waitFor(() => expect(api.anfragen("POST", arten)).toHaveLength(1));
-      expect(api.anfragen("POST", arten)[0]!.koerper).toEqual({ basisArt: "verkauf", bezeichnungDe: "Abruf Sonderprogramm", bezeichnungEn: "Special programme call" });
+      expect(api.anfragen("POST", arten)[0]!.koerper).toEqual({ baseType: "sale", labelDe: "Abruf Sonderprogramm", labelEn: "Special programme call" });
     });
 
     it("ergänzt ein eigenes Betragsfeld mit Pflicht und zweisprachiger Beschriftung", async () => {
-      const api = spieleApi({ ...basis, [url]: { koerper: { daten: [eigene] } }, [`PUT ${url}/art-1`]: { koerper: eigene } });
+      const api = spieleApi({ ...basis, [url]: { koerper: { data: [eigene] } }, [`PUT ${url}/art-1`]: { koerper: eigene } });
       rendereApp("/buchhaltung?tab=einstellungen&unter=vorlagen");
       const karte = within(await karteInnen("Belegvorlagen"));
       const nutzer = userEvent.setup();
@@ -874,17 +881,17 @@ describe("Buchhaltung: Einstellungen", () => {
       await nutzer.click(karte.getByRole("checkbox", { name: /Gebühr/ }));
       await nutzer.click(karte.getByRole("button", { name: "Speichern: Abruf Sonderprogramm" }));
       await waitFor(() => expect(api.anfragen("PUT", `${url}/art-1`)[0]?.koerper).toMatchObject({
-        felder: [{ schluessel: "betrag" }, { schluessel: expect.stringMatching(/^eigen_/), manuell: "betrag", pflicht: true, bezeichnungDe: "Gebühr", bezeichnungEn: "Fee" }],
+        fields: [{ key: "amount" }, { key: expect.stringMatching(/^custom_/), manual: "amount", required: true, labelDe: "Gebühr", labelEn: "Fee" }],
       }));
     });
 
     it("eigene Belegart: Auswahl nennt den Namen, Vorlage speichert unter der Id, Name ändern und Stilllegen, Löschen nach Rückfrage", async () => {
       const api = spieleApi({
         ...basis,
-        [url]: { koerper: { daten: [zeile("auszahlung"), eigene] } },
-        [`PUT ${url}/art-1`]: { koerper: { art: "auszahlung" } },
+        [url]: { koerper: { data: [zeile("auszahlung"), eigene] } },
+        [`PUT ${url}/art-1`]: { koerper: { type: "disbursement" } },
         [`PUT ${arten}/art-1`]: { koerper: { id: "art-1" } },
-        [`DELETE ${arten}/art-1`]: fehler(409, "BELEGART_IN_VERWENDUNG", { belegId: "b" }),
+        [`DELETE ${arten}/art-1`]: fehler(409, "voucher_type_in_use", { voucherId: "b" }),
       });
       rendereApp("/buchhaltung?tab=einstellungen&unter=vorlagen");
       const nutzer = userEvent.setup();
@@ -901,7 +908,7 @@ describe("Buchhaltung: Einstellungen", () => {
       await nutzer.click(vorlagen.getByLabelText("Stillgelegt: nicht mehr für neue Belege wählbar"));
       await nutzer.click(vorlagen.getByRole("button", { name: "Name speichern" }));
       await waitFor(() => expect(api.anfragen("PUT", `${arten}/art-1`)).toHaveLength(1));
-      expect(api.anfragen("PUT", `${arten}/art-1`)[0]!.koerper).toEqual({ bezeichnungDe: "Abruf Plus", bezeichnungEn: "Special programme call", aktiv: false });
+      expect(api.anfragen("PUT", `${arten}/art-1`)[0]!.koerper).toEqual({ labelDe: "Abruf Plus", labelEn: "Special programme call", active: false });
       // Löschen: Rückfrage, dann Serverfehler sichtbar
       await nutzer.click(vorlagen.getByRole("button", { name: "Belegart löschen" }));
       expect(api.anfragen("DELETE", `${arten}/art-1`)).toHaveLength(0);
@@ -910,7 +917,7 @@ describe("Buchhaltung: Einstellungen", () => {
     });
 
     it("ohne Rolle Verwalter: keine Knöpfe zum Anlegen, Ändern und Löschen", async () => {
-      spieleApi({ ...basis, "/api/v1/ich": alsRolle("bearbeiter"), [url]: { koerper: { daten: [zeile("auszahlung"), eigene] } } });
+      spieleApi({ ...basis, "/api/v1/me": alsRolle("bearbeiter"), [url]: { koerper: { data: [zeile("auszahlung"), eigene] } } });
       rendereApp("/buchhaltung?tab=einstellungen&unter=vorlagen");
       const vorlagen = within(await karteInnen("Belegvorlagen"));
       expect(vorlagen.queryByRole("button", { name: "Eigene Belegart anlegen" })).toBeNull();
@@ -921,7 +928,7 @@ describe("Buchhaltung: Einstellungen", () => {
   });
 
   it("ohne Rolle Verwalter: Hinweis, Felder gesperrt, keine Speichern-Knöpfe", async () => {
-    spieleApi({ ...basis, "/api/v1/ich": alsRolle("bearbeiter") });
+    spieleApi({ ...basis, "/api/v1/me": alsRolle("bearbeiter") });
     rendereApp(buchhaltungUrl("einstellungen"));
     expect(await screen.findByText("Einstellungen ändern darf die Verwalterin oder der Verwalter des Fonds.")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Speichern" })).toBeNull();
@@ -931,7 +938,7 @@ describe("Buchhaltung: Einstellungen", () => {
 
   it("zeigt Fehlercodes der API übersetzt (Quoten ergeben nicht 100 %), englisch", async () => {
     englisch();
-    spieleApi({ ...basis, [`PUT /api/v1/fonds/${FONDS_ID}/mittelarten`]: fehler(409, "MITTELARTEN_SUMME_UNGUELTIG") });
+    spieleApi({ ...basis, [`PUT /api/v1/funds/${FONDS_ID}/funding-sources`]: fehler(409, "funding_sources_sum_invalid") });
     rendereApp(buchhaltungUrl("einstellungen"));
     const mittel = within(await screen.findByRole("region", { name: "Types of funds" }));
     fireEvent.change(mittel.getByLabelText("Valid from"), { target: { value: "2027-01-01" } });

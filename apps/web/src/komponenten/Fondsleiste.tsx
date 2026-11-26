@@ -8,7 +8,7 @@ import { useSichtbar } from "../lib/bereiche";
 import { useRechte } from "../lib/rechte";
 import { alle } from "../erweiterung";
 
-export type KernTab = "uebersicht" | "szenarien" | "reserven" | "zinsen" | "kennzahlen" | "bewertungsrunde";
+export type KernTab = "uebersicht" | "szenarien" | "reserven" | "zinsen" | "kennzahlen" | "bewertungsrunde" | "zielfonds";
 /** Reiter des Kerns oder einer Erweiterung (`erweiterung.ts`, Punkt `fondsReiter`). */
 export type FondsTab = KernTab | (string & {});
 
@@ -28,10 +28,12 @@ function ziel(tab: FondsTab, fondsId: string): NavigateOptions {
       return { to: "/fonds/$fondsId/kennzahlen", params: { fondsId } };
     case "bewertungsrunde":
       return { to: "/fonds/$fondsId/bewertungsrunde", params: { fondsId }, search: {} };
+    case "zielfonds":
+      return { to: "/fonds/$fondsId/zielfonds", params: { fondsId } };
   }
 }
 
-const KERN_TABS: readonly KernTab[] = ["uebersicht", "kennzahlen", "zinsen", "szenarien", "reserven", "bewertungsrunde"];
+const KERN_TABS: readonly KernTab[] = ["uebersicht", "kennzahlen", "zinsen", "zielfonds", "szenarien", "reserven", "bewertungsrunde"];
 
 /**
  * Inhaltsverzeichnis der Fondsseiten: jeder Eintrag ist eine eigene Adresse, die Seite steht als `children` rechts daneben.
@@ -54,7 +56,7 @@ export function Fondsleiste({ aktiv, fondsId, children }: { aktiv: FondsTab; fon
   const nimm = (...ids: FondsTab[]) => ids.filter((id) => sichtbar.some((e) => e.id === id)).map(eintrag);
   const zusatzGruppen = [...new Map(zusatz.map((r) => [r.gruppe.id, r.gruppe])).values()];
   const gruppen: VerzeichnisGruppe[] = [
-    { id: "bestand", label: f.gruppeBestand, eintraege: nimm("uebersicht", "kennzahlen", "zinsen") },
+    { id: "bestand", label: f.gruppeBestand, eintraege: nimm("uebersicht", "kennzahlen", "zinsen", "zielfonds") },
     { id: "planung", label: f.gruppePlanung, eintraege: nimm("szenarien", "reserven") },
     { id: "bewertung", label: f.gruppeBewertung, eintraege: nimm("bewertungsrunde") },
     ...zusatzGruppen.map((g) => ({ id: g.id, label: g.label(t), eintraege: nimm(...zusatz.filter((r) => r.gruppe.id === g.id).map((r) => r.id)) })),

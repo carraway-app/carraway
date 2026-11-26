@@ -6,9 +6,9 @@ import { Decimal } from "@carraway/rechenkern";
  * des Fonds und die Jahre prüft die Berechnung (`rechnen.ts`). Beträge sind Zeichenketten, Anteile Brüche (0.02 = 2 %).
  */
 
-const betrag = z.string().regex(/^\d{1,16}(\.\d{1,2})?$/, "Betrag mit höchstens zwei Nachkommastellen erwartet");
-const anteil = (max = "1") => z.string().regex(/^\d(\.\d{1,6})?$/, "Bruch mit höchstens sechs Nachkommastellen erwartet").refine((w) => Number(w) <= Number(max), { message: `höchstens ${max}` });
-const faktor = z.string().regex(/^\d{1,4}(\.\d{1,4})?$/, "Faktor mit höchstens vier Nachkommastellen erwartet");
+const betrag = z.string().regex(/^\d{1,16}(\.\d{1,2})?$/, "Expected an amount with at most two decimal places");
+const anteil = (max = "1") => z.string().regex(/^\d(\.\d{1,6})?$/, "Expected a fraction with at most six decimal places").refine((w) => Number(w) <= Number(max), { message: `at most ${max}` });
+const faktor = z.string().regex(/^\d{1,4}(\.\d{1,4})?$/, "Expected a factor with at most four decimal places");
 const jahr = z.number().int().min(1990).max(2100);
 
 const exit = z
@@ -23,11 +23,11 @@ const exit = z
     /** Exit-Kosten, vor der Verteilung vom Exit-Wert abgezogen (nur bei `wert`). */
     kosten: betrag.default("0"),
   })
-  .refine((e) => (e.wert === undefined) !== (e.multiple === undefined), { message: "Entweder Exit-Wert oder Multiple angeben", path: ["wert"] });
+  .refine((e) => (e.wert === undefined) !== (e.multiple === undefined), { message: "Specify either an exit value or a multiple", path: ["wert"] });
 
 const abschreibung = z.object({ art: z.literal("abschreibung"), jahr });
 
-const folge = z.object({ jahr, betrag: betrag.refine((b) => Number(b) > 0, { message: "Betrag größer als null" }) });
+const folge = z.object({ jahr, betrag: betrag.refine((b) => Number(b) > 0, { message: "Amount greater than zero" }) });
 
 const beteiligungAnnahme = z.object({
   ausstieg: z.discriminatedUnion("art", [exit, abschreibung]).nullable().optional(),
@@ -39,7 +39,7 @@ const beteiligungAnnahme = z.object({
 const neuinvestition = z.object({
   name: z.string().trim().min(1).max(200),
   jahr,
-  betrag: betrag.refine((b) => Number(b) > 0, { message: "Betrag größer als null" }),
+  betrag: betrag.refine((b) => Number(b) > 0, { message: "Amount greater than zero" }),
   ausstiegJahr: jahr.optional(),
   multiple: faktor.optional(),
 });
@@ -48,15 +48,15 @@ const neuinvestition = z.object({
  * Bewertungsszenarien (Etappe 21): je Beteiligung mindestens zwei Fälle (Basis, Bär, Bulle oder eigene) mit Wahrscheinlichkeit und Methode. Die Gewichte sind Brüche und
  * ergeben je Beteiligung genau 1. Beträge sind in Fondswährung. Fehlt der Abschnitt, rechnet das Szenario wie vor Etappe 21 (Ergebnis und Prüfsumme bleiben gleich).
  */
-const fallSchluessel = z.string().regex(/^[a-z][a-z0-9_]{0,19}$/, "Kleinbuchstaben, Ziffern und Unterstrich, höchstens 20 Zeichen");
-const gewicht = z.string().regex(/^(0(\.\d{1,6})?|1(\.0{1,6})?)$/, "Wahrscheinlichkeit als Bruch von 0 bis 1 mit höchstens sechs Nachkommastellen erwartet");
+const fallSchluessel = z.string().regex(/^[a-z][a-z0-9_]{0,19}$/, "Lowercase letters, digits and underscores, at most 20 characters");
+const gewicht = z.string().regex(/^(0(\.\d{1,6})?|1(\.0{1,6})?)$/, "Expected a probability as a fraction from 0 to 1 with at most six decimal places");
 const abschlag = z
   .string()
-  .regex(/^-?(0(\.\d{1,6})?|1(\.0{1,6})?)$/, "Abschlag als Bruch mit höchstens sechs Nachkommastellen erwartet (negativ = Aufschlag)")
-  .refine((w) => Number(w) < 1, { message: "kleiner als 1" });
+  .regex(/^-?(0(\.\d{1,6})?|1(\.0{1,6})?)$/, "Expected a discount as a fraction with at most six decimal places (negative = premium)")
+  .refine((w) => Number(w) < 1, { message: "less than 1" });
 const bewertungsMethode = z.discriminatedUnion("art", [
   /** Unternehmenswert = Kennzahl × Multiple − Abzug (nicht unter null), mal Anteil des Fonds (ausdrücklich oder aus der Kapitaltabelle). */
-  z.object({ art: z.literal("multiple"), kennzahl: z.string().regex(/^[a-z][a-z0-9_]{0,63}$/, "Schlüssel einer Kennzahl erwartet"), multiple: faktor, abzug: betrag.default("0"), anteil: anteil().optional() }),
+  z.object({ art: z.literal("multiple"), kennzahl: z.string().regex(/^[a-z][a-z0-9_]{0,63}$/, "Expected the key of a metric"), multiple: faktor, abzug: betrag.default("0"), anteil: anteil().optional() }),
   /** Preis je Anteil der letzten Runde × Anteile des Fonds × (1 − Abschlag). */
   z.object({ art: z.literal("letzte_runde"), abschlag: abschlag.default("0") }),
   z.object({ art: z.literal("wert"), betrag }),
@@ -66,9 +66,9 @@ const bewertungBeteiligung = z
   .object({ faelle: z.array(bewertungsFall).min(2).max(6) })
   .superRefine((w, ctx) => {
     const schluessel = w.faelle.map((f) => f.schluessel);
-    if (new Set(schluessel).size !== schluessel.length) ctx.addIssue({ code: "custom", message: "Fallschlüssel müssen eindeutig sein", path: ["faelle"] });
+    if (new Set(schluessel).size !== schluessel.length) ctx.addIssue({ code: "custom", message: "Case keys must be unique", path: ["faelle"] });
     const summe = w.faelle.reduce((s, f) => s.plus(f.gewicht), new Decimal(0));
-    if (!summe.equals(1)) ctx.addIssue({ code: "custom", message: `Die Wahrscheinlichkeiten ergeben ${summe.toFixed()}, erwartet genau 1 (100 %)`, path: ["faelle"], params: { summe: summe.toFixed() } });
+    if (!summe.equals(1)) ctx.addIssue({ code: "custom", message: `The probabilities add up to ${summe.toFixed()}, expected exactly 1 (100 %)`, path: ["faelle"], params: { summe: summe.toFixed() } });
   });
 export const bewertungsAnnahmenSchema = z.object({ beteiligungen: z.record(z.uuid(), bewertungBeteiligung) });
 export type BewertungsAnnahmen = z.infer<typeof bewertungsAnnahmenSchema>;

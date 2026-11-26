@@ -36,7 +36,7 @@ afterAll(async () => {
 describe("Gremienvorlage: Beschlüsse im Zeitraum nur für sichtbare Deals", () => {
   it("wer nur an Fonds A eine Rolle hat, sieht keinen Beschluss eines Deals von Fonds B", async () => {
     const nurA = person("nur-a", { rollen: { [ID.fonds]: "betrachter" } });
-    const antwort = await app.request("/berichte/gremienvorlage", { als: nurA });
+    const antwort = await app.request("/reports/committee-pack", { als: nurA });
     expect(antwort.status).toBe(200);
     const text = await pdfText(antwort);
     expect(text).toContain("Sichtbar Projekt Eta");
@@ -45,7 +45,7 @@ describe("Gremienvorlage: Beschlüsse im Zeitraum nur für sichtbare Deals", () 
   });
 
   it("globale Verwalter sehen beide", async () => {
-    const text = await pdfText(await app.request("/berichte/gremienvorlage"));
+    const text = await pdfText(await app.request("/reports/committee-pack"));
     expect(text).toContain("Sichtbar Projekt Eta");
     expect(text).toContain("Verdeckt Projekt Zeta");
   });

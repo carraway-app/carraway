@@ -2,6 +2,7 @@ import { Hinweis } from "@carraway/ui";
 import { useT } from "../i18n";
 import { AbgrenzungKachel } from "./AbgrenzungKachel";
 import { DokumenteAbschnitt } from "./DokumenteAbschnitt";
+import { FondsKosten } from "./FondsKosten";
 import { Kapitalbewegungen } from "./Kapitalbewegungen";
 import { Zusatzfelder } from "./Zusatzfelder";
 
@@ -23,6 +24,7 @@ export default function FondsInhalte({ fondsId, waehrung, stichtag, stand, tab }
         <>
           {stand ? <Hinweis>{t.fondsVerwaltung.liveKapital}</Hinweis> : null}
           <Kapitalbewegungen stichtag={stichtag} key={`${fondsId}|${stichtag ?? ""}|${stand ?? ""}`} fondsId={fondsId} waehrung={waehrung} stand={stand} />
+          <FondsKosten stichtag={stichtag} key={`kosten|${fondsId}|${stichtag ?? ""}|${stand ?? ""}`} fondsId={fondsId} waehrung={waehrung} stand={stand} />
         </>
       );
     case "abgrenzung":

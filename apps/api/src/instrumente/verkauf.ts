@@ -1,7 +1,9 @@
 import { and, asc, desc, eq, inArray, isNull, ne } from "drizzle-orm";
 import {
+  anteilsuebertragung,
   beteiligung,
   bewertung,
+  darlehenKondition,
   forderung,
   instrument,
   kaufpreisanpassung,
@@ -16,10 +18,11 @@ import type { Rechenschritt } from "@carraway/rechenkern";
 import { Fachfehler } from "../fehler";
 import { heute, ladeOrganisation, type Protokollant } from "../schreiben";
 import type { Tx } from "../zeitlimit";
-import { nimmBewertungZurueck, setzeBewertung } from "./bewertung";
-import { hauptinstrumentId } from "./hauptinstrument";
+import { letzteBewertung, nimmBewertungZurueck, setzeBewertung } from "./bewertung";
+import { hauptinstrumentId, legeHauptinstrumentAn } from "./hauptinstrument";
 import { pruefeNachBuchung } from "./buchen";
-import { instrumenteVon, loeseInstrument, setzeInstrumentStatus, type InstrumentZeile } from "./instrumente";
+import { instrumenteVon, legeInstrumentAn, loeseInstrument, setzeInstrumentStatus, type InstrumentZeile } from "./instrumente";
+import { alsJson } from "./wandlung";
 import { pruefeDatumsfenster, pruefeStichtag } from "./stichtag";
 import { ladeBuchwertabgang } from "./verkaeufe";
 import { berechneZustand, buchwertVon, ladeVorgaenge, pruefePeriodensperre, sperreBeteiligung, verlangeAktiv, vorgaengeDesInstruments, alsFachfehler, type BeteiligungZeile, type VorgangDaten } from "./zustand";
@@ -85,7 +88,7 @@ export async function planeVerkauf(tx: Tx, b: BeteiligungZeile, e: VerkaufsEinga
   let verkauftes: InstrumentZeile | null = null;
   if (e.instrumentId) {
     verkauftes = await loeseInstrument(tx, b, e.instrumentId);
-    if (verkauftes.status !== "aktiv") throw new Fachfehler(409, "INSTRUMENT_NICHT_AKTIV", "Das Instrument ist nicht aktiv.", { instrumentId: verkauftes.id, status: verkauftes.status });
+    if (verkauftes.status !== "aktiv") throw new Fachfehler(409, "instrument_not_active", "The instrument is not active.", { instrumentId: verkauftes.id, status: verkauftes.status });
   }
   const z = verkauftes
     ? berechneZustand(vorgaengeDesInstruments(vorgaenge, verkauftes.id), await ladeBuchwertabgang(tx, b.id, verkauftes.id))
@@ -96,7 +99,7 @@ export async function planeVerkauf(tx: Tx, b: BeteiligungZeile, e: VerkaufsEinga
   const vkd = new Decimal(e.verkaeuferdarlehen?.betrag ?? 0);
   const bar = rechnung.wert.erloes.minus(treuhand).minus(vkd);
   if (bar.isNegative()) {
-    throw new Fachfehler(409, "VERKAUF_UNGUELTIG", "Treuhandbetrag und Verkäuferdarlehen übersteigen den Erlös.", {
+    throw new Fachfehler(409, "sale_invalid", "The escrow amount and vendor loan exceed the proceeds.", {
       erloes: rechnung.wert.erloes.toFixed(2),
       treuhand: treuhand.toFixed(2),
       verkaeuferdarlehen: vkd.toFixed(2),
@@ -113,7 +116,7 @@ export async function planeVerkauf(tx: Tx, b: BeteiligungZeile, e: VerkaufsEinga
       // Das Verkäuferdarlehen kommt als weiteres Darlehen-Instrument in die Beteiligung; ein schon gehaltenes Darlehen des Verkaufs bleibt ein Fehler (wie bisher).
       const [doppelt] = await tx.select({ id: instrument.id }).from(instrument).where(and(eq(instrument.beteiligungId, vorhanden.id), eq(instrument.art, "darlehen")));
       if (doppelt) {
-        throw new Fachfehler(409, "BETEILIGUNG_VORHANDEN", "Der Fonds hält gegenüber diesem Schuldner bereits ein Darlehen; bitte einen anderen Schuldner angeben.", { beteiligungId: vorhanden.id });
+        throw new Fachfehler(409, "investment_exists", "The fund already holds a loan to this debtor; please specify a different debtor.", { beteiligungId: vorhanden.id });
       }
     }
   }
@@ -142,7 +145,7 @@ export async function planeVerkauf(tx: Tx, b: BeteiligungZeile, e: VerkaufsEinga
 }
 
 /** Storno-Vorgang zu einem vorhandenen Vorgang (Valuta: heute, mindestens die des Originals). Prüft die Invarianten außer bei Rückflüssen. */
-async function storniereVorgang(tx: Tx, protokoll: Protokollant, b: BeteiligungZeile, original: VorgangDaten, grund: string) {
+export async function storniereVorgang(tx: Tx, protokoll: Protokollant, b: BeteiligungZeile, original: VorgangDaten, grund: string) {
   const vorhandene = await ladeVorgaenge(tx, b.id);
   if (original.storniertVorgangId || vorhandene.some((v) => v.storniertVorgangId === original.id)) return null;
   const heutigerTag = heute();
@@ -183,11 +186,13 @@ async function storniereVorgang(tx: Tx, protokoll: Protokollant, b: BeteiligungZ
  */
 export async function storniereVerkauf(tx: Tx, protokoll: Protokollant, verkaufId: string, grund: string) {
   const [vorab] = await tx.select().from(verkauf).where(eq(verkauf.id, verkaufId));
-  if (!vorab) throw new Fachfehler(404, "VERKAUF_NICHT_GEFUNDEN", "Verkauf nicht gefunden.");
+  if (!vorab) throw new Fachfehler(404, "sale_not_found", "Sale not found.");
   const b = await sperreBeteiligung(tx, vorab.beteiligungId);
   const [v] = await tx.select().from(verkauf).where(eq(verkauf.id, verkaufId)).for("update");
-  if (!v) throw new Fachfehler(404, "VERKAUF_NICHT_GEFUNDEN", "Verkauf nicht gefunden.");
-  if (v.storniertAm) throw new Fachfehler(409, "VERKAUF_BEREITS_STORNIERT", "Der Verkauf ist bereits storniert.");
+  if (!v) throw new Fachfehler(404, "sale_not_found", "Sale not found.");
+  const [ausUebertragung] = await tx.select({ id: anteilsuebertragung.id }).from(anteilsuebertragung).where(and(eq(anteilsuebertragung.verkaufId, v.id), isNull(anteilsuebertragung.storniertAm)));
+  if (ausUebertragung) throw new Fachfehler(409, "reversal_not_allowed", "The sale belongs to a share transfer; it cannot be reversed on its own.", { uebertragungId: ausUebertragung.id });
+  if (v.storniertAm) throw new Fachfehler(409, "sale_already_reversed", "The sale has already been reversed.");
   // Der Storno nimmt die Bewertung des Verkaufstags zurück und hebt den Buchwertabgang auf: in gesperrter Periode nicht erlaubt.
   await pruefePeriodensperre(tx, b.fondsId, v.datum);
 
@@ -199,7 +204,7 @@ export async function storniereVerkauf(tx: Tx, protokoll: Protokollant, verkaufI
   if (spaeterer) {
     const [andere] = await tx.select().from(verkauf).where(eq(verkauf.id, spaeterer.id));
     if (andere && (andere.datum > v.datum || (andere.datum === v.datum && andere.erfasstAm > v.erfasstAm))) {
-      throw new Fachfehler(409, "VERKAUF_STORNO_SPAETERER_VERKAUF", "Es gibt einen späteren Verkauf dieser Beteiligung; bitte zuerst diesen stornieren.", { verkaufId: andere.id });
+      throw new Fachfehler(409, "sale_reversal_later_sale", "There is a later sale of this investment; please reverse it first.", { verkaufId: andere.id });
     }
   }
 
@@ -221,7 +226,7 @@ export async function storniereVerkauf(tx: Tx, protokoll: Protokollant, verkaufI
       darlehenInstrument?.status === "aktiv" &&
       darlehen.status === "aktiv";
     if (!unbenutzt) {
-      throw new Fachfehler(409, "VERKAUF_STORNO_DARLEHEN_GENUTZT", "Auf das Verkäuferdarlehen wurde bereits gebucht; der Verkauf lässt sich nicht stornieren.", { beteiligungId: darlehen.id });
+      throw new Fachfehler(409, "sale_reversal_loan_used", "Bookings have already been made on the vendor loan; the sale cannot be reversed.", { beteiligungId: darlehen.id });
     }
   }
 
@@ -305,6 +310,134 @@ export async function storniereVerkauf(tx: Tx, protokoll: Protokollant, verkaufI
   const [nachher] = await tx.update(verkauf).set({ storniertAm: jetzt, storniertVon: protokoll.akteur }).where(eq(verkauf.id, v.id)).returning();
   await protokoll("stornieren", "verkauf", v.id, v, { ...nachher, grund });
   return { verkauf: nachher!, stornoVorgangIds: stornos, status, verkaeuferdarlehenBeteiligungId: darlehen?.id ?? null };
+}
+
+/**
+ * Bucht einen Verkauf (ganz oder anteilig, die ganze Beteiligung oder ein Instrument): Barzufluss als Rückfluss, Forderung für den Treuhandbetrag,
+ * Verkäuferdarlehen als Darlehen-Instrument, Bewertung (ganz = 0, anteilig = Rest), Status der Instrumente und der Beteiligung. Die Route
+ * `POST /beteiligungen/:id/verkauf` und der Abgang eines eigenen Fonds bei einer Anteilsübertragung gehen hierher.
+ */
+export async function bucheVerkauf(tx: Tx, protokoll: Protokollant, id: string, e: VerkaufsEingabe) {
+  const b = await sperreBeteiligung(tx, id);
+  const plan = await planeVerkauf(tx, b, e);
+  const { treuhand, verkaeuferdarlehen: vkd, bar, voll, kennung } = plan;
+  // Vor allem anderen festhalten, was verkauft wird: die gewählten oder alle aktiven Instrumente (ein neues Verkäuferdarlehen in derselben Beteiligung nicht).
+  const verkaufte = plan.instrument ? [plan.instrument] : (await instrumenteVon(tx, id)).filter((i) => i.status === "aktiv");
+  const erloesInstrumentId = plan.instrument?.id ?? (await hauptinstrumentId(tx, id));
+
+  // Verkäuferdarlehen: ein Darlehen-Instrument mit Konditionen in der Beteiligung des Schuldners (bestehende oder neue, bei demselben Unternehmen die verkaufte selbst)
+  let darlehenId: string | null = null;
+  let darlehenInstrumentId: string | null = null;
+  let darlehenBewertung: { b: { id: string; fondsId: string }; zusatz: Decimal } | null = null;
+  if (e.verkaeuferdarlehen && plan.schuldner) {
+    if (plan.schuldnerBeteiligungId) {
+      darlehenId = plan.schuldnerBeteiligungId;
+      await sperreBeteiligung(tx, darlehenId);
+      darlehenInstrumentId = (await legeInstrumentAn(tx, protokoll, darlehenId, { art: "darlehen" })).id;
+    } else {
+      const [neu] = await tx
+        .insert(beteiligung)
+        .values({ fondsId: b.fondsId, organisationId: plan.schuldner, instrument: "darlehen", erstinvestment: e.datum })
+        .returning();
+      darlehenId = neu!.id;
+      await protokoll("anlegen", "beteiligung", darlehenId, null, neu);
+      darlehenInstrumentId = await legeHauptinstrumentAn(tx, neu!);
+    }
+    const betrag = vkd.toFixed(2);
+    for (const art of ["zusage", "auszahlung"] as const) {
+      const [v] = await tx.insert(vorgang).values({ beteiligungId: darlehenId, instrumentId: darlehenInstrumentId, art, valuta: e.datum, betrag, bemerkung: `Verkäuferdarlehen aus ${kennung}` }).returning();
+      await protokoll("anlegen", "vorgang", v!.id, null, v);
+      await ordneRundeZu(tx, protokoll, v!);
+    }
+    const [k] = await tx
+      .insert(darlehenKondition)
+      .values({
+        beteiligungId: darlehenId,
+        instrumentId: darlehenInstrumentId,
+        gueltigAb: e.datum,
+        satzFix: e.verkaeuferdarlehen.satz,
+        methode: e.verkaeuferdarlehen.methode,
+        zinsperiode: "endfaellig",
+        anker: e.verkaeuferdarlehen.faelligAm,
+        faelligAm: e.verkaeuferdarlehen.faelligAm,
+      })
+      .returning();
+    await protokoll("anlegen", "darlehen_kondition", k!.id, null, k);
+    darlehenBewertung = { b: { id: darlehenId, fondsId: b.fondsId }, zusatz: vkd };
+  }
+
+  // Rückfluss (Barzufluss)
+  let rueckflussId: string | null = null;
+  if (bar.greaterThan(0)) {
+    const [v] = await tx.insert(vorgang).values({ beteiligungId: id, instrumentId: erloesInstrumentId, art: "rueckfluss", valuta: e.datum, betrag: bar.toFixed(2), bemerkung: `${kennung}: Barzufluss` }).returning();
+    rueckflussId = v!.id;
+    await protokoll("anlegen", "vorgang", v!.id, null, v);
+    await ordneRundeZu(tx, protokoll, v!);
+  }
+
+  const [zeile] = await tx
+    .insert(verkauf)
+    .values({
+      beteiligungId: id,
+      instrumentId: plan.instrument?.id ?? null,
+      datum: e.datum,
+      anteilVerkauft: e.anteilVerkauft,
+      kaufpreis: e.kaufpreis,
+      kosten: new Decimal(e.kosten ?? 0).toFixed(2),
+      treuhandBetrag: e.treuhand ? treuhand.toFixed(2) : null,
+      verkaeuferdarlehenBetrag: e.verkaeuferdarlehen ? vkd.toFixed(2) : null,
+      verkaeuferdarlehenBeteiligungId: darlehenId,
+      verkaeuferdarlehenInstrumentId: darlehenInstrumentId,
+      buchwertVorher: plan.auswertung.buchwertVorher,
+      buchwertAbgang: plan.auswertung.buchwertAbgang,
+      erloes: plan.auswertung.erloes,
+      ergebnis: plan.auswertung.ergebnis,
+      barzufluss: plan.auswertung.barzufluss,
+      schritte: alsJson(plan.auswertung.schritte),
+      rueckflussVorgangId: rueckflussId,
+    })
+    .returning();
+  await protokoll("anlegen", "verkauf", zeile!.id, null, zeile);
+
+  let forderungZeile = null;
+  if (e.treuhand) {
+    [forderungZeile] = await tx.insert(forderung).values({ beteiligungId: id, instrumentId: erloesInstrumentId, verkaufId: zeile!.id, art: "treuhand", betrag: treuhand.toFixed(2), faelligAm: e.treuhand.freigabeAm }).returning();
+    await protokoll("anlegen", "forderung", forderungZeile!.id, null, forderungZeile);
+  }
+
+  // Instrumente: bei vollem Verkauf `verkauft`; die Beteiligung ist beendet, wenn kein Instrument mehr aktiv ist
+  if (voll) for (const i of verkaufte) await setzeInstrumentStatus(tx, protokoll, i, "verkauft");
+  const gleicheBeteiligung = darlehenBewertung?.b.id === id;
+
+  // Bewertung der verkauften Beteiligung und (bei einer anderen Beteiligung des Schuldners) des Verkäuferdarlehens
+  const letzte = await letzteBewertung(tx, id, e.datum);
+  const vorherWert = new Decimal(letzte?.wert ?? 0);
+  const rest = voll && !plan.instrument ? new Decimal(0) : plan.instrument ? Decimal.max(vorherWert.minus(plan.buchwertAbgang), 0) : vorherWert.times(new Decimal(1).minus(e.anteilVerkauft)).toDecimalPlaces(2);
+  const wert = gleicheBeteiligung ? rest.plus(vkd) : rest;
+  const begruendung = gleicheBeteiligung ? `${voll ? "Beteiligung verkauft" : `Teilverkauf (Anteil ${e.anteilVerkauft})`}; ${VERKAEUFERDARLEHEN_BEGRUENDUNG}` : voll ? "Beteiligung verkauft" : `Teilverkauf (Anteil ${e.anteilVerkauft})`;
+  const bewertet = await setzeBewertung(tx, protokoll, b, e.datum, wert.toFixed(2), "sonstige", begruendung);
+  await tx.update(verkauf).set({ bewertungId: bewertet.id }).where(eq(verkauf.id, zeile!.id));
+  if (darlehenBewertung && !gleicheBeteiligung) {
+    const vorhanden = await letzteBewertung(tx, darlehenBewertung.b.id, e.datum);
+    await setzeBewertung(tx, protokoll, darlehenBewertung.b, e.datum, new Decimal(vorhanden?.wert ?? 0).plus(darlehenBewertung.zusatz).toFixed(2), "anschaffungskosten", VERKAEUFERDARLEHEN_BEGRUENDUNG);
+  }
+  let nachher = b;
+  const keinAktives = !(await instrumenteVon(tx, id)).some((i) => i.status === "aktiv");
+  if (voll && keinAktives) {
+    [nachher] = await tx.update(beteiligung).set({ status: "exit" }).where(eq(beteiligung.id, id)).returning() as [typeof b];
+    await protokoll("verkauf", "beteiligung", id, b, nachher);
+  } else {
+    await protokoll("verkauf", "beteiligung", id, b, b);
+  }
+
+  return {
+    verkauf: { ...zeile!, bewertungId: bewertet.id },
+    ergebnis: plan.auswertung,
+    forderung: forderungZeile,
+    verkaeuferdarlehenBeteiligungId: darlehenId,
+    verkaeuferdarlehenInstrumentId: darlehenInstrumentId,
+    status: nachher.status,
+  };
 }
 
 export type { Db };

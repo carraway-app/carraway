@@ -29,6 +29,8 @@ import type { MitHerkunft, Rechenschritt } from "./herkunft.js";
  *   alle Rückflüsse im gleichen Verhältnis mindert): Zuerst wird ohne diese Einheiten verteilt (Betrag je Stammanteil p₀, verteilt D);
  *   dann gilt für den Faktor f: D × (1 − f) = Σ Einheiten × max(0, p₀ × f − Basispreis), jeder andere Rückfluss wird mit f malgenommen
  *   und die Einheit bekommt p₀ × f − Basispreis. Die Umwandlungsentscheidung sieht die geminderten Rückflüsse.
+ * - **Optionsscheine:** Nicht ausgeübte Optionsscheine eines Fonds laufen über denselben Weg wie die Mitarbeiterbeteiligung (Regel `wie_anteile`,
+ *   Ausübungspreis als Basispreis, `art: "optionsschein"` nur für die Bezeichnung der Schritte): je Anteil max(0, p − Ausübungspreis).
  * - **Umwandlung** wird je Klasse entschieden (nicht je Zeile): Eine umwandelbare Klasse wandelt nur, wenn ihr Rückfluss dadurch
  *   STRENG größer wird (gleich = keine Umwandlung), gemessen mit den Entscheidungen der übrigen Klassen als gegeben. Wer wandelt, verliert
  *   Präferenz und Cap und teilt als Stammanteil. Gesucht wird die stabile Menge W: c in W ⇒ Rückfluss(c, W) > Rückfluss(c, W ohne c);
@@ -73,8 +75,14 @@ export interface Inhaberzeile {
    * Mitarbeiterbeteiligung: `anteile` sind die zum Exit gevesteten oder beschleunigten Einheiten, `basispreis` ist der Ausübungs- oder
    * Basispreis je Einheit, `regel` sagt, wer die Auszahlung trägt (Standard `wie_anteile`). Nur ohne Klasse.
    */
-  mitarbeiter?: { basispreis: Decimal.Value; regel?: MitarbeiterRegel } | null;
+  mitarbeiter?: { basispreis: Decimal.Value; regel?: MitarbeiterRegel; art?: StrikeArt } | null;
 }
+
+/**
+ * Herkunft einer Zeile mit Basispreis, nur für die Bezeichnung der Rechenschritte: `mitarbeiter` (Standard) oder `optionsschein` (nicht ausgeübte
+ * Optionsscheine eines Fonds mit dem Ausübungspreis als Basispreis, Regel `wie_anteile`). Gerechnet wird beides gleich.
+ */
+export type StrikeArt = "mitarbeiter" | "optionsschein";
 
 /** `wie_anteile`: die Einheiten teilen den Rest wie Stammanteile; `anteilig`: die Auszahlung mindert alle Rückflüsse im gleichen Verhältnis. */
 export type MitarbeiterRegel = "wie_anteile" | "anteilig";
@@ -573,13 +581,18 @@ function baueSchritte(ctx: Kontext, erloes: Decimal, s: Decimal, gewandelt: Read
 
   // Beteiligung
   if (z.poolAnteile.greaterThan(0)) schritte.push({ zeichen: "", bezeichnung: "Anteile im Pool (Stammanteile, Umwandlung, Beteiligung)", wert: text(z.poolAnteile) });
-  const mitarbeiter = ctx.zeilen.filter((x) => x.mitarbeiter && x.anteile.greaterThan(0));
-  if (mitarbeiter.length > 0) {
-    const imGeld = mitarbeiter.filter((x) => z.imGeld[x.index]);
-    schritte.push({ zeichen: "", bezeichnung: "Mitarbeiterbeteiligung: gevestete Einheiten", wert: text(mitarbeiter.reduce((a, x) => a.plus(x.anteile), ZERO)) });
+  const strikeZeilen = ctx.zeilen.filter((x) => x.mitarbeiter && x.anteile.greaterThan(0));
+  const gruppen = [
+    { liste: strikeZeilen.filter((x) => x.def.mitarbeiter?.art !== "optionsschein"), einheiten: "Mitarbeiterbeteiligung: gevestete Einheiten", basis: "Basispreise der Einheiten im Geld (bleiben den übrigen Anteilen)" },
+    { liste: strikeZeilen.filter((x) => x.def.mitarbeiter?.art === "optionsschein"), einheiten: "Optionsscheine: nicht ausgeübte Anteile", basis: "Ausübungspreise der Optionsscheine im Geld (bleiben den übrigen Anteilen)" },
+  ];
+  for (const g of gruppen) {
+    if (g.liste.length === 0) continue;
+    const imGeld = g.liste.filter((x) => z.imGeld[x.index]);
+    schritte.push({ zeichen: "", bezeichnung: g.einheiten, wert: text(g.liste.reduce((a, x) => a.plus(x.anteile), ZERO)) });
     schritte.push({ zeichen: "", bezeichnung: "davon im Geld (Basispreis unter dem Betrag je Anteil)", wert: text(imGeld.reduce((a, x) => a.plus(x.anteile), ZERO)) });
     const basis = imGeld.filter((x) => !x.anteilig).reduce((a, x) => a.plus(x.anteile.times(x.strike)), ZERO);
-    if (basis.greaterThan(0)) schritte.push({ zeichen: "+", bezeichnung: "Basispreise der Einheiten im Geld (bleiben den übrigen Anteilen)", wert: text(basis) });
+    if (basis.greaterThan(0)) schritte.push({ zeichen: "+", bezeichnung: g.basis, wert: text(basis) });
   }
   if (z.faktor !== null) schritte.push({ zeichen: "×", bezeichnung: "Minderung aller Rückflüsse durch die Mitarbeiterbeteiligung (Faktor)", wert: text(z.faktor) });
   if (z.preis !== null) schritte.push({ zeichen: "÷", bezeichnung: "Betrag je Anteil", wert: text(z.preis) });

@@ -35,7 +35,7 @@ describe.skipIf(process.env.SKIP_PERF === "1")("Referenzdatensatz: 5 Fonds, 500 
     console.log(`Referenzdatensatz geschrieben in ${(performance.now() - t0).toFixed(0)} ms: ${JSON.stringify(zahlen)}`);
     expect(zahlen?.vorgang).toBeGreaterThanOrEqual(ZAHLUNGEN);
     ergebnis["Datensatz"] = `${zahlen?.beteiligung} Beteiligungen, ${zahlen?.vorgang} Vorgänge (davon ${ZAHLUNGEN} zusätzliche Zahlungen), ${zahlen?.bewertung} Bewertungen`;
-    fonds.push(...(await json(await app.request("/api/v1/fonds"))).daten);
+    fonds.push(...(await json(await app.request("/api/v1/funds"))).data);
   }, 300_000);
   afterAll(async () => {
     console.log(`\nReferenzdatensatz, Ergebnis gegen die Budgets aus TECH-STACK.md:\n${Object.entries(ergebnis).map(([k, v]) => `  ${k}: ${v}`).join("\n")}`);
@@ -73,9 +73,9 @@ describe.skipIf(process.env.SKIP_PERF === "1")("Referenzdatensatz: 5 Fonds, 500 
       async () => {
         const zeiten: number[] = [];
         for (const f of fonds) {
-          await app.request(`/api/v1/fonds/${f.id}/uebersicht`); // Aufwärmen
+          await app.request(`/api/v1/funds/${f.id}/overview`); // Aufwärmen
           for (let i = 0; i < 20; i++) {
-            const antwort = await app.request(`/api/v1/fonds/${f.id}/uebersicht`);
+            const antwort = await app.request(`/api/v1/funds/${f.id}/overview`);
             expect(antwort.status).toBe(200);
             const koerper = await json(antwort.clone());
             expect(koerper.snapshot).not.toBeNull();
@@ -101,9 +101,9 @@ describe.skipIf(process.env.SKIP_PERF === "1")("Referenzdatensatz: 5 Fonds, 500 
       async () => {
         const zeiten: number[] = [];
         for (const f of fonds) {
-          await app.request(`/api/v1/fonds/${f.id}/journal?limit=100`); // Aufwärmen
+          await app.request(`/api/v1/funds/${f.id}/journal?limit=100`); // Aufwärmen
           for (let i = 0; i < 20; i++) {
-            const antwort = await app.request(`/api/v1/fonds/${f.id}/journal?limit=100`);
+            const antwort = await app.request(`/api/v1/funds/${f.id}/journal?limit=100`);
             expect(antwort.status).toBe(200);
             const koerper = await json(antwort.clone());
             expect(koerper.daten).toHaveLength(100);
@@ -127,7 +127,7 @@ describe.skipIf(process.env.SKIP_PERF === "1")("Referenzdatensatz: 5 Fonds, 500 
 
   it("Fondsbericht als PDF unter 2 s (größter Fonds)", async () => {
     const jeFonds = (await db.execute<{ fonds_id: string; n: number }>(sql`SELECT fonds_id, count(*)::int AS n FROM beteiligung GROUP BY fonds_id ORDER BY n DESC LIMIT 1`)).rows[0]!;
-    const url = `/api/v1/fonds/${jeFonds.fonds_id}/berichte/fondsbericht?sprache=de&format=pdf`;
+    const url = `/api/v1/funds/${jeFonds.fonds_id}/reports/fund-report?language=de&format=pdf`;
     const zeit = async () => {
       const t0 = performance.now();
       const antwort = await app.request(url);

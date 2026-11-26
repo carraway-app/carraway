@@ -3,6 +3,7 @@ import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import * as s from "@carraway/db";
 import { DEMO_GRUPPEN, DEMO_ZUGAENGE, entferneDemoZugaenge, schreibeDemoZugaenge } from "@carraway/db/demo";
 import { ladeRechte } from "../rechte/aufloesung";
+import { bereichAnApi } from "../rechte/api-namen";
 import { BEREICHE, type Bereich } from "../rechte/bereiche";
 import { json, leeren, oeffneTestdb } from "./hilfen";
 import { grundbestand, ID } from "./hilfen-instrumente";
@@ -33,14 +34,14 @@ const alle = [genau, mitAusnahme, gemischt, vergleich, dreifach];
 const anfrage = (methode: string, pfad: string, als: Testperson | undefined, body?: unknown) =>
   t.request(pfad, { method: methode, ...(als ? { als } : {}), headers: { "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
 
-async function rolle(name: string, bereiche: string[], bereichStufen?: Record<string, string>): Promise<string> {
-  const antwort = await anfrage("POST", "/rechte/rollen", undefined, { name, bereiche, ...(bereichStufen ? { bereichStufen } : {}) });
+async function rolle(name: string, areas: string[], areaLevels?: Record<string, string>): Promise<string> {
+  const antwort = await anfrage("POST", "/permissions/roles", undefined, { name, areas, ...(areaLevels ? { areaLevels } : {}) });
   expect(antwort.status, name).toBe(201);
   return (await json(antwort)).id as string;
 }
 
 async function gruppe(eingabe: Record<string, unknown>): Promise<string> {
-  const antwort = await anfrage("POST", "/rechte/gruppen", undefined, eingabe);
+  const antwort = await anfrage("POST", "/permissions/groups", undefined, eingabe);
   expect(antwort.status, JSON.stringify(eingabe)).toBe(201);
   return (await json(antwort)).id as string;
 }
@@ -151,23 +152,23 @@ describe("Überführung ohne Rechteänderung", () => {
       saat = (saat * 1103515245 + 12345) % 2147483648;
       return saat % n;
     };
-    const stufen = ["betrachter", "bearbeiter", "freigeber", "verwalter"];
+    const stufen = ["viewer", "editor", "approver", "admin"];
     const personen = [genau, mitAusnahme, gemischt, vergleich];
     for (let runde = 0; runde < 6; runde++) {
       await db.execute(sql`DELETE FROM nutzergruppe`);
       await db.execute(sql`DELETE FROM rechterolle`);
       await db.execute(sql`UPDATE rechte_einstellung SET fonds_offen = ${zufall(2) === 0}`);
       const rollen: string[] = [];
-      for (let r = 0; r < 3; r++) rollen.push(await rolle(`Zufall ${runde}-${r}`, BEREICHE.filter(() => zufall(3) === 0)));
+      for (let r = 0; r < 3; r++) rollen.push(await rolle(`Zufall ${runde}-${r}`, BEREICHE.filter(() => zufall(3) === 0).map(bereichAnApi)));
       for (let g = 0; g < 4; g++) {
         const fonds = [F1, F2].filter(() => zufall(2) === 0);
         await gruppe({
           name: `Zufall ${runde}-${g}`,
-          stufe: stufen[zufall(4)],
-          fondsBeschraenkt: zufall(2) === 0,
-          fondsIds: fonds,
-          rollenIds: rollen.filter(() => zufall(2) === 0),
-          mitglieder: personen.filter(() => zufall(2) === 0).map(id),
+          level: stufen[zufall(4)],
+          fundsRestricted: zufall(2) === 0,
+          fundIds: fonds,
+          roleIds: rollen.filter(() => zufall(2) === 0),
+          memberIds: personen.filter(() => zufall(2) === 0).map(id),
         });
       }
       for (const p of personen) await erwarteUnveraendert(id(p), `Runde ${runde}, ${p.email}`);
@@ -177,32 +178,32 @@ describe("Überführung ohne Rechteänderung", () => {
 
 describe("Bereiche je Fonds und Stufe je Bereich", () => {
   /** Fonds Eins: Portfolio bearbeiten, Finanzen nur lesen, Dealflow; Fonds Zwei: nur Kontakte. */
-  async function beispielGruppe(mitglieder: string[]) {
-    const r = await rolle("Je Fonds", ["portfolio", "finanzen", "kontakte", "dealflow"], { finanzen: "betrachter" });
+  async function beispielGruppe(memberIds: string[]) {
+    const r = await rolle("Je Fonds", ["portfolio", "finance", "contacts", "dealflow"], { finance: "viewer" });
     return gruppe({
       name: "Je Fonds",
-      stufe: "bearbeiter",
-      fondsBeschraenkt: true,
-      bereicheJeFonds: true,
-      fondsIds: [F1, F2],
-      fondsBereiche: { [F1]: ["portfolio", "finanzen", "dealflow"], [F2]: ["kontakte"] },
-      rollenIds: [r],
-      mitglieder,
+      level: "editor",
+      fundsRestricted: true,
+      areasPerFund: true,
+      fundIds: [F1, F2],
+      fundAreas: { [F1]: ["portfolio", "finance", "dealflow"], [F2]: ["contacts"] },
+      roleIds: [r],
+      memberIds,
     });
   }
 
   it("Auflösung: Stufe je Fonds und Bereich in /ich und in der Verwaltung", async () => {
     await beispielGruppe([id(genau)]);
-    const ich = await json(await anfrage("GET", "/ich", genau));
-    expect(ich.bereicheJeFonds).toEqual({ [F1]: { portfolio: "bearbeiter", finanzen: "betrachter", dealflow: "bearbeiter" }, [F2]: { kontakte: "bearbeiter" } });
+    const ich = await json(await anfrage("GET", "/me", genau));
+    expect(ich.areaLevelsPerFund).toEqual({ [F1]: { portfolio: "editor", finance: "viewer", dealflow: "editor" }, [F2]: { contacts: "editor" } });
     // Bisherige Felder bleiben: Vereinigung der Bereiche, Stufe je Fonds über alle Bereiche.
-    expect(ich.bereiche).toEqual(["dealflow", "finanzen", "kontakte", "portfolio"]);
-    expect(Object.fromEntries(ich.rollen.map((r: { fondsId: string; rolle: string }) => [r.fondsId, r.rolle]))).toEqual({ [F1]: "bearbeiter", [F2]: "bearbeiter" });
-    expect(ich.stufeOhneFondsJeBereich).toEqual({ portfolio: "bearbeiter", finanzen: "betrachter", dealflow: "bearbeiter", kontakte: "bearbeiter" });
-    const verwaltung = await json(await anfrage("GET", `/benutzer/${id(genau)}/rechte`, undefined));
-    expect(verwaltung.bereicheJeFonds).toEqual(ich.bereicheJeFonds);
+    expect(ich.areas).toEqual(["contacts", "dealflow", "finance", "portfolio"]);
+    expect(Object.fromEntries(ich.roles.map((r: { fundId: string; role: string }) => [r.fundId, r.role]))).toEqual({ [F1]: "editor", [F2]: "editor" });
+    expect(ich.levelWithoutFundPerArea).toEqual({ portfolio: "editor", finance: "viewer", dealflow: "editor", contacts: "editor" });
+    const verwaltung = await json(await anfrage("GET", `/users/${id(genau)}/permissions`, undefined));
+    expect(verwaltung.areaLevelsPerFund).toEqual(ich.areaLevelsPerFund);
     // Ohne Gruppe: keine Unterscheidung.
-    expect((await json(await anfrage("GET", "/ich", vergleich))).bereicheJeFonds).toBeNull();
+    expect((await json(await anfrage("GET", "/me", vergleich))).areaLevelsPerFund).toBeNull();
   });
 
   it("Durchsetzung: Bereich und Stufe zählen nur zusammen an demselben Fonds", async () => {
@@ -227,8 +228,8 @@ describe("Bereiche je Fonds und Stufe je Bereich", () => {
   });
 
   it("Gegenprobe: dieselbe Gruppe ohne Grenze und ohne Bereiche je Fonds erlaubt das Schreiben der Finanzen", async () => {
-    const r = await rolle("Ohne Grenze", ["portfolio", "finanzen", "kontakte", "dealflow"]);
-    await gruppe({ name: "Fondsübergreifend", stufe: "bearbeiter", fondsBeschraenkt: true, fondsIds: [F1, F2], rollenIds: [r], mitglieder: [id(vergleich)] });
+    const r = await rolle("Ohne Grenze", ["portfolio", "finance", "contacts", "dealflow"]);
+    await gruppe({ name: "Fondsübergreifend", level: "editor", fundsRestricted: true, fundIds: [F1, F2], roleIds: [r], memberIds: [id(vergleich)] });
     expect((await anfrage("POST", "/zinslaeufe", vergleich, { fondsId: F2, stichtag: "2026-12-31" })).status).not.toBe(403);
     expect((await anfrage("GET", `/beteiligungen/${B2}`, vergleich)).status).toBe(200);
   });
@@ -238,38 +239,38 @@ describe("Bereiche je Fonds und Stufe je Bereich", () => {
     // Verwalter als Ausnahme an beiden Fonds: am zweiten Fonds weiter nur Kontakte.
     expect((await anfrage("GET", `/beteiligungen/${B2}`, mitAusnahme)).status).toBe(403);
     expect((await anfrage("GET", `/fonds/${F2}/journal`, mitAusnahme)).status).toBe(403);
-    expect((await anfrage("GET", `/fonds/${F2}/rollen`, mitAusnahme)).status).toBe(403);
+    expect((await anfrage("GET", `/fonds/${F2}/roles`, mitAusnahme)).status).toBe(403);
     // Am ersten Fonds Portfolio als Verwalter, Finanzen höchstens lesen.
     expect((await anfrage("POST", "/zinslaeufe", mitAusnahme, { fondsId: F1, stichtag: "2026-12-31" })).status).toBe(403);
-    const ich = await json(await anfrage("GET", "/ich", mitAusnahme));
-    expect(ich.bereicheJeFonds).toEqual({ [F1]: { portfolio: "verwalter", finanzen: "betrachter", dealflow: "verwalter" }, [F2]: { kontakte: "verwalter" } });
+    const ich = await json(await anfrage("GET", "/me", mitAusnahme));
+    expect(ich.areaLevelsPerFund).toEqual({ [F1]: { portfolio: "admin", finance: "viewer", dealflow: "admin" }, [F2]: { contacts: "admin" } });
   });
 
   it("Gruppe ohne Fonds plus Gruppe je Fonds: Bereiche der Gruppe ohne Fonds kommen an keinen Fonds", async () => {
-    const finanzen = await rolle("Finanzen überall", ["finanzen"]);
-    await gruppe({ name: "Ohne Fonds", stufe: "verwalter", fondsBeschraenkt: true, rollenIds: [finanzen], mitglieder: [id(gemischt)] });
+    const finanzen = await rolle("Finanzen überall", ["finance"]);
+    await gruppe({ name: "Ohne Fonds", level: "admin", fundsRestricted: true, roleIds: [finanzen], memberIds: [id(gemischt)] });
     const nurPortfolio = await rolle("Nur Portfolio", ["portfolio"]);
-    await gruppe({ name: "Portfolio Eins", stufe: "bearbeiter", fondsBeschraenkt: true, bereicheJeFonds: true, fondsIds: [F1], rollenIds: [nurPortfolio], mitglieder: [id(gemischt)] });
+    await gruppe({ name: "Portfolio Eins", level: "editor", fundsRestricted: true, areasPerFund: true, fundIds: [F1], roleIds: [nurPortfolio], memberIds: [id(gemischt)] });
     expect((await anfrage("GET", `/beteiligungen/${ID.eigen}`, gemischt)).status).toBe(200);
     expect((await anfrage("GET", `/fonds/${F1}/journal`, gemischt)).status).toBe(403);
     expect((await anfrage("GET", "/zinslaeufe", gemischt)).status).toBe(403);
     // Die Stufe der Gruppe ohne Fonds (Verwalter) hebt die Stufe der Gruppe je Fonds nicht an: Portfolio bleibt Bearbeiter.
-    const ich = await json(await anfrage("GET", "/ich", gemischt));
-    expect(ich.bereicheJeFonds).toEqual({ [F1]: { portfolio: "bearbeiter" } });
+    const ich = await json(await anfrage("GET", "/me", gemischt));
+    expect(ich.areaLevelsPerFund).toEqual({ [F1]: { portfolio: "editor" } });
   });
 
   it("Gruppe ohne Fonds + Gruppe je Fonds + Ausnahme: die Ausnahme setzt nur die Stufe, Bereiche nur an ihrem Fonds", async () => {
     // Fondsübergreifende Gruppe ohne Fonds mit Finanzen (Verwalter), Gruppe je Fonds mit Portfolio am ersten Fonds, Ausnahme Betrachter am ersten Fonds.
-    const finanzen = await rolle("Finanzen ohne Fonds", ["finanzen"]);
-    await gruppe({ name: "Finanzen ohne Fonds", stufe: "verwalter", fondsBeschraenkt: true, rollenIds: [finanzen], mitglieder: [id(dreifach)] });
+    const finanzen = await rolle("Finanzen ohne Fonds", ["finance"]);
+    await gruppe({ name: "Finanzen ohne Fonds", level: "admin", fundsRestricted: true, roleIds: [finanzen], memberIds: [id(dreifach)] });
     const portfolio = await rolle("Portfolio je Fonds", ["portfolio"]);
-    await gruppe({ name: "Portfolio je Fonds", stufe: "bearbeiter", fondsBeschraenkt: true, bereicheJeFonds: true, fondsIds: [F1], rollenIds: [portfolio], mitglieder: [id(dreifach)] });
+    await gruppe({ name: "Portfolio je Fonds", level: "editor", fundsRestricted: true, areasPerFund: true, fundIds: [F1], roleIds: [portfolio], memberIds: [id(dreifach)] });
     // Am ersten Fonds: Stufe der Ausnahme für die fondsübergreifenden Bereiche (Finanzen, Regel wie bisher) und den Bereich der Gruppe je Fonds dort.
-    const ich = await json(await anfrage("GET", "/ich", dreifach));
-    expect(ich.bereicheJeFonds).toEqual({ [F1]: { portfolio: "betrachter", finanzen: "betrachter" } });
+    const ich = await json(await anfrage("GET", "/me", dreifach));
+    expect(ich.areaLevelsPerFund).toEqual({ [F1]: { portfolio: "viewer", finance: "viewer" } });
     expect((await anfrage("GET", `/fonds/${F1}/journal`, dreifach)).status).toBe(200);
     expect((await anfrage("POST", "/zinslaeufe", dreifach, { fondsId: F1, stichtag: "2026-12-31" })).status).toBe(403);
-    expect((await anfrage("POST", `/beteiligungen/${ID.eigen}/vorgaenge`, dreifach, { art: "zusage", valuta: "2025-01-01", betrag: "1000" })).status).toBe(403);
+    expect((await anfrage("POST", `/investments/${ID.eigen}/transactions`, dreifach, { type: "commitment", valueDate: "2025-01-01", amount: "1000" })).status).toBe(403);
     // Am zweiten Fonds nichts: Weder die Verwalterstufe der Gruppe ohne Fonds noch die Gruppe je Fonds reichen dorthin.
     expect((await anfrage("GET", `/fonds/${F2}/journal`, dreifach)).status).toBe(403);
     expect((await anfrage("GET", `/beteiligungen/${B2}`, dreifach)).status).toBe(403);
@@ -278,21 +279,21 @@ describe("Bereiche je Fonds und Stufe je Bereich", () => {
 
   it("Schreibwege über mehrere Bereiche: der fremde Bereich zählt an genau dem Fonds, in den geschrieben wird", async () => {
     // Dealflow am ersten Fonds, Portfolio nur am zweiten: Eine Beteiligung aus dem Deal des ersten Fonds darf nicht entstehen.
-    const r = await rolle("Deals und Portfolio", ["dealflow", "portfolio", "kontakte"]);
+    const r = await rolle("Deals und Portfolio", ["dealflow", "portfolio", "contacts"]);
     await gruppe({
       name: "Getrennt je Fonds",
-      stufe: "bearbeiter",
-      fondsBeschraenkt: true,
-      bereicheJeFonds: true,
-      fondsIds: [F1, F2],
-      fondsBereiche: { [F1]: ["dealflow", "kontakte"], [F2]: ["portfolio"] },
-      rollenIds: [r],
-      mitglieder: [id(genau)],
+      level: "editor",
+      fundsRestricted: true,
+      areasPerFund: true,
+      fundIds: [F1, F2],
+      fundAreas: { [F1]: ["dealflow", "contacts"], [F2]: ["portfolio"] },
+      roleIds: [r],
+      memberIds: [id(genau)],
     });
     const koerper = { fondsId: F1, instrument: "offene_beteiligung", erstinvestment: "2025-06-30", zusage: "1000.00" };
     const antwort = await anfrage("POST", `/deals/${DEAL_F1}/beteiligung`, genau, koerper);
     expect(antwort.status).toBe(403);
-    expect((await json(antwort)).fehler.code).toBe("KEINE_BERECHTIGUNG");
+    expect((await json(antwort)).error.code).toBe("forbidden");
     // Vorschau des Zusammenführens: Beteiligungen nur aus Fonds mit Portfolio.
     const vorschau = await json(await anfrage("POST", `/organisationen/${ID.orgA}/zusammenfuehren/vorschau`, genau, { quelleId: ID.orgB }));
     expect(vorschau.fondsIds).toEqual([F2]);
@@ -301,16 +302,16 @@ describe("Bereiche je Fonds und Stufe je Bereich", () => {
   });
 
   it("Zuständige mit Deal: Deal eines Fonds ohne Dealflow gilt als nicht vorhanden, auch mit Stufe am Fonds", async () => {
-    const r = await rolle("Kontakte und Deals", ["kontakte", "dealflow"]);
-    await gruppe({ name: "Kontakte und Deals", stufe: "bearbeiter", fondsBeschraenkt: true, bereicheJeFonds: true, fondsIds: [F1, F2], fondsBereiche: { [F1]: ["kontakte", "dealflow"], [F2]: ["kontakte"] }, rollenIds: [r], mitglieder: [id(genau)] });
+    const r = await rolle("Kontakte und Deals", ["contacts", "dealflow"]);
+    await gruppe({ name: "Kontakte und Deals", level: "editor", fundsRestricted: true, areasPerFund: true, fundIds: [F1, F2], fundAreas: { [F1]: ["contacts", "dealflow"], [F2]: ["contacts"] }, roleIds: [r], memberIds: [id(genau)] });
     expect((await anfrage("GET", `/crm/zustaendige?dealId=${DEAL_F1}`, genau)).status).toBe(200);
     // Am zweiten Fonds Bearbeiter, aber nur für Kontakte.
     expect((await anfrage("GET", `/crm/zustaendige?dealId=${DEAL_F2}`, genau)).status).toBe(404);
   });
 
   it("Aufgabe an einem Deal: Schreibrecht verlangt Bearbeiter im Dealflow am Fonds des Deals, nicht in Kontakten", async () => {
-    const r = await rolle("Deals lesen", ["dealflow", "kontakte"], { dealflow: "betrachter" });
-    await gruppe({ name: "Deals lesen", stufe: "bearbeiter", fondsBeschraenkt: true, fondsIds: [F1], rollenIds: [r], mitglieder: [id(vergleich)] });
+    const r = await rolle("Deals lesen", ["dealflow", "contacts"], { dealflow: "viewer" });
+    await gruppe({ name: "Deals lesen", level: "editor", fundsRestricted: true, fundIds: [F1], roleIds: [r], memberIds: [id(vergleich)] });
     expect((await anfrage("POST", "/crm/aufgaben", vergleich, { titel: "Ohne Deal", organisationId: ID.orgA })).status).toBe(201);
     expect((await anfrage("POST", "/crm/aufgaben", vergleich, { titel: "Am Deal", dealId: DEAL_F1 })).status).toBe(403);
   });
@@ -322,17 +323,17 @@ describe("Bereiche je Fonds und Stufe je Bereich", () => {
       { art: "notiz", datum: "2026-01-01", titel: "Wiedervorlage Eins", dealId: DEAL_F1, wiedervorlage: tag, zustaendig: id(genau) },
       { art: "notiz", datum: "2026-01-01", titel: "Wiedervorlage Zwei", dealId: DEAL_F2, wiedervorlage: tag, zustaendig: id(genau) },
     ]);
-    const angelegt = await t.request("/einstellungen/kalender-link", { method: "POST", als: genau });
+    const angelegt = await t.request("/settings/calendar-link", { method: "POST", als: genau });
     expect(angelegt.status).toBe(201);
     const { token } = (await json(angelegt)) as { token: string };
-    const ics = await (await t.app.request(`/api/v1/kalender/${token}.ics`)).text();
+    const ics = await (await t.app.request(`/api/v1/calendar/${token}.ics`)).text();
     expect(ics).toContain("Wiedervorlage Eins");
     expect(ics).not.toContain("Wiedervorlage Zwei");
   });
 
   it("Grenze der Rolle begrenzt auch Daten ohne Fonds", async () => {
-    const r = await rolle("Kontakte lesen", ["kontakte"], { kontakte: "betrachter" });
-    await gruppe({ name: "Kontakte lesen", stufe: "verwalter", rollenIds: [r], mitglieder: [id(vergleich)] });
+    const r = await rolle("Kontakte lesen", ["contacts"], { contacts: "viewer" });
+    await gruppe({ name: "Kontakte lesen", level: "admin", roleIds: [r], memberIds: [id(vergleich)] });
     expect((await anfrage("GET", `/organisationen/${ID.orgA}`, vergleich)).status).toBe(200);
     expect((await anfrage("POST", "/organisationen", vergleich, { name: "Nur lesen Beispiel", art: "unternehmen" })).status).toBe(403);
   });
@@ -346,27 +347,27 @@ describe("Bereiche je Fonds und Stufe je Bereich", () => {
   });
 
   it("Verwaltung: Bereiche je Fonds nur mit dem Schalter und nur für Fonds der Gruppe; Grenzen nur für Bereiche der Rolle", async () => {
-    const r = await rolle("Mit Grenze", ["portfolio"], { portfolio: "betrachter", finanzen: "betrachter" });
-    const stand = await json(await anfrage("GET", "/rechte", undefined));
-    expect(stand.rollen.find((x: { id: string }) => x.id === r).bereichStufen).toEqual({ portfolio: "betrachter" });
-    expect((await anfrage("POST", "/rechte/rollen", undefined, { name: "Falsche Grenze", bereiche: ["portfolio"], bereichStufen: { portfolio: "chef" } })).status).toBe(400);
+    const r = await rolle("Mit Grenze", ["portfolio"], { portfolio: "viewer", finance: "viewer" });
+    const stand = await json(await anfrage("GET", "/permissions", undefined));
+    expect(stand.roles.find((x: { id: string }) => x.id === r).areaLevels).toEqual({ portfolio: "viewer" });
+    expect((await anfrage("POST", "/permissions/roles", undefined, { name: "Falsche Grenze", areas: ["portfolio"], areaLevels: { portfolio: "chef" } })).status).toBe(400);
 
-    const ohneSchalter = await anfrage("POST", "/rechte/gruppen", undefined, { name: "Ohne Schalter", fondsBeschraenkt: true, fondsIds: [F1], fondsBereiche: { [F1]: ["portfolio"] } });
+    const ohneSchalter = await anfrage("POST", "/permissions/groups", undefined, { name: "Ohne Schalter", fundsRestricted: true, fundIds: [F1], fundAreas: { [F1]: ["portfolio"] } });
     expect(ohneSchalter.status).toBe(400);
-    const fremderFonds = await anfrage("POST", "/rechte/gruppen", undefined, { name: "Fremder Fonds", bereicheJeFonds: true, fondsBeschraenkt: true, fondsIds: [F1], fondsBereiche: { [F2]: ["portfolio"] } });
+    const fremderFonds = await anfrage("POST", "/permissions/groups", undefined, { name: "Fremder Fonds", areasPerFund: true, fundsRestricted: true, fundIds: [F1], fundAreas: { [F2]: ["portfolio"] } });
     expect(fremderFonds.status).toBe(400);
 
-    const g = await gruppe({ name: "Schalter", bereicheJeFonds: true, fondsBeschraenkt: true, fondsIds: [F1, F2], fondsBereiche: { [F1]: ["portfolio"] }, rollenIds: [r] });
-    let gruppeStand = (await json(await anfrage("GET", "/rechte", undefined))).gruppen.find((x: { id: string }) => x.id === g);
-    expect(gruppeStand).toMatchObject({ bereicheJeFonds: true, fondsIds: [F1, F2].sort(), fondsBereiche: { [F1]: ["portfolio"] } });
+    const g = await gruppe({ name: "Schalter", areasPerFund: true, fundsRestricted: true, fundIds: [F1, F2], fundAreas: { [F1]: ["portfolio"] }, roleIds: [r] });
+    let gruppeStand = (await json(await anfrage("GET", "/permissions", undefined))).groups.find((x: { id: string }) => x.id === g);
+    expect(gruppeStand).toMatchObject({ areasPerFund: true, fundIds: [F1, F2].sort(), fundAreas: { [F1]: ["portfolio"] } });
     // Nur die Mitglieder ändern: Auswahl je Fonds bleibt.
-    await anfrage("PATCH", `/rechte/gruppen/${g}`, undefined, { mitglieder: [id(genau)] });
-    gruppeStand = (await json(await anfrage("GET", "/rechte", undefined))).gruppen.find((x: { id: string }) => x.id === g);
-    expect(gruppeStand.fondsBereiche).toEqual({ [F1]: ["portfolio"] });
+    await anfrage("PATCH", `/permissions/groups/${g}`, undefined, { memberIds: [id(genau)] });
+    gruppeStand = (await json(await anfrage("GET", "/permissions", undefined))).groups.find((x: { id: string }) => x.id === g);
+    expect(gruppeStand.fundAreas).toEqual({ [F1]: ["portfolio"] });
     // Schalter aus: Auswahl je Fonds entfällt, die Gruppe gilt wieder fondsübergreifend.
-    await anfrage("PATCH", `/rechte/gruppen/${g}`, undefined, { bereicheJeFonds: false });
-    gruppeStand = (await json(await anfrage("GET", "/rechte", undefined))).gruppen.find((x: { id: string }) => x.id === g);
-    expect(gruppeStand).toMatchObject({ bereicheJeFonds: false, fondsBereiche: {} });
+    await anfrage("PATCH", `/permissions/groups/${g}`, undefined, { areasPerFund: false });
+    gruppeStand = (await json(await anfrage("GET", "/permissions", undefined))).groups.find((x: { id: string }) => x.id === g);
+    expect(gruppeStand).toMatchObject({ areasPerFund: false, fundAreas: {} });
     const protokoll = await db.execute<{ n: number }>(sql`SELECT count(*)::int AS n FROM aenderung WHERE tabelle = 'nutzergruppe' AND datensatz_id = ${g}`);
     expect(protokoll.rows[0]!.n).toBeGreaterThanOrEqual(3);
   });

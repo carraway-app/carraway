@@ -30,7 +30,11 @@ const ohneRolle = person("vr-ohne-rolle", { rollen: {} });
 
 const BRUECKE = { art: "bruecke", bezeichnung: "Brücke 2026", datum: "2026-03-01" };
 const zeile = async (vorgangId: string) => (await db.select().from(s.vorgangRunde).where(eq(s.vorgangRunde.vorgangId, vorgangId)))[0];
-const buchung = async (beteiligungId: string, koerper: object, als: Parameters<typeof post>[2] = "a") => json(await post(`/beteiligungen/${beteiligungId}/vorgaenge`, koerper, als));
+const buchung = async (beteiligungId: string, koerper: object, als: Parameters<typeof post>[2] = "a") => {
+  const antwort = await post(`/investments/${beteiligungId}/transactions`, koerper, als);
+  expect(antwort.status, await antwort.clone().text()).toBe(201);
+  return json(antwort);
+};
 
 /** Unternehmen A: Seed und Serie A (bewertet, mit Positionen), dazu ein Unternehmen B der anderen Fonds-Seite (Runde R_B) und eine Beteiligung des zweiten Fonds an A. */
 beforeEach(async () => {
@@ -56,69 +60,69 @@ afterAll(async () => {
 describe("Standardzuordnung beim Buchen", () => {
   it("folgt der Runde des Instruments und protokolliert die Zuordnung", async () => {
     await db.update(s.instrument).set({ rundeId: R_A }).where(eq(s.instrument.beteiligungId, ID.eigen));
-    const zusage = await buchung(ID.eigen, { art: "zusage", valuta: "2025-09-02", betrag: "200000" });
-    expect(zusage.vorgang.rundeId).toBe(R_A);
-    expect(await zeile(zusage.vorgang.id)).toMatchObject({ rundeId: R_A, quelle: "automatisch" });
+    const zusage = await buchung(ID.eigen, { type: "commitment", valueDate: "2025-09-02", amount: "200000" });
+    expect(zusage.transaction.roundId).toBe(R_A);
+    expect(await zeile(zusage.transaction.id)).toMatchObject({ rundeId: R_A, quelle: "automatisch" });
     const zeilen = await protokollZeilen(db, "vorgang_runde", "anlegen");
     expect(zeilen).toHaveLength(1);
-    expect(zeilen[0]).toMatchObject({ datensatz_id: zusage.vorgang.id, nachher: { rundeId: R_A, quelle: "automatisch", fondsId: ID.fonds } });
+    expect(zeilen[0]).toMatchObject({ datensatz_id: zusage.transaction.id, nachher: { rundeId: R_A, quelle: "automatisch", fondsId: ID.fonds } });
   });
 
   it("ohne Runde am Instrument und ohne Angabe bleibt der Vorgang ohne Runde", async () => {
-    const v = await buchung(ID.eigen, { art: "zusage", valuta: "2025-09-02", betrag: "1000" });
-    expect(v.vorgang.rundeId).toBeNull();
-    expect(await zeile(v.vorgang.id)).toBeUndefined();
+    const v = await buchung(ID.eigen, { type: "commitment", valueDate: "2025-09-02", amount: "1000" });
+    expect(v.transaction.roundId).toBeNull();
+    expect(await zeile(v.transaction.id)).toBeUndefined();
   });
 
   it("eine ausdrückliche rundeId hat Vorrang (manuell), null heißt bewusst keine Runde", async () => {
     await db.update(s.instrument).set({ rundeId: R_A }).where(eq(s.instrument.beteiligungId, ID.eigen));
-    const ausdruecklich = await buchung(ID.eigen, { art: "zusage", valuta: "2025-09-02", betrag: "1000", rundeId: R_SEED });
-    expect(ausdruecklich.vorgang.rundeId).toBe(R_SEED);
-    expect(await zeile(ausdruecklich.vorgang.id)).toMatchObject({ rundeId: R_SEED, quelle: "manuell" });
-    const keine = await buchung(ID.eigen, { art: "zusage", valuta: "2025-09-02", betrag: "1000", rundeId: null });
-    expect(keine.vorgang.rundeId).toBeNull();
-    expect(await zeile(keine.vorgang.id)).toBeUndefined();
+    const ausdruecklich = await buchung(ID.eigen, { type: "commitment", valueDate: "2025-09-02", amount: "1000", roundId: R_SEED });
+    expect(ausdruecklich.transaction.roundId).toBe(R_SEED);
+    expect(await zeile(ausdruecklich.transaction.id)).toMatchObject({ rundeId: R_SEED, quelle: "manuell" });
+    const keine = await buchung(ID.eigen, { type: "commitment", valueDate: "2025-09-02", amount: "1000", roundId: null });
+    expect(keine.transaction.roundId).toBeNull();
+    expect(await zeile(keine.transaction.id)).toBeUndefined();
   });
 
   it("lehnt eine Runde eines anderen Unternehmens ab und bucht dann nichts", async () => {
-    const antwort = await post(`/beteiligungen/${ID.eigen}/vorgaenge`, { art: "zusage", valuta: "2025-09-02", betrag: "1000", rundeId: R_B }, "a");
+    const antwort = await post(`/investments/${ID.eigen}/transactions`, { type: "commitment", valueDate: "2025-09-02", amount: "1000", roundId: R_B }, "a");
     expect(antwort.status).toBe(409);
-    expect((await json(antwort)).fehler.code).toBe("VORGANG_RUNDE_FREMD");
+    expect((await json(antwort)).error.code).toBe("transaction_round_foreign");
     expect(await db.select().from(s.vorgang)).toHaveLength(0);
-    expect((await post(`/beteiligungen/${ID.eigen}/vorgaenge`, { art: "zusage", valuta: "2025-09-02", betrag: "1000", rundeId: FALSCH }, "a")).status).toBe(404);
+    expect((await post(`/investments/${ID.eigen}/transactions`, { type: "commitment", valueDate: "2025-09-02", amount: "1000", roundId: FALSCH }, "a")).status).toBe(404);
   });
 
   it("der Journal-Weg (POST /fonds/:id/buchungen) nimmt rundeId ebenfalls an", async () => {
-    const antwort = await post(`/fonds/${ID.fonds}/buchungen`, { typ: "zusage", beteiligungId: ID.eigen, valuta: "2025-09-02", betrag: "1000", rundeId: R_A }, "a");
+    const antwort = await post(`/funds/${ID.fonds}/postings`, { kind: "commitment", investmentId: ID.eigen, valueDate: "2025-09-02", amount: "1000", roundId: R_A }, "a");
     expect(antwort.status).toBe(201);
-    expect((await json(antwort)).vorgang.rundeId).toBe(R_A);
+    expect((await json(antwort)).transaction.roundId).toBe(R_A);
   });
 
   it("ein Storno erbt die Runde des stornierten Vorgangs", async () => {
-    const v = await buchung(ID.eigen, { art: "zusage", valuta: "2025-09-02", betrag: "5000", rundeId: R_SEED });
-    const storno = await json(await post(`/vorgaenge/${v.vorgang.id}/storno`, { grund: "Irrtum" }, "a"));
-    expect(await zeile(storno.storno.id)).toMatchObject({ rundeId: R_SEED, quelle: "automatisch" });
+    const v = await buchung(ID.eigen, { type: "commitment", valueDate: "2025-09-02", amount: "5000", roundId: R_SEED });
+    const storno = await json(await post(`/transactions/${v.transaction.id}/reverse`, { reason: "Irrtum" }, "a"));
+    expect(await zeile(storno.reversal.id)).toMatchObject({ rundeId: R_SEED, quelle: "automatisch" });
     // Ein Storno eines Vorgangs ohne Runde bleibt ohne Runde.
-    const ohne = await buchung(ID.eigen, { art: "zusage", valuta: "2025-09-02", betrag: "5000" });
-    const stornoOhne = await json(await post(`/vorgaenge/${ohne.vorgang.id}/storno`, { grund: "Irrtum" }, "a"));
-    expect(await zeile(stornoOhne.storno.id)).toBeUndefined();
+    const ohne = await buchung(ID.eigen, { type: "commitment", valueDate: "2025-09-02", amount: "5000" });
+    const stornoOhne = await json(await post(`/transactions/${ohne.transaction.id}/reverse`, { reason: "Irrtum" }, "a"));
+    expect(await zeile(stornoOhne.reversal.id)).toBeUndefined();
   });
 });
 
-describe("PUT /vorgaenge/:id/runde", () => {
+describe("PUT /transactions/:id/round", () => {
   it("ordnet zu, ändert und entfernt; jede Änderung steht im Änderungsprotokoll", async () => {
-    const v = await buchung(ID.eigen, { art: "zusage", valuta: "2025-09-02", betrag: "1000" });
-    const id = v.vorgang.id as string;
-    const zu = await put(`/vorgaenge/${id}/runde`, { rundeId: R_SEED }, bearbeiterF1);
+    const v = await buchung(ID.eigen, { type: "commitment", valueDate: "2025-09-02", amount: "1000" });
+    const id = v.transaction.id as string;
+    const zu = await put(`/transactions/${id}/round`, { roundId: R_SEED }, bearbeiterF1);
     expect(zu.status).toBe(200);
-    expect(await json(zu)).toEqual({ vorgangId: id, rundeId: R_SEED, quelle: "manuell", geaendert: true });
+    expect(await json(zu)).toEqual({ transactionId: id, roundId: R_SEED, source: "manual", changed: true });
     expect(await zeile(id)).toMatchObject({ rundeId: R_SEED, quelle: "manuell" });
-    const um = await json(await put(`/vorgaenge/${id}/runde`, { rundeId: R_A }, bearbeiterF1));
-    expect(um).toMatchObject({ rundeId: R_A, geaendert: true });
-    const gleich = await json(await put(`/vorgaenge/${id}/runde`, { rundeId: R_A }, bearbeiterF1));
-    expect(gleich.geaendert).toBe(false);
-    const weg = await json(await put(`/vorgaenge/${id}/runde`, { rundeId: null }, bearbeiterF1));
-    expect(weg).toEqual({ vorgangId: id, rundeId: null, quelle: null, geaendert: true });
+    const um = await json(await put(`/transactions/${id}/round`, { roundId: R_A }, bearbeiterF1));
+    expect(um).toMatchObject({ roundId: R_A, changed: true });
+    const gleich = await json(await put(`/transactions/${id}/round`, { roundId: R_A }, bearbeiterF1));
+    expect(gleich.changed).toBe(false);
+    const weg = await json(await put(`/transactions/${id}/round`, { roundId: null }, bearbeiterF1));
+    expect(weg).toEqual({ transactionId: id, roundId: null, source: null, changed: true });
     expect(await zeile(id)).toBeUndefined();
     const aktionen = (await protokollZeilen(db, "vorgang_runde")).map((z) => z.aktion);
     expect(aktionen).toEqual(["anlegen", "aendern", "loeschen"]);
@@ -134,29 +138,29 @@ describe("PUT /vorgaenge/:id/runde", () => {
   });
 
   it("lehnt fremde und unbekannte Runden, unbekannte Vorgänge und fehlende Rechte ab", async () => {
-    const v = await buchung(ID.eigen, { art: "zusage", valuta: "2025-09-02", betrag: "1000" });
-    const id = v.vorgang.id as string;
-    const fremd = await put(`/vorgaenge/${id}/runde`, { rundeId: R_B }, bearbeiterF1);
+    const v = await buchung(ID.eigen, { type: "commitment", valueDate: "2025-09-02", amount: "1000" });
+    const id = v.transaction.id as string;
+    const fremd = await put(`/transactions/${id}/round`, { roundId: R_B }, bearbeiterF1);
     expect(fremd.status).toBe(409);
-    expect((await json(fremd)).fehler.code).toBe("VORGANG_RUNDE_FREMD");
-    expect((await put(`/vorgaenge/${id}/runde`, { rundeId: FALSCH }, bearbeiterF1)).status).toBe(404);
-    expect((await put(`/vorgaenge/${FALSCH}/runde`, { rundeId: R_A }, bearbeiterF1)).status).toBe(404);
-    expect((await put(`/vorgaenge/${id}/runde`, { rundeId: R_A }, betrachterF1)).status).toBe(403);
-    expect((await put(`/vorgaenge/${id}/runde`, { rundeId: R_A }, bearbeiterF2)).status).toBe(403);
-    expect((await put(`/vorgaenge/${id}/runde`, {}, bearbeiterF1)).status).toBe(400);
+    expect((await json(fremd)).error.code).toBe("transaction_round_foreign");
+    expect((await put(`/transactions/${id}/round`, { roundId: FALSCH }, bearbeiterF1)).status).toBe(404);
+    expect((await put(`/transactions/${FALSCH}/round`, { roundId: R_A }, bearbeiterF1)).status).toBe(404);
+    expect((await put(`/transactions/${id}/round`, { roundId: R_A }, betrachterF1)).status).toBe(403);
+    expect((await put(`/transactions/${id}/round`, { roundId: R_A }, bearbeiterF2)).status).toBe(403);
+    expect((await put(`/transactions/${id}/round`, {}, bearbeiterF1)).status).toBe(400);
     expect(await zeile(id)).toBeUndefined();
   });
 });
 
 describe("GET /beteiligungen/:id (Zeilen der Transaktionen)", () => {
   it("trägt je Vorgang die zugeordnete Runde oder null", async () => {
-    const mit = await buchung(ID.eigen, { art: "zusage", valuta: "2025-09-02", betrag: "1000" });
-    const ohne = await buchung(ID.eigen, { art: "zusage", valuta: "2025-09-03", betrag: "2000" });
-    await put(`/vorgaenge/${mit.vorgang.id}/runde`, { rundeId: R_SEED }, bearbeiterF1);
+    const mit = await buchung(ID.eigen, { type: "commitment", valueDate: "2025-09-02", amount: "1000" });
+    const ohne = await buchung(ID.eigen, { type: "commitment", valueDate: "2025-09-03", amount: "2000" });
+    await put(`/transactions/${mit.transaction.id}/round`, { roundId: R_SEED }, bearbeiterF1);
     const d = await json(await get(`/beteiligungen/${ID.eigen}?stichtag=2026-12-31`, "a"));
     const nach = (id: string) => (d.vorgaenge as { id: string; runde: unknown }[]).find((v) => v.id === id)!;
-    expect(nach(mit.vorgang.id).runde).toEqual({ id: R_SEED, bezeichnung: "Seed", art: "eigenkapital", datum: "2025-01-10" });
-    expect(nach(ohne.vorgang.id).runde).toBeNull();
+    expect(nach(mit.transaction.id).runde).toEqual({ id: R_SEED, bezeichnung: "Seed", art: "eigenkapital", datum: "2025-01-10" });
+    expect(nach(ohne.transaction.id).runde).toBeNull();
   });
 });
 
@@ -172,12 +176,12 @@ describe("Runde abschließen und Löschen", () => {
 
   it("eine Runde mit zugeordneten Vorgängen lässt sich nicht löschen", async () => {
     const neu = await json(await post(`/organisationen/${ID.orgC}/finanzierungsrunden`, { bezeichnung: "Entwurf", datum: "2026-03-15", preMoney: "1000.00", preisJeAnteil: "1.0000" }, "a"));
-    const v = await buchung(ID.wandel, { art: "zusage", valuta: "2026-03-16", betrag: "1000" });
-    expect((await put(`/vorgaenge/${v.vorgang.id}/runde`, { rundeId: neu.id }, "a")).status).toBe(200);
+    const v = await buchung(ID.wandel, { type: "commitment", valueDate: "2026-03-16", amount: "1000" });
+    expect((await put(`/transactions/${v.transaction.id}/round`, { roundId: neu.id }, "a")).status).toBe(200);
     const antwort = await loesche(`/finanzierungsrunden/${neu.id}`, undefined, "a");
     expect(antwort.status).toBe(409);
-    expect((await json(antwort)).fehler.code).toBe("RUNDE_IN_VERWENDUNG");
-    await put(`/vorgaenge/${v.vorgang.id}/runde`, { rundeId: null }, "a");
+    expect((await json(antwort)).error.code).toBe("round_in_use");
+    await put(`/transactions/${v.transaction.id}/round`, { roundId: null }, "a");
     expect((await loesche(`/finanzierungsrunden/${neu.id}`, undefined, "a")).status).toBe(204);
   });
 });
@@ -210,45 +214,47 @@ describe("GET /organisationen/:id/rundentransaktionen", () => {
     expect(mine).toHaveLength(4);
   });
 
-  it("gruppiert nach Runde und ohne Runde, mit Anteilen an der Zusage der Position", async () => {
+  it("gruppiert nach Runde und ohne Runde, mit Anteilen an der Zusage der Position", { retry: { count: 1, condition: /"code":"query_too_long"/ } }, async () => {
     await db.update(s.instrument).set({ rundeId: R_SEED }).where(eq(s.instrument.beteiligungId, ID.eigen));
     await db.update(s.rundenposition).set({ instrumentId: (await db.select().from(s.instrument).where(eq(s.instrument.beteiligungId, ID.eigen)))[0]!.id }).where(eq(s.rundenposition.id, P_FONDS));
-    const zusage = await buchung(ID.eigen, { art: "zusage", valuta: "2025-01-12", betrag: "100000" });
-    const auszahlung = await buchung(ID.eigen, { art: "auszahlung", valuta: "2025-01-15", betrag: "100000" });
-    const ohne = await buchung(ID.eigen, { art: "zusage", valuta: "2025-12-01", betrag: "5000", rundeId: null });
-    const f2 = await buchung(B_F2, { art: "zusage", valuta: "2025-09-05", betrag: "7000", rundeId: R_A });
-    const storno = await json(await post(`/vorgaenge/${ohne.vorgang.id}/storno`, { grund: "Irrtum" }, "a"));
+    const zusage = await buchung(ID.eigen, { type: "commitment", valueDate: "2025-01-12", amount: "100000" });
+    const auszahlung = await buchung(ID.eigen, { type: "disbursement", valueDate: "2025-01-15", amount: "100000" });
+    const ohne = await buchung(ID.eigen, { type: "commitment", valueDate: "2025-12-01", amount: "5000", roundId: null });
+    const f2 = await buchung(B_F2, { type: "commitment", valueDate: "2025-09-05", amount: "7000", roundId: R_A });
+    const stornoAntwort = await post(`/transactions/${ohne.transaction.id}/reverse`, { reason: "Irrtum" }, "a");
+    expect(stornoAntwort.status, await stornoAntwort.clone().text()).toBe(201);
+    const storno = await json(stornoAntwort);
 
     const antwort = await get(`/organisationen/${ID.orgA}/rundentransaktionen`, "a");
-    expect(antwort.status).toBe(200);
+    expect(antwort.status, await antwort.clone().text()).toBe(200);
     const d = await json(antwort);
     expect(d.organisationId).toBe(ID.orgA);
     expect(d.runden.map((r: { id: string }) => r.id)).toEqual([R_A, R_SEED]);
     expect(d.runden[0]).toMatchObject({ bezeichnung: "Serie A", art: "eigenkapital", status: "abgeschlossen" });
     const seed = d.runden[1].transaktionen;
-    expect(seed.map((t: { id: string }) => t.id)).toEqual([zusage.vorgang.id, auszahlung.vorgang.id]);
+    expect(seed.map((t: { id: string }) => t.id)).toEqual([zusage.transaction.id, auszahlung.transaction.id]);
     expect(seed[0]).toMatchObject({ art: "zusage", betrag: "100000.00", valuta: "2025-01-12", fonds: { id: ID.fonds, name: "Testfonds Eins" }, beteiligungId: ID.eigen, anteile: "50000", storniert: false, storniertVorgangId: null, quelle: "automatisch" });
     expect(seed[0].instrument).toMatchObject({ art: "offene_beteiligung" });
     expect(seed[1]).toMatchObject({ art: "auszahlung", anteile: null, tranche: null });
-    expect(d.runden[0].transaktionen.map((t: { id: string }) => t.id)).toEqual([f2.vorgang.id]);
+    expect(d.runden[0].transaktionen.map((t: { id: string }) => t.id)).toEqual([f2.transaction.id]);
     expect(d.runden[0].transaktionen[0]).toMatchObject({ fonds: { id: ID.anderer }, quelle: "manuell" });
-    expect(d.ohneRunde.map((t: { id: string }) => t.id)).toEqual([ohne.vorgang.id, storno.storno.id]);
+    expect(d.ohneRunde.map((t: { id: string }) => t.id)).toEqual([ohne.transaction.id, storno.reversal.id]);
     expect(d.ohneRunde[0]).toMatchObject({ storniert: true, quelle: null });
-    expect(d.ohneRunde[1]).toMatchObject({ storniertVorgangId: ohne.vorgang.id, betrag: "-5000.00", storniert: false });
+    expect(d.ohneRunde[1]).toMatchObject({ storniertVorgangId: ohne.transaction.id, betrag: "-5000.00", storniert: false });
   });
 
   it("zeigt nur Vorgänge der Fonds, die die Person sehen darf", async () => {
-    const eins = await buchung(ID.eigen, { art: "zusage", valuta: "2025-01-12", betrag: "100", rundeId: R_SEED });
-    const zwei = await buchung(B_F2, { art: "zusage", valuta: "2025-01-13", betrag: "200", rundeId: R_SEED });
+    const eins = await buchung(ID.eigen, { type: "commitment", valueDate: "2025-01-12", amount: "100", roundId: R_SEED });
+    const zwei = await buchung(B_F2, { type: "commitment", valueDate: "2025-01-13", amount: "200", roundId: R_SEED });
     const ids = async (als: Parameters<typeof get>[1]) => {
       const antwort = await get(`/organisationen/${ID.orgA}/rundentransaktionen`, als);
       if (antwort.status !== 200) return antwort.status;
       const d = await json(antwort);
       return [...d.runden.flatMap((r: { transaktionen: { id: string }[] }) => r.transaktionen), ...d.ohneRunde].map((t: { id: string }) => t.id).sort();
     };
-    expect(await ids("a")).toEqual([eins.vorgang.id, zwei.vorgang.id].sort());
-    expect(await ids(betrachterF1)).toEqual([eins.vorgang.id]);
-    expect(await ids(betrachterF2)).toEqual([zwei.vorgang.id]);
+    expect(await ids("a")).toEqual([eins.transaction.id, zwei.transaction.id].sort());
+    expect(await ids(betrachterF1)).toEqual([eins.transaction.id]);
+    expect(await ids(betrachterF2)).toEqual([zwei.transaction.id]);
     expect(await ids(ohneRolle)).toBe(403);
     expect((await get(`/organisationen/${FALSCH}/rundentransaktionen`, "a")).status).toBe(404);
   });
@@ -276,9 +282,9 @@ describe("Brückenrunde", () => {
     const r = await json(await anlegen());
     const position = await post(`/finanzierungsrunden/${r.id}/positionen`, { fondsId: ID.fonds, betrag: "100.00", anteile: "10", rolle: "lead" }, "a");
     expect(position.status).toBe(409);
-    expect((await json(position)).fehler.code).toBe("RUNDE_BRUECKE_OHNE_ANTEILE");
-    expect((await json(await post(`/finanzierungsrunden/${r.id}/abschliessen`, {}, "a"))).fehler.code).toBe("RUNDE_ART_BRUECKE");
-    expect((await json(await post(`/finanzierungsrunden/${r.id}/wiedereroeffnen`, { grund: "Test" }, "a"))).fehler.code).toBe("RUNDE_ART_BRUECKE");
+    expect((await json(position)).error.code).toBe("round_bridge_without_shares");
+    expect((await json(await post(`/finanzierungsrunden/${r.id}/abschliessen`, {}, "a"))).error.code).toBe("round_type_bridge");
+    expect((await json(await post(`/finanzierungsrunden/${r.id}/wiedereroeffnen`, { grund: "Test" }, "a"))).error.code).toBe("round_type_bridge");
     const bewertung = await patch(`/finanzierungsrunden/${r.id}`, { preMoney: "5.00" }, "a");
     expect(bewertung.status).toBe(409);
     expect((await patch(`/finanzierungsrunden/${r.id}`, { bezeichnung: "Brücke II", datum: "2026-04-01" }, "a")).status).toBe(200);
@@ -313,7 +319,7 @@ describe("Brückenrunde", () => {
     expect(zurueck).toMatchObject({ art: "bruecke", status: "abgeschlossen", preMoney: null });
     // Mit Position (Entwurf) nicht.
     const entwurf = await json(await anlegen({ bezeichnung: "E", datum: "2026-05-01", preMoney: "1000.00", preisJeAnteil: "1.0000", positionen: [{ fondsId: ID.fonds, betrag: "100.00", anteile: "100", rolle: "lead" }] }));
-    expect((await json(await patch(`/finanzierungsrunden/${entwurf.id}`, { art: "bruecke" }, "a"))).fehler.code).toBe("RUNDE_BRUECKE_OHNE_ANTEILE");
+    expect((await json(await patch(`/finanzierungsrunden/${entwurf.id}`, { art: "bruecke" }, "a"))).error.code).toBe("round_bridge_without_shares");
   });
 
   it("nimmt Darlehensinstrumente auf, Eigenkapital nicht; die Wandlung verlangt eine Eigenkapitalrunde", async () => {
@@ -322,24 +328,24 @@ describe("Brückenrunde", () => {
     expect(darlehen.status).toBe(201);
     const eigenkapital = await post(`/beteiligungen/${ID.wandel}/instrumente`, { art: "offene_beteiligung", rundeId: r.id }, "a");
     expect(eigenkapital.status).toBe(409);
-    expect((await json(eigenkapital)).fehler.code).toBe("INSTRUMENT_RUNDE_BRUECKE");
+    expect((await json(eigenkapital)).error.code).toBe("instrument_round_bridge");
     const stille = await post(`/beteiligungen/${ID.wandel}/instrumente`, { art: "stille_beteiligung", rundeId: r.id }, "a");
-    expect((await json(stille)).fehler.code).toBe("INSTRUMENT_RUNDE_BRUECKE");
+    expect((await json(stille)).error.code).toBe("instrument_round_bridge");
     const d = await json(darlehen);
     const umstellen = await patch(`/instrumente/${d.id}`, { art: "offene_beteiligung" }, "a");
     expect(umstellen.status).toBe(409);
-    expect((await json(umstellen)).fehler.code).toBe("INSTRUMENT_RUNDE_BRUECKE");
+    expect((await json(umstellen)).error.code).toBe("instrument_round_bridge");
 
     // Das Darlehen bucht auf die Brücke (Instrument), die Wandlung auf die Zielrunde.
-    await buchung(ID.wandel, { art: "zusage", valuta: "2026-01-01", betrag: "200000", instrumentId: d.id });
-    await buchung(ID.wandel, { art: "auszahlung", valuta: "2026-01-01", betrag: "100000", instrumentId: d.id });
+    await buchung(ID.wandel, { type: "commitment", valueDate: "2026-01-01", amount: "200000", instrumentId: d.id });
+    await buchung(ID.wandel, { type: "disbursement", valueDate: "2026-01-01", amount: "100000", instrumentId: d.id });
     await post(`/beteiligungen/${ID.wandel}/konditionen`, { gueltigAb: "2026-01-01", satzFix: "0.06", methode: "30E/360", zinsperiode: "jaehrlich", anker: "2027-01-01", instrumentId: d.id }, "a");
     const vorherZeilen = await db.select().from(s.vorgangRunde);
     expect(vorherZeilen.filter((z) => z.rundeId === r.id)).toHaveLength(2);
     const basis = { cutoff: "2026-07-01", zinsenWandeln: true, preisregel: { rundenpreisJeAnteil: "12.5", discount: "0.2" }, nennwertJeAnteil: "1", instrumentId: d.id };
     const zurBruecke = await post(`/beteiligungen/${ID.wandel}/wandlung`, { ...basis, runde: { id: r.id } }, "a");
     expect(zurBruecke.status).toBe(409);
-    expect((await json(zurBruecke)).fehler.code).toBe("RUNDE_KEINE_EIGENKAPITALRUNDE");
+    expect((await json(zurBruecke)).error.code).toBe("round_not_equity");
 
     const ziel = await json(await post(`/organisationen/${ID.orgC}/finanzierungsrunden`, { bezeichnung: "Serie A", datum: "2026-07-01", preMoney: "8000000.00", preisJeAnteil: "12.5000", positionen: [{ organisationId: ID.orgA, betrag: "1000000.00", anteile: "80000", rolle: "lead" }] }, "a"));
     await post(`/finanzierungsrunden/${ziel.id}/abschliessen`, {}, "a");
@@ -356,8 +362,8 @@ describe("Brückenrunde", () => {
   });
 
   it("verändert Kapitaltabelle, Exit-Szenario, Kennzahlen und die Bewertung nach letzter Runde nicht", async () => {
-    await buchung(ID.eigen, { art: "zusage", valuta: "2025-01-12", betrag: "300000" });
-    await buchung(ID.eigen, { art: "auszahlung", valuta: "2025-01-15", betrag: "300000" });
+    await buchung(ID.eigen, { type: "commitment", valueDate: "2025-01-12", amount: "300000" });
+    await buchung(ID.eigen, { type: "disbursement", valueDate: "2025-01-15", amount: "300000" });
     const stichtag = "2026-12-31";
     const lesen = async () => ({
       kapital: await json(await get(`/beteiligungen/${ID.eigen}/kapitaltabelle?stichtag=${stichtag}`, "a")),

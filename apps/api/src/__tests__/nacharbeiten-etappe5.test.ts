@@ -45,7 +45,7 @@ describe("Entwurf ändern (PATCH /bewertungen/:id)", () => {
     await post(`/bewertungen/${a.bewertung.id}/freigeben`, undefined, "pruefer");
     const frei = await patch(`/bewertungen/${a.bewertung.id}`, { wert: "1.00" }, "ersteller");
     expect(frei.status).toBe(409);
-    expect((await json(frei)).fehler.code).toBe("BEWERTUNG_STATUS_UNGUELTIG");
+    expect((await json(frei)).error.code).toBe("valuation_status_invalid");
 
     const b = await json(await neu({ ...entwurf, stichtag: "2025-06-30" }));
     await post(`/bewertungen/${b.bewertung.id}/verwerfen`, undefined, "pruefer");
@@ -58,7 +58,7 @@ describe("Entwurf ändern (PATCH /bewertungen/:id)", () => {
     await db.insert(s.periodensperre).values({ fondsId: ID.fonds, gesperrtBis: "2025-03-31", gesetztVon: "test" });
     const antwort = await patch(`/bewertungen/${d.bewertung.id}`, { wert: "1.00" }, "ersteller");
     expect(antwort.status).toBe(409);
-    expect((await json(antwort)).fehler.code).toBe("PERIODE_GESPERRT");
+    expect((await json(antwort)).error.code).toBe("period_locked");
   });
 
   it("Vier-Augen: wer einen Entwurf ändert, kann ihn nicht allein freigeben", async () => {
@@ -66,7 +66,7 @@ describe("Entwurf ändern (PATCH /bewertungen/:id)", () => {
     await patch(`/bewertungen/${d.bewertung.id}`, { wert: "999999.00" }, "aendernde");
     const selbst = await post(`/bewertungen/${d.bewertung.id}/freigeben`, undefined, "aendernde");
     expect(selbst.status).toBe(409);
-    expect((await json(selbst)).fehler.code).toBe("VIER_AUGEN_VERLETZT");
+    expect((await json(selbst)).error.code).toBe("four_eyes_violated");
     expect((await post(`/bewertungen/${d.bewertung.id}/freigeben`, undefined, "ersteller")).status).toBe(200);
   });
 
@@ -79,7 +79,7 @@ describe("Entwurf ändern (PATCH /bewertungen/:id)", () => {
     expect((await post(`/bewertungsrunden/${runde.runde.id}/freigeben`, undefined, "a")).status).toBe(409);
     const durchB = await post(`/bewertungsrunden/${runde.runde.id}/freigeben`, undefined, "b");
     expect(durchB.status).toBe(409);
-    expect((await json(durchB)).fehler.code).toBe("VIER_AUGEN_VERLETZT");
+    expect((await json(durchB)).error.code).toBe("four_eyes_violated");
     expect((await post(`/bewertungsrunden/${runde.runde.id}/freigeben`, undefined, "c")).status).toBe(200);
   });
 
@@ -128,18 +128,18 @@ describe("Bewertungsrunde: Übersprungene und bewertungsrundeId", () => {
     const runde = await json(await post(`/fonds/${ID.fonds}/bewertungsrunde`, { stichtag: "2025-06-30", vorschlag: "fortschreiben" }, "a"));
     const falscherStichtag = await neu({ stichtag: "2025-09-30", wert: "5.00", methode: "sonstige", begruendung: "x", bewertungsrundeId: runde.runde.id }, "a");
     expect(falscherStichtag.status).toBe(409);
-    expect((await json(falscherStichtag)).fehler.code).toBe("BEWERTUNGSRUNDE_PASST_NICHT");
+    expect((await json(falscherStichtag)).error.code).toBe("valuation_round_mismatch");
     expect((await neu({ stichtag: "2025-06-30", wert: "5.00", methode: "sonstige", begruendung: "x", bewertungsrundeId: FALSCH }, "a")).status).toBe(404);
     await post(`/bewertungsrunden/${runde.runde.id}/verwerfen`, undefined, "a");
     const geschlossen = await neu({ stichtag: "2025-06-30", wert: "5.00", methode: "sonstige", begruendung: "x", bewertungsrundeId: runde.runde.id }, "a");
     expect(geschlossen.status).toBe(409);
-    expect((await json(geschlossen)).fehler.code).toBe("BEWERTUNG_STATUS_UNGUELTIG");
+    expect((await json(geschlossen)).error.code).toBe("valuation_status_invalid");
   });
 });
 
 describe("Berichtsvorlagen mit erlaubter Auswahl", () => {
   it("GET /fonds/:id/berichtsvorlagen nennt je Art Abschnitte, Kennzahlen, Spalten und Einheiten", async () => {
-    const d = await json(await get(`/fonds/${ID.fonds}/berichtsvorlagen`));
+    const d = await json(await get(`/funds/${ID.fonds}/report-templates`));
     expect(d.daten).toHaveLength(7);
     const lp = d.daten.find((v: { art: string }) => v.art === "lp_bericht");
     expect(lp.erlaubt.abschnitte).toContain("kapitalkonten");

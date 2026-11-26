@@ -92,7 +92,13 @@ export interface WebErweiterung {
   /** Zusätzlicher Abschnitt in Fondsverwaltung → Investoren (unter Zeichnungen und Closings). */
   fondsInvestoren?: ComponentType<{ fondsId: string }>;
   /** Aktion je Dokument in der Dokumentliste (z. B. KI-Auslesung); bekommt das Dokument und ob die Person schreiben darf. */
-  dokumentAktion?: ComponentType<{ dokument: { id: string; dateiname: string; textStatus: string }; darfSchreiben: boolean }>;
+  dokumentAktion?: ComponentType<{ dokument: { id: string; dateiname: string; textStatus: string; vertraulich: boolean; mime: string }; darfSchreiben: boolean }>;
+  /** Zusätzliche Aktion für einen Anhang einer eingehenden Mail. */
+  anhangAktion?: ComponentType<{ aktivitaetId: string; anhangId: string }>;
+  /** Abschnitt auf der Seite einer Person oder eines Unternehmens (z. B. KI-Vorschläge für Felder); bekommt Objekt, ID und ob die Person schreiben darf. */
+  datensatzErgaenzung?: ComponentType<{ objekt: "person" | "organisation"; id: string; darfSchreiben: boolean }>;
+  /** Karte in den persönlichen Einstellungen unter Postfach und Kalender (z. B. Freigabe des eigenen Postfachs für eine KI-Funktion). */
+  postfachEinstellungen?: ComponentType;
   /** Berichtsarten der Erweiterung: im Auswahlfeld beim Anlegen, mit optionalem Inhaltsreiter auf der Seite des Berichts. */
   berichtsarten?: readonly { art: string; inhalt?: ComponentType<{ b: BerichtDetail; person: (id: string | null | undefined) => string | null }> }[];
   /** Zusätzliche Anmeldewege auf der Anmeldeseite (Single Sign-On). */

@@ -1,3 +1,4 @@
+import { kontaktJson, pruefeKontakt } from "../kontakte/http";
 import { and, asc, eq, ilike, isNull, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -8,13 +9,13 @@ import { geaendertSeitBedingung, geaendertSeitEingabe } from "../geaendert";
 import { ladeBeziehungen } from "../kontakte/beziehungen";
 import { fuehreOrganisationenZusammen, ORGANISATION_FELDER, vorschauOrganisationen } from "../kontakte/zusammenfuehren";
 import { fehlerAntwort } from "../fehler";
-import { pruefe } from "../pruefung";
 import { dealSichtbar, fondsSichtbar } from "../rechte/sichtbarkeit";
 import { organisationAnteilsklassenRouten } from "./kapital";
 import { organisationMitarbeiterRouten } from "./mitarbeiterbeteiligung";
 import { organisationRundenRouten } from "./runden";
-import { organisationVehikelRouten } from "./vehikel";
+import { organisationUebertragungRouten } from "./uebertragungen";
 import { idParam, ladeOrganisation, MINDESTENS_EIN_FELD, mindestensEins, nurGesetzte, optionalerText, schreibe, websiteEingabe, textEingabe } from "../schreiben";
+import { herkunftVon } from "../postfach/kontakte";
 import { lese } from "../zeitlimit";
 
 /** Der Cursor ist undurchsichtig für die Oberfläche: Name und Id der letzten Zeile, Base64-kodiert. */
@@ -39,12 +40,12 @@ const listenAbfrage = z.object({
   cursor: z
     .string()
     .max(500)
-    .refine((c) => dekodiere(c) !== null, { message: "Cursor ungültig" })
+    .refine((c) => dekodiere(c) !== null, { message: "Invalid cursor" })
     .optional(),
 });
 
-/** Abschnitt der NACE (Buchstabe A bis U), Grundlage der Energieintensität je klimaintensivem Sektor in der ESG-Auswertung. */
-const naceEingabe = z.string().regex(/^[A-U]$/, "Buchstabe A bis U").nullable().optional();
+/** Abschnitt der NACE (Expected a letter from A to U), Grundlage der Energieintensität je klimaintensivem Sektor in der ESG-Auswertung. */
+const naceEingabe = z.string().regex(/^[A-U]$/, "Expected a letter from A to U").nullable().optional();
 
 const neueOrganisation = z.object({
   name: textEingabe(300),
@@ -79,31 +80,31 @@ const zusammenfuehrenEingabe = z.object({
 
 export function organisationRouten(db: Db) {
   return new Hono()
-    .get("/dubletten", pruefe("query", z.object({ name: textEingabe(300) })), async (c) => {
+    .get("/duplicates", pruefeKontakt("query", z.object({ name: textEingabe(300) })), async (c) => {
       const { name } = c.req.valid("query");
       const kandidaten = await lese(db, (tx) => findeDubletten(tx, name));
-      return c.json({ daten: kandidaten }, 200);
+      return kontaktJson(c, { daten: kandidaten }, 200);
     })
-    .post("/:id/zusammenfuehren/vorschau", pruefe("param", idParam), pruefe("json", z.object({ quelleId: z.uuid() })), async (c) => {
+    .post("/:id/merge/preview", pruefeKontakt("param", idParam), pruefeKontakt("json", z.object({ quelleId: z.uuid() })), async (c) => {
       const { id } = c.req.valid("param");
       const { quelleId } = c.req.valid("json");
       const akteur = aktuellerAkteur(c);
       const vorschau = await lese(db, (tx) => vorschauOrganisationen(tx, akteur, id, quelleId));
-      return c.json(vorschau, 200);
+      return kontaktJson(c, vorschau, 200);
     })
-    .post("/:id/zusammenfuehren", pruefe("param", idParam), pruefe("json", zusammenfuehrenEingabe), async (c) => {
+    .post("/:id/merge", pruefeKontakt("param", idParam), pruefeKontakt("json", zusammenfuehrenEingabe), async (c) => {
       const { id } = c.req.valid("param");
       const { quelleId, felder } = c.req.valid("json");
       const akteur = aktuellerAkteur(c);
       const ergebnis = await schreibe(db, c, (tx, protokoll) => fuehreOrganisationenZusammen(tx, protokoll, akteur, id, quelleId, felder));
-      return c.json(ergebnis, 200);
+      return kontaktJson(c, ergebnis, 200);
     })
-    .post("/", pruefe("json", neueOrganisation), async (c) => {
+    .post("/", pruefeKontakt("json", neueOrganisation), async (c) => {
       const { dubletteBestaetigt, ...werte } = c.req.valid("json");
       const neu = await schreibe(db, c, (tx, protokoll) => legeOrganisationAn(tx, protokoll, werte, dubletteBestaetigt));
-      return c.json(neu, 201);
+      return kontaktJson(c, neu, 201);
     })
-    .patch("/:id", pruefe("param", idParam), pruefe("json", aenderungOrganisation), async (c) => {
+    .patch("/:id", pruefeKontakt("param", idParam), pruefeKontakt("json", aenderungOrganisation), async (c) => {
       const { id } = c.req.valid("param");
       const aenderungen = nurGesetzte(c.req.valid("json"));
       const neu = await schreibe(db, c, async (tx, protokoll) => {
@@ -112,9 +113,9 @@ export function organisationRouten(db: Db) {
         await protokoll("aendern", "organisation", id, vorher, nachher);
         return nachher;
       });
-      return c.json(neu, 200);
+      return kontaktJson(c, neu, 200);
     })
-    .get("/", pruefe("query", listenAbfrage), async (c) => {
+    .get("/", pruefeKontakt("query", listenAbfrage), async (c) => {
       const { suche, art, limit, cursor, geaendertSeit } = c.req.valid("query");
       const position = cursor ? dekodiere(cursor) : null;
       const bedingungen = [
@@ -143,9 +144,9 @@ export function organisationRouten(db: Db) {
       const seite = zeilen.slice(0, limit);
       const letzte = seite.at(-1);
       const naechsterCursor = zeilen.length > limit && letzte ? kodiere(letzte.name, letzte.id) : null;
-      return c.json({ daten: seite, naechsterCursor }, 200);
+      return kontaktJson(c, { daten: seite, naechsterCursor }, 200);
     })
-    .get("/:id", pruefe("param", z.object({ id: z.uuid() })), async (c) => {
+    .get("/:id", pruefeKontakt("param", z.object({ id: z.uuid() })), async (c) => {
       const { id } = c.req.valid("param");
       const ergebnis = await lese(db, async (tx) => {
         const [org] = await tx.select().from(organisation).where(eq(organisation.id, id));
@@ -187,13 +188,18 @@ export function organisationRouten(db: Db) {
         const beziehungen = await ladeBeziehungen(tx, c, id);
         // Anzahl der Vehikel: Die Seite zeigt den Abschnitt „Vehikel“ bei Investoren und bei jeder Organisation, die schon Vehikel hat.
         const [{ anzahl: vehikelAnzahl } = { anzahl: 0 }] = await tx.select({ anzahl: sql<number>`count(*)::int` }).from(vehikel).where(eq(vehikel.investorId, id));
-        return { ...org, personen, deals, beteiligungen, rollen, beziehungen, vehikelAnzahl };
+        return { ...org, personen, deals, beteiligungen, rollen, beziehungen, vehikelAnzahl, herkunft: await herkunftVon(tx, { organisationId: id }) };
       });
-      if (!ergebnis) return fehlerAntwort(c, 404, "ORGANISATION_NICHT_GEFUNDEN", "Organisation nicht gefunden.");
-      return c.json(ergebnis, 200);
-    })
+      if (!ergebnis) return fehlerAntwort(c, 404, "organization_not_found", "Organization not found.");
+      return kontaktJson(c, ergebnis, 200);
+    });
+}
+
+/** Portfolio-Unterpfade werden mit ihrem eigenen Bereich umgestellt. */
+export function organisationPortfolioRouten(db: Db) {
+  return new Hono()
     .route("/:id", organisationAnteilsklassenRouten(db))
     .route("/:id", organisationMitarbeiterRouten(db))
     .route("/:id", organisationRundenRouten(db))
-    .route("/:id", organisationVehikelRouten(db));
+    .route("/:id", organisationUebertragungRouten(db));
 }

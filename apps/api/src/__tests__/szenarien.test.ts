@@ -77,18 +77,18 @@ describe("Szenarien anlegen und prüfen", () => {
     expect(liste.daten).toHaveLength(1);
     const doppelt = await legeAn("Basis");
     expect(doppelt.status).toBe(409);
-    expect((await json(doppelt)).fehler.code).toBe("SZENARIO_NAME_VORHANDEN");
+    expect((await json(doppelt)).error.code).toBe("scenario_name_exists");
   });
 
   it("prüft die Annahmen mit Zod (400) und gegen den Fonds (422)", async () => {
     const schlecht = await legeAn("A", { gebuehren: { satz: "0.5" }, beteiligungen: { [ID.eigen]: { ausstieg: { art: "exit", jahr: JAHR + 1 } } } });
     expect(schlecht.status).toBe(400);
-    const felder = (await json(schlecht)).fehler.felder.map((f: { feld: string }) => f.feld);
+    const felder = (await json(schlecht)).error.fields.map((f: { field: string }) => f.field);
     expect(felder).toContain("annahmen.gebuehren.satz");
     expect(felder.some((f: string) => f.startsWith("annahmen.beteiligungen"))).toBe(true);
     const fremdeBeteiligung = await legeAn("B", { beteiligungen: { "00000000-0000-4000-8000-0000000000aa": {} } });
     expect(fremdeBeteiligung.status).toBe(422);
-    expect((await json(fremdeBeteiligung)).fehler.code).toBe("SZENARIO_ANNAHMEN_UNGUELTIG");
+    expect((await json(fremdeBeteiligung)).error.code).toBe("scenario_assumptions_invalid");
     const jahr = await legeAn("C", annahmen({ beteiligungen: { [ID.eigen]: { ausstieg: { art: "exit", jahr: JAHR + 40, multiple: "2" } } } }));
     expect(jahr.status).toBe(422);
     const zukunft = await post(`/fonds/${ID.fonds}/szenarien`, { name: "D", basisStichtag: `${JAHR + 1}-01-01`, annahmen: annahmen() }, bearbeiter);
@@ -195,7 +195,7 @@ describe("Festschreiben", () => {
 
     const zweites = await post(`/szenarien/${id}/festschreiben`, undefined, freigeber);
     expect(zweites.status).toBe(409);
-    expect((await json(zweites)).fehler.code).toBe("SZENARIO_FESTGESCHRIEBEN");
+    expect((await json(zweites)).error.code).toBe("scenario_locked");
     expect((await patch(`/szenarien/${id}`, { name: "Anders" }, bearbeiter)).status).toBe(409);
     expect((await del(`/szenarien/${id}`, undefined, bearbeiter)).status).toBe(409);
     await expect(db.execute(sql`UPDATE szenario SET annahmen = '{}'::jsonb WHERE id = ${id}`)).rejects.toThrow();

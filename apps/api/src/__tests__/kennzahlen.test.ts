@@ -216,17 +216,17 @@ describe("Werte: Entwurf, Änderung, Bestätigung und Verlauf", () => {
     for (const wert of ["12,5", "1.5e3", "abc", "", "1.234", " 5", "--5"]) {
       const a = await anlegen({ schluessel: "arr", wert });
       expect(a.status, wert).toBe(400);
-      expect((await json(a)).fehler.code).toBe("KENNZAHL_WERT_UNGUELTIG");
+      expect((await json(a)).error.code).toBe("metric_value_invalid");
     }
     expect((await anlegen({ schluessel: "esg_verstoesse_ungc", wert: "vielleicht", periodeBeginn: "2026-01-01", periodeEnde: "2026-12-31" })).status).toBe(400);
     expect((await anlegen({ schluessel: "esg_verstoesse_ungc", wert: "nein", periodeBeginn: "2026-01-01", periodeEnde: "2026-12-31" })).status).toBe(201);
     expect((await anlegen({ schluessel: "esg_frauenanteil_leitung", wert: "37.5", periodeBeginn: "2026-01-01", periodeEnde: "2026-12-31" })).status).toBe(201);
     const falscherZeitraum = await anlegen({ schluessel: "umsatz", wert: "1", periodeBeginn: "2026-07-01", periodeEnde: "2026-10-31" });
-    expect((await json(falscherZeitraum)).fehler.code).toBe("KENNZAHL_PERIODE_UNGUELTIG");
+    expect((await json(falscherZeitraum)).error.code).toBe("metric_period_invalid");
     const zuFein = await anlegen({ schluessel: "esg_thg_scope1", wert: "5", periodeBeginn: "2026-07-01", periodeEnde: "2026-09-30" });
-    expect((await json(zuFein)).fehler.code).toBe("KENNZAHL_PERIODE_ZU_FEIN");
+    expect((await json(zuFein)).error.code).toBe("metric_period_too_fine");
     const monatFuerQuartalskennzahl = await anlegen({ schluessel: "kundenzahl", wert: "10", periodeBeginn: "2026-07-01", periodeEnde: "2026-07-31" });
-    expect((await json(monatFuerQuartalskennzahl)).fehler.code).toBe("KENNZAHL_PERIODE_ZU_FEIN");
+    expect((await json(monatFuerQuartalskennzahl)).error.code).toBe("metric_period_too_fine");
     expect((await anlegen({ schluessel: "gibt_es_nicht", wert: "1" })).status).toBe(404);
     expect((await post(`/beteiligungen/${ID.eigen}/kennzahlen/werte`, { schluessel: "umsatz", szenario: "ist", wert: "1", periodeBeginn: "2026-07-01" }, bearbeiter)).status).toBe(400);
   });
@@ -370,23 +370,23 @@ describe("Änderungsabfrage und Export", () => {
   it("Kennzahlenwerte stehen im Änderungsverlauf; Katalog ohne Fonds ist für jede Rolle sichtbar", async () => {
     await put(`/fonds/${ID.fonds}/kennzahlen/auswahl`, { schluessel: ["umsatz"] }, verwalter);
     const w = await bestaetigterWert(ID.eigen, "umsatz", "10.00");
-    const feed = await json(await get(`/aenderungen?tabelle=kennzahl_wert&limit=100`, betrachter));
-    expect(feed.daten.map((z: { aktion: string }) => z.aktion)).toEqual(["anlegen", "bestaetigen"]);
-    expect(feed.daten.every((z: { datensatzId: string; fondsId: string }) => z.datensatzId === w.id && z.fondsId === ID.fonds)).toBe(true);
-    expect((await json(await get(`/aenderungen?tabelle=kennzahl_wert`, fremd))).daten).toEqual([]);
-    const auswahl = await json(await get(`/aenderungen?tabelle=fonds_kennzahl`, betrachter));
-    expect(auswahl.daten).toHaveLength(1);
+    const feed = await json(await get(`/changes?table=kennzahl_wert&limit=100`, betrachter));
+    expect(feed.data.map((z: { action: string }) => z.action)).toEqual(["anlegen", "bestaetigen"]);
+    expect(feed.data.every((z: { recordId: string; fundId: string }) => z.recordId === w.id && z.fundId === ID.fonds)).toBe(true);
+    expect((await json(await get(`/changes?table=kennzahl_wert`, fremd))).data).toEqual([]);
+    const auswahl = await json(await get(`/changes?table=fonds_kennzahl`, betrachter));
+    expect(auswahl.data).toHaveLength(1);
     await post("/kennzahlen/katalog", { schluessel: "test_neu", bezeichnungDe: "Neu", bezeichnungEn: "New", einheit: "x", typ: "zahl", kategorie: "betrieb", periodizitaet: "jahr", aggregation: "stand" });
-    expect((await json(await get(`/aenderungen?tabelle=kennzahl_definition`, fremd))).daten.length).toBeGreaterThan(0);
+    expect((await json(await get(`/changes?table=kennzahl_definition`, fremd))).data.length).toBeGreaterThan(0);
   });
   it("gelöschte Kennzahlenwerte behalten den Fonds über die Beteiligung im protokollierten Stand und sind für fremde Fonds unsichtbar", async () => {
     const geloescht = "00000000-0000-4000-8000-0000000000e1";
     await db.execute(
       sql`INSERT INTO aenderung (akteur, aktion, tabelle, datensatz_id, vorher) VALUES ('system', 'loeschen', 'kennzahl_wert', ${geloescht}::uuid, ${JSON.stringify({ id: geloescht, beteiligungId: ID.eigen })}::jsonb)`,
     );
-    const eigen = await json(await get(`/aenderungen?tabelle=kennzahl_wert&limit=100`, betrachter));
-    expect(eigen.daten).toHaveLength(1);
-    expect(eigen.daten[0]).toMatchObject({ datensatzId: geloescht, fondsId: ID.fonds, aktion: "loeschen" });
-    expect((await json(await get(`/aenderungen?tabelle=kennzahl_wert`, fremd))).daten).toEqual([]);
+    const eigen = await json(await get(`/changes?table=kennzahl_wert&limit=100`, betrachter));
+    expect(eigen.data).toHaveLength(1);
+    expect(eigen.data[0]).toMatchObject({ recordId: geloescht, fundId: ID.fonds, action: "loeschen" });
+    expect((await json(await get(`/changes?table=kennzahl_wert`, fremd))).data).toEqual([]);
   });
 });

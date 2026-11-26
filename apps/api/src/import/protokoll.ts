@@ -161,6 +161,7 @@ export interface Protokolldaten {
   lauf: ProtokollLauf;
   befunde: ProtokollBefund[];
   sprache: ProtokollSprache;
+  aenderungen?: readonly { zeile: number; typ: string; id: string; feld: string; vorher: string | null; nachher: string | null }[];
 }
 
 function mengenZeilen(d: Protokolldaten): { blatt: Blatt; name: string; z: UebernahmeErgebnis["zaehler"][Blatt] }[] {
@@ -228,6 +229,15 @@ export async function erzeugeProtokollExcel(d: Protokolldaten): Promise<Buffer> 
   kopf(b);
   for (const x of d.befunde) b.addRow([(x.blattName ?? x.blatt) ?? "", x.zeile ?? "", x.spalte ?? "", x.code, x.schweregrad === "fehler" ? t.fehler : t.offen, x.meldung]);
   [18, 8, 26, 34, 16, 120].forEach((w, i) => (b.getColumn(i + 1).width = w));
+  if (d.aenderungen?.length) {
+    const de = d.sprache === "de";
+    const a = wb.addWorksheet(de ? "Änderungen" : "Changes");
+    a.addRow([t.zeile, t.objekt, "ID", de ? "Feld" : "Field", de ? "Vorher" : "Before", de ? "Nachher" : "After"]);
+    kopf(a);
+    // Strings sind in XLSX eigene Zellwerte. ExcelJS erzeugt Formeln nur aus expliziten Formelobjekten.
+    for (const z of d.aenderungen) a.addRow([z.zeile, z.typ, z.id, z.feld, z.vorher, z.nachher]);
+    [8, 16, 39, 24, 38, 38].forEach((w, i) => (a.getColumn(i + 1).width = w));
+  }
   return Buffer.from(await wb.xlsx.writeBuffer());
 }
 

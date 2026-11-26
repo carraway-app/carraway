@@ -42,11 +42,11 @@ describe("Lese-Protokoll für Berichtsdownloads und Exporte", () => {
   it("jeder Download schreibt eine Zeile mit Aktion gelesen: wer, wann, was", async () => {
     const stand = (await db.execute(sql`SELECT count(*)::int AS n FROM aenderung`)).rows[0] as { n: number };
     const downloads: [string, string, string, Record<string, unknown>][] = [
-      [`/fonds/${fondsId}/berichte/fondsbericht?format=pdf&sprache=en`, "fonds", fondsId, { bericht: "fondsbericht", format: "pdf", sprache: "en" }],
-      [`/fonds/${fondsId}/berichte/fondsbericht?format=xlsx`, "fonds", fondsId, { bericht: "fondsbericht", format: "xlsx", sprache: "de" }],
-      [`/fonds/${fondsId}/berichte/portfolioliste`, "fonds", fondsId, { bericht: "portfolioliste", format: "xlsx" }],
-      [`/beteiligungen/${beteiligungId}/berichte/quartalsbericht`, "beteiligung", beteiligungId, { bericht: "quartalsbericht", format: "pdf" }],
-      [`/berichte/gremienvorlage`, "bericht", "00000000-0000-0000-0000-000000000000", { bericht: "gremienvorlage", format: "pdf" }],
+      [`/funds/${fondsId}/reports/fund-report?format=pdf&sprache=en`, "fonds", fondsId, { bericht: "fondsbericht", format: "pdf", sprache: "en" }],
+      [`/funds/${fondsId}/reports/fund-report?format=xlsx`, "fonds", fondsId, { bericht: "fondsbericht", format: "xlsx", sprache: "de" }],
+      [`/funds/${fondsId}/reports/portfolio-list`, "fonds", fondsId, { bericht: "portfolioliste", format: "xlsx" }],
+      [`/investments/${beteiligungId}/reports/quarterly-report`, "beteiligung", beteiligungId, { bericht: "quartalsbericht", format: "pdf" }],
+      [`/reports/committee-pack`, "bericht", "00000000-0000-0000-0000-000000000000", { bericht: "gremienvorlage", format: "pdf" }],
     ];
     for (const [pfad] of downloads) expect((await t.request(pfad)).status, pfad).toBe(200);
     const zeilen = await gelesen();
@@ -65,14 +65,14 @@ describe("Lese-Protokoll für Berichtsdownloads und Exporte", () => {
     const vorher = (await gelesen()).length;
     expect((await t.request(`/fonds/${fondsId}/uebersicht`)).status).toBe(200);
     expect((await t.request(`/beteiligungen/${beteiligungId}`)).status).toBe(200);
-    expect((await t.request(`/fonds/00000000-0000-4000-8000-0000000000ff/berichte/fondsbericht`)).status).toBe(404);
-    expect((await t.request(`/fonds/${fondsId}/berichte/fondsbericht?format=odt`)).status).toBe(400);
+    expect((await t.request(`/funds/00000000-0000-4000-8000-0000000000ff/reports/fund-report`)).status).toBe(404);
+    expect((await t.request(`/funds/${fondsId}/reports/fund-report?format=odt`)).status).toBe(400);
     expect((await gelesen()).length).toBe(vorher);
   });
 
   it("ein verweigerter Download (fehlende Rolle) wird nicht als gelesen protokolliert", async () => {
     const vorher = (await gelesen()).length;
-    const antwort = await t.request(`/fonds/${fondsId}/berichte/fondsbericht`, { als: { name: "Ohne Rolle", email: "ohne-rolle-protokoll@test.example" } });
+    const antwort = await t.request(`/funds/${fondsId}/reports/fund-report`, { als: { name: "Ohne Rolle", email: "ohne-rolle-protokoll@test.example" } });
     expect(antwort.status).toBe(403);
     expect((await gelesen()).length).toBe(vorher);
   });
@@ -105,30 +105,30 @@ describe("Demo-Zugänge und Seed", () => {
     for (const z of DEMO_ZUGAENGE) cookies.set(z.email, await anmelden(z));
     const von = (kuerzel: string) => cookies.get(`${kuerzel}@beispiel.example`)!;
 
-    expect((await json(await rufe(von("vera"), "GET", "/fonds"))).daten).toHaveLength(fonds.length);
-    expect((await json(await rufe(von("bernd"), "GET", "/fonds"))).daten.map((f: { id: string }) => f.id)).toEqual([fonds[0]]);
-    expect((await rufe(von("bernd"), "GET", `/fonds/${fonds[1]}/uebersicht`)).status).toBe(403);
-    expect((await rufe(von("berta"), "POST", `/fonds/${fonds[0]}/neuberechnen`)).status).toBe(202);
-    expect((await rufe(von("berta"), "GET", `/fonds/${fonds[0]}/periodensperre`)).status).toBe(403);
-    expect((await rufe(von("vera"), "GET", `/fonds/${fonds[0]}/periodensperre`)).status).toBe(200);
-    expect((await json(await rufe(von("vera"), "GET", "/ich"))).globalVerwalter).toBe(true);
+    expect((await json(await rufe(von("vera"), "GET", "/funds"))).data).toHaveLength(fonds.length);
+    expect((await json(await rufe(von("bernd"), "GET", "/funds"))).data.map((f: { id: string }) => f.id)).toEqual([fonds[0]]);
+    expect((await rufe(von("bernd"), "GET", `/funds/${fonds[1]}/overview`)).status).toBe(403);
+    expect((await rufe(von("berta"), "POST", `/funds/${fonds[0]}/recalculate`)).status).toBe(202);
+    expect((await rufe(von("berta"), "GET", `/funds/${fonds[0]}/period-lock`)).status).toBe(403);
+    expect((await rufe(von("vera"), "GET", `/funds/${fonds[0]}/period-lock`)).status).toBe(200);
+    expect((await json(await rufe(von("vera"), "GET", "/me"))).globalAdmin).toBe(true);
     // Beispielgruppen (Rechtemodell): Rita nur Kontakte, Carl Controlling des ersten Fonds plus Ausnahme am zweiten.
-    expect((await rufe(von("rita"), "GET", "/organisationen")).status).toBe(200);
-    expect((await rufe(von("rita"), "GET", `/fonds/${fonds[0]}/uebersicht`)).status).toBe(403);
-    expect((await json(await rufe(von("rita"), "GET", "/ich"))).bereiche).toEqual(["kontakte"]);
-    expect((await rufe(von("carl"), "GET", `/fonds/${fonds[0]}/journal`)).status).toBe(200);
-    expect((await rufe(von("carl"), "GET", `/fonds/${fonds[1]}/uebersicht`)).status).toBe(200);
-    expect((await rufe(von("carl"), "POST", `/fonds/${fonds[1]}/neuberechnen`)).status).toBe(403);
-    expect((await rufe(von("carl"), "GET", "/organisationen")).status).toBe(403);
+    expect((await rufe(von("rita"), "GET", "/organizations")).status).toBe(200);
+    expect((await rufe(von("rita"), "GET", `/funds/${fonds[0]}/overview`)).status).toBe(403);
+    expect((await json(await rufe(von("rita"), "GET", "/me"))).areas).toEqual(["contacts"]);
+    expect((await rufe(von("carl"), "GET", `/funds/${fonds[0]}/journal`)).status).toBe(200);
+    expect((await rufe(von("carl"), "GET", `/funds/${fonds[1]}/overview`)).status).toBe(200);
+    expect((await rufe(von("carl"), "POST", `/funds/${fonds[1]}/recalculate`)).status).toBe(403);
+    expect((await rufe(von("carl"), "GET", "/organizations")).status).toBe(403);
 
     // Der Vier-Augen-Ablauf aus der Anleitung: Frieda prüft, Frieda darf nicht freigeben, Friedrich gibt frei.
     const [lauf] = await db.insert(s.zinslauf).values({ fondsId: fonds[0]!, stichtag: "2026-12-31", berechnetVon: "demo" }).returning();
-    expect((await rufe(von("berta"), "POST", `/zinslaeufe/${lauf!.id}/pruefen`)).status).toBe(403);
-    expect((await rufe(von("frieda"), "POST", `/zinslaeufe/${lauf!.id}/pruefen`)).status).toBe(200);
-    const selbe = await rufe(von("frieda"), "POST", `/zinslaeufe/${lauf!.id}/freigeben`);
+    expect((await rufe(von("berta"), "POST", `/interest-runs/${lauf!.id}/review`)).status).toBe(403);
+    expect((await rufe(von("frieda"), "POST", `/interest-runs/${lauf!.id}/review`)).status).toBe(200);
+    const selbe = await rufe(von("frieda"), "POST", `/interest-runs/${lauf!.id}/approve`);
     expect(selbe.status).toBe(409);
-    expect((await json(selbe)).fehler.code).toBe("VIER_AUGEN_VERLETZT");
-    expect((await rufe(von("friedrich"), "POST", `/zinslaeufe/${lauf!.id}/freigeben`)).status).toBe(200);
+    expect((await json(selbe)).error.code).toBe("four_eyes_violated");
+    expect((await rufe(von("friedrich"), "POST", `/interest-runs/${lauf!.id}/approve`)).status).toBe(200);
   });
 
   it("jeder Wiederherstellungscode aus der Datei funktioniert genau einmal", async () => {

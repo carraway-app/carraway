@@ -161,7 +161,7 @@ export function normalisiereZahl(roh: string): string {
   return t.includes(",") ? t.replace(/\./g, "").replace(",", ".") : t;
 }
 
-/** Wandelt die Eingabe in den Wert der API; `null` leert das Feld. Fehler zeigt die API am Feld (400 `FELDWERT_UNGUELTIG`). */
+/** Wandelt die Eingabe in den Wert der API; `null` leert das Feld. Fehler zeigt die API am Feld (400 `field_value_invalid`). */
 export function wertAusEingabe(feld: Feld, text: string): unknown {
   const s = text.trim();
   if (s === "") return null;

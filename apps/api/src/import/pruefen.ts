@@ -26,7 +26,7 @@ import { INSTRUMENT_BEZEICHNUNG, type FondsRolle } from "@carraway/db";
 import { liste } from "./sql";
 import { Fachfehler } from "../fehler";
 import { DUBLETTEN_SCHWELLE } from "../dubletten";
-import { berechneZustand, istDarlehensartig, pruefeInstrumentInvarianten, type BeteiligungZeile, type VorgangDaten } from "../instrumente/zustand";
+import { berechneZustand, buchwertVon, istDarlehensartig, offenesKapital, pruefeInstrumentInvarianten, type BeteiligungZeile, type VorgangDaten } from "../instrumente/zustand";
 import { pruefeDatumsfenster } from "../instrumente/stichtag";
 import type { Tx } from "../zeitlimit";
 
@@ -444,7 +444,7 @@ export async function pruefeLauf(tx: Tx, daten: Uint8Array, dateiname: string, a
       melde("beteiligungen", z, null, "BETEILIGUNG_VORHANDEN", `Diese Beteiligung (Fonds, Organisation) gibt es schon (${bestehend.id}) mit demselben Instrument, aber ohne diesen Schlüssel.`, { id: bestehend.id });
       continue;
     }
-    const instr: Neu = { id: randomUUID(), schluessel: k, zeile: z, w: { beteiligung_id: zielId, art, bezeichnung, status: status === "aktiv" ? "aktiv" : status === "exit" ? "verkauft" : "abgeschrieben" } };
+    const instr: Neu = { id: randomUUID(), schluessel: k, zeile: z, w: { beteiligung_id: zielId, art, bezeichnung, status: status === "aktiv" ? "aktiv" : status === "exit" ? "verkauft" : "abgeschrieben", ...(art === "optionsschein" ? { optionsschein_anzahl: z.w.optionsschein_anzahl, ausuebungspreis: z.w.ausuebungspreis, ausgabe_am: z.w.ausgabe_am, laufzeit_bis: z.w.laufzeit_bis } : {}) } };
     plan.instrumente.push(instr);
     const info: InstrumentInfo = { id: instr.id, art, bezeichnung, status: instr.w.status! };
     (instrumenteJe.get(zielId) ?? instrumenteJe.set(zielId, []).get(zielId)!).push(info);
@@ -668,6 +668,19 @@ export async function pruefeLauf(tx: Tx, daten: Uint8Array, dateiname: string, a
         if (!(fehler instanceof Fachfehler)) throw fehler;
         const zeile = neue.find((v) => (v.w.instrument_id ?? "ohne") === ik)!.zeile;
         melde("vorgaenge", zeile, null, fehler.code, `${fehler.message} (Beteiligung „${betKeyVonId.get(bid) ?? bid}“)`, { beteiligung: betKeyVonId.get(bid) ?? bid, meldung: fehler.message });
+      }
+    }
+    // Stand „exit“ ohne Verkauf: Die Übernahme bucht keinen Buchwertabgang. Bleiben Buchwert oder offenes Kapital stehen, weist ein Befund darauf hin
+    // (keine stille Nullsetzung; ausgebucht wird über Tilgung, Wertberichtigung oder einen Verkauf vor dem Ausstieg).
+    if (b.status === "exit") {
+      const buchwert = buchwertVon(gesamt).wert;
+      const kapital = istDarlehensartig(b.instrument) ? offenesKapital(gesamt) : new Decimal(0);
+      if (!buchwert.isZero() || !kapital.isZero()) {
+        const neueBeteiligung = plan.beteiligungen.find((p) => p.id === bid);
+        const schluessel = betKeyVonId.get(bid) ?? bid;
+        melde(neueBeteiligung ? "beteiligungen" : "vorgaenge", neueBeteiligung?.zeile ?? neue[0]!.zeile, neueBeteiligung ? "status" : null, "EXIT_MIT_BUCHWERT",
+          `Die Beteiligung „${schluessel}“ steht auf „exit“, hat nach der Übernahme aber noch einen Buchwert von ${buchwert.toFixed(2)} und offenes Kapital von ${kapital.toFixed(2)}. Ein Ausstieg bucht den Buchwert über einen vollständigen Verkauf aus; bitte die Daten prüfen.`,
+          { beteiligung: schluessel, buchwert: buchwert.toFixed(2), offenesKapital: kapital.toFixed(2) }, "warnung");
       }
     }
   }

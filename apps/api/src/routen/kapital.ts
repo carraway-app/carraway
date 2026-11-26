@@ -1,3 +1,5 @@
+import { portfolioAnApi } from "../portfolio-vertrag";
+import { pruefePortfolio } from "../portfolio-pruefung";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -6,9 +8,9 @@ import { Decimal, wasserfall, wasserfallKnicke, wasserfallKurve } from "@carrawa
 import { aktuellerAkteur } from "../anmeldung/akteur";
 import { Fachfehler, type Feldfehler } from "../fehler";
 import { ladeOffeneWandlungen, type OffeneWandlungen } from "../kapital/offene-wandlungen";
+import { entschaerfeZeilen, fasseWasserfallZusammen, rechenwegHeikel, schritteFuerAnsicht, sichtbarFuer, verdeckeKapital, verdeckteZeilen } from "../kapital/sichtbarkeit";
 import { standardSicht } from "../kapital/sicht";
-import { anteilBruch, kernEingabe, ladeBeteiligungKurz, ladeKapital, STAMM_ID, type Halter, type Kapital, type KlasseZeile, type MitarbeiterZeile } from "../kapital/wasserfall";
-import { pruefe } from "../pruefung";
+import { anteilBruch, kernEingabe, ladeBeteiligungKurz, ladeKapital, STAMM_ID, type Halter, type Kapital, type KlasseZeile, type MitarbeiterZeile, type OptionsscheinZeile } from "../kapital/wasserfall";
 import { heute, idParam, ladeOrganisation, MINDESTENS_EIN_FELD, mindestensEins, nurGesetzte, schreibe, textEingabe, type Protokollant } from "../schreiben";
 import { lese, type Tx } from "../zeitlimit";
 
@@ -22,12 +24,12 @@ import { lese, type Tx } from "../zeitlimit";
 export const MAX_KURVENPUNKTE = 200;
 export const MAX_EXIT_FAKTOR = 100;
 
-const faktorEingabe = z.string().regex(/^\d{1,4}(\.\d{1,4})?$/, "Faktor von null an mit höchstens vier Nachkommastellen erwartet");
+const faktorEingabe = z.string().regex(/^\d{1,4}(\.\d{1,4})?$/, "Expected a factor from zero with at most four decimal places");
 /** Zinssatz je Jahr als Bruch zwischen 0 und 1 (`0.08` = 8 %). */
-const zinsEingabe = z.string().regex(/^(0(\.\d{1,6})?|1(\.0{1,6})?)$/, "Bruch von 0 bis 1 mit höchstens sechs Nachkommastellen erwartet");
-const betragNullEingabe = z.string().regex(/^\d{1,16}(\.\d{1,2})?$/, "Betrag von null an mit höchstens zwei Nachkommastellen erwartet");
+const zinsEingabe = z.string().regex(/^(0(\.\d{1,6})?|1(\.0{1,6})?)$/, "Expected a fraction from 0 to 1 with at most six decimal places");
+const betragNullEingabe = z.string().regex(/^\d{1,16}(\.\d{1,2})?$/, "Expected an amount from zero with at most two decimal places");
 /** Treuhandanteil: Bruch von 0 bis unter 1. */
-const treuhandEingabe = z.string().regex(/^0(\.\d{1,4})?$/, "Bruch von 0 bis unter 1 mit höchstens vier Nachkommastellen erwartet");
+const treuhandEingabe = z.string().regex(/^0(\.\d{1,4})?$/, "Expected a fraction from 0 to below 1 with at most four decimal places");
 
 const klasseBasis = {
   name: textEingabe(100),
@@ -61,14 +63,14 @@ const klasseAenderung = z
 const klassenParam = z.object({ id: z.uuid(), klasseId: z.uuid() });
 
 function ungueltig(felder: Feldfehler[]): never {
-  throw new Fachfehler(400, "EINGABE_UNGUELTIG", "Die Eingabe ist ungültig.", { felder });
+  throw new Fachfehler(400, "invalid_input", "The input is invalid.", { felder });
 }
 
 /** Regeln über mehrere Felder: Ein Cap gibt es nur bei partizipierenden Klassen und nicht unter dem Präferenzfaktor. */
 function pruefeKlasse(k: { partizipierend: boolean; praeferenzFaktor: string; capFaktor: string | null }) {
   const felder: Feldfehler[] = [];
-  if (k.capFaktor !== null && !k.partizipierend) felder.push({ feld: "capFaktor", code: "cap_ohne_partizipation", meldung: "Ein Cap gibt es nur bei partizipierenden Klassen" });
-  if (k.capFaktor !== null && new Decimal(k.capFaktor).lessThan(k.praeferenzFaktor)) felder.push({ feld: "capFaktor", code: "cap_unter_praeferenz", meldung: "Der Cap darf nicht unter dem Präferenzfaktor liegen" });
+  if (k.capFaktor !== null && !k.partizipierend) felder.push({ feld: "capFaktor", code: "cap_without_participation", meldung: "A cap only exists for participating classes" });
+  if (k.capFaktor !== null && new Decimal(k.capFaktor).lessThan(k.praeferenzFaktor)) felder.push({ feld: "capFaktor", code: "cap_below_preference", meldung: "The cap must not be below the preference factor" });
   if (felder.length) ungueltig(felder);
 }
 
@@ -87,7 +89,7 @@ const klasseAntwort = (k: KlasseZeile, verwendet?: number) => ({
 
 async function pruefeNameFrei(tx: Tx, organisationId: string, name: string, ausser?: string) {
   const [vorhanden] = await tx.select({ id: anteilsklasse.id }).from(anteilsklasse).where(and(eq(anteilsklasse.organisationId, organisationId), eq(anteilsklasse.name, name)));
-  if (vorhanden && vorhanden.id !== ausser) throw new Fachfehler(409, "ANTEILSKLASSE_NAME_VORHANDEN", "Diese Organisation hat schon eine Klasse mit diesem Namen.");
+  if (vorhanden && vorhanden.id !== ausser) throw new Fachfehler(409, "share_class_name_exists", "This organization already has a class with this name.");
 }
 
 /** Legt eine Anteilsklasse an (Route und Bestätigung einer Auslesung); die Rechte prüft der Aufrufer. */
@@ -107,7 +109,7 @@ export async function legeKlasseAn(tx: Tx, protokoll: Protokollant, organisation
 /** Mount unter `/organisationen/:id`. */
 export function organisationAnteilsklassenRouten(db: Db) {
   return new Hono()
-    .get("/anteilsklassen", pruefe("param", idParam), async (c) => {
+    .get("/share-classes", pruefePortfolio("param", idParam), async (c) => {
       const { id } = c.req.valid("param");
       const daten = await lese(db, async (tx) => {
         await ladeOrganisation(tx, id);
@@ -120,20 +122,20 @@ export function organisationAnteilsklassenRouten(db: Db) {
           .groupBy(rundenposition.anteilsklasseId);
         return klassen.map((k) => klasseAntwort(k, zaehler.find((z) => z.klasse === k.id)?.anzahl ?? 0));
       });
-      return c.json({ daten }, 200);
+      return c.json(portfolioAnApi({ daten }), 200);
     })
-    .post("/anteilsklassen", pruefe("param", idParam), pruefe("json", neueKlasse), async (c) => {
+    .post("/share-classes", pruefePortfolio("param", idParam), pruefePortfolio("json", neueKlasse), async (c) => {
       const { id } = c.req.valid("param");
       const e = c.req.valid("json");
       const neu = await schreibe(db, c, (tx, protokoll) => legeKlasseAn(tx, protokoll, id, e));
-      return c.json(klasseAntwort(neu), 201);
+      return c.json(portfolioAnApi(klasseAntwort(neu)), 201);
     })
-    .patch("/anteilsklassen/:klasseId", pruefe("param", klassenParam), pruefe("json", klasseAenderung), async (c) => {
+    .patch("/share-classes/:classId", pruefePortfolio("param", klassenParam), pruefePortfolio("json", klasseAenderung), async (c) => {
       const { id, klasseId } = c.req.valid("param");
       const e = c.req.valid("json");
       const nachher = await schreibe(db, c, async (tx, protokoll) => {
         const [vorher] = await tx.select().from(anteilsklasse).where(and(eq(anteilsklasse.id, klasseId), eq(anteilsklasse.organisationId, id))).for("update");
-        if (!vorher) throw new Fachfehler(404, "ANTEILSKLASSE_NICHT_GEFUNDEN", "Anteilsklasse nicht gefunden.");
+        if (!vorher) throw new Fachfehler(404, "share_class_not_found", "Share class not found.");
         const werte = nurGesetzte(e);
         const zusammen = { ...vorher, ...werte };
         pruefeKlasse({ partizipierend: zusammen.partizipierend, praeferenzFaktor: zusammen.praeferenzFaktor, capFaktor: zusammen.capFaktor ?? null });
@@ -142,7 +144,7 @@ export function organisationAnteilsklassenRouten(db: Db) {
         await protokoll("aendern", "anteilsklasse", klasseId, vorher, neu);
         return neu!;
       });
-      return c.json(klasseAntwort(nachher), 200);
+      return c.json(portfolioAnApi(klasseAntwort(nachher)), 200);
     });
 }
 
@@ -150,7 +152,7 @@ const positionAenderung = z.object({ anteilsklasseId: z.uuid().nullable() });
 
 /** Mount unter `/rundenpositionen`: Klasse einer Position setzen oder entfernen (Stammanteile). */
 export function rundenpositionRouten(db: Db) {
-  return new Hono().patch("/:id", pruefe("param", idParam), pruefe("json", positionAenderung), async (c) => {
+  return new Hono().patch("/:id", pruefePortfolio("param", idParam), pruefePortfolio("json", positionAenderung), async (c) => {
     const { id } = c.req.valid("param");
     const { anteilsklasseId } = c.req.valid("json");
     const nachher = await schreibe(db, c, async (tx, protokoll) => {
@@ -160,17 +162,17 @@ export function rundenpositionRouten(db: Db) {
         .innerJoin(finanzierungsrunde, eq(finanzierungsrunde.id, rundenposition.rundeId))
         .where(eq(rundenposition.id, id))
         .for("update", { of: rundenposition });
-      if (!zeile) throw new Fachfehler(404, "RUNDENPOSITION_NICHT_GEFUNDEN", "Rundenposition nicht gefunden.");
+      if (!zeile) throw new Fachfehler(404, "round_position_not_found", "Round position not found.");
       if (anteilsklasseId !== null) {
         const [k] = await tx.select().from(anteilsklasse).where(eq(anteilsklasse.id, anteilsklasseId));
-        if (!k) throw new Fachfehler(404, "ANTEILSKLASSE_NICHT_GEFUNDEN", "Anteilsklasse nicht gefunden.");
-        if (k.organisationId !== zeile.organisationId) throw new Fachfehler(409, "ANTEILSKLASSE_PASST_NICHT", "Die Klasse gehört zu einem anderen Unternehmen als die Runde.");
+        if (!k) throw new Fachfehler(404, "share_class_not_found", "Share class not found.");
+        if (k.organisationId !== zeile.organisationId) throw new Fachfehler(409, "share_class_mismatch", "The class belongs to a different company than the round.");
       }
       const [neu] = await tx.update(rundenposition).set({ anteilsklasseId }).where(eq(rundenposition.id, id)).returning();
       await protokoll("aendern", "rundenposition", id, zeile.p, neu);
       return neu!;
     });
-    return c.json(nachher, 200);
+    return c.json(portfolioAnApi(nachher), 200);
   });
 }
 
@@ -188,10 +190,10 @@ const wasserfallEingabe = z.object({
   treuhandAnteil: treuhandEingabe.optional(),
 });
 const kurveAbfrage = z.object({
-  bis: z.string().regex(/^\d{1,16}(\.\d{1,2})?$/, "Betrag größer als null mit höchstens zwei Nachkommastellen erwartet").optional(),
+  bis: z.string().regex(/^\d{1,16}(\.\d{1,2})?$/, "Expected an amount greater than zero with at most two decimal places").optional(),
   punkte: z
     .string()
-    .regex(/^\d{1,3}$/, "Ganze Zahl von 2 bis 200 erwartet")
+    .regex(/^\d{1,3}$/, "Expected an integer from 2 to 200")
     .optional(),
   exitdatum: z.iso.date().optional(),
 });
@@ -221,11 +223,13 @@ function kapitalAntwort(basis: Kapital, beteiligungId: string, wandlungen: Offen
   const voll = mitWandlungsAnteilen;
   const summe = (zeilen: Kapital["zeilen"], feld: "anteile" | "investiert") => zeilen.reduce((s, z) => s.plus(z[feld]), new Decimal(0));
   const anteile = (wert: Decimal.Value, ausgegeben: boolean) => ({ anteilUnverwaessert: ausgegeben ? anteilBruch(wert, unverwaessert) : null, anteilVollVerwaessert: anteilBruch(wert, voll) });
-  const gruppen: { art: "klasse" | "stamm" | "pool" | "wandlung"; id: string | null; mitglieder: Kapital["zeilen"] }[] = k.klassen.map((x) => ({ art: "klasse" as const, id: x.id, mitglieder: k.zeilen.filter((z) => z.klasseId === x.id) }));
+  const gruppen: { art: "klasse" | "stamm" | "pool" | "wandlung" | "optionsschein"; id: string | null; mitglieder: Kapital["zeilen"] }[] = k.klassen.map((x) => ({ art: "klasse" as const, id: x.id, mitglieder: k.zeilen.filter((z) => z.klasseId === x.id && z.ausgegeben) }));
   const stamm = k.zeilen.filter((z) => z.klasseId === null && z.ausgegeben);
   if (stamm.length > 0) gruppen.push({ art: "stamm", id: null, mitglieder: stamm });
-  const pool = k.zeilen.filter((z) => !z.ausgegeben && z.halter.art !== "wandlung");
+  const pool = k.zeilen.filter((z) => !z.ausgegeben && z.halter.art !== "wandlung" && z.halter.art !== "optionsschein");
   if (pool.length > 0) gruppen.push({ art: "pool", id: null, mitglieder: pool });
+  const optionsscheine = k.zeilen.filter((z) => !z.ausgegeben && z.halter.art === "optionsschein");
+  if (optionsscheine.length > 0) gruppen.push({ art: "optionsschein", id: null, mitglieder: optionsscheine });
   if (wandlungsZeilen.length > 0) gruppen.push({ art: "wandlung", id: null, mitglieder: wandlungsZeilen });
   const klassen = gruppen.map(({ art, id, mitglieder }) => {
     const klasse = id === null ? undefined : k.klassen.find((x) => x.id === id);
@@ -241,7 +245,7 @@ function kapitalAntwort(basis: Kapital, beteiligungId: string, wandlungen: Offen
       kumulierteVerzinsung: klasse?.kumulierteVerzinsung ?? null,
       umwandelbar: klasse?.umwandelbar ?? null,
       anteile: zahl.toFixed(0),
-      ...anteile(zahl, art !== "pool" && art !== "wandlung"),
+      ...anteile(zahl, art !== "pool" && art !== "wandlung" && art !== "optionsschein"),
       investiert: geld(summe(mitglieder, "investiert")),
     };
   });
@@ -284,6 +288,8 @@ function kapitalAntwort(basis: Kapital, beteiligungId: string, wandlungen: Offen
     offeneWandlungen: wandlungen,
     /** Gibt es einen Pool der Mitarbeiterbeteiligung, der die Sichten unterscheidet? */
     mitPool: pool.length > 0,
+    /** Gibt es nicht ausgeübte Optionsscheine (voll verwässert)? */
+    mitOptionsscheinen: optionsscheine.length > 0,
     klassen,
     zeilen: k.zeilen.map((z) => ({
       id: z.id,
@@ -296,6 +302,8 @@ function kapitalAntwort(basis: Kapital, beteiligungId: string, wandlungen: Offen
       investiert: geld(new Decimal(z.investiert)),
       diesesFonds: z.diesesFonds,
       ausgegeben: z.ausgegeben,
+      /** Zeile aus einer Anteilsübertragung: Übertragung, Datum, Preis je Anteil, Kaufpreis und abgebende Zeile; `investiert` ist die mitgenommene Präferenzbasis. */
+      uebertragung: z.uebertragung ? { id: z.uebertragung.id, datum: z.uebertragung.datum, preisJeAnteil: z.uebertragung.preisJeAnteil, kaufpreis: z.uebertragung.kaufpreis, quelleId: z.uebertragung.quelleId, schritte: z.uebertragung.schritte } : null,
     })),
     /** Je Inhaber (Fonds, Investor über alle Vehikel, Stammanteile, Pool) in der Reihenfolge des ersten Auftretens. */
     inhaber,
@@ -310,9 +318,10 @@ function kapitalAntwort(basis: Kapital, beteiligungId: string, wandlungen: Offen
 
 /** Halter und Angaben einer Zeile des Wasserfalls: Position der Kapitaltabelle oder Zuteilung der Mitarbeiterbeteiligung. */
 function wasserfallQuellen(k: Kapital) {
-  const quellen = new Map<string, { halter: Halter; runde: Kapital["zeilen"][number]["runde"]; mitarbeiter: MitarbeiterZeile | null }>();
-  for (const z of k.zeilen) if (z.ausgegeben) quellen.set(z.id, { halter: z.halter, runde: z.runde, mitarbeiter: null });
-  for (const m of k.mitarbeiter) quellen.set(m.id, { halter: { art: "mitarbeiter", id: m.pool.id, name: m.bezeichnung ?? m.pool.bezeichnung, vehikel: null }, runde: null, mitarbeiter: m });
+  const quellen = new Map<string, { halter: Halter; runde: Kapital["zeilen"][number]["runde"]; mitarbeiter: MitarbeiterZeile | null; optionsschein: OptionsscheinZeile | null }>();
+  for (const z of k.zeilen) if (z.ausgegeben) quellen.set(z.id, { halter: z.halter, runde: z.runde, mitarbeiter: null, optionsschein: null });
+  for (const m of k.mitarbeiter) quellen.set(m.id, { halter: { art: "mitarbeiter", id: m.pool.id, name: m.bezeichnung ?? m.pool.bezeichnung, vehikel: null }, runde: null, mitarbeiter: m, optionsschein: null });
+  for (const o of k.optionsscheine) quellen.set(o.id, { halter: { art: "optionsschein", id: o.instrumentId, name: o.name, vehikel: null }, runde: null, mitarbeiter: null, optionsschein: o });
   return quellen;
 }
 
@@ -320,7 +329,7 @@ type WasserfallWert = ReturnType<typeof wasserfall>["wert"];
 type Quellen = ReturnType<typeof wasserfallQuellen>;
 
 interface WasserfallKlasseAntwort {
-  art: "klasse" | "stamm" | "mitarbeiter";
+  art: "klasse" | "stamm" | "mitarbeiter" | "optionsschein";
   id: string | null;
   name: string | null;
   rang: number | null;
@@ -336,9 +345,9 @@ interface WasserfallKlasseAntwort {
 }
 
 /** Klassen des Wasserfalls; die Mitarbeiterbeteiligung steht als eigene Gruppe neben den Stammanteilen (`art`). */
-function klassenDesWasserfalls(klassen: WasserfallWert["klassen"], zeilen: WasserfallWert["zeilen"], quellen: Quellen) {
+function klassenDesWasserfalls(klassen: WasserfallWert["klassen"], zeilen: WasserfallWert["zeilen"], quellen: Quellen, ausZeilen = false) {
   const summe = (liste: WasserfallWert["zeilen"], feld: "anteile" | "investiert" | "anspruch" | "praeferenz" | "beteiligung" | "gesamt") => liste.reduce((s, z) => s.plus(z[feld]), new Decimal(0));
-  const gruppe = (art: "stamm" | "mitarbeiter", liste: WasserfallWert["zeilen"]): WasserfallKlasseAntwort => {
+  const gruppe = (art: "stamm" | "mitarbeiter" | "optionsschein", liste: WasserfallWert["zeilen"]): WasserfallKlasseAntwort => {
     const investiert = summe(liste, "investiert");
     const gesamt = summe(liste, "gesamt");
     return {
@@ -360,12 +369,19 @@ function klassenDesWasserfalls(klassen: WasserfallWert["klassen"], zeilen: Wasse
   const aus: WasserfallKlasseAntwort[] = [];
   for (const k of klassen) {
     if (k.id === null) continue;
+    if (ausZeilen) {
+      // Mit entschärften verdeckten Zeilen: Summen aus den Zeilen, damit keine Einzelwerte verdeckter Zeilen aus der Differenz folgen.
+      aus.push({ ...gruppe("stamm", zeilen.filter((z) => z.klasseId === k.id)), art: "klasse", id: k.id, name: k.name === "" ? null : k.name, rang: k.rang, gewandelt: k.gewandelt, gedeckelt: k.gedeckelt });
+      continue;
+    }
     aus.push({ art: "klasse", id: k.id, name: k.name === "" ? null : k.name, rang: k.rang, anteile: k.anteile.toFixed(0), investiert: geld(k.investiert), anspruch: geld(k.anspruch), praeferenz: geld(k.praeferenz), beteiligung: geld(k.beteiligung), gesamt: geld(k.gesamt), multiple: mal(k.multiple), gewandelt: k.gewandelt, gedeckelt: k.gedeckelt });
   }
-  const stamm = zeilen.filter((z) => z.klasseId === null && !quellen.get(z.id)?.mitarbeiter);
+  const stamm = zeilen.filter((z) => z.klasseId === null && !quellen.get(z.id)?.mitarbeiter && !quellen.get(z.id)?.optionsschein);
   const mitarbeiter = zeilen.filter((z) => quellen.get(z.id)?.mitarbeiter);
+  const optionsscheine = zeilen.filter((z) => quellen.get(z.id)?.optionsschein);
   if (stamm.length > 0) aus.push(gruppe("stamm", stamm));
   if (mitarbeiter.length > 0) aus.push(gruppe("mitarbeiter", mitarbeiter));
+  if (optionsscheine.length > 0) aus.push(gruppe("optionsschein", optionsscheine));
   return aus;
 }
 
@@ -417,7 +433,7 @@ function inhaberDesWasserfalls(zeilen: WasserfallWert["zeilen"], quellen: Quelle
 
 function verlangeAnteile(k: Kapital) {
   if (!k.zeilen.some((z) => z.diesesFonds)) {
-    throw new Fachfehler(409, "WASSERFALL_KEINE_ANTEILE", "Der Fonds hält an diesem Unternehmen keine Anteile aus Finanzierungsrunden.");
+    throw new Fachfehler(409, "waterfall_no_shares", "The fund holds no shares in this company from financing rounds.");
   }
 }
 
@@ -425,41 +441,55 @@ function verlangeAnteile(k: Kapital) {
 export function beteiligungKapitalRouten(db: Db) {
   return new Hono()
     /** Kapitaltabelle zum Stichtag: nach Klasse und Inhaber, Anteile unverwässert und voll verwässert (mit Pool), Position des Fonds markiert. */
-    .get("/kapitaltabelle", pruefe("param", idParam, { query: kapitalAbfrage }), pruefe("query", kapitalAbfrage), async (c) => {
+    .get("/cap-table", pruefePortfolio("param", idParam, { query: kapitalAbfrage }), pruefePortfolio("query", kapitalAbfrage), async (c) => {
       const { id } = c.req.valid("param");
       const { stichtag, offeneWandlungen } = c.req.valid("query");
       const antwort = await lese(db, async (tx) => {
         const b = await ladeBeteiligungKurz(tx, id);
         const k = await ladeKapital(tx, b, stichtag ?? heute());
-        return kapitalAntwort(k, id, await ladeOffeneWandlungen(tx, aktuellerAkteur(c), k, b.fondsId), offeneWandlungen === "true" && k.letzteRunde !== null);
+        const akteur = aktuellerAkteur(c);
+        // Gerechnet wird mit allen Zeilen; Optionsscheine, Ausübungen und Übertragungen nicht sichtbarer Fonds erscheinen nur zusammengefasst.
+        return kapitalAntwort(verdeckeKapital(k, sichtbarFuer(akteur)), id, await ladeOffeneWandlungen(tx, akteur, k, b.fondsId), offeneWandlungen === "true" && k.letzteRunde !== null);
       });
-      return c.json(antwort, 200);
+      return c.json(portfolioAnApi(antwort), 200);
     })
     /** Wasserfall zu einem Exitwert; schreibt nichts. Der Erlös ist `exitwert − kosten`. */
-    .post("/wasserfall", pruefe("param", idParam), pruefe("json", wasserfallEingabe), async (c) => {
+    .post("/waterfall", pruefePortfolio("param", idParam), pruefePortfolio("json", wasserfallEingabe), async (c) => {
       const { id } = c.req.valid("param");
       const e = c.req.valid("json");
       const kosten = new Decimal(e.kosten ?? 0);
       const netto = new Decimal(e.exitwert).minus(kosten);
-      if (netto.isNegative()) ungueltig([{ feld: "kosten", code: "kosten_ueber_exitwert", meldung: "Die Kosten übersteigen den Exitwert" }]);
-      const { kapital, ergebnis } = await lese(db, async (tx) => {
+      if (netto.isNegative()) ungueltig([{ feld: "kosten", code: "costs_exceed_exit_value", meldung: "The costs exceed the exit value" }]);
+      const { kapital, ergebnis, verdeckt } = await lese(db, async (tx) => {
         const b = await ladeBeteiligungKurz(tx, id);
         const k = await ladeKapital(tx, b, e.exitdatum);
         verlangeAnteile(k);
-        const kern = kernEingabe(k);
-        return { kapital: k, ergebnis: wasserfall({ exitwert: netto, exitdatum: e.exitdatum, treuhandAnteil: e.treuhandAnteil ?? "0", ...kern }) };
+        const v = verdeckteZeilen(k, sichtbarFuer(aktuellerAkteur(c)));
+        // Namen verdeckter Zeilen auch in den Rechenschritten anonym.
+        const kern = kernEingabe(k, new Set(v.keys()));
+        return { kapital: k, verdeckt: v, ergebnis: wasserfall({ exitwert: netto, exitdatum: e.exitdatum, treuhandAnteil: e.treuhandAnteil ?? "0", ...kern }) };
       });
-      const { wert, schritte } = ergebnis;
+      const { wert: roh, schritte: rohSchritte } = ergebnis;
+      // Zeilen und Rechenschritte für die Antwort: verdeckte Ausübungen ohne Investition und Präferenz, Rechenweg ohne Einzelwerte verdeckter Zeilen.
+      const wert = { ...roh, zeilen: entschaerfeZeilen(roh.zeilen, verdeckt) };
+      const schritte = schritteFuerAnsicht(rohSchritte, verdeckt);
+      const ausZeilen = wert.zeilen !== roh.zeilen;
+      const heikel = rechenwegHeikel(verdeckt);
       const eigene = new Set(kapital.zeilen.filter((z) => z.diesesFonds).map((z) => z.id));
       const nachId = wasserfallQuellen(kapital);
+      // Halter verdeckter Zeilen anonym (auch für die Summen je Inhaber), ohne Angaben zum Optionsschein.
+      for (const [zeilenId, v] of verdeckt) {
+        const q = nachId.get(zeilenId);
+        if (q) nachId.set(zeilenId, { ...q, halter: v.halter, optionsschein: null });
+      }
       const eigeneZeilen = wert.zeilen.filter((z) => eigene.has(z.id));
       const summe = (feld: "investiert" | "praeferenz" | "beteiligung" | "gesamt" | "treuhand" | "sofort") => eigeneZeilen.reduce((s, z) => s.plus(z[feld]), new Decimal(0));
       const investiert = summe("investiert");
       return c.json(
-        {
+        portfolioAnApi({
           beteiligungId: id,
           eingabe: { exitwert: geld(new Decimal(e.exitwert)), kosten: geld(kosten), nettoErloes: geld(netto), exitdatum: e.exitdatum, treuhandAnteil: new Decimal(e.treuhandAnteil ?? 0).toFixed(4) },
-          zeilen: wert.zeilen.map((z) => {
+          zeilen: fasseWasserfallZusammen(wert.zeilen.map((z) => {
             const q = nachId.get(z.id)!;
             return {
               id: z.id,
@@ -482,9 +512,11 @@ export function beteiligungKapitalRouten(db: Db) {
               mitarbeiter: q.mitarbeiter
                 ? { poolId: q.mitarbeiter.pool.id, pool: q.mitarbeiter.pool.bezeichnung, art: q.mitarbeiter.pool.art, regel: q.mitarbeiter.pool.regel, kategorie: q.mitarbeiter.kategorie, anzahl: q.mitarbeiter.anzahl, basispreis: q.mitarbeiter.basispreis, imGeld: z.imGeld === true }
                 : null,
+              /** Nicht ausgeübte Optionsscheine: Instrument, Ausübungspreis und ob sie im Geld sind (je Anteil max(0, Betrag je Anteil − Ausübungspreis)). */
+              optionsschein: q.optionsschein ? { instrumentId: q.optionsschein.instrumentId, ausuebungspreis: q.optionsschein.ausuebungspreis, laufzeitBis: q.optionsschein.laufzeitBis, imGeld: z.imGeld === true } : null,
             };
-          }),
-          klassen: klassenDesWasserfalls(wert.klassen, wert.zeilen, nachId),
+          }), verdeckt),
+          klassen: klassenDesWasserfalls(wert.klassen, wert.zeilen, nachId, ausZeilen),
           /** Rückflüsse je Inhaber (Fonds, Investor über alle Vehikel, Stammanteile, Pool der Mitarbeiterbeteiligung). */
           inhaber: inhaberDesWasserfalls(wert.zeilen, nachId, eigene),
           fonds: {
@@ -497,13 +529,14 @@ export function beteiligungKapitalRouten(db: Db) {
             multiple: mal(investiert.greaterThan(0) ? summe("gesamt").div(investiert) : null),
           },
           mitarbeiter: mitarbeiterSumme(wert.zeilen, nachId),
-          minderungsfaktor: wert.minderungsfaktor === null ? null : wert.minderungsfaktor.toDecimalPlaces(6, Decimal.ROUND_HALF_UP).toFixed(6),
+          /** `null` auch, wenn Bestände nicht sichtbarer Fonds den Wert verrieten (siehe `kapital/sichtbarkeit.ts`); ebenso die beiden folgenden Felder. */
+          minderungsfaktor: heikel || wert.minderungsfaktor === null ? null : wert.minderungsfaktor.toDecimalPlaces(6, Decimal.ROUND_HALF_UP).toFixed(6),
           gewandelt: wert.gewandelt,
-          restNachPraeferenzen: geld(wert.restNachPraeferenzen),
-          preisJeAnteil: wert.preisJeAnteil === null ? null : wert.preisJeAnteil.toDecimalPlaces(6, Decimal.ROUND_HALF_UP).toFixed(6),
+          restNachPraeferenzen: heikel ? null : geld(wert.restNachPraeferenzen),
+          preisJeAnteil: heikel || wert.preisJeAnteil === null ? null : wert.preisJeAnteil.toDecimalPlaces(6, Decimal.ROUND_HALF_UP).toFixed(6),
           nichtVerteilt: geld(wert.nichtVerteilt),
           schritte,
-        },
+        }),
         200,
       );
     })
@@ -512,25 +545,27 @@ export function beteiligungKapitalRouten(db: Db) {
      * Standard 50) und die Knickpunkte der Verteilung. `bis` höchstens das 100-Fache der Post-Money-Bewertung der letzten Runde bis zum
      * Exitdatum (Standard: das 5-Fache). Kosten und Treuhand spielen hier keine Rolle (Erlös = Exitwert).
      */
-    .get("/wasserfall/kurve", pruefe("param", idParam, { query: kurveAbfrage }), pruefe("query", kurveAbfrage), async (c) => {
+    .get("/waterfall/curve", pruefePortfolio("param", idParam, { query: kurveAbfrage }), pruefePortfolio("query", kurveAbfrage), async (c) => {
       const { id } = c.req.valid("param");
       const q = c.req.valid("query");
       const exitdatum = q.exitdatum ?? heute();
       const punkteZahl = q.punkte === undefined ? 50 : Number(q.punkte);
-      if (punkteZahl < 2 || punkteZahl > MAX_KURVENPUNKTE) ungueltig([{ feld: "punkte", code: punkteZahl < 2 ? "too_small" : "too_big", meldung: `Die Zahl der Punkte muss zwischen 2 und ${MAX_KURVENPUNKTE} liegen` }]);
-      const antwort = await lese(db, async (tx) => {
+      if (punkteZahl < 2 || punkteZahl > MAX_KURVENPUNKTE) ungueltig([{ feld: "punkte", code: punkteZahl < 2 ? "too_small" : "too_big", meldung: `The number of points must be between 2 and ${MAX_KURVENPUNKTE}` }]);
+      const ergebnisKapital = await lese(db, async (tx) => {
         const b = await ladeBeteiligungKurz(tx, id);
         const k = await ladeKapital(tx, b, exitdatum);
         verlangeAnteile(k);
-        if (!k.letzteRunde) throw new Fachfehler(409, "WASSERFALL_KEINE_ANTEILE", "Der Fonds hält an diesem Unternehmen keine Anteile aus Finanzierungsrunden.");
-        return k;
+        if (!k.letzteRunde) throw new Fachfehler(409, "waterfall_no_shares", "The fund holds no shares in this company from financing rounds.");
+        return { k, verdeckt: verdeckteZeilen(k, sichtbarFuer(aktuellerAkteur(c))) };
       });
+      const { k: antwort, verdeckt } = ergebnisKapital;
       const post = new Decimal(antwort.letzteRunde!.postMoney);
       const hoechstwert = post.times(MAX_EXIT_FAKTOR);
       const bis = new Decimal(q.bis ?? post.times(5).toFixed(2));
-      if (!bis.greaterThan(0)) ungueltig([{ feld: "bis", code: "too_small", meldung: "Der Bereich muss größer als null sein" }]);
-      if (bis.greaterThan(hoechstwert)) ungueltig([{ feld: "bis", code: "too_big", meldung: `Der Bereich darf höchstens das ${MAX_EXIT_FAKTOR}-Fache der Post-Money-Bewertung der letzten Runde betragen (${hoechstwert.toFixed(2)})` }]);
-      const kern = kernEingabe(antwort);
+      if (!bis.greaterThan(0)) ungueltig([{ feld: "bis", code: "too_small", meldung: "The range must be greater than zero" }]);
+      if (bis.greaterThan(hoechstwert)) ungueltig([{ feld: "bis", code: "too_big", meldung: `The range must not exceed ${MAX_EXIT_FAKTOR} times the post-money valuation of the last round (${hoechstwert.toFixed(2)})` }]);
+      // Gerechnet wird mit allen Zeilen; Namen verdeckter Zeilen bleiben anonym.
+      const kern = kernEingabe(antwort, new Set(verdeckt.keys()));
       const eigene = antwort.zeilen.filter((z) => z.diesesFonds).map((z) => z.id);
       const investiert = antwort.zeilen.filter((z) => z.diesesFonds).reduce((s, z) => s.plus(z.investiert), new Decimal(0));
       const rund = (d: Decimal) => d.toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
@@ -538,10 +573,11 @@ export function beteiligungKapitalRouten(db: Db) {
 
       const exitwerte = Array.from({ length: punkteZahl }, (_, i) => rund(bis.times(i).div(punkteZahl - 1)));
       const punkte = wasserfallKurve({ exitdatum, ...kern }, exitwerte, eigene).map((p) => wertMitMal(p.exitwert, p.rueckfluss));
-      const knicke = wasserfallKnicke({ exitdatum, ...kern }, bis);
+      // Knickpunkte verrieten Ausübungspreise verdeckter Optionsscheine und Ausübungen (siehe `kapital/sichtbarkeit.ts`): dann entfallen sie.
+      const knicke = rechenwegHeikel(verdeckt) ? [] : wasserfallKnicke({ exitdatum, ...kern }, bis);
       const knickWerte = wasserfallKurve({ exitdatum, ...kern }, knicke.map((x) => x.exitwert), eigene);
       return c.json(
-        {
+        portfolioAnApi({
           beteiligungId: id,
           exitdatum,
           bis: geld(bis),
@@ -550,7 +586,7 @@ export function beteiligungKapitalRouten(db: Db) {
           investiert: geld(investiert),
           punkte,
           knicke: knicke.map((x, i) => ({ ...wertMitMal(x.exitwert, knickWerte[i]!.rueckfluss), ereignisse: x.ereignisse.map((e) => ({ art: e.art, klasseId: e.klasseId, klasseName: klassenName(antwort, e.klasseId), rang: e.rang })) })),
-        },
+        }),
         200,
       );
     });

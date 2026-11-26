@@ -81,16 +81,16 @@ describe("Anteilsklassen", () => {
   it("prüft Eingaben: Cap nur bei Partizipation und nicht unter dem Faktor, Namen eindeutig, Zahlenformate", async () => {
     const ohnePart = await klasseAnlegen({ ...klasseSeed, capFaktor: "3" });
     expect(ohnePart.status).toBe(400);
-    expect((await json(ohnePart)).fehler.felder[0]).toMatchObject({ feld: "capFaktor", code: "cap_ohne_partizipation" });
+    expect((await json(ohnePart)).error.fields[0]).toMatchObject({ field: "capFaktor", code: "cap_without_participation" });
     const zuKlein = await klasseAnlegen({ ...klasseSeed, praeferenzFaktor: "2", partizipierend: true, capFaktor: "1.5" });
-    expect((await json(zuKlein)).fehler.felder[0]).toMatchObject({ code: "cap_unter_praeferenz" });
+    expect((await json(zuKlein)).error.fields[0]).toMatchObject({ code: "cap_below_preference" });
     for (const falsch of [{ rang: 0 }, { rang: 1.5 }, { praeferenzFaktor: "-1" }, { praeferenzFaktor: "1.23456" }, { kumulierteVerzinsung: "8" }, { name: "  " }, { umwandelbar: "ja" }]) {
       expect((await klasseAnlegen({ ...klasseSeed, ...falsch })).status, JSON.stringify(falsch)).toBe(400);
     }
     expect((await klasseAnlegen()).status).toBe(201);
     const doppelt = await klasseAnlegen();
     expect(doppelt.status).toBe(409);
-    expect((await json(doppelt)).fehler.code).toBe("ANTEILSKLASSE_NAME_VORHANDEN");
+    expect((await json(doppelt)).error.code).toBe("share_class_name_exists");
   });
 
   it("PATCH prüft den Stand nach der Änderung und verlangt ein Feld; fremde und unbekannte Klassen sind 404", async () => {
@@ -124,8 +124,8 @@ describe("Änderungsabfrage und Vollexport", () => {
   it("Anteilsklassen erscheinen im Änderungsstrom nur für Personen mit Rolle an einem haltenden Fonds und stehen im Vollexport", async () => {
     const seit = encodeURIComponent(new Date(Date.now() - 60_000).toISOString());
     const k = await json(await klasseAnlegen());
-    const lies = async (als: Parameters<typeof get>[1]) => ((await json(await get(`/aenderungen?seit=${seit}&limit=1000`, als))).daten as { tabelle: string; datensatzId: string }[]).filter((z) => z.tabelle === "anteilsklasse");
-    expect((await lies(betrachterHalter)).map((z) => z.datensatzId)).toEqual([k.id]);
+    const lies = async (als: Parameters<typeof get>[1]) => ((await json(await get(`/changes?since=${seit}&limit=1000`, als))).data as { table: string; recordId: string }[]).filter((z) => z.table === "anteilsklasse");
+    expect((await lies(betrachterHalter)).map((z) => z.recordId)).toEqual([k.id]);
     expect(await lies(bearbeiterFremd)).toEqual([]);
     expect(EXPORT_TABELLEN.map((x) => x.name)).toContain("anteilsklasse");
   });
@@ -146,7 +146,7 @@ describe("Klasse einer Rundenposition", () => {
     const [fremd] = await db.insert(s.anteilsklasse).values({ organisationId: ID.orgB, name: "Fremd" }).returning();
     const antwort = await patch(`/rundenpositionen/${P_FONDS_1}`, { anteilsklasseId: fremd!.id }, bearbeiterHalter);
     expect(antwort.status).toBe(409);
-    expect((await json(antwort)).fehler.code).toBe("ANTEILSKLASSE_PASST_NICHT");
+    expect((await json(antwort)).error.code).toBe("share_class_mismatch");
     expect((await patch(`/rundenpositionen/${P_FONDS_1}`, { anteilsklasseId: FALSCH }, bearbeiterHalter)).status).toBe(404);
     expect((await patch(`/rundenpositionen/${FALSCH}`, { anteilsklasseId: null }, bearbeiterHalter)).status).toBe(404);
     expect((await patch(`/rundenpositionen/${P_FONDS_1}`, {}, bearbeiterHalter)).status).toBe(400);
@@ -243,7 +243,7 @@ describe("Wasserfall", () => {
   it("prüft Eingaben: Kosten über Exitwert, Treuhand ab 1, Formate, Datum", async () => {
     const kosten = await exit({ exitwert: "100", kosten: "100.01" });
     expect(kosten.status).toBe(400);
-    expect((await json(kosten)).fehler.felder[0]).toMatchObject({ feld: "kosten", code: "kosten_ueber_exitwert" });
+    expect((await json(kosten)).error.fields[0]).toMatchObject({ field: "kosten", code: "costs_exceed_exit_value" });
     for (const falsch of [{ treuhandAnteil: "1" }, { treuhandAnteil: "0.12345" }, { exitwert: "-5" }, { exitwert: "1.234" }, { exitdatum: "morgen" }, { exitwert: undefined }]) {
       expect((await exit({ exitwert: "1000", ...falsch })).status, JSON.stringify(falsch)).toBe(400);
     }
@@ -252,7 +252,7 @@ describe("Wasserfall", () => {
   it("Beteiligung ohne Anteile aus Runden (Darlehen) und fremde Fonds", async () => {
     const darlehen = await post(`/beteiligungen/${ID.darlehen}/wasserfall`, { exitwert: "1000", exitdatum: "2026-06-30" }, betrachterHalter);
     expect(darlehen.status).toBe(409);
-    expect((await json(darlehen)).fehler.code).toBe("WASSERFALL_KEINE_ANTEILE");
+    expect((await json(darlehen)).error.code).toBe("waterfall_no_shares");
     expect((await exit({ exitwert: "1000" }, bearbeiterFremd)).status).toBe(403);
     expect((await post(`/beteiligungen/${FALSCH}/wasserfall`, { exitwert: "1", exitdatum: "2026-06-30" })).status).toBe(404);
   });
@@ -300,13 +300,13 @@ describe("Kurve des Fonds", () => {
     expect((await kurve("?punkte=200")).status).toBe(200);
     const zuViele = await kurve("?punkte=201");
     expect(zuViele.status).toBe(400);
-    expect((await json(zuViele)).fehler.felder[0]).toMatchObject({ feld: "punkte", code: "too_big" });
+    expect((await json(zuViele)).error.fields[0]).toMatchObject({ field: "punkte", code: "too_big" });
     expect((await kurve("?punkte=1")).status).toBe(400);
     expect((await kurve("?punkte=abc")).status).toBe(400);
     expect((await kurve("?bis=625000000&punkte=20")).status).toBe(200);
     const drueber = await kurve("?bis=625000000.01&punkte=20");
     expect(drueber.status).toBe(400);
-    expect((await json(drueber)).fehler.felder[0]).toMatchObject({ feld: "bis", code: "too_big" });
+    expect((await json(drueber)).error.fields[0]).toMatchObject({ field: "bis", code: "too_big" });
     expect((await kurve("?bis=0")).status).toBe(400);
     expect((await kurve("?bis=-5")).status).toBe(400);
   });

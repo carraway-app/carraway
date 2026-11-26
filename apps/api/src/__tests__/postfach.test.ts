@@ -21,7 +21,7 @@ import { grundbestand, ID } from "./hilfen-instrumente";
 
 const { db, pool } = oeffneTestdb();
 const ring = new Schluesselring(randomBytes(32));
-const RUECKRUF = `${TESTORIGIN}/api/v1/postfach/rueckruf`;
+const RUECKRUF = `${TESTORIGIN}/api/v1/mailbox/callback`;
 
 const anna = person("pf-anna", { rollen: { [ID.fonds]: "bearbeiter" } });
 const bernd = person("pf-bernd", { rollen: { [ID.fonds]: "betrachter" } });
@@ -114,7 +114,7 @@ describe("OAuth mit PKCE", () => {
 
     const liste = await get("/postfach", anna);
     const text = await liste.text();
-    expect(JSON.parse(text).verbindungen[0]).toMatchObject({ bereich: "mail", anbieter: "microsoft", adresse: "owner@example.com", status: "verbunden", letzterAbgleichAm: null });
+    expect(JSON.parse(text).connections[0]).toMatchObject({ scope: "mail", provider: "microsoft", address: "owner@example.com", status: "connected", lastSyncedAt: null });
     expect(text).not.toContain(zugang.accessToken);
     expect(text).not.toContain(zugang.refreshToken);
     expect(text).not.toMatch(/zugang|token/i);
@@ -128,11 +128,11 @@ describe("OAuth mit PKCE", () => {
   it("ein falscher state wird abgelehnt und verbindet nichts; der echte bleibt davon unberührt", async () => {
     const { code, anfrage } = await starte();
     const falsch = await rueckruf(code, "voellig-falscher-state-wert");
-    expect(Object.fromEntries(ziel(falsch).searchParams)).toEqual({ fehler: "POSTFACH_ZUSTAND_UNGUELTIG" });
+    expect(Object.fromEntries(ziel(falsch).searchParams)).toEqual({ fehler: "mailbox_state_invalid" });
     expect(fake.aufrufe).toHaveLength(0); // der Code wurde gar nicht erst eingelöst
     expect(await verbindungen()).toHaveLength(0);
     const ohne = await get(`/postfach/rueckruf?code=${code}`, anna);
-    expect(ziel(ohne).searchParams.get("fehler")).toBe("POSTFACH_ZUSTAND_UNGUELTIG");
+    expect(ziel(ohne).searchParams.get("fehler")).toBe("mailbox_state_invalid");
     // Mit dem richtigen state klappt es weiterhin.
     expect(ziel(await rueckruf(code, anfrage.state)).searchParams.get("ergebnis")).toBe("verbunden");
   });
@@ -141,23 +141,23 @@ describe("OAuth mit PKCE", () => {
     const { code, anfrage } = await starte();
     expect(ziel(await rueckruf(code, anfrage.state)).searchParams.get("ergebnis")).toBe("verbunden");
     const zweiterCode = fake.autorisiere(`https://login.fake.example/authorize?client_id=client-ms&redirect_uri=${encodeURIComponent(RUECKRUF)}&state=${anfrage.state}&nonce=${anfrage.nonce}&code_challenge=${anfrage.challenge}&code_challenge_method=S256&scope=x`).code;
-    expect(ziel(await rueckruf(zweiterCode, anfrage.state)).searchParams.get("fehler")).toBe("POSTFACH_ZUSTAND_UNGUELTIG");
+    expect(ziel(await rueckruf(zweiterCode, anfrage.state)).searchParams.get("fehler")).toBe("mailbox_state_invalid");
     expect(await verbindungen()).toHaveLength(1);
   });
 
   it("der state ist an die Person gebunden: eine andere angemeldete Person kann ihn nicht einlösen, und er ist danach verbraucht", async () => {
     const { code, anfrage } = await starte(anna);
     const fremd = await rueckruf(code, anfrage.state, bernd);
-    expect(ziel(fremd).searchParams.get("fehler")).toBe("POSTFACH_ZUSTAND_UNGUELTIG");
+    expect(ziel(fremd).searchParams.get("fehler")).toBe("mailbox_state_invalid");
     expect(await verbindungen()).toHaveLength(0);
     expect(fake.aufrufe).toHaveLength(0);
-    expect(ziel(await rueckruf(code, anfrage.state, anna)).searchParams.get("fehler")).toBe("POSTFACH_ZUSTAND_UNGUELTIG");
+    expect(ziel(await rueckruf(code, anfrage.state, anna)).searchParams.get("fehler")).toBe("mailbox_state_invalid");
   });
 
   it("ein abgelaufener state wird abgelehnt", async () => {
     const { code, anfrage } = await starte();
     await db.execute(sql`UPDATE oauth_zustand SET ablauf = now() - interval '1 minute'`);
-    expect(ziel(await rueckruf(code, anfrage.state)).searchParams.get("fehler")).toBe("POSTFACH_ZUSTAND_UNGUELTIG");
+    expect(ziel(await rueckruf(code, anfrage.state)).searchParams.get("fehler")).toBe("mailbox_state_invalid");
     expect(await verbindungen()).toHaveLength(0);
   });
 
@@ -166,31 +166,31 @@ describe("OAuth mit PKCE", () => {
     const app = neueApp({ abrufer: boese.abrufer }, boese);
     const { code, anfrage } = await starte(anna, "mail", app, boese);
     const antwort = await rueckruf(code, anfrage.state, anna, app);
-    expect(Object.fromEntries(ziel(antwort).searchParams)).toEqual({ fehler: "POSTFACH_VERBINDUNG_FEHLGESCHLAGEN", grund: "NONCE_UNGUELTIG" });
+    expect(Object.fromEntries(ziel(antwort).searchParams)).toEqual({ fehler: "mailbox_connection_failed", grund: "NONCE_UNGUELTIG" });
     expect(await verbindungen()).toHaveLength(0);
   });
 
   it("Ablehnung beim Anbieter, fehlendes Refresh-Token und fehlerhafter Code verbinden nichts", async () => {
     const a = await starte();
     const abgelehnt = await get(`/postfach/rueckruf?error=access_denied&state=${a.anfrage.state}`, anna);
-    expect(ziel(abgelehnt).searchParams.get("fehler")).toBe("POSTFACH_VERBINDUNG_FEHLGESCHLAGEN");
+    expect(ziel(abgelehnt).searchParams.get("fehler")).toBe("mailbox_connection_failed");
     const ohneRefresh = erstelleFakeOAuth({ ohneRefreshToken: true });
     const app2 = neueApp({ abrufer: ohneRefresh.abrufer }, ohneRefresh);
     const b = await starte(anna, "mail", app2, ohneRefresh);
     expect(ziel(await rueckruf(b.code, b.anfrage.state, anna, app2)).searchParams.get("grund")).toBe("REFRESH_TOKEN_FEHLT");
     const c = await starte();
-    expect(ziel(await rueckruf("gefaelscht", c.anfrage.state)).searchParams.get("fehler")).toBe("POSTFACH_VERBINDUNG_FEHLGESCHLAGEN");
+    expect(ziel(await rueckruf("gefaelscht", c.anfrage.state)).searchParams.get("fehler")).toBe("mailbox_connection_failed");
     expect(await verbindungen()).toHaveLength(0);
   });
 
-  it("ohne Schlüssel (GEHEIMNIS_FEHLT) und für nicht eingerichtete Anbieter (POSTFACH_ANBIETER_AUS) gibt es kein Verbinden", async () => {
+  it("ohne Schlüssel (secret_missing) und für nicht eingerichtete Anbieter (mailbox_provider_disabled) gibt es kein Verbinden", async () => {
     const ohneSchluessel = neueApp({ schluessel: undefined });
     const a = await post("/postfach/oauth/start", { anbieter: "microsoft", bereich: "mail", zustimmung: true }, anna, ohneSchluessel);
     expect(a.status).toBe(409);
-    expect((await json(a)).fehler.code).toBe("GEHEIMNIS_FEHLT");
+    expect((await json(a)).error.code).toBe("secret_missing");
     const google = await post("/postfach/oauth/start", { anbieter: "google", bereich: "mail", zustimmung: true }, anna);
     expect(google.status).toBe(409);
-    expect((await json(google)).fehler.code).toBe("POSTFACH_ANBIETER_AUS");
+    expect((await json(google)).error.code).toBe("mailbox_provider_disabled");
     expect((await get("/postfach", anna)).status).toBe(200);
     expect(await json(await get("/postfach", anna, ohneSchluessel))).toMatchObject({ schluesselVorhanden: false, anbieter: { microsoft: true, google: false, imap: true } });
   });
@@ -338,7 +338,7 @@ describe("IMAP", () => {
     const antwort = await post("/postfach/imap", { ...eingabe, ordner: ["INBOX", "Sent"], inhaltSpeichern: true }, anna, app);
     expect(antwort.status, await antwort.clone().text()).toBe(201);
     const text = await antwort.text();
-    expect(JSON.parse(text)).toMatchObject({ bereich: "mail", anbieter: "imap", adresse: "owner@example.org", status: "verbunden", inhaltSpeichern: true });
+    expect(JSON.parse(text)).toMatchObject({ scope: "mail", provider: "imap", address: "owner@example.org", status: "connected", storeContent: true });
     expect(text).not.toContain("geheimes-passwort");
     expect(geoeffnet).toEqual(["INBOX", "Sent"]);
     const [v] = await verbindungen();
@@ -352,14 +352,14 @@ describe("IMAP", () => {
     for (const host of ["127.0.0.1", "192.168.1.10", "169.254.169.254", "[::1]".slice(1, -1), "intern.example.org"]) {
       const antwort = await post("/postfach/imap", { ...eingabe, host }, anna, app);
       expect(antwort.status, host).toBe(400);
-      expect((await json(antwort)).fehler.code).toBe("POSTFACH_ZIEL_VERBOTEN");
+      expect((await json(antwort)).error.code).toBe("mailbox_target_forbidden");
     }
     expect(await verbindungen()).toHaveLength(0);
     const erlaubt = neueApp({ imapFabrik: fabrikOk(), aufloeser: async () => ["10.0.0.5"], postfach: postfachKonfig({ privateZiele: true }) });
     expect((await post("/postfach/imap", { ...eingabe, host: "intern.example.org" }, anna, erlaubt)).status).toBe(201);
   });
 
-  it("falsches Passwort oder unerreichbarer Server: 502 POSTFACH_VERBINDUNG_FEHLGESCHLAGEN, nichts gespeichert", async () => {
+  it("falsches Passwort oder unerreichbarer Server: 502 mailbox_connection_failed, nichts gespeichert", async () => {
     const app = neueApp({
       imapFabrik: async () => {
         throw new PostfachFehler("ZUGANG_UNGUELTIG", true);
@@ -368,7 +368,7 @@ describe("IMAP", () => {
     });
     const antwort = await post("/postfach/imap", eingabe, anna, app);
     expect(antwort.status).toBe(502);
-    expect((await json(antwort)).fehler.code).toBe("POSTFACH_VERBINDUNG_FEHLGESCHLAGEN");
+    expect((await json(antwort)).error.code).toBe("mailbox_connection_failed");
     expect(await verbindungen()).toHaveLength(0);
   });
 
@@ -376,7 +376,7 @@ describe("IMAP", () => {
     const aus = neueApp({ postfach: postfachKonfig({ imap: false }), imapFabrik: fabrikOk(), aufloeser: oeffentlich });
     const a = await post("/postfach/imap", eingabe, anna, aus);
     expect(a.status).toBe(409);
-    expect((await json(a)).fehler.code).toBe("POSTFACH_ANBIETER_AUS");
+    expect((await json(a)).error.code).toBe("mailbox_provider_disabled");
     const app = neueApp({ imapFabrik: fabrikOk(), aufloeser: oeffentlich });
     for (const kaputt of [{ ...eingabe, zustimmung: false }, { ...eingabe, port: 0 }, { ...eingabe, adresse: "keine-adresse" }, { ...eingabe, sicherheit: "klar" }, { ...eingabe, zusatz: 1 }, { ...eingabe, ordner: [] }]) {
       expect((await post("/postfach/imap", kaputt, anna, app)).status).toBe(400);
@@ -392,7 +392,7 @@ describe("Eigene Verbindungen, Trennen, Rechte", () => {
     for (const als of [verwalter, bernd]) {
       const patch = await senden(t, "PATCH")(`/postfach/${id}`, { inhaltSpeichern: true }, als);
       expect(patch.status).toBe(404);
-      expect((await json(patch)).fehler.code).toBe("POSTFACH_NICHT_GEFUNDEN");
+      expect((await json(patch)).error.code).toBe("mailbox_not_found");
       expect((await post(`/postfach/${id}/abgleichen`, undefined, als)).status).toBe(404);
       expect((await senden(t, "DELETE")(`/postfach/${id}`, undefined, als)).status).toBe(404);
     }
@@ -425,18 +425,18 @@ describe("Eigene Verbindungen, Trennen, Rechte", () => {
     expect(protokoll).toEqual([{ aktion: "trennen", vorher: { bereich: "mail", anbieter: "microsoft" } }]);
   });
 
-  it("Rechte: ohne Anmeldung 401, ohne Rolle 403, Investor-Benutzer NUR_PORTAL, API-Schlüssel (technischer Benutzer) nicht", async () => {
-    for (const [methode, pfad] of [["GET", "/postfach"], ["POST", "/postfach/oauth/start"], ["POST", "/postfach/imap"], ["GET", "/einstellungen"]] as const) {
+  it("Rechte: ohne Anmeldung 401, ohne Rolle 403, Investor-Benutzer portal_only, API-Schlüssel (technischer Benutzer) nicht", async () => {
+    for (const [methode, pfad] of [["GET", "/postfach"], ["POST", "/postfach/oauth/start"], ["POST", "/postfach/imap"], ["GET", "/settings"]] as const) {
       const mit = (als: Testperson | null) => t.request(pfad, { method: methode, als, headers: { "content-type": "application/json" }, ...(methode === "POST" ? { body: "{}" } : {}) });
       expect((await mit(null)).status, `${pfad} anonym`).toBe(401);
       expect((await mit(ohneRolle)).status, `${pfad} ohne Rolle`).toBe(403);
       const inv = await mit(investor);
       expect(inv.status, `${pfad} Investor`).toBe(403);
-      expect((await json(inv)).fehler.code).toBe("NUR_PORTAL");
+      expect((await json(inv)).error.code).toBe("portal_only");
     }
-    const schluessel = await json(await post("/api-schluessel", { name: "Lesen", scopes: [{ fondsId: ID.fonds, recht: "lesen" }] }, verwalter));
-    const mitSchluessel = await t.app.request("/api/v1/postfach", { headers: { Authorization: `Bearer ${schluessel.schluessel}` } });
+    const schluessel = await json(await post("/api-keys", { name: "Lesen", scopes: [{ fundId: ID.fonds, permission: "read" }] }, verwalter));
+    const mitSchluessel = await t.app.request("/api/v1/mailbox", { headers: { Authorization: `Bearer ${schluessel.key}` } });
     expect(mitSchluessel.status).toBe(403);
-    expect((await json(mitSchluessel)).fehler.code).toBe("TECHNISCHER_BENUTZER");
+    expect((await json(mitSchluessel)).error.code).toBe("technical_user");
   });
 });

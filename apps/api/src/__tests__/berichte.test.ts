@@ -41,7 +41,7 @@ afterAll(async () => {
 
 describe.each(["de", "en"] as const)("Berichte (%s)", (sprache) => {
   it("Fondsbericht als PDF: Content-Type, Dateiname, Fondsname, Wasserzeichen", async () => {
-    const antwort = await get(`/fonds/${fondsId}/berichte/fondsbericht?sprache=${sprache}&format=pdf`);
+    const antwort = await get(`/funds/${fondsId}/reports/fund-report?sprache=${sprache}&format=pdf`);
     expect(antwort.status).toBe(200);
     expect(antwort.headers.get("Content-Type")).toBe("application/pdf");
     expect(antwort.headers.get("Content-Disposition")).toMatch(/^attachment; filename="[a-z0-9-]+\.pdf"$/);
@@ -54,7 +54,7 @@ describe.each(["de", "en"] as const)("Berichte (%s)", (sprache) => {
   });
 
   it("Fondsbericht als Excel: Kopfzeile und Zeilenzahl", async () => {
-    const antwort = await get(`/fonds/${fondsId}/berichte/fondsbericht?sprache=${sprache}&format=xlsx`);
+    const antwort = await get(`/funds/${fondsId}/reports/fund-report?sprache=${sprache}&format=xlsx`);
     expect(antwort.status).toBe(200);
     expect(antwort.headers.get("Content-Type")).toBe("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     expect(antwort.headers.get("Content-Disposition")).toMatch(/filename="[a-z0-9-]+\.xlsx"/);
@@ -67,7 +67,7 @@ describe.each(["de", "en"] as const)("Berichte (%s)", (sprache) => {
   });
 
   it("Portfolioliste: ein Blatt", async () => {
-    const antwort = await get(`/fonds/${fondsId}/berichte/portfolioliste?sprache=${sprache}`);
+    const antwort = await get(`/funds/${fondsId}/reports/portfolio-list?sprache=${sprache}`);
     expect(antwort.status).toBe(200);
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load((await antwort.arrayBuffer()) as ArrayBuffer);
@@ -76,7 +76,7 @@ describe.each(["de", "en"] as const)("Berichte (%s)", (sprache) => {
   });
 
   it("Quartalsbericht: eine Seite mit Name der Beteiligung und Wasserzeichen", async () => {
-    const antwort = await get(`/beteiligungen/${beteiligungId}/berichte/quartalsbericht?sprache=${sprache}`);
+    const antwort = await get(`/investments/${beteiligungId}/reports/quarterly-report?sprache=${sprache}`);
     expect(antwort.status).toBe(200);
     expect(antwort.headers.get("Content-Type")).toBe("application/pdf");
     expect(antwort.headers.get("Content-Disposition")).toMatch(/filename="[a-z0-9-]+\.pdf"/);
@@ -87,7 +87,7 @@ describe.each(["de", "en"] as const)("Berichte (%s)", (sprache) => {
   });
 
   it("Gremienvorlage: PDF mit Wasserzeichen und den Deals im Investitionsausschuss", async () => {
-    const antwort = await get(`/berichte/gremienvorlage?sprache=${sprache}`);
+    const antwort = await get(`/reports/committee-pack?sprache=${sprache}`);
     expect(antwort.status).toBe(200);
     expect(antwort.headers.get("Content-Type")).toBe("application/pdf");
     const { text: t } = await text(antwort);
@@ -99,7 +99,7 @@ describe.each(["de", "en"] as const)("Berichte (%s)", (sprache) => {
 
 describe("Berichte: Wissensstand und Fehler", () => {
   it("der Wissensstand erscheint im Bericht", async () => {
-    const antwort = await get(`/fonds/${fondsId}/berichte/fondsbericht?sprache=de&stand=2026-06-01T12:00:00Z&stichtag=2025-12-31`);
+    const antwort = await get(`/funds/${fondsId}/reports/fund-report?sprache=de&stand=2026-06-01T12:00:00Z&stichtag=2025-12-31`);
     const { text: t } = await text(antwort);
     expect(t).toContain("01.06.2026");
     expect(t).toContain("31.12.2025");
@@ -107,24 +107,24 @@ describe("Berichte: Wissensstand und Fehler", () => {
 
   it("unbekannter Fonds und unbekannte Beteiligung: 404; ungültige Eingaben: 400", async () => {
     const fremd = "00000000-0000-4000-8000-0000000000ff";
-    expect((await get(`/fonds/${fremd}/berichte/fondsbericht`)).status).toBe(404);
-    expect((await get(`/beteiligungen/${fremd}/berichte/quartalsbericht`)).status).toBe(404);
-    expect((await get(`/fonds/${fondsId}/berichte/fondsbericht?sprache=fr`)).status).toBe(400);
-    expect((await get(`/fonds/${fondsId}/berichte/fondsbericht?format=docx`)).status).toBe(400);
-    expect((await get(`/beteiligungen/${beteiligungId}/berichte/quartalsbericht?format=xlsx`)).status).toBe(400);
-    expect((await get(`/berichte/gremienvorlage?stichtag=heute`)).status).toBe(400);
+    expect((await get(`/funds/${fremd}/reports/fund-report`)).status).toBe(404);
+    expect((await get(`/investments/${fremd}/reports/quarterly-report`)).status).toBe(404);
+    expect((await get(`/funds/${fondsId}/reports/fund-report?sprache=fr`)).status).toBe(400);
+    expect((await get(`/funds/${fondsId}/reports/fund-report?format=docx`)).status).toBe(400);
+    expect((await get(`/investments/${beteiligungId}/reports/quarterly-report?format=xlsx`)).status).toBe(400);
+    expect((await get(`/reports/committee-pack?stichtag=heute`)).status).toBe(400);
   });
 
   it("Gremienvorlage ohne Deals im Ausschuss ist ein gültiges PDF", async () => {
     await db.execute(sql`UPDATE deal SET phase = 'anfrage' WHERE phase = 'investitionsausschuss'`);
-    const antwort = await get("/berichte/gremienvorlage");
+    const antwort = await get("/reports/committee-pack");
     expect(antwort.status).toBe(200);
     expect((await text(antwort)).text).toContain("Investitionsausschuss");
   });
 
   it("Datenwerte mit Sonderzeichen setzen keinen Typst-Code ab", async () => {
     await db.update(s.organisation).set({ name: 'Quote "x" #panic() $ \\ [ ] Test' }).where(sql`id = (SELECT organisation_id FROM beteiligung WHERE id = ${beteiligungId})`);
-    const antwort = await get(`/beteiligungen/${beteiligungId}/berichte/quartalsbericht`);
+    const antwort = await get(`/investments/${beteiligungId}/reports/quarterly-report`);
     expect(antwort.status).toBe(200);
     expect((await text(antwort)).text).toContain('QUOTE "X" #PANIC() $ \\ [ ] TEST');
   });
@@ -132,7 +132,7 @@ describe("Berichte: Wissensstand und Fehler", () => {
 
 describe.skipIf(process.env.SKIP_PERF === "1")("Performance: Fondsbericht als PDF", () => {
   it("unter 2 s für den Demo-Fonds", async () => {
-    const url = `/fonds/${fondsId}/berichte/fondsbericht?sprache=de&format=pdf`;
+    const url = `/funds/${fondsId}/reports/fund-report?sprache=de&format=pdf`;
     const kalt = performance.now();
     await (await get(url)).arrayBuffer();
     const kaltMs = performance.now() - kalt;

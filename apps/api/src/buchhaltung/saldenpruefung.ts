@@ -13,12 +13,12 @@ import type { Tx } from "../zeitlimit";
 export const MAX_BEFUNDE_SUSA = 2000;
 const MAX_UNBEKANNT = 100;
 
-const DATEIFEHLER: Record<DateiFehler["code"], { status: 400 | 413 | 415 | 422; code: Fehlercode }> = {
-  DATEITYP_UNBEKANNT: { status: 415, code: "DATEITYP_UNBEKANNT" },
-  DATEI_BESCHAEDIGT: { status: 422, code: "IMPORT_DATEI_UNLESBAR" },
-  DATEI_ZU_GROSS: { status: 413, code: "DATEI_ZU_GROSS" },
-  DATEI_LEER: { status: 422, code: "DATEI_LEER" },
-  BLATT_NICHT_ERKANNT: { status: 422, code: "BLATT_NICHT_ERKANNT" },
+const DATEIFEHLER: Record<DateiFehler["code"], { status: 400 | 413 | 415 | 422; code: Fehlercode; meldung: string }> = {
+  DATEITYP_UNBEKANNT: { status: 415, code: "file_type_unknown", meldung: "The file type is not supported; expected Excel (.xlsx) or CSV." },
+  DATEI_BESCHAEDIGT: { status: 422, code: "import_file_unreadable", meldung: "The file is damaged or cannot be read." },
+  DATEI_ZU_GROSS: { status: 413, code: "file_too_large", meldung: "The file is too large." },
+  DATEI_LEER: { status: 422, code: "file_empty", meldung: "The file is empty." },
+  BLATT_NICHT_ERKANNT: { status: 422, code: "sheet_not_recognized", meldung: "No sheet of the file matches the template." },
 };
 
 export interface SusaPruefung {
@@ -35,7 +35,7 @@ export async function pruefeSaldenlauf(tx: Tx, lauf: Saldenlauf): Promise<SusaPr
   } catch (fehler) {
     if (fehler instanceof DateiFehler) {
       const z = DATEIFEHLER[fehler.code];
-      throw new Fachfehler(z.status, z.code, fehler.message);
+      throw new Fachfehler(z.status, z.code, z.meldung);
     }
     throw fehler;
   }

@@ -18,7 +18,7 @@ export interface Konfiguration {
   /** Erlaubte Ursprünge der Oberfläche; der erste ist die Basis-Adresse der API (Cookies, OIDC-Rückruf). */
   appOrigins: string[];
   geheimnis: string;
-  /** Jede Person braucht einen zweiten Faktor (TOTP), sonst 403 `ZWEI_FAKTOR_FEHLT` außer bei der Einrichtung. */
+  /** Jede Person braucht einen zweiten Faktor (TOTP), sonst 403 `two_factor_required` außer bei der Einrichtung. */
   zweiFaktorPflicht: boolean;
   /** `X-Forwarded-For` auswerten (nur hinter einem vertrauenswürdigen Reverse-Proxy). */
   proxyVertrauen: boolean;
@@ -27,7 +27,7 @@ export interface Konfiguration {
   anmeldeLimit: { versuche: number; fensterMs: number };
   /** Anfragen zum Zurücksetzen des Passworts je Adresse und je IP im Zeitfenster (jede Anfrage zählt, auch für unbekannte Adressen). */
   passwortLimit: { proAdresse: number; proIp: number; fensterMs: number };
-  /** Mindestdauer der Antwort auf `POST /passwort/vergessen`, damit sie nichts über die Adresse verrät. */
+  /** Mindestdauer der Antwort auf `POST /password/forgot`, damit sie nichts über die Adresse verrät. */
   passwortAntwortMinMs: number;
   /**
    * Begrenzung der öffentlichen Abfrage-Endpunkte (`/extern/abfragen/:token`): Anfragen je Token und je IP in der Minute sowie

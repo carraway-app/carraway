@@ -25,6 +25,7 @@ export const kontaktimportBereichEn: typeof kontaktimportBereichDe = {
       beziehungen: "Relationships",
       runden: "Financing rounds",
       rundenpositionen: "Round positions",
+      mandate: "Board mandates",
     },
     felder: "Which value applies?",
     spalten: { feld: "Field", ziel: "Remaining record", quelle: "Merged record", gilt: "Applies" },

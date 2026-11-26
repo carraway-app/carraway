@@ -187,14 +187,16 @@ describe("Demo-Generator: Konsistenz", () => {
     expect([...fondsJeOrg.values()].filter((f) => f.size >= 2).length).toBeGreaterThanOrEqual(1);
   });
 
-  it("nach einem Exit gibt es keine Bewertung, nach einer Insolvenz nur noch null", () => {
+  it("nach einem Exit gibt es keine Bewertung (außer der Bewertung null eines Verkaufs am Verkaufstag), nach einer Insolvenz nur noch null", () => {
     const exits = daten.beteiligungen.filter((b) => b.status === "exit");
     expect(exits.length).toBeGreaterThanOrEqual(2);
     for (const b of exits) {
       const rueck = daten.vorgaenge.find((v) => v.beteiligungId === b.id && v.art === "rueckfluss");
       expect(rueck).toBeDefined();
+      const verkauf = daten.verkaeufe.find((v) => v.beteiligungId === b.id);
       for (const bew of daten.bewertungen.filter((x) => x.beteiligungId === b.id)) {
-        expect(bew.stichtag < (rueck?.valuta ?? "")).toBe(true);
+        if (verkauf && bew.id === verkauf.bewertungId) expect([bew.stichtag, bew.wert]).toEqual([verkauf.datum, "0.00"]);
+        else expect(bew.stichtag < (rueck?.valuta ?? "")).toBe(true);
       }
     }
     const pleiten = daten.beteiligungen.filter((b) => b.status === "insolvent");
@@ -207,10 +209,11 @@ describe("Demo-Generator: Konsistenz", () => {
     }
   });
 
-  it("Bewertungen sind vierteljährlich zum Quartalsende und eindeutig je Beteiligung", () => {
+  it("Bewertungen sind vierteljährlich zum Quartalsende (außer der Bewertung null am Verkaufstag) und eindeutig je Beteiligung", () => {
     const schluessel = new Set<string>();
+    const verkauf = new Set(daten.verkaeufe.map((v) => v.bewertungId));
     for (const bew of daten.bewertungen) {
-      expect(["03-31", "06-30", "09-30", "12-31"]).toContain(bew.stichtag.slice(5));
+      if (!verkauf.has(bew.id)) expect(["03-31", "06-30", "09-30", "12-31"]).toContain(bew.stichtag.slice(5));
       expect(bew.stichtag <= "2026-09-30").toBe(true);
       schluessel.add(`${bew.beteiligungId}|${bew.stichtag}`);
     }
@@ -268,7 +271,9 @@ describe("Demo-Generator: Konsistenz", () => {
       const beteiligungen = new Set(daten.beteiligungen.filter((b) => b.fondsId === f.id).map((b) => b.id));
       // Die Einlage aus einer Wandlung ist kein Geldfluss und wird nicht abgerufen.
       const auszahlungen = summe(daten.vorgaenge.filter((v) => beteiligungen.has(v.beteiligungId) && v.art === "auszahlung" && !v.bemerkung?.startsWith("Wandlung:")), (v) => cent(v.betrag));
-      const rueck = summe(daten.vorgaenge.filter((v) => beteiligungen.has(v.beteiligungId) && v.art === "rueckfluss"), (v) => cent(v.betrag));
+      // Ein Exit bringt den Erlös als Rückfluss und, bei Darlehensartigen, als Tilgung am selben Tag.
+      const exitTag = new Set(daten.vorgaenge.filter((v) => v.art === "rueckfluss").map((v) => `${v.beteiligungId}|${v.valuta}`));
+      const rueck = summe(daten.vorgaenge.filter((v) => beteiligungen.has(v.beteiligungId) && (v.art === "rueckfluss" || (v.art === "tilgung" && exitTag.has(`${v.beteiligungId}|${v.valuta}`)))), (v) => cent(v.betrag));
       const abrufe = summe(daten.fondsBewegungen.filter((x) => x.fondsId === f.id && x.art === "abruf"), (x) => cent(x.betrag));
       const ausschuettungen = summe(daten.fondsBewegungen.filter((x) => x.fondsId === f.id && x.art === "ausschuettung"), (x) => cent(x.betrag));
       expect(abrufe).toBeGreaterThanOrEqual(auszahlungen);
@@ -421,6 +426,23 @@ describe("Demo-Generator: größerer Umfang mit fünf Fonds", () => {
   });
 });
 
+describe("Demo-Generator: Verwaltungsvergütung und Fondskosten (Issue #157)", () => {
+  it("bucht je Fonds genau die Verwaltungskosten der Saldenliste, anteilig verteilt", () => {
+    expect(daten.fondsKosten.length).toBeGreaterThan(0);
+    for (const f of daten.fonds) {
+      const lauf = daten.saldenlaeufe.find((l) => l.fondsId === f.id)!;
+      const saldo6300 = cent(daten.salden.find((x) => x.laufId === lauf.id && x.kontoNummer === "6300")?.saldo ?? "0");
+      const eigene = daten.fondsKosten.filter((k) => k.fondsId === f.id);
+      expect(summe(eigene, (k) => cent(k.betrag))).toBe(saldo6300);
+      for (const k of eigene) {
+        expect(summe(daten.fondsKostenAnteile.filter((a) => a.kostenId === k.id), (a) => cent(a.betrag))).toBe(cent(k.betrag));
+        expect(k.valuta <= "2026-09-30").toBe(true);
+      }
+    }
+    expect(new Set(daten.fondsKosten.map((k) => k.art))).toEqual(new Set(["verwaltungsverguetung", "fondskosten"]));
+  });
+});
+
 describe("Demo-Generator: Sprache der Freitexte", () => {
   const englisch = erzeugeDemodaten({ seed: 1, sprache: "en" });
   const umlaute = /[äöüßÄÖÜ]/;
@@ -440,6 +462,7 @@ describe("Demo-Generator: Sprache der Freitexte", () => {
       ...englisch.aktivitaeten.map((a) => a.titel),
       ...englisch.deals.map((d) => d.absagegrund ?? ""),
       ...englisch.fondsBewegungen.map((b) => b.bemerkung ?? ""),
+      ...englisch.fondsKosten.map((k) => k.bemerkung ?? ""),
       ...englisch.reserven.map((r) => r.bemerkung ?? ""),
       ...englisch.szenarien.map((s) => s.name),
       ...englisch.fondsOffenlegungen.map((o) => o.bemerkung ?? ""),

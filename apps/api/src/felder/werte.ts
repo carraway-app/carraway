@@ -1,3 +1,4 @@
+import { englischerEnumWert } from "../kontakte/api-namen";
 import { and, asc, eq, isNull, sql, type SQL } from "drizzle-orm";
 import type { Context } from "hono";
 import { z } from "zod";
@@ -30,11 +31,11 @@ export interface FeldMitWert {
 }
 
 const NICHT_GEFUNDEN: Record<PortfolioObjekt, [Fehlercode, string]> = {
-  fonds: ["FONDS_NICHT_GEFUNDEN", "Fonds nicht gefunden."],
-  runde: ["RUNDE_NICHT_GEFUNDEN", "Finanzierungsrunde nicht gefunden."],
-  instrument: ["BETEILIGUNG_NICHT_GEFUNDEN", "Beteiligung nicht gefunden."],
-  beteiligung: ["BETEILIGUNG_NICHT_GEFUNDEN", "Beteiligung nicht gefunden."],
-  vorgang: ["VORGANG_NICHT_GEFUNDEN", "Vorgang nicht gefunden."],
+  fonds: ["fund_not_found", "Fund not found."],
+  runde: ["round_not_found", "Financing round not found."],
+  instrument: ["investment_not_found", "Investment not found."],
+  beteiligung: ["investment_not_found", "Investment not found."],
+  vorgang: ["transaction_not_found", "Transaction not found."],
 };
 
 /** Namen von Tabelle und Spalte sind Konstanten aus dem Verzeichnis der Feldziele, nie Eingaben. */
@@ -83,7 +84,7 @@ export async function ladeWerte(tx: Tx, objekt: PortfolioObjekt, id: string, sta
  */
 export async function ladeInstrumentWerte(tx: Tx, instrumentId: string, stand?: string): Promise<Werte> {
   const { rows } = await tx.execute<{ w: Werte | null }>(sql`SELECT felder AS w FROM instrument WHERE id = ${instrumentId}`);
-  if (!rows[0]) throw new Fachfehler(404, "INSTRUMENT_NICHT_GEFUNDEN", "Instrument nicht gefunden.");
+  if (!rows[0]) throw new Fachfehler(404, "instrument_not_found", "Instrument not found.");
   const aktuell = rows[0].w ?? {};
   if (stand === undefined) return aktuell;
   const { rows: aenderungen } = await tx.execute<{ vorher: { felder?: Werte } | null; nachher: { felder?: Werte } | null; am: Date }>(sql`
@@ -194,14 +195,14 @@ export async function pruefeNeueWerte(tx: Tx, c: Context, objekt: PortfolioObjek
   return Object.fromEntries(Object.entries(geprueft).filter(([, w]) => w !== null));
 }
 
-export const werteEingabe = z.object({ werte: z.record(z.string(), z.unknown()).refine((w) => Object.keys(w).length > 0, { message: "Mindestens ein Wert muss angegeben werden" }) });
+export const werteEingabe = z.object({ werte: z.record(z.string(), z.unknown()).refine((w) => Object.keys(w).length > 0, { message: "At least one value must be provided" }) });
 
 /**
  * Setzt Werte (Teilmenge; `null` entfernt einen Wert) und schreibt Vorher und Nachher der kompletten Werteliste ins Protokoll. Die Zeile wird gesperrt,
  * `vorgang` ist unveränderlich und nicht zulässig. Keine Änderung (alle Werte gleich) schreibt nichts.
  */
 export async function setzeWerte(tx: Tx, protokoll: Protokollant, c: Context, objekt: PortfolioObjekt, id: string, eingabe: Werte): Promise<{ werte: Werte; geaendert: boolean }> {
-  if (!FELD_ZIELE[objekt].veraenderbar) throw new Fachfehler(409, "FELDER_UNVERAENDERLICH", "Die Werte eines Vorgangs lassen sich nicht ändern. Ein Storno und ein neuer Vorgang tragen die richtigen Werte.");
+  if (!FELD_ZIELE[objekt].veraenderbar) throw new Fachfehler(409, "fields_immutable", "The values of a transaction cannot be changed. A reversal and a new transaction carry the correct values.");
   const vorher = (await leseAktuell(tx, objekt, id, true)).werte;
   const geprueft = await pruefeFelder(tx, c, await ladeDefinitionen(tx, objekt), eingabe);
   const nachher: Werte = { ...vorher };
@@ -224,7 +225,7 @@ export async function setzeWerte(tx: Tx, protokoll: Protokollant, c: Context, ob
 export async function setzeInstrumentWerte(tx: Tx, protokoll: Protokollant, c: Context, instrumentId: string, istHaupt: boolean, eingabe: Werte): Promise<{ werte: Werte; geaendert: boolean }> {
   const { rows } = await tx.execute<{ w: Werte | null; beteiligung_id: string }>(sql`SELECT felder AS w, beteiligung_id FROM instrument WHERE id = ${instrumentId} FOR UPDATE`);
   const zeile = rows[0];
-  if (!zeile) throw new Fachfehler(404, "INSTRUMENT_NICHT_GEFUNDEN", "Instrument nicht gefunden.");
+  if (!zeile) throw new Fachfehler(404, "instrument_not_found", "Instrument not found.");
   const vorher = zeile.w ?? {};
   const geprueft = await pruefeFelder(tx, c, await ladeDefinitionen(tx, "instrument"), eingabe);
   const nachher: Werte = { ...vorher };
@@ -252,7 +253,7 @@ type JsonSchema = Record<string, unknown>;
 
 /** JSON-Schema (2020-12) des Wertes eines Feldes; Auswahlfelder nennen ihre Optionsschlüssel, Beträge und Zahlen sind Zeichenketten. */
 function schemaVon(d: FeldDef): JsonSchema {
-  const titel = { title: d.name, "x-feld-schluessel": d.schluessel, "x-feld-typ": d.typ, "x-feld-version": d.version };
+  const titel = { title: d.name, "x-field-key": d.schluessel, "x-field-type": englischerEnumWert("typ", d.typ), "x-field-version": d.version };
   const optionen = ((d.optionen.optionen as { schluessel: string }[] | undefined) ?? []).map((o) => o.schluessel);
   switch (d.typ) {
     case "text":
@@ -260,9 +261,9 @@ function schemaVon(d: FeldDef): JsonSchema {
     case "langtext":
       return { ...titel, type: "string", minLength: 1, maxLength: 20000 };
     case "zahl":
-      return { ...titel, type: "string", pattern: "^-?\\d{1,18}(\\.\\d{1,6})?$", description: "Dezimalzahl als Zeichenkette" };
+      return { ...titel, type: "string", pattern: "^-?\\d{1,18}(\\.\\d{1,6})?$", description: "Decimal number as a string" };
     case "betrag":
-      return { ...titel, type: "string", pattern: "^-?\\d{1,16}(\\.\\d{1,2})?$", description: `Betrag mit höchstens zwei Nachkommastellen in ${String(d.optionen.waehrung ?? "EUR")}` };
+      return { ...titel, type: "string", pattern: "^-?\\d{1,16}(\\.\\d{1,2})?$", description: `Amount with at most two decimal places in ${String(d.optionen.waehrung ?? "EUR")}` };
     case "datum":
       return { ...titel, type: "string", format: "date" };
     case "auswahl":
@@ -288,11 +289,11 @@ export async function schemaFuer(tx: Tx, objekt: FeldObjekt): Promise<JsonSchema
   const defs = await ladeDefinitionen(tx, objekt);
   return {
     $schema: "https://json-schema.org/draft/2020-12/schema",
-    title: `Eigene Felder: ${objekt}`,
+    title: `Custom fields: ${englischerEnumWert("objekt", objekt)}`,
     type: "object",
     additionalProperties: false,
     properties: Object.fromEntries(defs.map((d) => [d.id, schemaVon(d)])),
-    "x-hinweis": "Schlüssel sind die IDs der Felddefinitionen. Beim Schreiben entfernt null einen Wert. Die Typen sind dieselben wie bei den Feldern der Kontakte und Deals.",
+    "x-note": "Keys are field definition IDs. Write null to remove a value. The types are the same as for contact and deal fields.",
   };
 }
 

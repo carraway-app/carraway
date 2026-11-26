@@ -97,10 +97,10 @@ describe("Runde anlegen, ändern, prüfen", () => {
     const { koerper } = stimmig();
     const unter = await anlegen({ ...koerper, postMoney: "1.00" }, ORG_NEU, bearbeiterF1);
     expect(unter.status).toBe(400);
-    expect((await json(unter)).fehler.felder[0]).toMatchObject({ feld: "postMoney", code: "post_unter_pre" });
+    expect((await json(unter)).error.fields[0]).toMatchObject({ field: "postMoney", code: "post_below_pre" });
     const doppelt = await anlegen({ ...koerper, positionen: [koerper.positionen[1], koerper.positionen[1]] });
     expect(doppelt.status).toBe(409);
-    expect((await json(doppelt)).fehler.code).toBe("RUNDENPOSITION_VORHANDEN");
+    expect((await json(doppelt)).error.code).toBe("round_position_exists");
     const selbst = await anlegen({ ...koerper, positionen: [{ organisationId: ORG_NEU, betrag: "1", anteile: "1", rolle: "co" }] });
     expect(selbst.status).toBe(400);
     const beideInvestoren = await anlegen({ ...koerper, positionen: [{ fondsId: F1, organisationId: ORG_CO, betrag: "1", anteile: "1", rolle: "co" }] });
@@ -108,7 +108,7 @@ describe("Runde anlegen, ändern, prüfen", () => {
     const [fremdeKlasse] = await db.insert(s.anteilsklasse).values({ organisationId: ORG_CO, name: "Fremd" }).returning();
     const klasse = await anlegen({ ...koerper, positionen: [{ ...koerper.positionen[1], anteilsklasseId: fremdeKlasse!.id }] });
     expect(klasse.status).toBe(409);
-    expect((await json(klasse)).fehler.code).toBe("ANTEILSKLASSE_PASST_NICHT");
+    expect((await json(klasse)).error.code).toBe("share_class_mismatch");
     expect(await anzahl(db, "finanzierungsrunde")).toBe(0);
   });
 
@@ -143,16 +143,16 @@ describe("Runde anlegen, ändern, prüfen", () => {
 });
 
 describe("Abschließen", () => {
-  it("lässt eine nicht stimmige Runde nicht zu (409 RUNDE_NICHT_KONSISTENT mit den Abweichungen)", async () => {
+  it("lässt eine nicht stimmige Runde nicht zu (409 round_inconsistent mit den Abweichungen)", async () => {
     const r = await json(await anlegen({ ...stimmig().koerper, postMoney: "9000000.00" }));
     const antwort = await abschliessen(r.id);
     expect(antwort.status).toBe(409);
     const d = await json(antwort);
-    expect(d.fehler.code).toBe("RUNDE_NICHT_KONSISTENT");
-    expect(d.fehler.abweichungen.map((a: { code: string }) => a.code)).toContain("POST_MONEY_ABWEICHEND");
+    expect(d.error.code).toBe("round_inconsistent");
+    expect(d.error.abweichungen.map((a: { code: string }) => a.code)).toContain("POST_MONEY_ABWEICHEND");
     expect((await db.select().from(s.finanzierungsrunde))[0]!.status).toBe("entwurf");
     const leer = await json(await anlegen({ ...stimmig().koerper, positionen: [] }));
-    expect((await json(await abschliessen(leer.id))).fehler.abweichungen[0].code).toBe("KEINE_POSITIONEN");
+    expect((await json(await abschliessen(leer.id))).error.abweichungen[0].code).toBe("KEINE_POSITIONEN");
   });
 
   it("legt je eigener Position Beteiligung, Instrument (Runde, Anteilsklasse), Zusage und Tranche an, auch ohne ausdrücklichen Wunsch", async () => {
@@ -259,7 +259,7 @@ describe("Abschließen", () => {
     const eigene = r.positionen.find((p: { investor: { art: string } }) => p.investor.art === "fonds");
     const zuViel = await abschliessen(r.id, { fondsBuchungen: [{ positionId: eigene.id, auszahlungen: [{ valuta: "2026-03-20", betrag: "1500000.01" }] }] });
     expect(zuViel.status).toBe(409);
-    expect((await json(zuViel)).fehler.code).toBe("AUSZAHLUNG_UEBER_ZUSAGE");
+    expect((await json(zuViel)).error.code).toBe("disbursement_exceeds_commitment");
     expect(await anzahl(db, "vorgang")).toBe(0);
     expect(await anzahl(db, "beteiligung", `organisation_id = '${ORG_NEU}'`)).toBe(0);
     expect((await db.select().from(s.finanzierungsrunde))[0]!.status).toBe("entwurf");
@@ -267,13 +267,13 @@ describe("Abschließen", () => {
     await put(`/fonds/${F1}/periodensperre`, { gesperrtBis: "2026-03-31", grund: "Abschluss" });
     const gesperrt = await abschliessen(r.id, { fondsBuchungen: [{ positionId: eigene.id }] });
     expect(gesperrt.status).toBe(409);
-    expect((await json(gesperrt)).fehler).toMatchObject({ code: "PERIODE_GESPERRT", gesperrtBis: "2026-03-31" });
+    expect((await json(gesperrt)).error).toMatchObject({ code: "period_locked", gesperrtBis: "2026-03-31" });
     expect(await anzahl(db, "vorgang")).toBe(0);
     expect(await anzahl(db, "beteiligung", `organisation_id = '${ORG_NEU}'`)).toBe(0);
     // Auch ohne ausdrücklichen Wunsch bucht der Abschluss die Zusage (Standard) und scheitert an der Sperre; ohne Zusage lässt sich die Runde abschließen
     const standard = await abschliessen(r.id);
     expect(standard.status).toBe(409);
-    expect((await json(standard)).fehler.code).toBe("PERIODE_GESPERRT");
+    expect((await json(standard)).error.code).toBe("period_locked");
     expect((await abschliessen(r.id, { fondsBuchungen: [{ positionId: eigene.id, zusage: false }] })).status).toBe(200);
   });
 
@@ -293,7 +293,7 @@ describe("Abschließen", () => {
     const eigene = r.positionen.find((p: { investor: { art: string } }) => p.investor.art === "fonds");
     await abschliessen(r.id, { fondsBuchungen: [{ positionId: eigene.id }] });
     expect((await patch(`/finanzierungsrunden/${r.id}`, { bezeichnung: "x" })).status).toBe(409);
-    expect((await json(await patch(`/finanzierungsrunden/${r.id}`, { bezeichnung: "x" }))).fehler.code).toBe("RUNDE_NICHT_ENTWURF");
+    expect((await json(await patch(`/finanzierungsrunden/${r.id}`, { bezeichnung: "x" }))).error.code).toBe("round_not_draft");
     expect((await post(`/finanzierungsrunden/${r.id}/positionen`, { organisationId: ORG_CO2, betrag: "1", anteile: "1", rolle: "co" })).status).toBe(409);
     expect((await loesche(`/finanzierungsrunden/${r.id}/positionen/${eigene.id}`)).status).toBe(409);
     expect((await loesche(`/finanzierungsrunden/${r.id}`)).status).toBe(409);
@@ -309,38 +309,38 @@ describe("Abschließen", () => {
     expect((await post(`/finanzierungsrunden/${r.id}/wiedereroeffnen`, { grund: "nochmal" }, verwalterF1)).status).toBe(409);
     expect(await protokollZeilen(db, "finanzierungsrunde", "wiedereroeffnen")).toHaveLength(1);
     // Die Position mit Buchung lässt sich nicht entfernen
-    expect((await json(await loesche(`/finanzierungsrunden/${r.id}/positionen/${eigene.id}`))).fehler.code).toBe("RUNDENPOSITION_GEBUCHT");
+    expect((await json(await loesche(`/finanzierungsrunden/${r.id}/positionen/${eigene.id}`))).error.code).toBe("round_position_posted");
     // Erneutes Abschließen mit Zusage: die Zusage gibt es schon
     const doppelt = await abschliessen(r.id, { fondsBuchungen: [{ positionId: eigene.id }] });
     expect(doppelt.status).toBe(409);
-    expect((await json(doppelt)).fehler.code).toBe("RUNDE_ZUSAGE_VORHANDEN");
+    expect((await json(doppelt)).error.code).toBe("round_commitment_exists");
     expect(await anzahl(db, "vorgang", "art = 'zusage'")).toBe(1);
     // Ohne Zusagewunsch geht es, auch wieder abschließen ohne Buchungen
     expect((await abschliessen(r.id)).status).toBe(200);
     // Nach dem Storno der Zusage ist eine neue möglich
     await post(`/finanzierungsrunden/${r.id}/wiedereroeffnen`, { grund: "Storno der Zusage" }, verwalterF1);
     const zusageId = (await db.select().from(s.vorgang).where(eq(s.vorgang.art, "zusage")))[0]!.id;
-    expect((await post(`/vorgaenge/${zusageId}/storno`, { grund: "Runde neu gebucht" })).status).toBe(201);
+    expect((await post(`/transactions/${zusageId}/reverse`, { reason: "Runde neu gebucht" })).status).toBe(201);
     expect((await abschliessen(r.id, { fondsBuchungen: [{ positionId: eigene.id }] })).status).toBe(200);
     expect(await anzahl(db, "vorgang", "art = 'zusage' AND betrag > 0")).toBe(2);
   });
 
   it("eine Wandlung braucht eine abgeschlossene Runde; eine Runde, die eine Wandlung nutzt, lässt sich nicht wieder öffnen", async () => {
-    await post(`/beteiligungen/${ID.wandel}/vorgaenge`, { art: "zusage", valuta: "2026-01-01", betrag: "200000" });
-    await post(`/beteiligungen/${ID.wandel}/vorgaenge`, { art: "auszahlung", valuta: "2026-01-01", betrag: "100000" });
+    await post(`/investments/${ID.wandel}/transactions`, { type: "commitment", valueDate: "2026-01-01", amount: "200000" });
+    await post(`/investments/${ID.wandel}/transactions`, { type: "disbursement", valueDate: "2026-01-01", amount: "100000" });
     await post(`/beteiligungen/${ID.wandel}/konditionen`, { gueltigAb: "2026-01-01", satzFix: "0.06", methode: "30E/360", zinsperiode: "jaehrlich", anker: "2027-01-01" });
     const nurCo = { ...stimmig(ID.orgC).koerper, positionen: [{ organisationId: ORG_CO, betrag: "500000", anteile: "50000", rolle: "lead" }] };
     const r = await json(await anlegen(nurCo, ID.orgC));
     const wandlungKoerper = { cutoff: "2026-07-01", zinsenWandeln: true, preisregel: { rundenpreisJeAnteil: "10", discount: "0.2" }, nennwertJeAnteil: "1", runde: { id: r.id } };
     const inEntwurf = await post(`/beteiligungen/${ID.wandel}/wandlung`, wandlungKoerper, "bearbeiter");
     expect(inEntwurf.status).toBe(409);
-    expect((await json(inEntwurf)).fehler.code).toBe("RUNDE_NICHT_ABGESCHLOSSEN");
+    expect((await json(inEntwurf)).error.code).toBe("round_not_closed");
     expect((await abschliessen(r.id)).status).toBe(200);
     const gewandelt = await post(`/beteiligungen/${ID.wandel}/wandlung`, wandlungKoerper, "bearbeiter");
     expect(gewandelt.status).toBe(201);
     const offen = await post(`/finanzierungsrunden/${r.id}/wiedereroeffnen`, { grund: "Versuch" }, verwalterF1);
     expect(offen.status).toBe(409);
-    expect((await json(offen)).fehler.code).toBe("RUNDE_VERWENDET");
+    expect((await json(offen)).error.code).toBe("round_used");
   });
 });
 
@@ -460,7 +460,7 @@ describe("Rechte: Entwurfspositionen und fremde Fonds", () => {
     await abschliessen(r.id);
     const fremde = r.positionen.find((p: { investor: { art: string } }) => p.investor.art === "organisation");
     await post(`/rundenpositionen/${fremde.id}/zahlungen`, { datum: "2026-04-01", art: "einzahlung", betrag: "1" });
-    const tabellen = async (als: Parameters<typeof get>[1]) => (await json(await get("/aenderungen?limit=1000", als))).daten.map((z: { tabelle: string }) => z.tabelle);
+    const tabellen = async (als: Parameters<typeof get>[1]) => (await json(await get("/changes?limit=1000", als))).data.map((z: { table: string }) => z.table);
     const f1 = await tabellen(bearbeiterF1);
     expect(f1).toContain("finanzierungsrunde");
     expect(f1).toContain("rundenposition_zahlung");
@@ -506,19 +506,19 @@ describe("Zahlungen der Co-Investoren", () => {
     const erste = liste.daten[0].id;
     const blockiert = await loesche(`/rundenpositionen/${fremde.id}/zahlungen/${erste}`);
     expect(blockiert.status).toBe(200);
-    expect((await json(await loesche(`/rundenpositionen/${fremde.id}/zahlungen/${erste}`))).fehler.code).toBe("ZAHLUNG_NICHT_GEFUNDEN");
+    expect((await json(await loesche(`/rundenpositionen/${fremde.id}/zahlungen/${erste}`))).error.code).toBe("payment_not_found");
   });
 
   it("gibt es nur für Positionen von Co-Investoren und für abgeschlossene Runden", async () => {
     const { eigene } = await abgeschlosseneRunde();
     const antwort = await zahlung(eigene.id, { datum: "2026-04-01", art: "einzahlung", betrag: "1" });
     expect(antwort.status).toBe(409);
-    expect((await json(antwort)).fehler.code).toBe("ZAHLUNG_NUR_FREMDE_POSITION");
+    expect((await json(antwort)).error.code).toBe("payment_third_party_position_only");
     const entwurf = await json(await anlegen({ ...stimmig(ID.orgB).koerper, bezeichnung: "Entwurf" }));
     const fremde = entwurf.positionen.find((p: { investor: { art: string } }) => p.investor.art === "organisation");
     const imEntwurf = await zahlung(fremde.id, { datum: "2026-04-01", art: "einzahlung", betrag: "1" });
     expect(imEntwurf.status).toBe(409);
-    expect((await json(imEntwurf)).fehler.code).toBe("RUNDE_NICHT_ABGESCHLOSSEN");
+    expect((await json(imEntwurf)).error.code).toBe("round_not_closed");
     expect((await zahlung("00000000-0000-4000-8000-0000000000ff", { datum: "2026-04-01", art: "einzahlung", betrag: "1" })).status).toBe(404);
   });
 

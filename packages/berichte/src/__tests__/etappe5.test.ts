@@ -121,6 +121,22 @@ describe.each(["de", "en"] as Sprache[])("LP-Bericht (%s)", (sprache) => {
     expect(seiten).toBeGreaterThanOrEqual(3);
   });
 
+  it("Vergütung und Kosten: eigene Spalte mit Summe nur bei Kostenbuchungen", async () => {
+    const ohne = await pdfText(erzeugeLpBericht(lp, sprache));
+    const kopf = (x: string) => x.replace(/ /g, "").includes(t.lp.kostenSpalte.toUpperCase().replace(/ /g, ""));
+    expect(kopf(ohne.text)).toBe(false);
+    expect(ohne.text).not.toContain(t.lp.kostenHinweis);
+    const mitKosten = { ...lp, kapitalkonten: [
+      { ...lp.kapitalkonten[0]!, verwaltungsverguetung: "12000.00", fondskosten: "345.67" },
+      { ...lp.kapitalkonten[1]!, verwaltungsverguetung: "8000.00", fondskosten: "230.45" },
+    ] };
+    const { text } = await pdfText(erzeugeLpBericht(mitKosten, sprache));
+    expect(kopf(text)).toBe(true);
+    expect(text).toContain(t.lp.kostenHinweis);
+    expect(text).toMatch(sprache === "de" ? /12\.345,67 €/ : /€12,345\.67/);
+    expect(text).toMatch(sprache === "de" ? /20\.576,12 €/ : /€20,576\.12/);
+  });
+
   it("Fassung für einen Investor: nur dessen Konto, eigener Hinweis, keine Summenzeile", async () => {
     const einzeln = { ...lp, kapitalkonten: [lp.kapitalkonten[1]!] };
     const { text } = await pdfText(erzeugeLpBericht(einzeln, sprache, { entwurf: false, kapitalkontoEinzeln: true }));

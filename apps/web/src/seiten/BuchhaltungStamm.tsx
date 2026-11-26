@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { useSuspenseQuery } from "@tanstack/react-query";
-import { Auswahl, Button, Feld, Hinweis, Tabelle } from "@carraway/ui";
+import { Auswahl, Button, Feld, Hinweis, SortierbareListe, Tabelle } from "@carraway/ui";
 import { fondsUebersicht } from "../api/abfragen";
 import {
   BUCHUNGSQUELLEN,
@@ -203,19 +203,10 @@ function nachkommen(positionen: GliederungEingabe[], schluessel: string): Set<st
   return menge;
 }
 
-/** Verschiebt eine Position innerhalb ihrer Geschwister um eine Stelle (die Reihenfolge der Liste ist die der Gliederung). */
-function verschiebe(positionen: GliederungEingabe[], schluessel: string, schritt: -1 | 1): GliederungEingabe[] {
-  const eintrag = positionen.find((p) => p.schluessel === schluessel);
-  if (!eintrag) return positionen;
-  const geschwister = positionen.filter((p) => p.elternSchluessel === eintrag.elternSchluessel);
-  const nachbar = geschwister[geschwister.indexOf(eintrag) + schritt];
-  if (!nachbar) return positionen;
-  const kopie = [...positionen];
-  const i = kopie.indexOf(eintrag);
-  const j = kopie.indexOf(nachbar);
-  kopie[i] = nachbar;
-  kopie[j] = eintrag;
-  return kopie;
+/** Ersetzt die Geschwister einer Oberposition durch ihre neue Reihenfolge; sie behalten die Plätze, die sie in der Gliederung schon einnahmen. */
+function ordneGeschwister(positionen: GliederungEingabe[], eltern: string | null, neu: GliederungEingabe[]): GliederungEingabe[] {
+  const folge = [...neu];
+  return positionen.map((p) => (p.elternSchluessel === eltern ? (folge.shift() ?? p) : p));
 }
 
 export function GliederungEditor({ fondsId }: { fondsId: string }) {
@@ -290,24 +281,27 @@ function SichtEditor({ fondsId, sicht }: { fondsId: string; sicht: (typeof SICHT
     setPositionen(positionen.filter((x) => x.schluessel !== p.schluessel));
   }
 
-  const baum = (eltern: string | null, tiefe: number): ReactNode =>
-    positionen
-      .filter((p) => p.elternSchluessel === eltern)
-      .map((p, i, geschwister) => {
+  const baum = (eltern: string | null, tiefe: number): ReactNode => (
+    <SortierbareListe
+      className="app-baum"
+      aria-label={eltern === null ? g.baum : name(positionen.find((p) => p.schluessel === eltern)!)}
+      eintraege={positionen.filter((p) => p.elternSchluessel === eltern)}
+      schluessel={(p) => p.schluessel}
+      name={name}
+      onAendern={(neu) => {
+        setzen.reset();
+        setPositionen(ordneGeschwister(positionen, eltern, neu));
+      }}
+      texte={{ griff: g.griff, hinweis: g.bedienung, aufgenommen: g.aufgenommen, verschoben: g.verschoben, abgelegt: g.abgelegt, abgebrochen: g.abgebrochen }}
+      zeile={(p) => {
         const hatKinder = positionen.some((x) => x.elternSchluessel === p.schluessel);
         return (
-          <li key={p.schluessel}>
+          <div className="app-baum__eintrag">
             <div className="app-reihenfolge">
               <span>
                 {name(p)} <span className="app-leer-text">({p.schluessel}, {aufzaehlung(g.seiten, p.seite)})</span>
               </span>
               <span className="app-aktionen__knoepfe">
-                <Button variante="ruhig" disabled={i === 0} aria-label={g.nachOben(name(p))} onClick={() => setPositionen(verschiebe(positionen, p.schluessel, -1))}>
-                  ↑
-                </Button>
-                <Button variante="ruhig" disabled={i === geschwister.length - 1} aria-label={g.nachUnten(name(p))} onClick={() => setPositionen(verschiebe(positionen, p.schluessel, 1))}>
-                  ↓
-                </Button>
                 <Button variante="ruhig" aria-label={g.unterposition(name(p))} onClick={() => neuePosition(p.schluessel)}>
                   +
                 </Button>
@@ -319,16 +313,18 @@ function SichtEditor({ fondsId, sicht }: { fondsId: string; sicht: (typeof SICHT
                 </Button>
               </span>
             </div>
-            {hatKinder ? <ul className="app-liste" style={{ paddingInlineStart: `${tiefe + 1}rem` }}>{baum(p.schluessel, tiefe + 1)}</ul> : null}
-          </li>
+            {hatKinder ? <div style={{ paddingInlineStart: `${tiefe + 1}rem` }}>{baum(p.schluessel, tiefe + 1)}</div> : null}
+          </div>
         );
-      });
+      }}
+    />
+  );
 
   const waehlbareEltern = form?.bearbeitet ? nachkommen(positionen, form.bearbeitet) : new Set<string>();
 
   return (
     <>
-      {positionen.length === 0 ? <p className="app-leer-text">{g.keine}</p> : <ul className="app-liste" aria-label={g.baum}>{baum(null, 0)}</ul>}
+      {positionen.length === 0 ? <p className="app-leer-text">{g.keine}</p> : baum(null, 0)}
       {form ? (
         <form
           className="app-formular"

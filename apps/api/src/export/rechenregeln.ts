@@ -53,7 +53,7 @@ Auszahlung beginnen und darf nie negativ werden.
 ## Buchwert einer Beteiligung
 
 Buchwert = Investiert (Auszahlungen) + kapitalisierte Zinsen − Tilgungen − Wertberichtigungen (netto: Zuführung positiv, Auflösung
-negativ) − Buchwertabgang früherer Teilverkäufe. Rückflüsse und Verkaufserlöse mindern den Buchwert nicht (Entscheidung 66).
+negativ) − Buchwertabgang durch Verkäufe. Rückflüsse und Verkaufserlöse mindern den Buchwert nicht (Entscheidung 66).
 
 ## Verkauf
 
@@ -100,6 +100,15 @@ Abrufe, Ausschüttungen und NAV werden nach der Methode des größten Rests auf 
 Mit \`fonds.lp_verteilung_nach_zusage\` gelten die Beträge in \`fonds_zeichnung.zusage\` als exakte relative Gewichte.
 Bei bestehenden Verteilungen ohne diese Einstellung bilden die gespeicherten Anteile in \`fonds_zeichnung.anteil\` die Gewichte.
 Weitere Closings (\`fonds_closing\`) gelten ab ihrem Wirksamkeitsdatum; jede Bewegung wird mit der Grundlage ihrer Valuta verteilt, die Zusagen und Anteile vor dem Closing stehen in \`fonds_closing_basis\`, die nach dem Closing in \`fonds_closing_stand\`. Die Spalte \`art\` unterscheidet Closing, Verringerung und Austritt; ein ausgetretener Investor (Kennzeichen \`ausgetreten\`) hat in der Verteilung das Gewicht null. Ein stornierter Vorgang (\`fonds_closing_storno\`) gilt ab seiner Stornierung nicht mehr; ein früherer Wissensstand sieht ihn weiter.
+
+## Verwaltungsvergütung und Fondskosten
+
+Kostenbuchungen stehen in \`fonds_kosten\` (Art \`verwaltungsverguetung\` oder \`fondskosten\`), die festgeschriebenen Anteile je Investor in
+\`fonds_kosten_anteil\`; ein Storno negiert Betrag und Anteile. Eine berechnete Vergütung = Summe der Zusagen zu Beginn des Zeitraums × \`satz\`
+× Tage von \`zeitraum_von\` bis \`zeitraum_bis\` (beide einschließlich) ÷ 365, kaufmännisch auf Cent. Kosten sind kein Zahlungsstrom des Fonds;
+der Fonds-NAV bleibt der Wert aus der Saldenliste. Je Investor: NAV-Anteil = NAV nach den Gewichten + Summe über die Buchungen (gemeinsam
+getragener Betrag der Investoren mit Gewicht, nach den Gewichten verteilt, minus eigener Anteil). Netto-IRR des Investors = XIRR aus seinen
+Zahlungseingängen (negativ), seinen Ausschüttungsanteilen und dem NAV-Anteil als Endwert.
 
 ## Wandlung
 

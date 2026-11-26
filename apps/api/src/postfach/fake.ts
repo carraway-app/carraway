@@ -57,6 +57,7 @@ export function erzeugeDemoDaten(kontakte: DemoKontakt[], eigeneAdresse: string,
       von: eingehend ? k.email : eigeneAdresse,
       an: eingehend ? [eigeneAdresse] : [k.email],
       cc: [],
+      ...(eingehend ? {} : { gesendet: true }),
     });
     texte.set(id, `Guten Tag ${k.vorname},\n\ndies ist ein erfundener Beispieltext für die Demo (${betreffe[i % betreffe.length]}).\n\nBeste Grüße`);
   });
@@ -65,7 +66,7 @@ export function erzeugeDemoDaten(kontakte: DemoKontakt[], eigeneAdresse: string,
   kontakte.slice(0, 4).forEach((k, i) => {
     const beginn = new Date(jetzt.getTime() + zeiten[i]! * tag);
     beginn.setUTCHours(9 + i, 0, 0, 0);
-    termine.push({ id: `demo-termin-${i + 1}@demo.example`, instanz: null, titel: ["Erstgespräch", "Abstimmung zur Runde", "Quartalsgespräch", "Besuch vor Ort"][i]!, beginn, ende: new Date(beginn.getTime() + 3_600_000), teilnehmer: [eigeneAdresse, k.email], abgesagt: false });
+    termine.push({ id: `demo-termin-${i + 1}@demo.example`, instanz: null, titel: ["Erstgespräch", "Abstimmung zur Runde", "Quartalsgespräch", "Besuch vor Ort"][i]!, beginn, ende: new Date(beginn.getTime() + 3_600_000), teilnehmer: [eigeneAdresse, k.email], eigeneAntwort: "angenommen", abgesagt: false });
   });
   return { mails, termine, texte };
 }

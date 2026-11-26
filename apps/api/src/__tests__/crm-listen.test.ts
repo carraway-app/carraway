@@ -82,7 +82,7 @@ describe("Ansichten", () => {
     expect(fremd.daten.map((a: { name: string; bearbeitbar: boolean }) => [a.name, a.bearbeitbar])).toEqual([["Team-Sicht", false]]);
     const verboten = await patch(`/ansichten/${geteilt}`, { name: "Gekapert" }, BEA_B);
     expect(verboten.status).toBe(403);
-    expect((await json(verboten)).fehler.code).toBe("ANSICHT_FREMD");
+    expect((await json(verboten)).error.code).toBe("view_foreign");
     expect((await del(`/ansichten/${geteilt}`, undefined, BEA_B)).status).toBe(403);
     expect((await patch(`/ansichten/${geteilt}`, { name: "Team-Sicht 2" }, BEA_A)).status).toBe(200);
     expect((await patch(`/ansichten/${geteilt}`, { name: "Team-Sicht 3" }, ADMIN)).status).toBe(200);
@@ -184,7 +184,7 @@ describe("Rechte an Listen", () => {
     const id = (await json(await post("/listen", { name: "Geteilte Liste", objekt: "organisation" }, BEA_A))).id;
     const verboten = await patch(`/listen/${id}`, { name: "Umbenannt" }, BEA_B);
     expect(verboten.status).toBe(403);
-    expect((await json(verboten)).fehler.code).toBe("LISTE_BERECHTIGUNG");
+    expect((await json(verboten)).error.code).toBe("list_permission");
     expect((await patch(`/listen/${id}`, { beschreibung: "neu" }, BEA_B)).status).toBe(403);
     expect((await post(`/listen/${id}/eintraege`, { datensatzIds: [o["Muster Alpha GmbH"]] }, BEA_B)).status).toBe(403);
     expect((await post(`/listen/${id}/eintraege/entfernen`, { datensatzIds: [o["Muster Alpha GmbH"]] }, BEA_B)).status).toBe(403);
@@ -330,7 +330,7 @@ describe("Massenaktionen und Dealflow", () => {
   it("Phase per Massenaktion folgt den Regeln: Closing nur mit zustimmendem Beschluss", async () => {
     const ergebnis = await json(await post("/objekte/deal/massenaktion", { ids: [d["Deal Offen A"], d["Deal Ohne Fonds"]], aktion: { art: "phase", nachPhase: "closing" } }, BEA_A));
     expect(ergebnis.erfolgreich).toBe(0);
-    expect(ergebnis.fehler.map((f: { code: string }) => f.code)).toEqual(["BESCHLUSS_FEHLT", "BESCHLUSS_FEHLT"]);
+    expect(ergebnis.fehler.map((f: { code: string }) => f.code)).toEqual(["resolution_missing", "resolution_missing"]);
     await db.insert(s.beschluss).values({ dealId: d["Deal Ohne Fonds"]!, gremium: "IA", datum: "2026-10-01", ergebnis: "zugestimmt" });
     const zweite = await json(await post("/objekte/deal/massenaktion", { ids: [d["Deal Offen A"], d["Deal Ohne Fonds"]], aktion: { art: "phase", nachPhase: "closing" } }, BEA_A));
     expect(zweite.erfolgreich).toBe(1);
@@ -340,7 +340,7 @@ describe("Massenaktionen und Dealflow", () => {
     expect(wechsel.some((w) => w.nachPhase === "closing")).toBe(true);
     // fremder Fonds: sichtbar nicht, also Fehler je Zeile
     const fremd = await json(await post("/objekte/deal/massenaktion", { ids: [d["Deal Offen B"]], aktion: { art: "phase", nachPhase: "erstgespraech" } }, BEA_A));
-    expect(fremd.fehler).toEqual([{ id: d["Deal Offen B"], code: "DEAL_NICHT_GEFUNDEN" }]);
+    expect(fremd.fehler).toEqual([{ id: d["Deal Offen B"], code: "deal_not_found" }]);
     expect((await db.select().from(s.deal).where(eq(s.deal.id, d["Deal Offen B"]!)))[0]!.phase).toBe("pruefung");
   });
 
@@ -371,9 +371,9 @@ describe("Massenaktionen und Dealflow", () => {
     const nurTreffer = await json(await post("/objekte/organisation/massenaktion", { abfrage: { filter: { verknuepfung: "und", elemente: [{ feld, operator: "gleich", wert: "4" }] } }, aktion: { art: "feld_setzen", feld, wert: "5" } }));
     expect(nurTreffer.erfolgreich).toBe(2);
     const fehler = await json(await post("/objekte/organisation/massenaktion", { ids: [o["Muster Beta AG"]], aktion: { art: "feld_setzen", feld, wert: "x" } }));
-    expect(fehler.fehler[0].code).toBe("FELDWERT_UNGUELTIG");
+    expect(fehler.fehler[0].code).toBe("field_value_invalid");
     const arch = await json(await post("/objekte/organisation/massenaktion", { ids: [o["Muster Alpha GmbH"], p["Cara"]!], aktion: { art: "archivieren" } }));
-    expect(arch.fehler.map((f: { code: string }) => f.code)).toEqual(["DATENSATZ_REFERENZIERT", "DATENSATZ_NICHT_GEFUNDEN"]);
+    expect(arch.fehler.map((f: { code: string }) => f.code)).toEqual(["record_referenced", "record_not_found"]);
     const personArch = await json(await post("/objekte/person/massenaktion", { ids: [p["Cara"]!], aktion: { art: "archivieren" } }));
     expect(personArch.erfolgreich).toBe(1);
     const sichtbar = await json(await post("/objekte/person/abfrage", { spalten: [{ feld: "name" }] }));

@@ -54,7 +54,7 @@ function hochladen(bytes: Uint8Array, name: string) {
   const f = new FormData();
   f.append("datei", new File([new Uint8Array(bytes)], name));
   f.append("ziele", JSON.stringify([{ typ: "beteiligung", id: w.beteiligung1 }]));
-  return t.request("/dokumente", { method: "POST", body: f, als: BEARB1 });
+  return t.request("/documents", { method: "POST", body: f, als: BEARB1 });
 }
 async function lege(bytes: Uint8Array, name: string) {
   const antwort = await hochladen(bytes, name);
@@ -99,7 +99,7 @@ describe("Office-Auszug im Worker: Zeitlimit, Versuche, gelöschte Dokumente", (
 
   it("gelöschte Dokumente werden nicht ausgelesen; wird eines während des Lesens gelöscht, wird kein Text zurückgeschrieben", async () => {
     const a = await lege(erzeugeDocxMitText(["Dokument, das vor dem Lauf gelöscht wird."]), "a.docx");
-    expect((await t.request(`/dokumente/${a.id}`, { method: "DELETE", als: VERWALTER1 })).status).toBe(204);
+    expect((await t.request(`/documents/${a.id}`, { method: "DELETE", als: VERWALTER1 })).status).toBe(204);
     expect(await verarbeiteOfficeTexte(db, speicher)).toEqual({ verarbeitet: 0, fehler: 0 });
     expect((await zeile(a.id)).textStatus).toBe("ausstehend");
 
@@ -108,7 +108,7 @@ describe("Office-Auszug im Worker: Zeitlimit, Versuche, gelöschte Dokumente", (
       ausfuehren: async (art, bytes, ms) => {
         const { extrahiereOfficeIsoliert } = await import("../dokumente/isoliert");
         const auszug = await extrahiereOfficeIsoliert(art, bytes, ms);
-        expect((await t.request(`/dokumente/${b.id}`, { method: "DELETE", als: VERWALTER1 })).status).toBe(204);
+        expect((await t.request(`/documents/${b.id}`, { method: "DELETE", als: VERWALTER1 })).status).toBe(204);
         return auszug;
       },
     });
@@ -118,7 +118,7 @@ describe("Office-Auszug im Worker: Zeitlimit, Versuche, gelöschte Dokumente", (
 
   it("der Aufbewahrungslauf setzt beim endgültigen Löschen einen Endstand des Textes", async () => {
     const d = await lege(erzeugeDocxMitText(["Dokument für die Aufbewahrung."]), "c.docx");
-    expect((await t.request(`/dokumente/${d.id}`, { method: "DELETE", als: VERWALTER1 })).status).toBe(204);
+    expect((await t.request(`/documents/${d.id}`, { method: "DELETE", als: VERWALTER1 })).status).toBe(204);
     const ergebnis = await loescheAbgelaufeneDokumente(db, speicher, { tage: 30, jetzt: () => new Date(Date.now() + 40 * 86_400_000) });
     expect(ergebnis.dokumente).toBe(1);
     const z = await zeile(d.id);
@@ -175,10 +175,10 @@ describe("Lokale Texterkennung", () => {
       expect(seiten[0]!.text).toContain("4711");
       expect(seiten[0]!.text).toMatch(/Gesamtbetrag/i);
     }
-    const treffer = await json(await t.request("/dokumente/suche?q=Gesamtbetrag", { als: BEARB1 }));
+    const treffer = await json(await t.request("/documents/search?q=Gesamtbetrag", { als: BEARB1 }));
     expect(treffer.daten).toHaveLength(2);
     expect(treffer.daten.every((x: { quelle: string }) => x.quelle === "ocr")).toBe(true);
-    const seite = await json(await t.request(`/dokumente/${scan.id}/seiten/1`, { als: BEARB1 }));
+    const seite = await json(await t.request(`/documents/${scan.id}/pages/1`, { als: BEARB1 }));
     expect(seite).toMatchObject({ quelle: "ocr" });
     expect(seite.konfidenz).toBeGreaterThan(50);
     // Es gibt keinen Zwischenspeicher der Sprachdaten im Arbeitsverzeichnis
@@ -211,10 +211,10 @@ describe("Lokale Texterkennung", () => {
     const png = await pngMitText(ZEILEN);
     const scan = await lege(scanPdf([png]), "alt.pdf");
     expect(scan.textStatus).toBe("kein_text");
-    const anfordern = (id: string) => t.request(`/dokumente/${id}/texterkennung`, { method: "POST", als: BEARB1 });
+    const anfordern = (id: string) => t.request(`/documents/${id}/ocr`, { method: "POST", als: BEARB1 });
     const aus = await anfordern(scan.id);
     expect(aus.status).toBe(409);
-    expect((await json(aus)).fehler.code).toBe("TEXTERKENNUNG_AUS");
+    expect((await json(aus)).error.code).toBe("ocr_disabled");
 
     process.env.OCR = "lokal";
     const ok = await anfordern(scan.id);
@@ -225,10 +225,10 @@ describe("Lokale Texterkennung", () => {
     expect(text.textStatus).toBe("vorhanden");
     const unnoetig = await anfordern(text.id);
     expect(unnoetig.status).toBe(409);
-    expect((await json(unnoetig)).fehler.code).toBe("TEXTERKENNUNG_NICHT_MOEGLICH");
+    expect((await json(unnoetig)).error.code).toBe("ocr_not_possible");
     const betrachter = person("nv-betr1", { rollen: { [w.fonds1]: "betrachter" } });
     await legePersonAn(db, betrachter);
-    expect((await t.request(`/dokumente/${scan.id}/texterkennung`, { method: "POST", als: betrachter })).status).toBe(403);
+    expect((await t.request(`/documents/${scan.id}/ocr`, { method: "POST", als: betrachter })).status).toBe(403);
     expect(await verarbeiteTexterkennung(db, speicher, erkenner, konf())).toEqual({ verarbeitet: 1, kein_text: 0, fehler: 0 });
     expect((await zeile(scan.id)).textStatus).toBe("vorhanden");
   });

@@ -72,10 +72,10 @@ async function beobachte() {
 
 describe("Registerereignisse per Mail", () => {
   it("Opt-in in den Einstellungen: Standard aus, änderbar", async () => {
-    expect(await json(await get("/einstellungen", ohneOptIn))).toMatchObject({ mailRegisterEreignis: false });
-    expect(await json(await get("/einstellungen", mitOptIn))).toMatchObject({ mailRegisterEreignis: true });
-    const r = await put("/einstellungen", { mailRegisterEreignis: true }, ohneOptIn);
-    expect(await json(r)).toMatchObject({ mailRegisterEreignis: true });
+    expect(await json(await get("/settings", ohneOptIn))).toMatchObject({ mailOnRegisterEvent: false });
+    expect(await json(await get("/settings", mitOptIn))).toMatchObject({ mailOnRegisterEvent: true });
+    const r = await put("/settings", { mailOnRegisterEvent: true }, ohneOptIn);
+    expect(await json(r)).toMatchObject({ mailOnRegisterEvent: true });
   });
 
   it("die Beobachtung meldet eine Insolvenz nur an Personen mit Opt-in und Rolle an einem Fonds mit Beteiligung; die Mail enthält keinen Registerinhalt", async () => {

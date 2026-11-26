@@ -156,7 +156,7 @@ describe("Währungssicht am Fonds", () => {
 
   it("lädt Wechselkurse für Beträge erst in der Währungssicht und bietet bei einem Fehler eine Wiederholung an", async () => {
     const fondsSicht = `/api/v1/fonds/${FONDS_ID}/waehrungssicht`;
-    const api = spieleApi({ [fondsSicht]: fehler(500, "INTERNER_FEHLER") });
+    const api = spieleApi({ [fondsSicht]: fehler(500, "internal_error") });
     rendereApp(`/fonds/${FONDS_ID}`);
     const nutzer = userEvent.setup();
     const leiste = await screen.findByRole("region", { name: "Währungssicht" });

@@ -73,4 +73,7 @@ jobs:
         run: pnpm --filter @carraway/db setup:test
 
       - name: Test
+        # Leistungstests messen Zeiten und sind auf geteilten GitHub-Runnern nicht aussagekräftig.
+        env:
+          SKIP_PERF: "1"
         run: pnpm test

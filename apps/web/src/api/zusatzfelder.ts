@@ -1,5 +1,6 @@
 import { queryOptions } from "@tanstack/react-query";
-import { auspacken, ladeMitSitzung } from "./client";
+import { ladeMitSitzung } from "./client";
+import { ausKontaktAntwort } from "./abbildung-kontakte";
 import { useApiMutation } from "./mutationen";
 import type { Feld, FeldTyp } from "./crm";
 
@@ -50,40 +51,44 @@ const wurzel = ["zusatzfelder"] as const;
 export const zusatzPfad = (objekt: PortfolioObjekt, id: string): string => {
   switch (objekt) {
     case "fonds":
-      return `/api/v1/fonds/${id}/felder`;
+      return `/api/v1/funds/${id}/fields`;
     case "runde":
-      return `/api/v1/finanzierungsrunden/${id}/felder`;
+      return `/api/v1/financing-rounds/${id}/fields`;
     case "beteiligung":
-      return `/api/v1/beteiligungen/${id}/felder`;
+      return `/api/v1/investments/${id}/fields`;
     case "instrument":
-      return `/api/v1/beteiligungen/${id}/instrumentfelder`;
+      return `/api/v1/investments/${id}/instrument-fields`;
     case "vorgang":
-      return `/api/v1/vorgaenge/${id}/felder`;
+      return `/api/v1/transactions/${id}/fields`;
   }
 };
 
 /** Absolute Adresse (wie beim Client der API), damit Tests und Browser gleich anfragen. */
 const adresse = (pfad: string) => `${typeof window === "undefined" ? "http://localhost" : window.location.origin}${pfad}`;
-const laden = <T>(pfad: string): Promise<T> => auspacken(ladeMitSitzung(adresse(pfad))) as Promise<T>;
+const laden = <T>(pfad: string): Promise<T> => ausKontaktAntwort(ladeMitSitzung(adresse(pfad))) as Promise<T>;
 
 export const zusatzWerte = (objekt: PortfolioObjekt, id: string, stand?: string) =>
   queryOptions({
     queryKey: [...wurzel, "werte", objekt, id, stand ?? ""],
-    queryFn: () => laden<ZusatzAntwort>(`${zusatzPfad(objekt, id)}${stand ? `?stand=${encodeURIComponent(stand)}` : ""}`),
+    queryFn: () => laden<ZusatzAntwort>(`${zusatzPfad(objekt, id)}${stand ? `?knowledgeDate=${encodeURIComponent(stand)}` : ""}`),
   });
 
 export const zusatzDefinitionen = (objekt: PortfolioObjekt, archiviert = false) =>
   queryOptions({
     queryKey: [...wurzel, "definitionen", objekt, archiviert],
-    queryFn: async () => (await laden<{ daten: ZusatzDefinition[] }>(`/api/v1/zusatzfelder/${objekt}/definitionen${archiviert ? "?archiviert=1" : ""}`)).daten,
+    queryFn: async () => {
+      const { aufEnglisch } = await import("@carraway/api/kontakte/api-namen");
+      const { object } = aufEnglisch({ objekt });
+      return (await laden<{ daten: ZusatzDefinition[] }>(`/api/v1/custom-fields/${object}/definitions${archiviert ? "?archived=1" : ""}`)).daten;
+    },
     staleTime: 30_000,
   });
 
 export const useZusatzWerteSetzen = (objekt: PortfolioObjekt, id: string) =>
   useApiMutation({
     aufruf: (werte: Record<string, unknown>) =>
-      auspacken(
-        ladeMitSitzung(adresse(zusatzPfad(objekt, id)), { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ werte }) }),
+      ausKontaktAntwort(
+        ladeMitSitzung(adresse(zusatzPfad(objekt, id)), { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ values: werte }) }),
       ) as Promise<ZusatzAntwort>,
     invalidiert: () => [wurzel],
   });

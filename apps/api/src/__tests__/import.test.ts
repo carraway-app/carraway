@@ -27,16 +27,16 @@ afterAll(async () => {
 const hochladen = (daten: Buffer, als: Testperson = ANNA, name = "import.xlsx") => {
   const f = new FormData();
   f.append("datei", new File([new Uint8Array(daten)], name));
-  return t.request("/import/laeufe", { method: "POST", body: f, als });
+  return t.request("/import/runs", { method: "POST", body: f, als });
 };
 const lauf = async (daten: Buffer, als: Testperson = ANNA, name?: string) => {
   const antwort = await hochladen(daten, als, name);
   expect(antwort.status).toBe(201);
   return (await json(antwort)).id as string;
 };
-const pruefen = (id: string, als: Testperson = ANNA) => t.request(`/import/laeufe/${id}/pruefen`, { method: "POST", als });
-const uebernehmen = (id: string, als: Testperson = BERTA) => t.request(`/import/laeufe/${id}/uebernehmen`, { method: "POST", als });
-const befunde = async (id: string, als: Testperson = ANNA, abfrage = "") => (await json(await t.request(`/import/laeufe/${id}/befunde?limit=1000${abfrage}`, { als }))).daten as { blatt: string; blattName: string | null; zeile: number; spalte: string | null; code: string; schweregrad: string; meldung: string; params: Record<string, string | number> }[];
+const pruefen = (id: string, als: Testperson = ANNA) => t.request(`/import/runs/${id}/validate`, { method: "POST", als });
+const uebernehmen = (id: string, als: Testperson = BERTA) => t.request(`/import/runs/${id}/apply`, { method: "POST", als });
+const befunde = async (id: string, als: Testperson = ANNA, abfrage = "") => (await json(await t.request(`/import/runs/${id}/findings?limit=1000${abfrage}`, { als }))).daten as { blatt: string; blattName: string | null; zeile: number; spalte: string | null; code: string; schweregrad: string; meldung: string; params: Record<string, string | number> }[];
 const codes = async (id: string, als?: Testperson) => (await befunde(id, als)).map((b) => b.code);
 
 /** Prüft und übernimmt eine Datei mit zwei Personen (Hochladen und Prüfen: Anna, Übernehmen: Berta). */
@@ -77,26 +77,26 @@ async function pruefeFixture(aendere: (z: Blattzeilen) => void, vorher?: () => P
 describe("Vorlage und Upload", () => {
   it("GET /import/vorlage liefert Excel in beiden Sprachen", async () => {
     for (const sprache of ["de", "en"]) {
-      const antwort = await t.request(`/import/vorlage?sprache=${sprache}`);
+      const antwort = await t.request(`/import/template?sprache=${sprache}`);
       expect(antwort.status).toBe(200);
       expect(antwort.headers.get("content-type")).toContain("spreadsheetml");
       const wb = new ExcelJS.Workbook();
       await wb.xlsx.load(Buffer.from(await antwort.arrayBuffer()) as unknown as ExcelJS.Buffer);
       expect(wb.worksheets.map((w) => w.name)).toContain(sprache === "de" ? "Vorgänge" : "Transactions");
     }
-    expect((await t.request("/import/vorlage?sprache=fr")).status).toBe(400);
+    expect((await t.request("/import/template?sprache=fr")).status).toBe(400);
   });
 
   it("nur xlsx und CSV nach den ersten Bytes; Größe begrenzt; Feld Pflicht", async () => {
     const pdf = await hochladen(Buffer.from("%PDF-1.7 hallo"), ANNA, "bericht.xlsx");
     expect(pdf.status).toBe(415);
-    expect((await json(pdf)).fehler.code).toBe("DATEITYP_UNBEKANNT");
+    expect((await json(pdf)).error.code).toBe("file_type_unknown");
     const gross = await hochladen(Buffer.alloc(21 * 1024 * 1024, 0x61), ANNA, "gross.csv");
     expect(gross.status).toBe(413);
-    expect((await json(gross)).fehler.code).toBe("DATEI_ZU_GROSS");
-    const ohne = await t.request("/import/laeufe", { method: "POST", als: ANNA, headers: { "content-type": "application/json" }, body: "{}" });
+    expect((await json(gross)).error.code).toBe("file_too_large");
+    const ohne = await t.request("/import/runs", { method: "POST", als: ANNA, headers: { "content-type": "application/json" }, body: "{}" });
     expect(ohne.status).toBe(400);
-    expect((await json(ohne)).fehler.code).toBe("DATEI_FEHLT");
+    expect((await json(ohne)).error.code).toBe("file_missing");
     const ok = await hochladen(alsCsv("fonds", klein()), ANNA, "../../fonds.csv");
     expect(ok.status).toBe(201);
     const neu = await json(ok);
@@ -109,9 +109,9 @@ describe("Vorlage und Upload", () => {
     const kaputt = await lauf(Buffer.concat([Buffer.from([0x50, 0x4b, 0x03, 0x04]), Buffer.from("das ist kein zip")]), ANNA, "k.xlsx");
     const a = await pruefen(kaputt);
     expect(a.status).toBe(422);
-    expect((await json(a)).fehler.code).toBe("IMPORT_DATEI_UNLESBAR");
+    expect((await json(a)).error.code).toBe("import_file_unreadable");
     const csv = await lauf(Buffer.from("a;b\n1;2\n"), ANNA, "x.csv");
-    expect((await json(await pruefen(csv))).fehler.code).toBe("BLATT_NICHT_ERKANNT");
+    expect((await json(await pruefen(csv))).error.code).toBe("sheet_not_recognized");
   });
 });
 
@@ -159,11 +159,11 @@ describe("Beispieldatei: hochladen, prüfen, übernehmen", () => {
     }
 
     // Protokolldateien
-    const pdf = await t.request(`/import/laeufe/${id}/protokoll?format=pdf`);
+    const pdf = await t.request(`/import/runs/${id}/log?format=pdf`);
     expect(pdf.status).toBe(200);
     expect(pdf.headers.get("content-type")).toBe("application/pdf");
     expect(Buffer.from(await pdf.arrayBuffer()).subarray(0, 5).toString()).toBe("%PDF-");
-    const xlsx = await t.request(`/import/laeufe/${id}/protokoll?format=xlsx&sprache=en`);
+    const xlsx = await t.request(`/import/runs/${id}/log?format=xlsx&sprache=en`);
     expect(xlsx.status).toBe(200);
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(Buffer.from(await xlsx.arrayBuffer()) as unknown as ExcelJS.Buffer);
@@ -219,7 +219,7 @@ describe("Prüfregeln mit Bestand (jede mit einer fehlschlagenden Datei)", () =>
   it("Auszahlungen über der Zusage", async () => {
     const r = await pruefeFixture((z) => z.vorgaenge!.push({ vorgang_schluessel: "V3", beteiligung_schluessel: "B1", art: "auszahlung", valuta: "2022-03-01", betrag: "250000.00" }));
     expect(r.lauf.status).toBe("hochgeladen");
-    expect(r.befunde.map((b) => b.code)).toContain("AUSZAHLUNG_UEBER_ZUSAGE");
+    expect(r.befunde.map((b) => b.code)).toContain("disbursement_exceeds_commitment");
   });
 
   it("Summe der Rundenpositionen weicht vom Rundenvolumen ab", async () => {
@@ -228,6 +228,23 @@ describe("Prüfregeln mit Bestand (jede mit einer fehlschlagenden Datei)", () =>
       z.rundenpositionen = [{ runde_schluessel: "R1", fonds_kurzname: "FA", betrag: "100000.00", anteile: "1", rolle: "lead" }];
     });
     expect(r.befunde.map((b) => b.code)).toContain("RUNDE_SUMME_ABWEICHEND");
+  });
+
+  it("Stand „exit“ ohne Ausbuchung: Warnung EXIT_MIT_BUCHWERT, ausgebucht keine (Issue #193)", async () => {
+    const r = await pruefeFixture((z) => {
+      z.beteiligungen![0]!.status = "exit";
+      z.vorgaenge!.push({ vorgang_schluessel: "V3", beteiligung_schluessel: "B1", art: "rueckfluss", valuta: "2023-06-30", betrag: "350000.00" });
+    });
+    const befund = r.befunde.find((b) => b.code === "EXIT_MIT_BUCHWERT");
+    expect(befund).toMatchObject({ blatt: "beteiligungen", spalte: "status", schweregrad: "warnung", params: { beteiligung: "B1", buchwert: "300000.00", offenesKapital: "300000.00" } });
+    // Ein Warnbefund hält die Übernahme nicht auf; die Zahl bleibt, wie sie gebucht ist (keine stille Nullsetzung).
+    expect(r.lauf.fehlerAnzahl).toBe(0);
+
+    const getilgt = await pruefeFixture((z) => {
+      z.beteiligungen![0]!.status = "exit";
+      z.vorgaenge!.push({ vorgang_schluessel: "V3", beteiligung_schluessel: "B1", art: "tilgung", valuta: "2023-06-30", betrag: "300000.00" });
+    });
+    expect(getilgt.befunde.map((b) => b.code)).not.toContain("EXIT_MIT_BUCHWERT");
   });
 
   it("Abrufe über dem Zeichnungskapital", async () => {
@@ -341,10 +358,10 @@ describe("Prüfregeln mit Bestand (jede mit einer fehlschlagenden Datei)", () =>
     expect((await uebernehmen(id)).status).toBe(200);
     expect(await zaehle("vorgang")).toBe(2);
     expect(await zaehle("vorgang WHERE betrag = 300000")).toBe(1);
-    const lauf2 = await json(await t.request(`/import/laeufe/${id}`));
+    const lauf2 = await json(await t.request(`/import/runs/${id}`));
     expect(lauf2.ergebnis.zaehler.vorgaenge).toMatchObject({ neu: 0, unveraendert: 1, abweichend: 1 });
     // offener Punkt steht im Abnahmeprotokoll
-    const xlsx = await t.request(`/import/laeufe/${id}/protokoll?format=xlsx`);
+    const xlsx = await t.request(`/import/runs/${id}/log?format=xlsx`);
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(Buffer.from(await xlsx.arrayBuffer()) as unknown as ExcelJS.Buffer);
     const texte: string[] = [];
@@ -378,7 +395,7 @@ describe("Vier-Augen, Rechte und alles oder nichts", () => {
     expect((await json(await pruefen(id))).fehlerAnzahl).toBe(0);
     const selbst = await uebernehmen(id, ANNA);
     expect(selbst.status).toBe(409);
-    expect((await json(selbst)).fehler.code).toBe("VIER_AUGEN_VERLETZT");
+    expect((await json(selbst)).error.code).toBe("four_eyes_violated");
     // Berta prüft erneut → Berta ist jetzt die Prüfende, Anna die Hochladende: beide dürfen nicht übernehmen.
     expect((await json(await pruefen(id, BERTA))).geprueftVon).not.toBeUndefined();
     expect((await uebernehmen(id, BERTA)).status).toBe(409);
@@ -400,7 +417,7 @@ describe("Vier-Augen, Rechte und alles oder nichts", () => {
     const id = await lauf(await mappe(klein()), bearbeiter);
     expect((await pruefen(id, bearbeiter)).status).toBe(200);
     expect((await uebernehmen(id, bearbeiter)).status).toBe(403);
-    expect((await t.request("/import/vorlage", { als: betrachter })).status).toBe(403);
+    expect((await t.request("/import/template", { als: betrachter })).status).toBe(403);
     expect((await uebernehmen(id, freigeber)).status).toBe(200);
   });
 
@@ -414,21 +431,21 @@ describe("Vier-Augen, Rechte und alles oder nichts", () => {
     expect(antwort.status).toBe(500);
     for (const tabelle of ["fonds", "organisation", "beteiligung", "vorgang", "import_zuordnung", "snapshot_auftrag"]) expect(await zaehle(tabelle), tabelle).toBe(0);
     expect(await zaehle("aenderung WHERE aktion = 'anlegen'")).toBe(0);
-    const danach = await json(await t.request(`/import/laeufe/${id}`));
+    const danach = await json(await t.request(`/import/runs/${id}`));
     expect(danach.status).toBe("geprueft");
     importHaken.vorAbschluss = undefined;
     expect((await uebernehmen(id)).status).toBe(200);
     expect(await zaehle("vorgang")).toBe(2);
   });
 
-  it("Datei mit Fehler lässt sich nicht übernehmen (IMPORT_NICHT_GEPRUEFT), Änderung am Bestand zwischen Prüfen und Übernehmen wird erkannt", async () => {
+  it("Datei mit Fehler lässt sich nicht übernehmen (import_not_validated), Änderung am Bestand zwischen Prüfen und Übernehmen wird erkannt", async () => {
     const z = klein();
     z.vorgaenge![1]!.betrag = "900000.00";
     const id = await lauf(await mappe(z));
     await pruefen(id);
     const a = await uebernehmen(id);
     expect(a.status).toBe(409);
-    expect((await json(a)).fehler.code).toBe("IMPORT_NICHT_GEPRUEFT");
+    expect((await json(a)).error.code).toBe("import_not_validated");
 
     await importiere(await mappe({ fonds: klein().fonds, organisationen: klein().organisationen, beteiligungen: klein().beteiligungen }));
     const id2 = await lauf(await mappe(klein()));
@@ -436,7 +453,7 @@ describe("Vier-Augen, Rechte und alles oder nichts", () => {
     await db.execute(sql`INSERT INTO periodensperre (fonds_id, gesperrt_bis, gesetzt_von) SELECT id, '2022-12-31', 'test' FROM fonds WHERE kurzname = 'FA'`);
     const b = await uebernehmen(id2);
     expect(b.status).toBe(409);
-    expect((await json(b)).fehler.code).toBe("IMPORT_FEHLER");
+    expect((await json(b)).error.code).toBe("import_failed");
     expect(await zaehle("vorgang")).toBe(0);
   });
 
@@ -474,26 +491,26 @@ describe("Vier-Augen, Rechte und alles oder nichts", () => {
     expect((await uebernehmen(id, person("import-fiona", { rollen: { [ids.FA!]: "freigeber" } }))).status).toBe(404); // Fonds B unsichtbar
     expect(await zaehle("vorgang")).toBe(3);
     // Der Fonds-Bestand des Laufs enthält auch die Fonds, deren Datensätze über Schlüssel aufgelöst wurden (nicht nur benannte).
-    const alsVerwalterin = await json(await t.request(`/import/laeufe/${id}`, { als: ANNA }));
+    const alsVerwalterin = await json(await t.request(`/import/runs/${id}`, { als: ANNA }));
     expect(alsVerwalterin.fonds.ids.sort()).toEqual([ids.FA!, ids.FB!].sort());
     expect(alsVerwalterin.eingeschraenkt).toBe(false);
     // Carl hat den Lauf hochgeladen, aber kein Recht an Fonds B: nur Metadaten, Ergebnisse geschwärzt, Protokoll gesperrt.
-    const alsCarl = await json(await t.request(`/import/laeufe/${id}`, { als: carl }));
+    const alsCarl = await json(await t.request(`/import/runs/${id}`, { als: carl }));
     expect(alsCarl).toMatchObject({ id, status: "hochgeladen", dateiname: "import.xlsx", eingeschraenkt: true, fonds: null, fehlerAnzahl: null, vorschau: null, ergebnis: null });
     expect(gepruefte).toMatchObject({ eingeschraenkt: true, fonds: null, vorschau: null });
-    const befundeCarl = await json(await t.request(`/import/laeufe/${id}/befunde?limit=1000`, { als: carl }));
+    const befundeCarl = await json(await t.request(`/import/runs/${id}/findings?limit=1000`, { als: carl }));
     expect(befundeCarl.eingeschraenkt).toBe(true);
     expect(befundeCarl.daten.every((x: { code: string }) => x.code === "KEINE_BERECHTIGUNG_FONDS")).toBe(true);
-    const gesamtBefunde = await json(await t.request(`/import/laeufe/${id}/befunde?limit=1000`, { als: ANNA }));
+    const gesamtBefunde = await json(await t.request(`/import/runs/${id}/findings?limit=1000`, { als: ANNA }));
     expect(gesamtBefunde.eingeschraenkt).toBe(false);
     expect(gesamtBefunde.daten.length).toBeGreaterThan(befundeCarl.daten.length - 1);
-    expect((await t.request(`/import/laeufe/${id}/protokoll?format=xlsx`, { als: carl })).status).toBe(403);
-    expect((await t.request(`/import/laeufe/${id}/protokoll?format=xlsx`, { als: ANNA })).status).toBe(200);
+    expect((await t.request(`/import/runs/${id}/log?format=xlsx`, { als: carl })).status).toBe(403);
+    expect((await t.request(`/import/runs/${id}/log?format=xlsx`, { als: ANNA })).status).toBe(200);
     // Carl sieht fremde Läufe nicht; die Verwalterin sieht beide.
     const fremd = await lauf(await mappe(klein()), ANNA);
-    expect((await t.request(`/import/laeufe/${fremd}`, { als: carl })).status).toBe(404);
-    expect((await t.request(`/import/laeufe/${id}/protokoll`, { als: person("import-erwin", { rollen: { [ids.FA!]: "betrachter" } }) })).status).toBe(404);
-    const liste = (await json(await t.request("/import/laeufe", { als: carl }))).daten as { id: string }[];
+    expect((await t.request(`/import/runs/${fremd}`, { als: carl })).status).toBe(404);
+    expect((await t.request(`/import/runs/${id}/log`, { als: person("import-erwin", { rollen: { [ids.FA!]: "betrachter" } }) })).status).toBe(404);
+    const liste = (await json(await t.request("/import/runs", { als: carl }))).daten as { id: string }[];
     expect(liste.map((l) => l.id)).toEqual([id]);
   });
 
@@ -507,16 +524,16 @@ describe("Vier-Augen, Rechte und alles oder nichts", () => {
     z.vorgaenge![1]!.betrag = "310000.00"; // ergibt einen Befund mit Werten aus dem Bestand
     const id = await lauf(await mappe(z), dora);
     await pruefen(id, dora);
-    const vorher = await json(await t.request(`/import/laeufe/${id}`, { als: dora }));
+    const vorher = await json(await t.request(`/import/runs/${id}`, { als: dora }));
     expect(vorher, JSON.stringify(vorher)).toMatchObject({ eingeschraenkt: false, warnungAnzahl: 1 });
     expect((await befunde(id, dora)).map((b) => b.code)).toContain("VORGANG_ABWEICHEND");
     await db.execute(sql`DELETE FROM fondsrolle WHERE fonds_id = ${fa} AND benutzer_id = (SELECT id FROM benutzer WHERE email = ${dora.email})`);
-    const nachher = await json(await t.request(`/import/laeufe/${id}`, { als: dora }));
+    const nachher = await json(await t.request(`/import/runs/${id}`, { als: dora }));
     expect(nachher).toMatchObject({ id, eingeschraenkt: true, warnungAnzahl: null, vorschau: null });
-    const b = await json(await t.request(`/import/laeufe/${id}/befunde`, { als: dora }));
+    const b = await json(await t.request(`/import/runs/${id}/findings`, { als: dora }));
     expect(JSON.stringify(b)).not.toContain("300000");
     expect(b.daten).toEqual([]);
-    expect((await t.request(`/import/laeufe/${id}/protokoll`, { als: dora })).status).toBe(403);
+    expect((await t.request(`/import/runs/${id}/log`, { als: dora })).status).toBe(403);
   });
 
   it("Befunde: seitenweise, nach Schweregrad filterbar, Fehler zuerst", async () => {
@@ -525,10 +542,10 @@ describe("Vier-Augen, Rechte und alles oder nichts", () => {
     z.vorgaenge![1]!.valuta = "kein Datum";
     const id = await lauf(await mappe(z));
     await pruefen(id);
-    const erste = await json(await t.request(`/import/laeufe/${id}/befunde?limit=1`));
+    const erste = await json(await t.request(`/import/runs/${id}/findings?limit=1`));
     expect(erste.daten).toHaveLength(1);
     expect(erste.naechstesAb).toBe(1);
-    const zweite = await json(await t.request(`/import/laeufe/${id}/befunde?limit=1&ab=${erste.naechstesAb}`));
+    const zweite = await json(await t.request(`/import/runs/${id}/findings?limit=1&ab=${erste.naechstesAb}`));
     expect(zweite.daten[0].nr).toBe(2);
     expect((await befunde(id, ANNA, "&schweregrad=warnung")).length).toBe(0);
   });

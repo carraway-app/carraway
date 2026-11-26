@@ -136,7 +136,7 @@ describe("Bewertungsszenarien: Rechnung aus den Daten", () => {
     const fremdBet = bewertung({ beteiligungen: { "00000000-0000-4000-8000-00000000dead": { faelle: [fall("a", "0.5", { art: "wert", betrag: "1.00" }), fall("b", "0.5", { art: "wert", betrag: "2.00" })] } } });
     const unbekannt = await anlegen("Unbekannt", annahmen({ bewertung: fremdBet }));
     expect(unbekannt.status).toBe(422);
-    expect((await json(unbekannt)).fehler.code).toBe("SZENARIO_ANNAHMEN_UNGUELTIG");
+    expect((await json(unbekannt)).error.code).toBe("scenario_assumptions_invalid");
   });
 
   it("fehlende Eingaben ergeben Lücken statt Nullen: Fall, Erwartungswert und Fondskennzahlen haben keinen Wert, die Befunde nennen den Grund", async () => {

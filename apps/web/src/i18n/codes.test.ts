@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { de } from "./de";
 import { en } from "./en";
-import { BEFUND_CODES, befundMeldung, befundTitel } from "./befunde";
+import { BEFUND_CODES, befundFehlertext, befundMeldung, befundTitel } from "./befunde";
 import { uebersetzeSchritt } from "./schritte";
 
 /** Quelltext der API; die Tests laufen im Verzeichnis `apps/web`. */
@@ -13,7 +13,7 @@ const lies = (pfad: string) => readFileSync(resolve(process.cwd(), "../api", pfa
 function apiCodes(): string[] {
   const quelle = lies("src/fehler.ts");
   const block = /export type Fehlercode =([\s\S]*?);/.exec(quelle)?.[1] ?? "";
-  return [...block.matchAll(/"([A-Z][A-Z0-9_]+)"/g)].map((m) => m[1]!);
+  return [...block.matchAll(/"([^"]+)"/g)].map((m) => m[1]!);
 }
 
 describe("Fehlercodes der API", () => {
@@ -22,6 +22,16 @@ describe("Fehlercodes der API", () => {
     expect(codes.length).toBeGreaterThan(80);
     expect(codes.filter((c) => !Object.hasOwn(de.fehler, c))).toEqual([]);
     expect(codes.filter((c) => !Object.hasOwn(en.fehler, c))).toEqual([]);
+  });
+
+  it("sind englisch in snake_case (Entscheidung 520)", () => {
+    const codes = apiCodes();
+    expect(codes.filter((c) => !/^[a-z][a-z0-9]*(_[a-z0-9]+)*$/.test(c))).toEqual([]);
+  });
+
+  it("zeigt einen englischen Code der API weiter mit deutschem Text an", () => {
+    expect(de.fehler.fund_not_found).toBe("Der Fonds wurde nicht gefunden.");
+    expect(en.fehler.fund_not_found).toBe("The fund was not found.");
   });
 
   it("haben keine leeren Texte", () => {
@@ -87,7 +97,7 @@ describe("Befunde der Datenübernahme", () => {
     expect(codes.length).toBeGreaterThan(50);
     const ohne = codes.filter((c) => !Object.hasOwn(BEFUND_CODES, c));
     // Codes, die die Prüfung von den Regeln der Instrumente übernimmt, stehen in der Fehlertabelle.
-    expect(ohne.filter((c) => !Object.hasOwn(de.fehler, c))).toEqual([]);
+    expect(ohne.filter((c) => befundFehlertext(c, de.fehler as Record<string, string>) === undefined)).toEqual([]);
     for (const e of Object.values(BEFUND_CODES)) {
       expect(e.de.trim()).not.toBe("");
       expect(e.en.trim()).not.toBe("");

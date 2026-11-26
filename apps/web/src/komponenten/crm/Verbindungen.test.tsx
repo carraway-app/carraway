@@ -82,7 +82,7 @@ describe("Verbindungen: Zeilenaktionen", () => {
   it("Betrachter sehen die Tabelle ohne Verknüpfen, Etiketten ohne Entfernen und keine Zeilenmenüs", async () => {
     spieleApi({
       ...seite,
-      "/api/v1/ich": alsRolle("betrachter"),
+      "/api/v1/me": alsRolle("betrachter"),
     });
     rendereApp(`/organisationen/${ORG_A}`);
     const tabelle = await screen.findByRole("region", { name: "Kontakte des Unternehmens" });
@@ -101,7 +101,7 @@ describe("Verbindungen: Zeilenaktionen", () => {
       "POST /api/v1/crm/beschaeftigungen": { status: 201, koerper: { id: "b9" } },
       "POST /api/v1/kontaktrollen": () => {
         rollenVersuche++;
-        return rollenVersuche === 1 ? { status: 409, koerper: { fehler: { code: "ROLLE_BEREITS_VORHANDEN", meldung: "x" } } } : { status: 201, koerper: { id: "r9" } };
+        return rollenVersuche === 1 ? { status: 409, koerper: { error: { code: "ROLLE_BEREITS_VORHANDEN", message: "x" } } } : { status: 201, koerper: { id: "r9" } };
       },
     });
     rendereApp(`/organisationen/${ORG_A}`);

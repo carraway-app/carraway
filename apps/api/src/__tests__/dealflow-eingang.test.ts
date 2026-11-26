@@ -198,7 +198,7 @@ describe("Deal-Eingang", () => {
       expect(kandidaten.benutzer).not.toContainEqual(expect.objectContaining({ id }));
       const antwort = await anfrage("PATCH", `${pfad}/zuordnung`, bearbeiter, { ...leer, investmentmanagerId: id });
       expect(antwort.status).toBe(400);
-      expect((await json(antwort)).fehler.code).toBe("ZUSTAENDIG_UNGUELTIG");
+      expect((await json(antwort)).error.code).toBe("assignee_invalid");
     }
     expect((await anfrage("GET", `${pfad}/zustaendige`, andererFonds)).status).toBe(403);
     for (const p of [betrachter, andererFonds]) {
@@ -232,7 +232,7 @@ describe("Deal-Eingang", () => {
       ];
       for (const antwort of antworten) {
         expect(antwort.status).toBe(400);
-        expect((await json(antwort)).fehler.code).toBe("ZUSTAENDIG_UNGUELTIG");
+        expect((await json(antwort)).error.code).toBe("assignee_invalid");
       }
     }
     expect((await anfrage("PATCH", `${pfad}/zuordnung`, bearbeiter, {
@@ -245,7 +245,7 @@ describe("Deal-Eingang", () => {
     await legePersonAn(db, { ...projektleitung, rollen: { [ID.anderer]: "freigeber" } });
     const ohneFonds = await anfrage("PATCH", `/deals/${imFonds.id}`, bearbeiter, { fondsId: null });
     expect(ohneFonds.status).toBe(400);
-    expect((await json(ohneFonds)).fehler.code).toBe("ZUSTAENDIG_UNGUELTIG");
+    expect((await json(ohneFonds)).error.code).toBe("assignee_invalid");
     expect(await json(await anfrage("GET", `/deals/${imFonds.id}`, bearbeiter))).toMatchObject({
       fondsId: ID.fonds, projektleiterId: ids.projektleitung,
     });
@@ -264,7 +264,7 @@ describe("Deal-Eingang", () => {
     expect(antworten.map((a) => a.status).sort()).toEqual([200, 409]);
     const gewonnen = await json(antworten.find((a) => a.status === 200)!);
     const verloren = await json(antworten.find((a) => a.status === 409)!);
-    expect(verloren.fehler).toMatchObject({ code: "DEAL_ZUORDNUNG_KONFLIKT", investmentmanagerId: gewonnen.investmentmanagerId });
+    expect(verloren.error).toMatchObject({ code: "deal_assignment_conflict", investmentmanagerId: gewonnen.investmentmanagerId });
     expect((await protokollZeilen(db, "deal")).filter((zeile) => zeile.datensatz_id === neu.id)).toHaveLength(2);
     expect((await anfrage("PATCH", pfad, bearbeiter, { ...leer, projektleiterId: ids.projektleitung })).status).toBe(409);
     const gesetzt = await anfrage("PATCH", pfad, bearbeiter, {
@@ -282,12 +282,12 @@ describe("Deal-Eingang", () => {
     const pfad = "/dealflow/kartenfelder";
     const lesen = async (p: Testperson) => json(await anfrage("GET", pfad, p));
     expect(await lesen(betrachter)).toEqual({ felder: ["ticket", "investmentmanager"] });
-    expect((await anfrage("PATCH", "/thema", betrachter, { thema: "dunkel" })).status).toBe(200);
+    expect((await anfrage("PATCH", "/theme", betrachter, { theme: "dark" })).status).toBe(200);
     const felder = ["projektleiter", "eingangsdatum", "herkunft", "fonds"];
     expect(await json(await anfrage("PUT", pfad, betrachter, { felder }))).toEqual({ felder });
     expect(await lesen(betrachter)).toEqual({ felder });
     expect(await lesen(bearbeiter)).toEqual({ felder: ["ticket", "investmentmanager"] });
-    expect(await json(await anfrage("GET", "/thema", betrachter))).toEqual({ thema: "dunkel" });
+    expect(await json(await anfrage("GET", "/theme", betrachter))).toEqual({ theme: "dark" });
     expect((await anfrage("PUT", pfad, betrachter, { felder: ["unbekannt"] })).status).toBe(400);
     expect((await anfrage("PUT", pfad, betrachter, { felder: [] })).status).toBe(200);
     expect(await lesen(betrachter)).toEqual({ felder: [] });

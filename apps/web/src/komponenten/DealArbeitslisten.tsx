@@ -113,7 +113,7 @@ export function DealArbeitslisten({ bereich, deals, benutzerId, darfZuordnen, la
       </div>
       <div className="cw-nur-lesen" role="status">{meldung}</div>
       {istZuordnungskonflikt(uebernehmen.error) ? (
-        <Hinweis variante="fehler" titel={t.fehler.DEAL_ZUORDNUNG_KONFLIKT}>{f.konfliktUebernehmen}</Hinweis>
+        <Hinweis variante="fehler" titel={t.fehler.deal_assignment_conflict}>{f.konfliktUebernehmen}</Hinweis>
       ) : <FehlerHinweis fehler={uebernehmen.error} />}
       <FehlerHinweis fehler={fehler} />
       {eingang ? tabelle(titel, gruppen[0]?.deals ?? []) : (

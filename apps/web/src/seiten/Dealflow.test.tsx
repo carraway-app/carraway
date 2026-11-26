@@ -98,7 +98,7 @@ describe("Dealflow", () => {
   });
 
   it("meldet die Regel „Closing nur mit Beschluss“ und lässt die Karte stehen", async () => {
-    spieleApi({ "POST /api/v1/deals/d1/phase": () => fehler(409, "BESCHLUSS_FEHLT") });
+    spieleApi({ "POST /api/v1/deals/d1/phase": () => fehler(409, "resolution_missing") });
     rendereApp("/dealflow");
     const nutzer = userEvent.setup();
     const griff = await screen.findByRole("button", { name: "Verschieben: Alpha, Wachstum" });
@@ -199,7 +199,7 @@ describe("Dealflow-Arbeitslisten und Kartenfelder", () => {
         speicherungen++;
         if (speicherungen === 1) {
           deal = { ...deal, projektleiterId: andere.id, projektleiterName: andere.name };
-          return fehler(409, "DEAL_ZUORDNUNG_KONFLIKT");
+          return fehler(409, "deal_assignment_conflict");
         }
         return { koerper: deal };
       },
@@ -238,7 +238,7 @@ describe("Dealflow-Arbeitslisten und Kartenfelder", () => {
       "/api/v1/dealflow/arbeitsliste": () => ({ koerper: { deals: [deal], benutzerId: ICH_ID } }),
       "PATCH /api/v1/deals/d1/zuordnung": () => {
         deal = { ...deal, investmentmanagerId: ANDERE_ID, investmentmanagerName: "Anna Berger" };
-        return fehler(409, "DEAL_ZUORDNUNG_KONFLIKT");
+        return fehler(409, "deal_assignment_conflict");
       },
     });
     rendereApp("/dealflow?bereich=eingang");
@@ -429,7 +429,7 @@ describe("Persönliche Pipeline und Dealtyp-Gruppen", () => {
   it("zeigt sichtbare Deals in der Gruppe auch ohne Bearbeitungsrecht", async () => {
     spieleApi({
       ...crmDealAntworten([pipelineDeal("d1", "Nur lesbarer Deal", { dealtyp: "erstinvestment", investmentmanagerId: ICH_ID })]),
-      "/api/v1/ich": alsRolle("betrachter"),
+      "/api/v1/me": alsRolle("betrachter"),
       "/api/v1/dealflow/arbeitsliste": { koerper: { deals: [{ ...arbeitsdealDaten, investmentmanagerId: ICH_ID }], benutzerId: ICH_ID } },
     });
     rendereApp("/dealflow?gruppe=dealtyp&umfang=meine");

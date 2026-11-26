@@ -26,7 +26,7 @@ export function WaehrungsAbschnitt({ beteiligungId, fondsId, stichtag, stand, ve
   if (error) return <FehlerHinweis fehler={error} />;
   if (!data) return <p aria-busy="true">{t.gemeinsam.laedt}</p>;
   const wr = data.waehrungen;
-  const betrag = (zeile: Zeile, art: "fonds" | "lokal" | "vergleich") => {
+  const betrag = (zeile: Zeile, art: "fonds" | "lokal" | "vergleich" | "haus") => {
     const x = betragDerSicht(zeile.wert, art, wr);
     return x.wert === null ? <span className="app-luecke" title={w.lueckeTitel}>{w.luecke}</span> : formatBetrag(x.wert, sprache, { waehrung: x.waehrung });
   };
@@ -35,6 +35,7 @@ export function WaehrungsAbschnitt({ beteiligungId, fondsId, stichtag, stand, ve
     { schluessel: "fonds", kopf: `${w.spalten.fonds} (${wr.fonds})`, zahl: true, zelle: (z) => betrag(z, "fonds") },
     { schluessel: "lokal", kopf: `${w.spalten.lokal} (${wr.lokal})`, zahl: true, zelle: (z) => betrag(z, "lokal") },
     ...(wr.vergleich ? [{ schluessel: "vergleich", kopf: `${w.spalten.vergleich} (${wr.vergleich})`, zahl: true, zelle: (z: Zeile) => betrag(z, "vergleich") }] : []),
+    ...(wr.haus !== wr.fonds && wr.haus !== wr.lokal ? [{ schluessel: "haus", kopf: `${w.spalten.haus} (${wr.haus})`, zahl: true, zelle: (z: Zeile) => betrag(z, "haus") }] : []),
     {
       schluessel: "kurs",
       kopf: w.spalten.kurs,

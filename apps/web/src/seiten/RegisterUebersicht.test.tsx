@@ -80,7 +80,7 @@ describe("Register: Übersicht", () => {
   });
 
   it("Datei: eine CSV-Endung stellt das Format ein; Fehler der Datei erscheinen als Tabelle", async () => {
-    basis({ "POST /api/v1/register/import": fehler(422, "REGISTER_IMPORT_UNGUELTIG", { anzahlFehler: 2, zeilen: [{ zeile: 2, feld: "standDatum", meldung: "Kein gültiges Datum." }, { zeile: 3, feld: "organisationName", meldung: "Das Unternehmen gibt es nicht." }] }) });
+    basis({ "POST /api/v1/register/import": fehler(422, "register_import_invalid", { anzahlFehler: 2, zeilen: [{ zeile: 2, feld: "standDatum", meldung: "Kein gültiges Datum." }, { zeile: 3, feld: "organisationName", meldung: "Das Unternehmen gibt es nicht." }] }) });
     rendereApp("/register");
     const nutzer = userEvent.setup();
     await userEvent.setup().click(await screen.findByRole("tab", { name: "Sammelaktualisierung aus einer Datei" }));
@@ -91,7 +91,7 @@ describe("Register: Übersicht", () => {
     const tabelle = within(await karte.findByRole("region", { name: "2 Fehler in der Datei" }));
     expect(tabelle.getByText("Kein gültiges Datum.")).toBeTruthy();
     expect(tabelle.getByText("organisationName")).toBeTruthy();
-    expect(await karte.findByText(de.fehler.REGISTER_IMPORT_UNGUELTIG)).toBeTruthy();
+    expect(await karte.findByText(de.fehler.register_import_invalid)).toBeTruthy();
   });
 
   it("Suche: ohne Anbieter steht „kein Anbieter eingerichtet“", async () => {
@@ -124,7 +124,7 @@ describe("Register: Übersicht", () => {
   });
 
   it("Datei einlesen darf nur, wer irgendwo Bearbeiter ist", async () => {
-    basis({ "/api/v1/ich": alsRolle("betrachter") });
+    basis({ "/api/v1/me": alsRolle("betrachter") });
     rendereApp("/register");
     await userEvent.setup().click(await screen.findByRole("tab", { name: "Sammelaktualisierung aus einer Datei" }));
     const karte = within(await screen.findByRole("region", { name: "Sammelaktualisierung aus einer Datei" }));

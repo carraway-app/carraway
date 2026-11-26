@@ -111,10 +111,10 @@ const fondsDefinitionen = {
   ],
 };
 const programme = { daten: [{ id: "pg1", schluessel: "demo_wachstum", bezeichnung: "Beispielprogramm Wachstum", erstelltVon: "system", erstelltAm: "2026-01-01T00:00:00.000Z" }] };
-const LAEUFE = `/api/v1/meldelaeufe`;
+const LAEUFE = `/api/v1/reporting-runs`;
 const standard = {
-  [`/api/v1/fonds/${FONDS_ID}/meldedefinitionen`]: { koerper: fondsDefinitionen },
-  "/api/v1/foerderprogramme": { koerper: programme },
+  [`/api/v1/funds/${FONDS_ID}/reporting-definitions`]: { koerper: fondsDefinitionen },
+  "/api/v1/funding-programs": { koerper: programme },
   [LAEUFE]: { koerper: { daten: [laufZeile()] } },
   [`${LAEUFE}/${LAUF_ID}`]: { koerper: laufDaten },
 };
@@ -159,19 +159,19 @@ describe("Meldungen am Fonds", () => {
   it("aktiviert eine Definition mit Förderprogramm und deaktiviert eine andere", async () => {
     const api = spieleApi({
       ...standard,
-      [`PUT /api/v1/fonds/${FONDS_ID}/meldedefinitionen/efre_indikatoren`]: { koerper: { aktiviert: true, foerderprogramm: { schluessel: "demo_wachstum", bezeichnung: "Beispielprogramm Wachstum" } } },
-      [`PUT /api/v1/fonds/${FONDS_ID}/meldedefinitionen/foerderbericht_quartal`]: { koerper: { aktiviert: false, foerderprogramm: null } },
+      [`PUT /api/v1/funds/${FONDS_ID}/reporting-definitions/efre_indikatoren`]: { koerper: { aktiviert: true, foerderprogramm: { schluessel: "demo_wachstum", bezeichnung: "Beispielprogramm Wachstum" } } },
+      [`PUT /api/v1/funds/${FONDS_ID}/reporting-definitions/foerderbericht_quartal`]: { koerper: { aktiviert: false, foerderprogramm: null } },
     });
     rendereApp(`/fonds/${FONDS_ID}/meldungen?tab=definitionen`);
     const nutzer = userEvent.setup();
     const auswahl = await screen.findByLabelText(/Förderprogramm als Filter \(optional\): EFRE-Indikatorbericht/);
     await nutzer.selectOptions(auswahl, "demo_wachstum");
     await nutzer.click(screen.getByRole("button", { name: "EFRE-Indikatorbericht (Vorlage) für den Fonds aktivieren" }));
-    await waitFor(() => expect(api.anfragen("PUT", `/api/v1/fonds/${FONDS_ID}/meldedefinitionen/efre_indikatoren`)).toHaveLength(1));
-    expect(api.anfragen("PUT", `/api/v1/fonds/${FONDS_ID}/meldedefinitionen/efre_indikatoren`)[0]!.koerper).toEqual({ aktiv: true, foerderprogramm: "demo_wachstum" });
+    await waitFor(() => expect(api.anfragen("PUT", `/api/v1/funds/${FONDS_ID}/reporting-definitions/efre_indikatoren`)).toHaveLength(1));
+    expect(api.anfragen("PUT", `/api/v1/funds/${FONDS_ID}/reporting-definitions/efre_indikatoren`)[0]!.koerper).toEqual({ aktiv: true, foerderprogramm: "demo_wachstum" });
     await nutzer.click(screen.getByRole("button", { name: "Förderbericht je Quartal (Vorlage) für den Fonds deaktivieren" }));
-    await waitFor(() => expect(api.anfragen("PUT", `/api/v1/fonds/${FONDS_ID}/meldedefinitionen/foerderbericht_quartal`)).toHaveLength(1));
-    expect(api.anfragen("PUT", `/api/v1/fonds/${FONDS_ID}/meldedefinitionen/foerderbericht_quartal`)[0]!.koerper).toEqual({ aktiv: false });
+    await waitFor(() => expect(api.anfragen("PUT", `/api/v1/funds/${FONDS_ID}/reporting-definitions/foerderbericht_quartal`)).toHaveLength(1));
+    expect(api.anfragen("PUT", `/api/v1/funds/${FONDS_ID}/reporting-definitions/foerderbericht_quartal`)[0]!.koerper).toEqual({ aktiv: false });
   });
 
   it("legt einen Lauf an (Quartal, Sprache, Wissensstand) und öffnet ihn", async () => {
@@ -189,7 +189,7 @@ describe("Meldungen am Fonds", () => {
   });
 
   it("zeigt den übersetzten Fehler, wenn die Definition nicht aktiviert ist", async () => {
-    spieleApi({ ...standard, [`POST ${LAEUFE}`]: fehler(409, "MELDEDEFINITION_NICHT_AKTIVIERT") });
+    spieleApi({ ...standard, [`POST ${LAEUFE}`]: fehler(409, "reporting_definition_not_activated") });
     rendereApp(`/fonds/${FONDS_ID}/meldungen`);
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Meldelauf anlegen" }));
@@ -198,7 +198,7 @@ describe("Meldungen am Fonds", () => {
   });
 
   it("Betrachter sehen die Läufe, aber keine Knöpfe zum Anlegen und Aktivieren", async () => {
-    spieleApi({ ...standard, "/api/v1/ich": alsRolle("betrachter") });
+    spieleApi({ ...standard, "/api/v1/me": alsRolle("betrachter") });
     rendereApp(`/fonds/${FONDS_ID}/meldungen?tab=definitionen`);
     await screen.findByRole("region", { name: "Meldedefinitionen" });
     expect(screen.queryByRole("button", { name: "Meldelauf anlegen" })).toBeNull();
@@ -224,7 +224,7 @@ describe("Meldelauf: Werte, Herkunft und Eingaben", () => {
     spieleApi({
       ...standard,
       "/api/v1/fonds": { koerper: { daten: [...fondsDaten.daten, zweiter] } },
-      [`/api/v1/fonds/${zweiter.id}/meldedefinitionen`]: { koerper: fondsDefinitionen },
+      [`/api/v1/funds/${zweiter.id}/reporting-definitions`]: { koerper: fondsDefinitionen },
     });
     const { router } = rendereApp(`/meldungen/${LAUF_ID}`);
     const nav = within(await screen.findByRole("navigation", { name: "Hauptnavigation" }));
@@ -248,7 +248,7 @@ describe("Meldelauf: Werte, Herkunft und Eingaben", () => {
   });
 
   it("öffnet die Herkunft eines Werts mit Rechenschritten, Filtern und den Datensätzen dahinter", async () => {
-    const api = spieleApi({ ...standard, [`${LAEUFE}/${LAUF_ID}/herkunft`]: { koerper: herkunft } });
+    const api = spieleApi({ ...standard, [`${LAEUFE}/${LAUF_ID}/provenance`]: { koerper: herkunft } });
     rendereApp(`/meldungen/${LAUF_ID}?tab=inhalt`);
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: /Herkunft von Auszahlungen im Zeitraum/ }));
@@ -257,12 +257,12 @@ describe("Meldelauf: Werte, Herkunft und Eingaben", () => {
     expect(dialog.getByText(/foerderprogramm: demo_wachstum/)).toBeTruthy();
     expect(dialog.getByRole("link", { name: "Beteiligung öffnen: Alpha Energie" }).getAttribute("href")).toBe("/beteiligungen/b1");
     expect(dialog.getByText("1 von 3 gezeigt.")).toBeTruthy();
-    expect(api.anfragen("GET", `${LAEUFE}/${LAUF_ID}/herkunft`)[0]!.query.get("schluessel")).toBe("a.x");
+    expect(api.anfragen("GET", `${LAEUFE}/${LAUF_ID}/provenance`)[0]!.query.get("schluessel")).toBe("a.x");
   });
 
   it("übersetzt die Rechenschritte der Herkunft ins Englische", async () => {
     localStorage.setItem("carraway.sprache", "en");
-    spieleApi({ ...standard, [`${LAEUFE}/${LAUF_ID}/herkunft`]: { koerper: herkunft } });
+    spieleApi({ ...standard, [`${LAEUFE}/${LAUF_ID}/provenance`]: { koerper: herkunft } });
     rendereApp(`/meldungen/${LAUF_ID}?tab=inhalt`);
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: /Provenance of Disbursements in the period/ }));
@@ -272,14 +272,14 @@ describe("Meldelauf: Werte, Herkunft und Eingaben", () => {
   });
 
   it("gibt eine Eingabe von Hand ein und zeigt den übersetzten Fehler bei falschem Format", async () => {
-    const api = spieleApi({ ...standard, [`PUT ${LAEUFE}/${LAUF_ID}/eingaben`]: (a) => (a.koerper && (a.koerper as { wert: string }).wert === "=1+1" ? fehler(400, "MELDEWERT_UNGUELTIG") : { koerper: { schluessel: "a.h", wert: "Erika Beispiel", geaendertVon: ICH_ID, geaendertAm: "2026-11-20T10:00:00.000Z" } }) });
+    const api = spieleApi({ ...standard, [`PUT ${LAEUFE}/${LAUF_ID}/inputs`]: (a) => (a.koerper && (a.koerper as { wert: string }).wert === "=1+1" ? fehler(400, "reporting_value_invalid") : { koerper: { schluessel: "a.h", wert: "Erika Beispiel", geaendertVon: ICH_ID, geaendertAm: "2026-11-20T10:00:00.000Z" } }) });
     rendereApp(`/meldungen/${LAUF_ID}?tab=inhalt`);
     const nutzer = userEvent.setup();
     const feld = await screen.findByLabelText("Wert für Verantwortliche Person eingeben");
     await nutzer.type(feld, "Erika Beispiel");
     await nutzer.click(screen.getByRole("button", { name: "Speichern" }));
-    await waitFor(() => expect(api.anfragen("PUT", `${LAEUFE}/${LAUF_ID}/eingaben`)).toHaveLength(1));
-    expect(api.anfragen("PUT", `${LAEUFE}/${LAUF_ID}/eingaben`)[0]!.koerper).toEqual({ schluessel: "a.h", wert: "Erika Beispiel" });
+    await waitFor(() => expect(api.anfragen("PUT", `${LAEUFE}/${LAUF_ID}/inputs`)).toHaveLength(1));
+    expect(api.anfragen("PUT", `${LAEUFE}/${LAUF_ID}/inputs`)[0]!.koerper).toEqual({ schluessel: "a.h", wert: "Erika Beispiel" });
     await nutzer.clear(feld);
     await nutzer.type(feld, "=1+1");
     await nutzer.click(screen.getByRole("button", { name: "Speichern" }));
@@ -306,8 +306,8 @@ describe("Meldelauf: Werte, Herkunft und Eingaben", () => {
     expect(await screen.findByText(/Alle Stufen sind erteilt/)).toBeTruthy();
     await userEvent.setup().click(screen.getByRole("tab", { name: "Datei" }));
     const dateien = within(await screen.findByRole("region", { name: "Dateien" }));
-    expect(dateien.getByRole("link", { name: "Meldung (Excel) herunterladen" }).getAttribute("href")).toBe(`/api/v1/meldelaeufe/${LAUF_ID}/datei?art=meldung`);
-    expect(dateien.getByRole("link", { name: "Prüfansicht (PDF) herunterladen" }).getAttribute("href")).toBe(`/api/v1/meldelaeufe/${LAUF_ID}/datei?art=pruefansicht`);
+    expect(dateien.getByRole("link", { name: "Meldung (Excel) herunterladen" }).getAttribute("href")).toBe(`/api/v1/reporting-runs/${LAUF_ID}/file?type=submission`);
+    expect(dateien.getByRole("link", { name: "Prüfansicht (PDF) herunterladen" }).getAttribute("href")).toBe(`/api/v1/reporting-runs/${LAUF_ID}/file?type=review_view`);
     expect(dateien.getByText("ab".repeat(32))).toBeTruthy();
     await userEvent.setup().click(screen.getByRole("tab", { name: /^Inhalt/ }));
     await waitFor(() => expect(screen.getByRole("tab", { name: /^Inhalt/ }).getAttribute("aria-selected")).toBe("true"));
@@ -319,7 +319,7 @@ describe("Meldelauf: Werte, Herkunft und Eingaben", () => {
 
 describe("Meldelauf: Befunde und Stufen", () => {
   it("listet Fehler und Warnungen, kommentiert eine Warnung", async () => {
-    const api = spieleApi({ ...standard, [`PUT ${LAEUFE}/${LAUF_ID}/befunde/erlaeuterung_fehlt/kommentar`]: { koerper: { regelId: "erlaeuterung_fehlt", text: "Keine Besonderheiten.", von: ICH_ID, am: "2026-11-20T11:00:00.000Z" } } });
+    const api = spieleApi({ ...standard, [`PUT ${LAEUFE}/${LAUF_ID}/findings/erlaeuterung_fehlt/comment`]: { koerper: { regelId: "erlaeuterung_fehlt", text: "Keine Besonderheiten.", von: ICH_ID, am: "2026-11-20T11:00:00.000Z" } } });
     rendereApp(`/meldungen/${LAUF_ID}`);
     const bereich = within(await screen.findByRole("region", { name: "Befunde der Prüfregeln" }));
     expect(bereich.getByText("Pflichtfeld „Verantwortliche Person“ ist leer.")).toBeTruthy();
@@ -328,17 +328,17 @@ describe("Meldelauf: Befunde und Stufen", () => {
     const nutzer = userEvent.setup();
     await nutzer.type(bereich.getByLabelText("Kommentar zur Warnung Es ist keine Erläuterung erfasst."), "Keine Besonderheiten.");
     await nutzer.click(bereich.getByRole("button", { name: "Kommentar speichern" }));
-    await waitFor(() => expect(api.anfragen("PUT", `${LAEUFE}/${LAUF_ID}/befunde/erlaeuterung_fehlt/kommentar`)).toHaveLength(1));
-    expect(api.anfragen("PUT", `${LAEUFE}/${LAUF_ID}/befunde/erlaeuterung_fehlt/kommentar`)[0]!.koerper).toEqual({ text: "Keine Besonderheiten." });
+    await waitFor(() => expect(api.anfragen("PUT", `${LAEUFE}/${LAUF_ID}/findings/erlaeuterung_fehlt/comment`)).toHaveLength(1));
+    expect(api.anfragen("PUT", `${LAEUFE}/${LAUF_ID}/findings/erlaeuterung_fehlt/comment`)[0]!.koerper).toEqual({ text: "Keine Besonderheiten." });
   });
 
   it("erteilt die nächste Stufe und sperrt sie für den Ersteller mit Erklärung", async () => {
-    const api = spieleApi({ ...standard, [`POST ${LAEUFE}/${LAUF_ID}/stufe`]: { koerper: { ...laufDaten, status: "geprueft", naechsteStufe: 1 } } });
+    const api = spieleApi({ ...standard, [`POST ${LAEUFE}/${LAUF_ID}/stage`]: { koerper: { ...laufDaten, status: "geprueft", naechsteStufe: 1 } } });
     rendereApp(`/meldungen/${LAUF_ID}`);
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Stufe „Investmentmanager“ erteilen" }));
-    await waitFor(() => expect(api.anfragen("POST", `${LAEUFE}/${LAUF_ID}/stufe`)).toHaveLength(1));
-    expect(api.anfragen("POST", `${LAEUFE}/${LAUF_ID}/stufe`)[0]!.koerper).toEqual({ stufe: "Investmentmanager", ergebnis: "ok" });
+    await waitFor(() => expect(api.anfragen("POST", `${LAEUFE}/${LAUF_ID}/stage`)).toHaveLength(1));
+    expect(api.anfragen("POST", `${LAEUFE}/${LAUF_ID}/stage`)[0]!.koerper).toEqual({ stufe: "Investmentmanager", ergebnis: "ok" });
   });
 
   it("der Ersteller kann nicht freigeben, die Seite sagt warum", async () => {
@@ -367,8 +367,8 @@ describe("Meldelauf: Befunde und Stufen", () => {
     expect(screen.getByText("Die letzte Stufe ist gesperrt, solange Fehler offen sind.")).toBeTruthy();
   });
 
-  it("MELDELAUF_FEHLER_OFFEN und VIER_AUGEN_VERLETZT werden übersetzt angezeigt", async () => {
-    spieleApi({ ...standard, [`POST ${LAEUFE}/${LAUF_ID}/stufe`]: fehler(409, "VIER_AUGEN_VERLETZT") });
+  it("reporting_run_errors_open und four_eyes_violated werden übersetzt angezeigt", async () => {
+    spieleApi({ ...standard, [`POST ${LAEUFE}/${LAUF_ID}/stage`]: fehler(409, "four_eyes_violated") });
     rendereApp(`/meldungen/${LAUF_ID}`);
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Stufe „Investmentmanager“ erteilen" }));
@@ -377,15 +377,15 @@ describe("Meldelauf: Befunde und Stufen", () => {
 
   it("die Rückgabe verlangt einen Kommentar", async () => {
     const stufe1 = { ...laufDaten, status: "geprueft", naechsteStufe: 1, naechsteStufeName: "Teamleitung", protokoll: [{ id: "p1", laufId: LAUF_ID, stufeIndex: 0, stufe: "Investmentmanager", ergebnis: "ok", kommentar: null, akteur: "88888888-8888-4888-8888-888888888888", am: "2026-11-21T10:00:00.000Z" }] };
-    const api = spieleApi({ ...standard, [`${LAEUFE}/${LAUF_ID}`]: { koerper: stufe1 }, [`POST ${LAEUFE}/${LAUF_ID}/stufe`]: { koerper: laufDaten } });
+    const api = spieleApi({ ...standard, [`${LAEUFE}/${LAUF_ID}`]: { koerper: stufe1 }, [`POST ${LAEUFE}/${LAUF_ID}/stage`]: { koerper: laufDaten } });
     rendereApp(`/meldungen/${LAUF_ID}`);
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: /Zurückgeben/ }));
-    expect(api.anfragen("POST", `${LAEUFE}/${LAUF_ID}/stufe`)).toHaveLength(0);
+    expect(api.anfragen("POST", `${LAEUFE}/${LAUF_ID}/stage`)).toHaveLength(0);
     await nutzer.type(screen.getByLabelText("Kommentar (bei Rückgabe Pflicht)"), "Zahlen prüfen");
     await nutzer.click(screen.getByRole("button", { name: /Zurückgeben/ }));
-    await waitFor(() => expect(api.anfragen("POST", `${LAEUFE}/${LAUF_ID}/stufe`)).toHaveLength(1));
-    expect(api.anfragen("POST", `${LAEUFE}/${LAUF_ID}/stufe`)[0]!.koerper).toEqual({ stufe: "Teamleitung", ergebnis: "zurueck", kommentar: "Zahlen prüfen" });
+    await waitFor(() => expect(api.anfragen("POST", `${LAEUFE}/${LAUF_ID}/stage`)).toHaveLength(1));
+    expect(api.anfragen("POST", `${LAEUFE}/${LAUF_ID}/stage`)[0]!.koerper).toEqual({ stufe: "Teamleitung", ergebnis: "zurueck", kommentar: "Zahlen prüfen" });
   });
 
   it("Englisch: Werte, Befunde und Hinweise", async () => {
@@ -406,7 +406,7 @@ describe("Verwaltung der Meldedefinitionen", () => {
   const kopf = { id: "d1", schluessel: "foerderbericht_quartal", version: 1, bezeichnungDe: "Förderbericht je Quartal (Vorlage)", bezeichnungEn: "Funding report per quarter (template)", herausgeber: "H", rhythmus: "quartal", format: "xlsx", gueltigAb: "2026-01-01", gueltigBis: null as string | null, erstelltVon: "system", erstelltAm: "2026-01-01T00:00:00.000Z" };
   const liste = { daten: [{ ...kopf, anzahlVersionen: 1, hinweis: text("Vorlage, fachlich zu prüfen.") }] };
   const version = { ...kopf, definition, vorschau: definition.abschnitte.map((a) => ({ id: a.id, typ: a.typ, titel: a.titel, anzahl: (a.felder ?? a.spalten)!.length, felder: (a.felder ?? a.spalten)!.map((f) => ({ id: f.id, bezeichnung: f.bezeichnung, format: f.format, quelle: f.quelle.art })) })) };
-  const verwaltung = { "/api/v1/meldedefinitionen": { koerper: liste }, "/api/v1/foerderprogramme": { koerper: programme }, "/api/v1/meldedefinitionen/foerderbericht_quartal": { koerper: { daten: [kopf] } }, "/api/v1/meldedefinitionen/foerderbericht_quartal/versionen/1": { koerper: version } };
+  const verwaltung = { "/api/v1/reporting-definitions": { koerper: liste }, "/api/v1/funding-programs": { koerper: programme }, "/api/v1/reporting-definitions/foerderbericht_quartal": { koerper: { daten: [kopf] } }, "/api/v1/reporting-definitions/foerderbericht_quartal/versions/1": { koerper: version } };
 
   it("listet Definitionen mit Vorlagenhinweis und zeigt eine Version als Aufbau und JSON", async () => {
     spieleApi(verwaltung);
@@ -424,11 +424,11 @@ describe("Verwaltung der Meldedefinitionen", () => {
   it("Editor: ungültiges JSON, Prüfung mit Pfad und Meldung, Speichern als neue Version", async () => {
     const api = spieleApi({
       ...verwaltung,
-      "POST /api/v1/meldedefinitionen/pruefen": (a) =>
+      "POST /api/v1/reporting-definitions/validate": (a) =>
         (a.koerper as { definition: { schema?: number } }).definition.schema === 2
           ? { koerper: { ok: false, vorschau: null, probleme: [{ pfad: "abschnitte.0.felder.1.quelle.schluessel", code: "unbekannte_kennzahl", meldung: "x", params: { schluessel: "gibt_es_nicht" } }] } }
           : { koerper: { ok: true, vorschau: [], probleme: [] } },
-      "POST /api/v1/meldedefinitionen/foerderbericht_quartal/versionen": { status: 201, koerper: { ...kopf, version: 2 } },
+      "POST /api/v1/reporting-definitions/foerderbericht_quartal/versions": { status: 201, koerper: { ...kopf, version: 2 } },
     });
     rendereApp("/verwaltung?bereich=meldewesen");
     const nutzer = userEvent.setup();
@@ -446,8 +446,8 @@ describe("Verwaltung der Meldedefinitionen", () => {
     await nutzer.click(dialog.getByRole("button", { name: "Prüfen" }));
     expect(await dialog.findByText("Der Aufbau ist gültig.")).toBeTruthy();
     await nutzer.click(dialog.getByRole("button", { name: "Speichern" }));
-    await waitFor(() => expect(api.anfragen("POST", "/api/v1/meldedefinitionen/foerderbericht_quartal/versionen")).toHaveLength(1));
-    const k = api.anfragen("POST", "/api/v1/meldedefinitionen/foerderbericht_quartal/versionen")[0]!.koerper as Record<string, unknown>;
+    await waitFor(() => expect(api.anfragen("POST", "/api/v1/reporting-definitions/foerderbericht_quartal/versions")).toHaveLength(1));
+    const k = api.anfragen("POST", "/api/v1/reporting-definitions/foerderbericht_quartal/versions")[0]!.koerper as Record<string, unknown>;
     expect(k.definition).toEqual({ schema: 1, abschnitte: [] });
     expect(k.rhythmus).toBe("quartal");
     expect(k.format).toBe("xlsx");
@@ -455,7 +455,7 @@ describe("Verwaltung der Meldedefinitionen", () => {
 
   it("zeigt die Fehler der API beim Speichern mit Pfad (englisch übersetzt)", async () => {
     localStorage.setItem("carraway.sprache", "en");
-    spieleApi({ ...verwaltung, "POST /api/v1/meldedefinitionen": fehler(400, "MELDEDEFINITION_UNGUELTIG", { definitionsfehler: [{ pfad: "abschnitte.0", code: "zyklus", meldung: "Zyklische Verweise: a → b → a.", params: { kreis: "a → b → a" } }] }) });
+    spieleApi({ ...verwaltung, "POST /api/v1/reporting-definitions": fehler(400, "reporting_definition_invalid", { definitionsfehler: [{ pfad: "abschnitte.0", code: "zyklus", meldung: "Zyklische Verweise: a → b → a.", params: { kreis: "a → b → a" } }] }) });
     rendereApp("/verwaltung?bereich=meldewesen");
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "New definition" }));
@@ -470,7 +470,7 @@ describe("Verwaltung der Meldedefinitionen", () => {
   });
 
   it("legt ein Förderprogramm an", async () => {
-    const api = spieleApi({ ...verwaltung, "POST /api/v1/foerderprogramme": { status: 201, koerper: programme.daten[0] } });
+    const api = spieleApi({ ...verwaltung, "POST /api/v1/funding-programs": { status: 201, koerper: programme.daten[0] } });
     rendereApp("/verwaltung?bereich=meldewesen");
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Programm anlegen" }));
@@ -478,7 +478,7 @@ describe("Verwaltung der Meldedefinitionen", () => {
     fireEvent.change(dialog.getByLabelText("Schlüssel"), { target: { value: "demo_neu" } });
     fireEvent.change(dialog.getByLabelText("Bezeichnung"), { target: { value: "Beispielprogramm Neu" } });
     await nutzer.click(dialog.getByRole("button", { name: "Speichern" }));
-    await waitFor(() => expect(api.anfragen("POST", "/api/v1/foerderprogramme")).toHaveLength(1));
-    expect(api.anfragen("POST", "/api/v1/foerderprogramme")[0]!.koerper).toEqual({ schluessel: "demo_neu", bezeichnung: "Beispielprogramm Neu" });
+    await waitFor(() => expect(api.anfragen("POST", "/api/v1/funding-programs")).toHaveLength(1));
+    expect(api.anfragen("POST", "/api/v1/funding-programs")[0]!.koerper).toEqual({ schluessel: "demo_neu", bezeichnung: "Beispielprogramm Neu" });
   });
 });

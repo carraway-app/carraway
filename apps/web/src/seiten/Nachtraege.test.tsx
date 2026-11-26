@@ -5,16 +5,16 @@ import { abgrenzungDaten, fehler, FONDS_ID, kontrolleDaten, rendereApp, spieleAp
 import { de } from "../i18n/de";
 
 const schmal = (text: string | null) => (text ?? "").replace(/\s/g, " ");
-const nichtAngemeldet = fehler(401, "NICHT_ANGEMELDET");
+const nichtAngemeldet = fehler(401, "not_authenticated");
 
 describe("Link zur Einrichtung", () => {
   it("steht nur auf der Anmeldeseite, wenn die API die Einrichtung als offen meldet", async () => {
-    spieleApi({ "/api/v1/ich": nichtAngemeldet, "/api/v1/umgebung": { koerper: { ...umgebungDaten, einrichtungOffen: true } } });
+    spieleApi({ "/api/v1/me": nichtAngemeldet, "/api/v1/environment": { koerper: { ...umgebungDaten, einrichtungOffen: true } } });
     const { unmount } = rendereApp("/anmelden");
     expect(await screen.findByRole("link", { name: de.anmeldung.einrichten })).toBeTruthy();
     unmount();
 
-    spieleApi({ "/api/v1/ich": nichtAngemeldet, "/api/v1/umgebung": { koerper: { ...umgebungDaten, einrichtungOffen: false } } });
+    spieleApi({ "/api/v1/me": nichtAngemeldet, "/api/v1/environment": { koerper: { ...umgebungDaten, einrichtungOffen: false } } });
     rendereApp("/anmelden");
     await screen.findByRole("heading", { name: "Anmelden" });
     expect(screen.queryByRole("link", { name: de.anmeldung.einrichten })).toBeNull();
@@ -74,7 +74,7 @@ describe("Kontrollbericht und Abgrenzung nach Code", () => {
     const kachel = within(await screen.findByRole("region", { name: "Abgrenzung der Zinsen" }));
     const zeile = (await kachel.findAllByRole("row"))[2]!;
     expect(zeile.textContent).toContain("Nicht berechenbar");
-    expect(zeile.textContent).toContain(de.fehler.BERECHNUNG_FEHLGESCHLAGEN);
+    expect(zeile.textContent).toContain(de.fehler.calculation_failed);
     expect(zeile.textContent).toContain("Grund der Berechnung: Jahresüberschuss 2025 fehlt");
   });
 
@@ -91,6 +91,6 @@ describe("Kontrollbericht und Abgrenzung nach Code", () => {
     rendereApp(`/fonds?fondsId=${FONDS_ID}&tab=abgrenzung`);
     const kachel = within(await screen.findByRole("region", { name: "Abgrenzung der Zinsen" }));
     const zeile = (await kachel.findAllByRole("row"))[2]!;
-    expect(zeile.textContent).toContain(de.fehler.BERECHNUNG_FEHLGESCHLAGEN);
+    expect(zeile.textContent).toContain(de.fehler.calculation_failed);
   });
 });

@@ -1,18 +1,19 @@
+import { kontaktJson, pruefeKontakt } from "../kontakte/http";
 import { randomUUID } from "node:crypto";
 import { and, asc, eq, lt } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
-import { oauthZustand, postfachVerbindung, type Db } from "@carraway/db";
+import { kontaktabgleichEinstellung, kontaktabgleichTeilnahme, oauthZustand, postfachVerbindung, type Db } from "@carraway/db";
 import { aktuellerAkteur } from "../anmeldung/akteur";
 import { Fachfehler } from "../fehler";
 import type { Konfiguration } from "../konfiguration";
 import { ADRESSE } from "../mail/konfiguration";
-import { pruefe } from "../pruefung";
 import { idParam, schreibe } from "../schreiben";
 import { lese } from "../zeitlimit";
 import type { Abrufer } from "../postfach/http";
 import type { ImapFabrik } from "../postfach/imap";
 import { baueAutorisierungsUrl, pkcePaar, pruefeIdToken, sha256Hex, tauscheCode, zufall, type Anbietername, type Bereich } from "../postfach/oauth";
+import { darfKontakteAnlegen, entferneOffeneVorschlaege, normalisiereListe } from "../postfach/kontakte";
 import { PostfachFehler, type Zugang } from "../postfach/typen";
 import { pruefeImapZiel, type Aufloeser, standardAufloeser } from "../postfach/ziel";
 import { leseZugang, verifierAad, verschluesseleZugang } from "../postfach/zugang";
@@ -43,6 +44,7 @@ const imapEingabe = z
   })
   .strict();
 const aendernEingabe = z.object({ inhaltSpeichern: z.boolean() }).strict();
+const kontakteEingabe = z.object({ teilnehmen: z.boolean(), sperrliste: z.array(z.string().trim().max(254)).max(500) }).strict();
 const rueckrufAbfrage = z.object({ code: z.string().max(4000).optional(), state: z.string().max(200).optional(), error: z.string().max(200).optional() });
 
 export interface PostfachRoutenOptionen {
@@ -55,9 +57,9 @@ export interface PostfachRoutenOptionen {
 export function postfachRouten(db: Db, opt: PostfachRoutenOptionen) {
   const { konfig } = opt;
   const basis = konfig.appOrigins[0]!;
-  const rueckrufUrl = `${basis}/api/v1/postfach/rueckruf`;
+  const rueckrufUrl = `${basis}/api/v1/mailbox/callback`;
   const verlangeRing = () => {
-    if (!konfig.schluessel) throw new Fachfehler(409, "GEHEIMNIS_FEHLT", "GEHEIMNIS_SCHLUESSEL ist nicht gesetzt; ohne ihn lassen sich keine Zugänge speichern.");
+    if (!konfig.schluessel) throw new Fachfehler(409, "secret_missing", "GEHEIMNIS_SCHLUESSEL is not set; credentials cannot be stored without it.");
     return konfig.schluessel;
   };
   const zurueck = (c: { redirect: (u: string, s?: 302) => Response }, parameter: Record<string, string>) => c.redirect(`${basis}/einstellungen/postfach?${new URLSearchParams(parameter).toString()}`, 302);
@@ -96,15 +98,44 @@ export function postfachRouten(db: Db, opt: PostfachRoutenOptionen) {
 
   const eigene = async (id: string, benutzerId: string) => {
     const [z] = await lese(db, (tx) => tx.select().from(postfachVerbindung).where(and(eq(postfachVerbindung.id, id), eq(postfachVerbindung.benutzerId, benutzerId))));
-    if (!z) throw new Fachfehler(404, "POSTFACH_NICHT_GEFUNDEN", "Diese Verbindung gibt es nicht.");
+    if (!z) throw new Fachfehler(404, "mailbox_not_found", "This connection does not exist.");
     return z;
   };
 
+  /** Kontakte aus Postfach und Kalender: Modus der Installation, eigene Teilnahme und eigene Sperrliste (nur die Person selbst). */
+  const kontakteAnsicht = async (akteur: { id: string; globalVerwalter: boolean }) => {
+    const [e] = await lese(db, (tx) => tx.select({ modus: kontaktabgleichEinstellung.modus }).from(kontaktabgleichEinstellung));
+    const [t] = await lese(db, (tx) => tx.select().from(kontaktabgleichTeilnahme).where(eq(kontaktabgleichTeilnahme.benutzerId, akteur.id)));
+    // Ohne das Recht, Kontakte anzulegen, nimmt das Postfach nicht teil (der Abgleich prüft das bei jedem Lauf selbst).
+    const darfAnlegen = await lese(db, (tx) => darfKontakteAnlegen(tx, akteur.id, akteur.globalVerwalter));
+    return { modus: (e?.modus ?? "aus") as "aus" | "vorschlag" | "direkt", teilnehmen: t?.teilnehmen ?? false, sperrliste: t?.sperrliste ?? [], darfAnlegen };
+  };
+
   return new Hono()
+    .get("/contacts", async (c) => kontaktJson(c, await kontakteAnsicht(aktuellerAkteur(c)), 200))
+    .put("/contacts", pruefeKontakt("json", kontakteEingabe), async (c) => {
+      const akteur = aktuellerAkteur(c);
+      const benutzerId = akteur.id;
+      const e = c.req.valid("json");
+      const sperrliste = normalisiereListe(e.sperrliste);
+      await schreibe(db, c, async (tx, protokoll) => {
+        const [vorher] = await tx.select().from(kontaktabgleichTeilnahme).where(eq(kontaktabgleichTeilnahme.benutzerId, benutzerId));
+        await tx
+          .insert(kontaktabgleichTeilnahme)
+          .values({ benutzerId, teilnehmen: e.teilnehmen, sperrliste })
+          .onConflictDoUpdate({ target: kontaktabgleichTeilnahme.benutzerId, set: { teilnehmen: e.teilnehmen, sperrliste, geaendertAm: new Date() } });
+        // Wer nicht mehr teilnimmt, nimmt seine offenen Vorschläge zurück.
+        if (!e.teilnehmen) await entferneOffeneVorschlaege(tx, benutzerId);
+        // Im Protokoll nur Schalter und Anzahl, nie die Einträge der Sperrliste (private Kontakte).
+        await protokoll(vorher ? "aendern" : "anlegen", "kontaktabgleich_teilnahme", benutzerId, vorher ? { teilnehmen: vorher.teilnehmen, sperrliste: vorher.sperrliste.length } : null, { teilnehmen: e.teilnehmen, sperrliste: sperrliste.length });
+      });
+      return kontaktJson(c, await kontakteAnsicht(akteur), 200);
+    })
     .get("/", async (c) => {
       const { id } = aktuellerAkteur(c);
       const zeilen = await lese(db, (tx) => tx.select().from(postfachVerbindung).where(eq(postfachVerbindung.benutzerId, id)).orderBy(asc(postfachVerbindung.bereich)));
-      return c.json(
+      return kontaktJson(
+        c,
         {
           anbieter: { microsoft: Boolean(konfig.postfach.microsoft), google: Boolean(konfig.postfach.google), imap: konfig.postfach.imap },
           schluesselVorhanden: Boolean(konfig.schluessel),
@@ -113,12 +144,12 @@ export function postfachRouten(db: Db, opt: PostfachRoutenOptionen) {
         200,
       );
     })
-    .post("/oauth/start", pruefe("json", oauthStart), async (c) => {
+    .post("/oauth/start", pruefeKontakt("json", oauthStart), async (c) => {
       const { id: benutzerId } = aktuellerAkteur(c);
       const e = c.req.valid("json");
       const ring = verlangeRing();
       const anbieter = konfig.postfach[e.anbieter];
-      if (!anbieter) throw new Fachfehler(409, "POSTFACH_ANBIETER_AUS", "Dieser Anbieter ist in dieser Installation nicht eingerichtet.");
+      if (!anbieter) throw new Fachfehler(409, "mailbox_provider_disabled", "This provider is not set up in this installation.");
       const state = zufall();
       const nonce = zufall();
       const pkce = pkcePaar();
@@ -137,23 +168,23 @@ export function postfachRouten(db: Db, opt: PostfachRoutenOptionen) {
           ablauf: new Date(Date.now() + ZUSTAND_GUELTIG_MS),
         });
       });
-      return c.json({ url: baueAutorisierungsUrl(anbieter, e.anbieter, e.bereich, { redirectUri: rueckrufUrl, state, nonce, challenge: pkce.challenge }) }, 200);
+      return kontaktJson(c, { url: baueAutorisierungsUrl(anbieter, e.anbieter, e.bereich, { redirectUri: rueckrufUrl, state, nonce, challenge: pkce.challenge }) }, 200);
     })
-    .get("/rueckruf", pruefe("query", rueckrufAbfrage), async (c) => {
+    .get("/callback", pruefeKontakt("query", rueckrufAbfrage), async (c) => {
       const akteur = aktuellerAkteur(c);
       const { code, state, error } = c.req.valid("query");
-      if (!state) return zurueck(c, { fehler: "POSTFACH_ZUSTAND_UNGUELTIG" });
+      if (!state) return zurueck(c, { fehler: "mailbox_state_invalid" });
       // Der Zustand ist einmalig: Er wird in jedem Fall verbraucht, auch wenn danach etwas schiefgeht.
       const zustand = await schreibe(db, c, async (tx) => {
         const [z] = await tx.select().from(oauthZustand).where(eq(oauthZustand.stateHash, sha256Hex(state))).for("update");
         if (z) await tx.delete(oauthZustand).where(eq(oauthZustand.id, z.id));
         return z ?? null;
       });
-      if (!zustand || zustand.ablauf.getTime() < Date.now() || zustand.benutzerId !== akteur.id) return zurueck(c, { fehler: "POSTFACH_ZUSTAND_UNGUELTIG" });
+      if (!zustand || zustand.ablauf.getTime() < Date.now() || zustand.benutzerId !== akteur.id) return zurueck(c, { fehler: "mailbox_state_invalid" });
       const name = zustand.anbieter as Anbietername;
       const anbieter = konfig.postfach[name === "microsoft" ? "microsoft" : "google"];
-      if (!anbieter || (zustand.anbieter !== "microsoft" && zustand.anbieter !== "google")) return zurueck(c, { fehler: "POSTFACH_ANBIETER_AUS" });
-      if (error || !code) return zurueck(c, { fehler: "POSTFACH_VERBINDUNG_FEHLGESCHLAGEN" });
+      if (!anbieter || (zustand.anbieter !== "microsoft" && zustand.anbieter !== "google")) return zurueck(c, { fehler: "mailbox_provider_disabled" });
+      if (error || !code) return zurueck(c, { fehler: "mailbox_connection_failed" });
       try {
         const ring = verlangeRing();
         const verifier = ring.entschluessele(zustand.verifierVerschluesselt, verifierAad(zustand.id));
@@ -164,21 +195,21 @@ export function postfachRouten(db: Db, opt: PostfachRoutenOptionen) {
         await speichere(c, akteur.id, zustand.bereich, name, { art: "oauth", accessToken: token.accessToken, refreshToken: token.refreshToken, ablaufMs: token.ablaufMs, adresse }, false);
       } catch (fehler) {
         if (fehler instanceof Fachfehler) throw fehler;
-        return zurueck(c, { fehler: "POSTFACH_VERBINDUNG_FEHLGESCHLAGEN", grund: fehler instanceof PostfachFehler ? fehler.code : "UNBEKANNT" });
+        return zurueck(c, { fehler: "mailbox_connection_failed", grund: fehler instanceof PostfachFehler ? fehler.code : "UNBEKANNT" });
       }
       return zurueck(c, { ergebnis: "verbunden", bereich: zustand.bereich });
     })
-    .post("/imap", pruefe("json", imapEingabe), async (c) => {
+    .post("/imap", pruefeKontakt("json", imapEingabe), async (c) => {
       const { id: benutzerId } = aktuellerAkteur(c);
       const e = c.req.valid("json");
       verlangeRing();
-      if (!konfig.postfach.imap) throw new Fachfehler(409, "POSTFACH_ANBIETER_AUS", "IMAP ist in dieser Installation ausgeschaltet.");
+      if (!konfig.postfach.imap) throw new Fachfehler(409, "mailbox_provider_disabled", "IMAP is disabled in this installation.");
       let ziel: string;
       try {
         ziel = await pruefeImapZiel(e.host, e.port, konfig.postfach.privateZiele, opt.aufloeser ?? standardAufloeser);
       } catch (fehler) {
-        if (fehler instanceof PostfachFehler && fehler.code === "ZIEL_VERBOTEN") throw new Fachfehler(400, "POSTFACH_ZIEL_VERBOTEN", "Dieses Ziel ist nicht erlaubt.");
-        throw new Fachfehler(502, "POSTFACH_VERBINDUNG_FEHLGESCHLAGEN", "Die Verbindung zum Postfach ist fehlgeschlagen.");
+        if (fehler instanceof PostfachFehler && fehler.code === "ZIEL_VERBOTEN") throw new Fachfehler(400, "mailbox_target_forbidden", "This target is not allowed.");
+        throw new Fachfehler(502, "mailbox_connection_failed", "The connection to the mailbox failed.");
       }
       const zugang: Zugang = { art: "imap", host: e.host, port: e.port, sicherheit: e.sicherheit, benutzer: e.benutzer, passwort: e.passwort, adresse: e.adresse.toLowerCase(), ordner: e.ordner };
       // Probeverbindung vor dem Speichern: Anmeldung und alle Ordner müssen gehen.
@@ -191,42 +222,44 @@ export function postfachRouten(db: Db, opt: PostfachRoutenOptionen) {
           await v.schliesse().catch(() => undefined);
         }
       } catch {
-        throw new Fachfehler(502, "POSTFACH_VERBINDUNG_FEHLGESCHLAGEN", "Die Verbindung zum Postfach ist fehlgeschlagen.");
+        throw new Fachfehler(502, "mailbox_connection_failed", "The connection to the mailbox failed.");
       }
       const id = await speichere(c, benutzerId, "mail", "imap", zugang, e.inhaltSpeichern);
       const [z] = await lese(db, (tx) => tx.select().from(postfachVerbindung).where(eq(postfachVerbindung.id, id)));
-      return c.json(ansicht(z!), 201);
+      return kontaktJson(c, ansicht(z!), 201);
     })
-    .patch("/:id", pruefe("param", idParam), pruefe("json", aendernEingabe), async (c) => {
+    .patch("/:id", pruefeKontakt("param", idParam), pruefeKontakt("json", aendernEingabe), async (c) => {
       const { id: benutzerId } = aktuellerAkteur(c);
       const { id } = c.req.valid("param");
       const { inhaltSpeichern } = c.req.valid("json");
       const vorher = await eigene(id, benutzerId);
-      if (vorher.bereich !== "mail") throw new Fachfehler(400, "EINGABE_UNGUELTIG", "Die Eingabe ist ungültig.", { felder: [{ feld: "inhaltSpeichern", code: "custom", meldung: "Gilt nur für Postfächer" }] });
+      if (vorher.bereich !== "mail") throw new Fachfehler(400, "invalid_input", "The input is invalid.", { felder: [{ feld: "inhaltSpeichern", code: "custom", meldung: "Applies to mailboxes only" }] });
       const nachher = await schreibe(db, c, async (tx, protokoll) => {
         const [z] = await tx.update(postfachVerbindung).set({ inhaltSpeichern }).where(and(eq(postfachVerbindung.id, id), eq(postfachVerbindung.benutzerId, benutzerId))).returning();
         await protokoll("aendern", "postfach_verbindung", id, { inhaltSpeichern: vorher.inhaltSpeichern }, { inhaltSpeichern });
         return z!;
       });
-      return c.json(ansicht(nachher), 200);
+      return kontaktJson(c, ansicht(nachher), 200);
     })
     /** Fordert einen Abgleich beim nächsten Lauf des Workers an. */
-    .post("/:id/abgleichen", pruefe("param", idParam), async (c) => {
+    .post("/:id/sync", pruefeKontakt("param", idParam), async (c) => {
       const { id: benutzerId } = aktuellerAkteur(c);
       const { id } = c.req.valid("param");
       await eigene(id, benutzerId);
       await schreibe(db, c, async (tx) => {
         await tx.update(postfachVerbindung).set({ naechsterAbgleichAm: new Date() }).where(and(eq(postfachVerbindung.id, id), eq(postfachVerbindung.benutzerId, benutzerId)));
       });
-      return c.json({ angefordert: true }, 202);
+      return kontaktJson(c, { angefordert: true }, 202);
     })
-    /** Trennt: Der verschlüsselte Zugang wird gelöscht. Bereits übernommene Aktivitäten bleiben, bis die Person sie entfernt. */
-    .delete("/:id", pruefe("param", idParam), async (c) => {
+    /** Trennt: Der verschlüsselte Zugang wird gelöscht. Bereits übernommene Aktivitäten und angelegte Kontakte bleiben; offene Kontaktvorschläge daraus entfallen. */
+    .delete("/:id", pruefeKontakt("param", idParam), async (c) => {
       const { id: benutzerId } = aktuellerAkteur(c);
       const { id } = c.req.valid("param");
       const z = await eigene(id, benutzerId);
       await schreibe(db, c, async (tx, protokoll) => {
         await tx.delete(postfachVerbindung).where(and(eq(postfachVerbindung.id, id), eq(postfachVerbindung.benutzerId, benutzerId)));
+        // Noch nicht bestätigte Vorschläge aus diesem Postfach oder Kalender entfallen; angelegte Kontakte bleiben.
+        await entferneOffeneVorschlaege(tx, benutzerId, z.bereich);
         await protokoll("trennen", "postfach_verbindung", id, { bereich: z.bereich, anbieter: z.anbieter }, null);
       });
       return c.body(null, 204);

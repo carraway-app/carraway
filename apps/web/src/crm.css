@@ -35,16 +35,25 @@
 
 /* Tabelle (Datengitter) */
 .app-gitter-aussen { border: 1px solid var(--cw-line); border-radius: var(--r-m); overflow: hidden; }
-.app-gitter { --app-schnell-luecke: 2px; --app-gitter-aktion: calc(5 * var(--h-xs) + 4 * var(--app-schnell-luecke) + 2 * var(--s-1)); position: relative; overflow: auto; overscroll-behavior-x: contain; }
+.app-gitter { --app-schnell-luecke: 2px; --app-gitter-aktion: calc(5 * var(--h-xs) + 4 * var(--app-schnell-luecke) + 2 * var(--s-1)); --app-gitter-schatten: color-mix(in srgb, var(--cw-text) 30%, transparent); position: relative; overflow: auto; overscroll-behavior-x: contain; }
 .app-gitter__scroll { display: flex; flex-direction: column; }
-.app-gitter__zeile { display: grid; align-items: center; border-bottom: 1px solid var(--cw-line); background: var(--cw-bg); }
+/* Der Zeilentrenner liegt an jeder Zelle (nicht an der Zeile): die deckenden, klebenden Zellen tragen ihn selbst, so läuft die Linie ohne Versatz durch. */
+.app-gitter__zeile { display: grid; align-items: center; background: var(--cw-bg); }
+.app-gitter__zeile > * { border-bottom: 1px solid var(--cw-line); }
+.app-gitter__zeile:not(.app-gitter__kopf):hover { background: var(--cw-hover); }
 /* Die Auswahl ist eine deckende, neutrale Fläche (die klebenden Zellen erben den Grund der Zeile), dazu die Linie im Akzent an der ersten Zelle. */
 .app-gitter__zeile[data-gewaehlt] { background: var(--cw-selected); }
 .app-gitter__zeile[data-gewaehlt] > :first-child { box-shadow: inset 2px 0 0 var(--cw-accent); }
-.app-gitter__kopf { position: sticky; top: 0; z-index: 2; min-height: var(--zeile); background: var(--cw-surface); font-size: var(--fs-beschriftung); font-weight: 500; letter-spacing: 0.04em; color: var(--cw-text-muted); }
-.app-gitter__kopfzelle { position: relative; display: flex; align-items: center; min-width: 0; height: 100%; padding: 0 var(--s-1); }
+.app-gitter__kopf { position: sticky; top: 0; z-index: 5; min-height: var(--zeile); background: var(--cw-surface); font-size: var(--fs-beschriftung); font-weight: 500; letter-spacing: 0.04em; color: var(--cw-text-muted); }
+.app-gitter__kopfzelle { position: relative; z-index: 0; display: flex; align-items: center; min-width: 0; height: 100%; padding: 0 var(--s-1); }
 .app-gitter__sortieren { display: inline-flex; align-items: center; gap: var(--s-0); min-width: 0; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
 span.app-gitter__sortieren { cursor: default; }
+/* Spalten im Kopf verschieben: gezogener Kopf halbtransparent, Einfügemarke in Akzentfarbe zwischen den Köpfen. */
+.app-gitter__kopfzelle[draggable="true"] { cursor: grab; }
+.app-gitter__kopfzelle[data-gezogen] { opacity: 0.5; }
+.app-gitter__kopfzelle[data-einfuegen]::before { content: ""; position: absolute; top: 4px; bottom: 4px; width: 2px; border-radius: 1px; background: var(--cw-accent); pointer-events: none; z-index: 1; }
+.app-gitter__kopfzelle[data-einfuegen="vor"]::before { left: -1px; }
+.app-gitter__kopfzelle[data-einfuegen="nach"]::before { right: -1px; }
 .app-gitter__sortieren > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .app-gitter__sortieren:hover { color: var(--cw-text); }
 .app-gitter__sortieren:focus-visible { outline: 2px solid var(--cw-focus); outline-offset: 2px; }
@@ -53,16 +62,20 @@ span.app-gitter__sortieren { cursor: default; }
 .app-gitter__griff:focus-visible { box-shadow: inset -2px 0 0 var(--cw-focus); }
 .app-gitter__auswahl { display: flex; align-items: center; justify-content: center; }
 /* Kopf, erste Spalte und Aktionsspalte kleben im einen Scrollbereich des Gitters (Zeilen und Kopf scrollen waagerecht gemeinsam); der Grund kommt von der Zeile. */
-.app-gitter .app-gitter__links, .app-gitter .app-gitter__rechts { position: sticky; z-index: 1; background: inherit; }
+/* Ebenen: Kopf (5) über allem; darin die Ecken (3, kleben in beide Richtungen) über den Kopfzellen (0); im Körper kleben die Ränder (2) über dem scrollenden Inhalt (0, eigener Stapel, damit nichts durchragt). */
+.app-gitter .app-gitter__links, .app-gitter .app-gitter__rechts { position: sticky; z-index: 2; background: inherit; }
 .app-gitter__auswahl.app-gitter__links { left: 0; }
-.app-gitter__zelle.app-gitter__erste, .app-gitter__kopfzelle.app-gitter__erste { left: 40px; box-shadow: 1px 0 0 var(--cw-line); }
-.app-gitter__rechts { right: 0; box-shadow: -1px 0 0 var(--cw-line); }
+.app-gitter__zelle.app-gitter__erste, .app-gitter__kopfzelle.app-gitter__erste { left: 40px; }
+.app-gitter__rechts { right: 0; }
 .app-gitter__kopf > .app-gitter__links, .app-gitter__kopf > .app-gitter__rechts { z-index: 3; }
+/* Kantenschatten nur, solange Inhalt unter den klebenden Rändern liegt (Gitter setzt data-kante-links und data-kante-rechts). */
+.app-gitter[data-kante-links] .app-gitter__erste { box-shadow: 6px 0 8px -6px var(--app-gitter-schatten); }
+.app-gitter[data-kante-rechts] .app-gitter__rechts { box-shadow: -6px 0 8px -6px var(--app-gitter-schatten); }
 @media (max-width: 480px) {
   .app-gitter__auswahl.app-gitter__links { position: static; }
   .app-gitter__zelle.app-gitter__erste, .app-gitter__kopfzelle.app-gitter__erste { left: 0; }
 }
-.app-gitter__zelle { position: relative; display: flex; align-items: center; min-width: 0; height: 100%; padding: 0 var(--s-1); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: var(--fs-text); }
+.app-gitter__zelle { position: relative; z-index: 0; display: flex; align-items: center; min-width: 0; height: 100%; padding: 0 var(--s-1); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: var(--fs-text); }
 .app-gitter__zelle > * { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .app-gitter__zelle:focus-visible, .app-gitter__zelle[data-aktiv]:focus-within { outline: 2px solid var(--cw-focus); outline-offset: -2px; }
 .app-gitter__zelle[aria-readonly="true"] { cursor: default; }
@@ -90,8 +103,9 @@ span.app-gitter__sortieren { cursor: default; }
 .app-fed__optionen label { display: inline-flex; align-items: center; gap: var(--s-0); }
 .app-fed__aktionen, .app-fed__fuss { display: flex; flex-wrap: wrap; gap: var(--s-1); }
 .app-spaltenliste { display: flex; flex-direction: column; gap: var(--s-0); margin: 0; padding: 0; list-style: none; }
-.app-spaltenliste li { display: flex; align-items: center; justify-content: space-between; gap: var(--s-1); min-height: var(--h-s); }
-.app-spaltenliste label { display: inline-flex; align-items: center; gap: var(--s-1); }
+.app-spaltenliste:not(.cw-sortierbar) li { display: flex; align-items: center; gap: var(--s-1); min-height: var(--h-s); padding-left: var(--s-1); }
+.app-spaltenliste__titel { margin: var(--s-2) 0 var(--s-0); font-size: var(--fs-beschriftung); font-weight: 600; letter-spacing: 0.04em; color: var(--cw-text-muted); }
+.app-spaltenliste__name { display: inline-flex; align-items: center; gap: var(--s-1); min-width: 0; cursor: pointer; }
 .app-felderliste { display: flex; flex-direction: column; gap: var(--s-1); margin: 0 0 var(--s-2); padding: 0; list-style: none; }
 .app-felderliste li { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-1) var(--s-2); padding: var(--s-1) 0; border-bottom: 1px solid var(--cw-line); }
 .app-felderliste li[data-archiviert] .app-felderliste__name { color: var(--cw-text-subtle); text-decoration: line-through; }
@@ -241,7 +255,7 @@ span.app-gitter__sortieren { cursor: default; }
 
 /* Die Bedienelemente decken auf schmalen Geräten keine Datenspalten ab. */
 @media (max-width: 480px) {
-  .app-gitter .app-gitter__rechts { position: static; box-shadow: none; }
+  .app-gitter .app-gitter__rechts, .app-gitter[data-kante-rechts] .app-gitter__rechts { position: static; box-shadow: none; }
   .app-gitter__aktionen > * { opacity: 1; }
 }
 

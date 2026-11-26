@@ -36,9 +36,9 @@ beforeAll(async () => {
   const zeilen: Blattzeilen = beispielZeilen();
   const f = new FormData();
   f.append("datei", new File([new Uint8Array(await erzeugeMappe("de", zeilen))], "export.xlsx"));
-  const lauf = await json(await t.request("/import/laeufe", { method: "POST", body: f, als: ANNA }));
-  await t.request(`/import/laeufe/${lauf.id}/pruefen`, { method: "POST", als: ANNA });
-  expect((await t.request(`/import/laeufe/${lauf.id}/uebernehmen`, { method: "POST", als: BERTA })).status).toBe(200);
+  const lauf = await json(await t.request("/import/runs", { method: "POST", body: f, als: ANNA }));
+  await t.request(`/import/runs/${lauf.id}/validate`, { method: "POST", als: ANNA });
+  expect((await t.request(`/import/runs/${lauf.id}/apply`, { method: "POST", als: BERTA })).status).toBe(200);
   // ein freigegebener Bericht mit Datei, damit die Dateien im Export stehen
   const fonds = (await db.execute(sql`SELECT id FROM fonds ORDER BY kurzname LIMIT 1`)).rows[0] as { id: string };
   const hash = createHash("sha256").update(berichtsdatei).digest("hex");

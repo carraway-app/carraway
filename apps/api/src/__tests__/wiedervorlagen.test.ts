@@ -51,7 +51,7 @@ describe("Zuständigkeit", () => {
 
     // unbekannt, gesperrt und technisch sind keine gültigen Zuständigen
     expect((await lege(anna, "X", tag(1), { zustaendigId: randomUUID() })).status).toBe(400);
-    expect((await json(await lege(anna, "X", tag(1), { zustaendigId: randomUUID() }))).fehler.code).toBe("ZUSTAENDIG_UNGUELTIG");
+    expect((await json(await lege(anna, "X", tag(1), { zustaendigId: randomUUID() }))).error.code).toBe("assignee_invalid");
     const gesperrt = person("gesperrt-wv", { aktiv: false });
     await legePersonAn(db, gesperrt);
     expect((await lege(anna, "X", tag(1), { zustaendigId: await idVon(db, gesperrt) })).status).toBe(400);
@@ -125,7 +125,7 @@ describe("Erledigen und Zurückstellen", () => {
     expect((await senden("POST", `/aktivitaeten/${a.id}/erledigt`, anna)).status).toBe(200);
     const erledigt = await senden("POST", `/aktivitaeten/${a.id}/zurueckstellen`, anna, { datum: tag(9) });
     expect(erledigt.status).toBe(409);
-    expect((await json(erledigt)).fehler.code).toBe("KEINE_WIEDERVORLAGE");
+    expect((await json(erledigt)).error.code).toBe("no_follow_up");
     const ohneTermin = await json(await lege(anna, "Ohne Termin", undefined));
     expect((await senden("POST", `/aktivitaeten/${ohneTermin.id}/zurueckstellen`, anna, { datum: tag(1) })).status).toBe(409);
   });

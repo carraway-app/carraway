@@ -38,7 +38,7 @@ beforeAll(() => {
 const dialog = () => within(screen.getByRole("dialog"));
 const RUNDEN = `/api/v1/organisationen/${ORG_A}/finanzierungsrunden`;
 const JOURNAL = `/api/v1/fonds/${FONDS_ID}/journal`;
-const BUCHUNGEN = `POST /api/v1/fonds/${FONDS_ID}/buchungen`;
+const BUCHUNGEN = `POST /api/v1/funds/${FONDS_ID}/postings`;
 const schmal = (text: string | null) => (text ?? "").replace(/\s/g, " ");
 
 const pruefungGruen = { volumen: "2000000.00", postMoneyErwartet: "10000000.00", anteileErwartet: "1000000", anteileVergeben: "200000", abweichungen: [] as unknown[], schliessbar: true };
@@ -122,7 +122,7 @@ describe("Finanzierungsrunden an der Beteiligung", () => {
   });
 
   it("Betrachter sehen keine Schaltflächen zum Anlegen, Abschließen oder Wiedereröffnen; Bearbeiter kein Wiedereröffnen", async () => {
-    spieleApi({ "/api/v1/ich": alsRolle("betrachter"), ...MIT_RUNDEN([runde("r2", "entwurf"), runde("r1", "abgeschlossen")]) });
+    spieleApi({ "/api/v1/me": alsRolle("betrachter"), ...MIT_RUNDEN([runde("r2", "entwurf"), runde("r1", "abgeschlossen")]) });
     const erste = rendereApp(`/beteiligungen/${BET_ID}?tab=finanzierung`);
     const a1 = within(await screen.findByRole("region", { name: de.finanzierungsrunden.titel }));
     await a1.findByRole("tab", { name: /Serie A/ });
@@ -130,7 +130,7 @@ describe("Finanzierungsrunden an der Beteiligung", () => {
     expect(a1.queryByRole("button", { name: "Runde abschließen" })).toBeNull();
     expect(a1.queryByRole("button", { name: "Wieder öffnen" })).toBeNull();
     erste.unmount();
-    spieleApi({ "/api/v1/ich": alsRolle("bearbeiter"), ...MIT_RUNDEN([runde("r2", "entwurf"), runde("r1", "abgeschlossen")]) });
+    spieleApi({ "/api/v1/me": alsRolle("bearbeiter"), ...MIT_RUNDEN([runde("r2", "entwurf"), runde("r1", "abgeschlossen")]) });
     rendereApp(`/beteiligungen/${BET_ID}?tab=finanzierung`);
     const a2 = within(await screen.findByRole("region", { name: de.finanzierungsrunden.titel }));
     await a2.findByRole("tab", { name: /Serie A/ });
@@ -215,7 +215,7 @@ describe("Finanzierungsrunden an der Beteiligung", () => {
         versuche++;
         return (anfrage.koerper as { dubletteBestaetigt?: boolean } | undefined)?.dubletteBestaetigt
           ? { status: 201, koerper: { id: "neu-org", name: "Beta Medizin GmbH", art: "investor" } }
-          : fehler(409, "DUBLETTE_MOEGLICH", { kandidaten: [kandidat] });
+          : fehler(409, "possible_duplicate", { kandidaten: [kandidat] });
       },
       "POST /api/v1/organisationen/neu-org/vehikel": { status: 201, koerper: { id: "neu-v", investorId: "neu-org", name: "Beta Seedfonds I", art: "fonds", auflagejahr: null, status: "aktiv", standard: true } },
     });
@@ -287,7 +287,7 @@ describe("Finanzierungsrunden an der Beteiligung", () => {
       "POST /api/v1/finanzierungsrunden/r2/abschliessen": (anfrage) => {
         versuch++;
         return versuch === 1
-          ? fehler(409, "RUNDE_NICHT_KONSISTENT", { abweichungen: [{ code: "ANTEILE_UEBER_GESAMT", schwere: "fehler", werte: { anteileVergeben: "200000", anteileGesamtNach: "100000" } }] })
+          ? fehler(409, "round_inconsistent", { abweichungen: [{ code: "ANTEILE_UEBER_GESAMT", schwere: "fehler", werte: { anteileVergeben: "200000", anteileGesamtNach: "100000" } }] })
           : { koerper: { runde: runde("r2", "abgeschlossen"), buchungen: [{ positionId: "r2-p1", fondsId: FONDS_ID, beteiligungId: BET_ID, beteiligungAngelegt: false, vorgangIds: ["v1", "v2"] }], anfrage: anfrage.koerper } };
       },
     });
@@ -316,7 +316,7 @@ describe("Finanzierungsrunden an der Beteiligung", () => {
       ...MIT_RUNDEN([runde("r2", "entwurf")]),
       "POST /api/v1/finanzierungsrunden/r2/abschliessen": () => {
         versuch++;
-        return versuch === 1 ? fehler(409, "RUNDE_ZUSAGE_VORHANDEN", {}) : { koerper: { runde: runde("r2", "abgeschlossen"), buchungen: [{ positionId: "r2-p1", fondsId: FONDS_ID, beteiligungId: BET_ID, beteiligungAngelegt: false, instrumentId: "i9", instrumentAngelegt: true, trancheId: null, vorgangIds: [] }] } };
+        return versuch === 1 ? fehler(409, "round_commitment_exists", {}) : { koerper: { runde: runde("r2", "abgeschlossen"), buchungen: [{ positionId: "r2-p1", fondsId: FONDS_ID, beteiligungId: BET_ID, beteiligungAngelegt: false, instrumentId: "i9", instrumentAngelegt: true, trancheId: null, vorgangIds: [] }] } };
       },
     });
     rendereApp(`/beteiligungen/${BET_ID}?tab=finanzierung`);
@@ -443,7 +443,7 @@ describe("Rundenentwürfe bearbeiten und Runden an der Organisation", () => {
   });
 
   it("die Organisationsseite bietet die Runden mit Fondswahl an; eine 403 der Liste zeigt eine leere Liste statt eines Fehlers", async () => {
-    spieleApi({ [RUNDEN]: fehler(403, "KEINE_BERECHTIGUNG") });
+    spieleApi({ [RUNDEN]: fehler(403, "forbidden") });
     rendereApp(`/organisationen/${ORG_A}?tab=runden`);
     const abschnitt = within(await screen.findByRole("region", { name: de.finanzierungsrunden.titel }));
     expect(await screen.findByLabelText(de.finanzierungsrunden.fondswahl)).toBeTruthy();
@@ -527,8 +527,8 @@ describe("Journal", () => {
   it("erzeugt am Journalvorgang ohne feste Basis-Art einen Beleg mit manuellem Datum", async () => {
     const api = spieleApi({
       [JOURNAL]: { koerper: journalAntwort([journalZeile("j1", { typ: "zusage" })]) },
-      [`/api/v1/fonds/${FONDS_ID}/belegvorlagen`]: { koerper: { daten: [{ art: "frei", eigeneArtId: "art-1", aktiv: true, bezeichnungDe: "Mitteilung", felder: [{ schluessel: "eigen_frist", manuell: "datum", bezeichnungDe: "Frist" }] }] } },
-      "POST /api/v1/belege": fehler(409, "BELEG_VORHANDEN", { belegId: "be-1" }),
+      [`/api/v1/funds/${FONDS_ID}/voucher-templates`]: { koerper: { data: [{ type: "custom", customTypeId: "art-1", active: true, labelDe: "Mitteilung", fields: [{ key: "custom_frist", manual: "date", labelDe: "Frist" }] }] } },
+      "POST /api/v1/vouchers": fehler(409, "voucher_exists", { voucherId: "be-1" }),
     });
     rendereApp(url);
     const nutzer = userEvent.setup();
@@ -537,7 +537,7 @@ describe("Journal", () => {
     const panel = within(await screen.findByRole("dialog"));
     fireEvent.change(panel.getByLabelText("Frist"), { target: { value: "2027-02-01" } });
     await nutzer.click(panel.getByRole("button", { name: "Erzeugen" }));
-    await waitFor(() => expect(api.anfragen("POST", "/api/v1/belege")[0]?.koerper).toEqual({ art: "frei", eigeneArtId: "art-1", bezugArt: "vorgang", bezugId: "j1", sprache: "de", werte: { eigen_frist: "2027-02-01" } }));
+    await waitFor(() => expect(api.anfragen("POST", "/api/v1/vouchers")[0]?.koerper).toEqual({ type: "custom", customTypeId: "art-1", referenceType: "transaction", referenceId: "j1", language: "de", values: { custom_frist: "2027-02-01" } }));
   });
 
   it("zeigt Belegnummer und Exportstand der Buchhaltung je Zeile und bietet bei einer Fondsbewegung „Beleg erzeugen“ an", async () => {
@@ -600,7 +600,7 @@ describe("Journal", () => {
     expect(Object.fromEntries(letzte.query)).toMatchObject({ typ: "auszahlung", von: "2026-01-01", bewertungen: "1", limit: "100" });
     const csv = screen.getByRole("link", { name: "CSV" });
     const q = new URL(csv.getAttribute("href")!, "http://x").searchParams;
-    expect(Object.fromEntries(q)).toMatchObject({ format: "csv", sprache: "de", typ: "auszahlung", von: "2026-01-01", bewertungen: "1" });
+    expect(Object.fromEntries(q)).toMatchObject({ format: "csv", language: "de", entryType: "disbursement", from: "2026-01-01", valuations: "1" });
     expect(screen.getByRole("link", { name: "Excel" }).getAttribute("href")).toContain("format=xlsx");
     const nutzer = userEvent.setup();
     await nutzer.selectOptions(screen.getByLabelText("Typ"), "abruf");
@@ -616,7 +616,7 @@ describe("Journal", () => {
     expect(buchungen.queryByRole("table")).toBeNull();
     for (const format of ["CSV", "Excel"]) {
       const download = buchungen.getByRole("link", { name: format });
-      expect(new URL(download.getAttribute("href")!, "http://x").searchParams.get("bis")).toBe("2026-01-01");
+      expect(new URL(download.getAttribute("href")!, "http://x").searchParams.get("to")).toBe("2026-01-01");
     }
     const valuta = within(screen.getByRole("group", { name: "Valuta" }));
     expect(valuta.getByLabelText("Von")).toBeTruthy();
@@ -645,7 +645,7 @@ describe("Journal", () => {
   it("bleibt beim Fondswechsel im Journal und übernimmt die Rechte des neuen Fonds", async () => {
     const zweiter = { ...fondsDaten.daten[0]!, id: "22222222-2222-4222-8222-222222222222", name: "Beispielfonds II" };
     spieleApi({
-      "/api/v1/ich": alsRolle("bearbeiter", { rollen: [{ fondsId: FONDS_ID, rolle: "bearbeiter" }, { fondsId: zweiter.id, rolle: "betrachter" }] }),
+      "/api/v1/me": alsRolle("bearbeiter", { rollen: [{ fondsId: FONDS_ID, rolle: "bearbeiter" }, { fondsId: zweiter.id, rolle: "betrachter" }] }),
       "/api/v1/fonds": { koerper: { daten: [...fondsDaten.daten, zweiter] } },
       [JOURNAL]: { koerper: journalAntwort([]) },
       [`/api/v1/fonds/${zweiter.id}/journal`]: { koerper: journalAntwort([]) },
@@ -666,7 +666,7 @@ describe("Journal", () => {
     expect(tabelle.getByRole("columnheader", { name: "Cash effect" })).toBeTruthy();
     expect(tabelle.getByText("Disbursement")).toBeTruthy();
     expect(tabelle.getByText(/\(Outflow\)/)).toBeTruthy();
-    expect(new URL(screen.getByRole("link", { name: "CSV" }).getAttribute("href")!, "http://x").searchParams.get("sprache")).toBe("en");
+    expect(new URL(screen.getByRole("link", { name: "CSV" }).getAttribute("href")!, "http://x").searchParams.get("language")).toBe("en");
   });
 
   it("lädt weitere Seiten mit dem Cursor nach", async () => {
@@ -707,7 +707,7 @@ describe("Journal", () => {
     await nutzer.type(d.getByLabelText("Betrag"), "25000");
     await nutzer.click(d.getByRole("button", { name: "Buchen" }));
     expect(await d.findByText(/Die Buchung ist angelegt\. Buchwert danach: 1\.012\.000,00/)).toBeTruthy();
-    expect(api.anfragen("POST", `/api/v1/fonds/${FONDS_ID}/buchungen`)[0]!.koerper).toMatchObject({ typ: "auszahlung", beteiligungId: BET_ID, betrag: "25000" });
+    expect(api.anfragen("POST", `/api/v1/funds/${FONDS_ID}/postings`)[0]!.koerper).toMatchObject({ kind: "disbursement", investmentId: BET_ID, amount: "25000" });
   });
 
   it("zeigt im Journal die Spalte Instrument", async () => {
@@ -753,14 +753,14 @@ describe("Journal", () => {
     await nutzer.selectOptions(d.getByLabelText("Tranche (optional)"), "t-seed");
     await nutzer.type(d.getByLabelText("Betrag"), "25000");
     await nutzer.click(d.getByRole("button", { name: "Buchen" }));
-    await waitFor(() => expect(api.anfragen("POST", `/api/v1/fonds/${FONDS_ID}/buchungen`)).toHaveLength(1));
-    expect(api.anfragen("POST", `/api/v1/fonds/${FONDS_ID}/buchungen`)[0]!.koerper).toMatchObject({ typ: "auszahlung", beteiligungId: BET_ID, instrumentId: "i2", trancheId: "t-seed", betrag: "25000" });
+    await waitFor(() => expect(api.anfragen("POST", `/api/v1/funds/${FONDS_ID}/postings`)).toHaveLength(1));
+    expect(api.anfragen("POST", `/api/v1/funds/${FONDS_ID}/postings`)[0]!.koerper).toMatchObject({ kind: "disbursement", investmentId: BET_ID, instrumentId: "i2", trancheId: "t-seed", amount: "25000" });
   });
 
   it("storniert Beteiligungsvorgänge und bietet für Fondsbewegungen die Belegerstellung an", async () => {
     const api = spieleApi({
       [JOURNAL]: { koerper: journalAntwort([journalZeile("v1"), journalZeile("b1", { quelle: "fondsbewegung", typ: "abruf", betrag: "100.00", kassenwirkung: "100.00", richtung: "zufluss", beteiligung: null })]) },
-      "POST /api/v1/vorgaenge/v1/storno": { status: 201, koerper: { storno: {}, original: {} } },
+      "POST /api/v1/transactions/v1/reverse": { status: 201, koerper: { reversal: {}, original: {} } },
     });
     rendereApp(url);
     const nutzer = userEvent.setup();
@@ -768,7 +768,7 @@ describe("Journal", () => {
     await nutzer.click(screen.getByRole("menuitem", { name: /Stornieren/ }));
     await nutzer.type(dialog().getByLabelText("Grund"), "Falscher Betrag");
     await nutzer.click(dialog().getByRole("button", { name: "Stornieren" }));
-    await waitFor(() => expect(api.anfragen("POST", "/api/v1/vorgaenge/v1/storno")).toHaveLength(1));
+    await waitFor(() => expect(api.anfragen("POST", "/api/v1/transactions/v1/reverse")).toHaveLength(1));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("table", { name: "Journal des Fonds" })));
     await nutzer.click(screen.getByRole("button", { name: /Aktionen für Abruf vom/ }));
@@ -782,7 +782,7 @@ describe("Journal", () => {
   ] as const)("zeigt das Journal für %s mit Wissensstand %s ohne Schreibaktionen", async (rolle, stand) => {
     const bewegungId = "33333333-3333-4333-8333-333333333333";
     spieleApi({
-      "/api/v1/ich": alsRolle(rolle),
+      "/api/v1/me": alsRolle(rolle),
       [JOURNAL]: { koerper: journalAntwort([journalZeile("j1"), journalZeile(bewegungId, { quelle: "fondsbewegung", typ: "abruf", beteiligung: null })]) },
     });
     rendereApp(stand ? `${url}?stand=${encodeURIComponent(stand)}` : url);

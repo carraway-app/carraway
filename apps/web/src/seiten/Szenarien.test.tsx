@@ -102,18 +102,18 @@ describe("Szenarien: Liste und Vergleich", () => {
     // Befunde mit eingesetzten Namen und Beträgen
     expect(v.getAllByText(/Basis: Alpha Energie: Der Fonds hat keine Captable/).length).toBe(1);
     expect(v.getAllByText((t) => /Ab 2028 übersteigen die Abrufe das Zeichnungskapital \(um 12\.000/.test(schmal(t))).length).toBe(2);
-    expect(v.getByRole("link", { name: "Szenariobericht als PDF herunterladen" }).getAttribute("href")).toBe(`/api/v1/fonds/${FONDS_ID}/szenarien/bericht?ids=${S1},${S2}&format=pdf&sprache=de`);
+    expect(v.getByRole("link", { name: "Szenariobericht als PDF herunterladen" }).getAttribute("href")).toBe(`/api/v1/funds/${FONDS_ID}/scenarios/report?ids=${S1},${S2}&format=pdf&language=de`);
     expect(v.getByRole("link", { name: "Szenariobericht als Excel herunterladen" }).getAttribute("href")).toContain("format=xlsx");
   });
 
   it("ein festgeschriebenes Szenario lässt sich als Bericht zur Freigabe anlegen; Entwürfe bieten das nicht an", async () => {
     const BERICHT = "00000000-0000-4000-8000-0000000000b1";
-    const api = standard({ "POST /api/v1/berichte": { status: 201, koerper: { id: BERICHT, art: "szenariobericht", status: "entwurf" } } });
+    const api = standard({ "POST /api/v1/reports": { status: 201, koerper: { id: BERICHT, art: "szenariobericht", status: "entwurf" } } });
     rendereApp(URL_S);
     const nutzer = userEvent.setup();
     await waehle(nutzer, "Basis", "Als Bericht freigeben");
-    await waitFor(() => expect(api.anfragen("POST", "/api/v1/berichte")).toHaveLength(1));
-    expect(api.anfragen("POST", "/api/v1/berichte")[0]!.koerper).toMatchObject({ art: "szenariobericht", fondsId: FONDS_ID, szenarioIds: [S1], sprache: "de" });
+    await waitFor(() => expect(api.anfragen("POST", "/api/v1/reports")).toHaveLength(1));
+    expect(api.anfragen("POST", "/api/v1/reports")[0]!.koerper).toMatchObject({ art: "szenariobericht", fondsId: FONDS_ID, szenarioIds: [S1], sprache: "de" });
     expect(await eintraege(nutzer, "Oben")).not.toContain("Als Bericht freigeben");
   });
 
@@ -195,14 +195,14 @@ describe("Szenarien: Liste und Vergleich", () => {
   });
 
   it("zeigt Fehler der API übersetzt", async () => {
-    standard({ [`POST ${API_S}`]: { koerper: { fehler: { code: "SZENARIO_NAME_VORHANDEN", meldung: "x" } }, status: 409 } });
+    standard({ [`POST ${API_S}`]: { koerper: { error: { code: "scenario_name_exists", message: "x" } }, status: 409 } });
     rendereApp(URL_S);
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Neues Szenario" }));
     const f = within(await screen.findByRole("form", { name: "Neues Szenario" }));
     await nutzer.type(f.getByLabelText("Name"), "Basis");
     await nutzer.click(f.getByRole("button", { name: "Speichern" }));
-    expect(await f.findByText(de.fehler.SZENARIO_NAME_VORHANDEN)).toBeTruthy();
+    expect(await f.findByText(de.fehler.scenario_name_exists)).toBeTruthy();
   });
 });
 
@@ -223,7 +223,7 @@ async function eintraege(nutzer: ReturnType<typeof userEvent.setup>, szenario: s
 
 describe("Szenarien: Rechte und Festschreiben", () => {
   it("Freigeber schreibt einen Entwurf nach Bestätigung fest, Bearbeiter sieht den Knopf nicht", async () => {
-    const api = standard({ "/api/v1/ich": alsRolle("freigeber"), [`POST /api/v1/szenarien/${S2}/festschreiben`]: { koerper: kopf(S2, "Oben", "festgeschrieben") } });
+    const api = standard({ "/api/v1/me": alsRolle("freigeber"), [`POST /api/v1/szenarien/${S2}/festschreiben`]: { koerper: kopf(S2, "Oben", "festgeschrieben") } });
     const { unmount } = rendereApp(URL_S);
     const nutzer = userEvent.setup();
     expect(await eintraege(nutzer, "Basis")).not.toContain("Festschreiben"); // schon festgeschrieben
@@ -234,7 +234,7 @@ describe("Szenarien: Rechte und Festschreiben", () => {
     await waitFor(() => expect(api.anfragen("POST", `/api/v1/szenarien/${S2}/festschreiben`)).toHaveLength(1));
     unmount();
 
-    standard({ "/api/v1/ich": alsRolle("bearbeiter") });
+    standard({ "/api/v1/me": alsRolle("bearbeiter") });
     rendereApp(URL_S);
     await screen.findByRole("checkbox", { name: "Basis vergleichen" });
     expect(screen.getByRole("button", { name: "Neues Szenario" })).toBeTruthy();
@@ -244,7 +244,7 @@ describe("Szenarien: Rechte und Festschreiben", () => {
   });
 
   it("Betrachter sieht Liste, Vergleich und Export, aber keine Schreibaktionen", async () => {
-    standard({ "/api/v1/ich": alsRolle("betrachter") });
+    standard({ "/api/v1/me": alsRolle("betrachter") });
     rendereApp(URL_S);
     await screen.findByRole("checkbox", { name: "Basis vergleichen" });
     expect(screen.queryByRole("button", { name: "Neues Szenario" })).toBeNull();
@@ -263,7 +263,7 @@ describe("Szenarien: Rechte und Festschreiben", () => {
     expect(v.getByText("TVPI at the end of the projection")).toBeTruthy();
     expect(v.getByText(/Basis: Alpha Energie: The fund has no cap table for this company/)).toBeTruthy();
     expect(v.getAllByText((t) => /From 2028, capital calls exceed the fund size \(by .*12,000/.test(schmal(t))).length).toBeGreaterThan(0);
-    expect(v.getByRole("link", { name: "Download the scenario report as PDF" }).getAttribute("href")).toContain("sprache=en");
+    expect(v.getByRole("link", { name: "Download the scenario report as PDF" }).getAttribute("href")).toContain("language=en");
     expect(screen.getByText("Locked")).toBeTruthy();
   });
 });
@@ -310,7 +310,7 @@ describe("Reserven", () => {
 
   it("zeigt Betrachtern kein Formular und ist in Englisch übersetzt", async () => {
     localStorage.setItem("carraway.sprache", "en");
-    spieleApi({ "/api/v1/ich": alsRolle("betrachter"), [`/api/v1/fonds/${FONDS_ID}/reserven`]: { koerper: { ...reserven, befunde: [] } } });
+    spieleApi({ "/api/v1/me": alsRolle("betrachter"), [`/api/v1/fonds/${FONDS_ID}/reserven`]: { koerper: { ...reserven, befunde: [] } } });
     rendereApp(`/fonds/${FONDS_ID}/reserven`);
     const abschnitt = within((await screen.findAllByRole("region", { name: "Reserves" }))[0]!);
     await abschnitt.findByRole("region", { name: "Company · Planned" });

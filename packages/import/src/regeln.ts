@@ -192,6 +192,22 @@ export function pruefeInhalt(daten: Typisiert, namen: Record<Blatt, string>, ext
     if (ov !== undefined && z.w.valuta !== undefined && z.w.valuta < ov) melde("vorgaenge", z, "valuta", "STORNO_UNGUELTIG", `Die Valuta des Storno darf nicht vor der des Originals (${ov}) liegen.`, { grund: "valuta", erwartet: ov });
   }
 
+  // 4b. Optionsscheine: Anzahl, Ausübungspreis und Ausgabe sind Pflicht, die Felder gelten nur für Optionsscheine; die Laufzeit liegt nicht vor der Ausgabe.
+  for (const z of daten.beteiligungen) {
+    const { instrument, optionsschein_anzahl: anzahl, ausuebungspreis, ausgabe_am: ausgabe, laufzeit_bis: laufzeit } = z.w;
+    if (instrument === undefined) continue;
+    if (instrument !== "optionsschein") {
+      for (const [spalte, wert] of [["optionsschein_anzahl", anzahl], ["ausuebungspreis", ausuebungspreis], ["ausgabe_am", ausgabe], ["laufzeit_bis", laufzeit]] as const) {
+        if (wert !== undefined) melde("beteiligungen", z, spalte, "OPTIONSSCHEIN_FELD_FALSCH", "Dieses Feld gilt nur für Optionsscheine.", {});
+      }
+      continue;
+    }
+    for (const [spalte, wert] of [["optionsschein_anzahl", anzahl], ["ausuebungspreis", ausuebungspreis], ["ausgabe_am", ausgabe]] as const) {
+      if (wert === undefined) melde("beteiligungen", z, spalte, "OPTIONSSCHEIN_FELD_FEHLT", "Bei einem Optionsschein ist dieses Feld erforderlich.", {});
+    }
+    if (ausgabe !== undefined && laufzeit !== undefined && laufzeit < ausgabe) melde("beteiligungen", z, "laufzeit_bis", "OPTIONSSCHEIN_LAUFZEIT", "Die Laufzeit darf nicht vor der Ausgabe enden.", {});
+  }
+
   // 5. Bewertungen: Begründung außer bei Anschaffungskosten.
   for (const z of daten.bewertungen) {
     if (z.w.methode !== undefined && z.w.methode !== "anschaffungskosten" && !z.w.begruendung) {

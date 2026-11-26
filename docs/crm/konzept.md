@@ -57,7 +57,7 @@ Erwähnungen in Notizen haben die Schreibweise `@[Anzeige](typ:id)`; sie werden 
 
 ### Rechte
 
-Es gelten die bestehenden Regeln: Lesen mit Rolle an irgendeinem Fonds, Schreiben ab Bearbeiter; Deals folgen dem Fonds. Verknüpfungsfelder (und Listenfelder vom Typ Verknüpfung) prüfen beim Schreiben, ob die schreibende Person das Ziel sehen darf: Ein Deal eines fremden Fonds antwortet genau wie ein nicht vorhandener Datensatz (400 `FELDWERT_UNGUELTIG`, `unknown_record`, gleiche Meldung, keine Kennung im Text), sodass die Antwort nichts über sein Dasein verrät. Das gilt für die Datensatzseite, die Zelle, die Sammelaktion „Feld setzen“ und Listenfelder; der CSV-Import nimmt keine Verknüpfungswerte an. Wo eine Anfrage mehrere Datensätze oder das Objekt als Pfadparameter trägt, prüft der Handler Sichtbarkeit und Schreibrecht je Datensatz. Technische Benutzer (API-Schlüssel) sind Akteure wie andere auch.
+Es gelten die bestehenden Regeln: Lesen mit Rolle an irgendeinem Fonds, Schreiben ab Bearbeiter; Deals folgen dem Fonds. Verknüpfungsfelder (und Listenfelder vom Typ Verknüpfung) prüfen beim Schreiben, ob die schreibende Person das Ziel sehen darf: Ein Deal eines fremden Fonds antwortet genau wie ein nicht vorhandener Datensatz (400 `field_value_invalid`, `unknown_record`, gleiche Meldung, keine Kennung im Text), sodass die Antwort nichts über sein Dasein verrät. Das gilt für die Datensatzseite, die Zelle, die Sammelaktion „Feld setzen“ und Listenfelder; der CSV-Import nimmt keine Verknüpfungswerte an. Wo eine Anfrage mehrere Datensätze oder das Objekt als Pfadparameter trägt, prüft der Handler Sichtbarkeit und Schreibrecht je Datensatz. Technische Benutzer (API-Schlüssel) sind Akteure wie andere auch.
 
 ### Import und Export
 

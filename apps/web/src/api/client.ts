@@ -37,7 +37,7 @@ export function ladeMitSitzung(eingabe: RequestInfo | URL, init?: RequestInit): 
   return globalThis.fetch(eingabe, { ...init, credentials: "include" });
 }
 
-/** Fehler eines einzelnen Feldes (400 `EINGABE_UNGUELTIG`); `code` ist der Prüfschritt, z. B. `too_small`. */
+/** Fehler eines einzelnen Feldes (400 `invalid_input`); `code` ist der Prüfschritt, z. B. `too_small`. */
 export interface Feldfehler {
   feld: string;
   code: string;
@@ -53,7 +53,7 @@ export class ApiFehler extends Error {
   readonly status: number;
   readonly felder: Feldfehler[];
   readonly zusatz: Record<string, unknown>;
-  /** Wartezeit in Sekunden aus dem Kopf `Retry-After` (429 `ZU_VIELE_VERSUCHE`), sonst `null`. */
+  /** Wartezeit in Sekunden aus dem Kopf `Retry-After` (429 `too_many_attempts`), sonst `null`. */
   readonly wartenSekunden: number | null;
   constructor(code: string, status: number, meldung?: string, extra: { felder?: Feldfehler[]; zusatz?: Record<string, unknown>; wartenSekunden?: number | null } = {}) {
     super(meldung ?? code);
@@ -69,12 +69,12 @@ export class ApiFehler extends Error {
 function alsFeldfehler(wert: unknown): Feldfehler[] {
   if (!Array.isArray(wert)) return [];
   return wert.flatMap((eintrag: unknown) => {
-    const e = eintrag as { feld?: unknown; code?: unknown; meldung?: unknown } | null;
-    return typeof e?.feld === "string" && typeof e.code === "string" ? [{ feld: e.feld, code: e.code, meldung: typeof e.meldung === "string" ? e.meldung : "" }] : [];
+    const e = eintrag as { field?: unknown; code?: unknown; message?: unknown } | null;
+    return typeof e?.field === "string" && typeof e.code === "string" ? [{ feld: e.field, code: e.code, meldung: typeof e.message === "string" ? e.message : "" }] : [];
   });
 }
 
-type Erfolg<R> = R extends { json(): Promise<infer J> } ? Exclude<J, { fehler: unknown }> : never;
+type Erfolg<R> = R extends { json(): Promise<infer J> } ? Exclude<J, { error: unknown }> : never;
 
 /** Wartet auf die Antwort, liefert bei Erfolg den Körper und wirft sonst einen `ApiFehler` mit dem Code der API. */
 export async function auspacken<R extends { ok: boolean; status: number; json(): Promise<unknown>; headers?: Headers }>(anfrage: Promise<R>): Promise<Erfolg<R>> {
@@ -91,16 +91,17 @@ export async function auspacken<R extends { ok: boolean; status: number; json():
   let felder: Feldfehler[] = [];
   let zusatz: Record<string, unknown> = {};
   try {
-    // Eigene Fehler der API stehen unter `fehler`; Better Auth (`/auth/*`) antwortet mit `{ code, message }` auf oberster Ebene.
-    const koerper = (await antwort.json()) as { fehler?: Record<string, unknown>; code?: unknown; message?: unknown };
-    if (!koerper.fehler && typeof koerper.code === "string") {
+    // Eigene Fehler der API stehen unter `error`; Better Auth (`/auth/*`) antwortet mit `{ code, message }` auf oberster Ebene.
+    const koerper = (await antwort.json()) as { error?: Record<string, unknown>; code?: unknown; message?: unknown };
+    const eigener = typeof koerper.error === "object" && koerper.error !== null ? koerper.error : undefined;
+    if (!eigener && typeof koerper.code === "string") {
       code = koerper.code;
       if (typeof koerper.message === "string") meldung = koerper.message;
     }
-    if (typeof koerper.fehler?.code === "string") code = koerper.fehler.code;
-    if (typeof koerper.fehler?.meldung === "string") meldung = koerper.fehler.meldung;
-    if (koerper.fehler) {
-      const { code: _code, meldung: _meldung, felder: roheFelder, ...rest } = koerper.fehler;
+    if (typeof eigener?.code === "string") code = eigener.code;
+    if (typeof eigener?.message === "string") meldung = eigener.message;
+    if (eigener) {
+      const { code: _code, message: _message, fields: roheFelder, ...rest } = eigener;
       felder = alsFeldfehler(roheFelder);
       zusatz = rest;
     }

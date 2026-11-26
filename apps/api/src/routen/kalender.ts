@@ -15,7 +15,7 @@ import { merke, zaehle, zuViele } from "./extern";
  * aktiv, kein technischer und kein Investor-Benutzer; es erscheinen nur offene Wiedervorlagen, für die die Person zuständig ist und deren
  * Deal sie nach den aktuellen Rollen sehen darf. Begrenzung je IP und je Token wie bei den Kennzahlen-Links; Antworten `no-store`.
  *
- * Der Pfad ist `/kalender/:datei` (Token mit Endung `.ics`), damit er genau einem Muster der Berechtigungstabelle entspricht.
+ * Der Pfad ist `/calendar/:file` (Token mit Endung `.ics`), damit er genau einem Muster der Berechtigungstabelle entspricht.
  */
 
 const DATEI = /^([A-Za-z0-9_-]{43})\.ics$/;
@@ -74,7 +74,7 @@ export function erzeugeIcs(termine: IcsTermin[], jetzt: Date): string {
 
 export function kalenderOeffentlichRouten(db: Db, konfig: Pick<Konfiguration, "externLimit" | "proxyVertrauen">) {
   const limit = konfig.externLimit;
-  return new Hono().get("/:datei", async (c) => {
+  return new Hono().get("/:file", async (c) => {
     c.header("Cache-Control", "no-store");
     c.header("Referrer-Policy", "no-referrer");
     c.header("X-Robots-Tag", "noindex, nofollow");
@@ -86,9 +86,9 @@ export function kalenderOeffentlichRouten(db: Db, konfig: Pick<Konfiguration, "e
     await merke(db, `ip:${ip}`);
     const nichtGefunden = async () => {
       await merke(db, `fehl:${ip}`);
-      return new Fachfehler(404, "NICHT_GEFUNDEN", "Diesen Link gibt es nicht.");
+      return new Fachfehler(404, "not_found", "This link does not exist.");
     };
-    const m = DATEI.exec(c.req.param("datei"));
+    const m = DATEI.exec(c.req.param("file"));
     if (!m || !KALENDER_TOKEN_FORM.test(m[1]!)) throw await nichtGefunden();
     const hash = kalenderTokenHash(m[1]!);
     if ((await zaehle(db, `kal:${hash.slice(0, 16)}`, 60)) >= limit.tokenProMinute) {

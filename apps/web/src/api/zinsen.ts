@@ -1,10 +1,11 @@
+import { ausFonds } from "./abbildung-fonds";
 import { queryOptions } from "@tanstack/react-query";
-import { api, auspacken } from "./client";
+import { api } from "./client";
 import { schluessel } from "./abfragen-kern";
 
 /** Zinsen des Fonds je darlehensartigem Instrument (Fonds → Zinsen). */
 const ladeFondsZinsen = (fondsId: string, stichtag?: string, stand?: string) =>
-  auspacken(api.api.v1.fonds[":id"].zinsen.$get({ param: { id: fondsId }, query: { ...(stichtag ? { stichtag } : {}), ...(stand ? { stand } : {}) } }));
+  ausFonds(api.api.v1.funds[":id"].interest.$get, { param: { id: fondsId }, query: { ...(stichtag ? { stichtag } : {}), ...(stand ? { stand } : {}) } });
 
 export type FondsZinsen = Awaited<ReturnType<typeof ladeFondsZinsen>>;
 

@@ -159,6 +159,10 @@ export async function schreibePlan(tx: Tx, protokoll: Protokollant, plan: Plan, 
     art: i.w.art as "darlehen",
     bezeichnung: i.w.bezeichnung ?? INSTRUMENT_BEZEICHNUNG[i.w.art as "darlehen"],
     status: i.w.status as "aktiv",
+    optionsscheinAnzahl: i.w.optionsschein_anzahl ?? null,
+    ausuebungspreis: i.w.ausuebungspreis ?? null,
+    ausgabeAm: i.w.ausgabe_am ?? null,
+    laufzeitBis: i.w.laufzeit_bis ?? null,
   }));
   await blockweise(neueInstrumente, (t) => tx.insert(instrument).values(t));
   anlegen("instrument", neueInstrumente);

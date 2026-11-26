@@ -63,7 +63,7 @@ describe("Felddefinitionen für alle Objekte", () => {
     expect((await post("/crm/felder", { objekt: "beteiligung", name: "Strategie", typ: "text" }, ADMIN)).status).toBe(201);
     const doppelt = await post("/crm/felder", { objekt: "fonds", name: "Strategie", typ: "text" }, ADMIN);
     expect(doppelt.status).toBe(409);
-    expect((await json(doppelt)).fehler.code).toBe("FELD_SCHLUESSEL_VORHANDEN");
+    expect((await json(doppelt)).error.code).toBe("field_key_exists");
     // Felder einer Liste gibt es nur für CRM-Objekte
     const liste = await post("/crm/listen", { name: "Testliste", objekt: "organisation" }, ADMIN);
     expect(liste.status).toBe(201);
@@ -79,7 +79,7 @@ describe("Felddefinitionen für alle Objekte", () => {
     expect((await get("/zusatzfelder/fonds/definitionen?archiviert=1", ADMIN).then(json)).daten.some((d: { id: string }) => d.id === ids.haken)).toBe(true);
     const schema = await get("/zusatzfelder/fonds/schema", betrachter).then(json);
     expect(schema.type).toBe("object");
-    expect(schema.properties[ids.wahl!]).toMatchObject({ type: "string", enum: ["niedrig", "hoch"], "x-feld-typ": "auswahl" });
+    expect(schema.properties[ids.wahl!]).toMatchObject({ type: "string", enum: ["niedrig", "hoch"], "x-field-type": "select" });
     expect(schema.properties[ids.betrag!]).toMatchObject({ type: "string" });
     expect(schema.properties[ids.haken!]).toBeUndefined();
   });
@@ -125,7 +125,7 @@ describe("Werte am Fonds: je Typ geprüft", () => {
   ])("lehnt ungültige Werte ab: %s", async (_typ, id, wert) => {
     const antwort = await setze(`/fonds/${F1}/felder`, { [id()]: wert });
     expect(antwort.status).toBe(400);
-    expect((await json(antwort)).fehler.code).toBe("FELDWERT_UNGUELTIG");
+    expect((await json(antwort)).error.code).toBe("field_value_invalid");
     expect((await db.execute(sql`SELECT felder FROM fonds WHERE id = ${F1}`)).rows[0]).toEqual({ felder: {} });
   });
 
@@ -147,7 +147,7 @@ describe("Werte am Fonds: je Typ geprüft", () => {
     await setze(`/fonds/${F1}/felder`, { [ids.wahl!]: "hoch" });
     const antwort = await t.request(`/crm/felder/${ids.wahl}`, { method: "PATCH", als: ADMIN, headers: { "content-type": "application/json" }, body: JSON.stringify({ optionen: { optionen: [{ schluessel: "niedrig", label: "Niedrig", farbe: "blau" }] } }) });
     expect(antwort.status).toBe(409);
-    expect((await json(antwort)).fehler.code).toBe("FELD_OPTION_IN_GEBRAUCH");
+    expect((await json(antwort)).error.code).toBe("field_option_in_use");
   });
 
   it("die Benutzerprüfung folgt der Engine der CRM-Felder: eine Investor-Zugangsperson oder fremde ID ist keine Person im Haus", async () => {
@@ -196,32 +196,32 @@ describe("Finanzierungsrunde", () => {
     expect((await put(`/fonds/${F1}/periodensperre`, { gesperrtBis: "2025-12-31" }, verwalter)).status).toBe(200);
     const antwort = await setze(`/finanzierungsrunden/${RUNDE}/felder`, { [ids.runde!]: "Gesperrt" }, bearbeiter);
     expect(antwort.status).toBe(409);
-    expect((await json(antwort)).fehler.code).toBe("PERIODE_GESPERRT");
+    expect((await json(antwort)).error.code).toBe("period_locked");
     expect((await db.execute(sql`SELECT felder FROM finanzierungsrunde WHERE id = ${RUNDE}`)).rows[0]).toEqual({ felder: {} });
   });
 });
 
 describe("Vorgänge: Werte nur beim Anlegen", () => {
-  const buchen = (koerper: Record<string, unknown>, als = bearbeiter) => post(`/beteiligungen/${ID.eigen}/vorgaenge`, koerper, als);
+  const buchen = (koerper: Record<string, unknown>, als = bearbeiter) => post(`/investments/${ID.eigen}/transactions`, koerper, als);
 
   it("Werte beim Anlegen werden geprüft und gespeichert, auch über die einheitliche Erfassung", async () => {
-    const ok = await buchen({ art: "zusage", valuta: "2025-02-01", betrag: "100000.00", felder: { [ids.vorgang!]: "P-100", [ids.vorgangWahl!]: "recht" } });
+    const ok = await buchen({ type: "commitment", valueDate: "2025-02-01", amount: "100000.00", fields: { [ids.vorgang!]: "P-100", [ids.vorgangWahl!]: "recht" } });
     expect(ok.status, await ok.clone().text()).toBe(201);
-    const vorgangId = (await json(ok)).vorgang.id as string;
+    const vorgangId = (await json(ok)).transaction.id as string;
     const gelesen = await get(`/vorgaenge/${vorgangId}/felder`, betrachter).then(json);
     expect(gelesen.werte).toEqual({ [ids.vorgang!]: "P-100", [ids.vorgangWahl!]: "recht" });
-    const falsch = await buchen({ art: "auszahlung", valuta: "2025-02-02", betrag: "1.00", felder: { [ids.vorgangWahl!]: "nix" } });
+    const falsch = await buchen({ type: "disbursement", valueDate: "2025-02-02", amount: "1.00", fields: { [ids.vorgangWahl!]: "nix" } });
     expect(falsch.status).toBe(400);
     // Ein Feld eines anderen Objekts gehört nicht an einen Vorgang, und der abgelehnte Vorgang ist nicht entstanden.
-    expect((await buchen({ art: "auszahlung", valuta: "2025-02-02", betrag: "1.00", felder: { [ids.text!]: "x" } })).status).toBe(400);
+    expect((await buchen({ type: "disbursement", valueDate: "2025-02-02", amount: "1.00", fields: { [ids.text!]: "x" } })).status).toBe(400);
     expect((await db.execute(sql`SELECT count(*)::int AS n FROM vorgang`)).rows[0]).toEqual({ n: 1 });
-    const einheitlich = await post(`/fonds/${F1}/buchungen`, { typ: "auszahlung", beteiligungId: ID.eigen, valuta: "2025-02-03", betrag: "5.00", felder: { [ids.vorgang!]: "P-200" } }, bearbeiter);
+    const einheitlich = await post(`/funds/${F1}/postings`, { kind: "disbursement", investmentId: ID.eigen, valueDate: "2025-02-03", amount: "5.00", fields: { [ids.vorgang!]: "P-200" } }, bearbeiter);
     expect(einheitlich.status).toBe(201);
-    expect((await json(await get(`/vorgaenge/${(await json(einheitlich)).vorgang.id}/felder`, ADMIN))).werte).toEqual({ [ids.vorgang!]: "P-200" });
+    expect((await json(await get(`/vorgaenge/${(await json(einheitlich)).transaction.id}/felder`, ADMIN))).werte).toEqual({ [ids.vorgang!]: "P-200" });
   });
 
   it("die Zeile ist unveränderlich (Trigger), und es gibt keine Schreibroute für Vorgangswerte", async () => {
-    const vorgangId = (await json(await buchen({ art: "zusage", valuta: "2025-02-01", betrag: "100.00", felder: { [ids.vorgang!]: "P-1" } }))).vorgang.id as string;
+    const vorgangId = (await json(await buchen({ type: "commitment", valueDate: "2025-02-01", amount: "100.00", fields: { [ids.vorgang!]: "P-1" } }))).transaction.id as string;
     await expect(pool.query(`UPDATE vorgang SET felder = '{}'::jsonb WHERE id = $1`, [vorgangId])).rejects.toMatchObject({ code: "23001" });
     const put405 = await setze(`/vorgaenge/${vorgangId}/felder`, { [ids.vorgang!]: "P-2" });
     expect([403, 404, 405]).toContain(put405.status);
@@ -229,25 +229,25 @@ describe("Vorgänge: Werte nur beim Anlegen", () => {
   });
 
   it("ein Storno trägt die Werte des Originals", async () => {
-    const vorgangId = (await json(await buchen({ art: "zusage", valuta: "2025-02-01", betrag: "100.00", felder: { [ids.vorgang!]: "P-9", [ids.vorgangWahl!]: "dd" } }))).vorgang.id as string;
-    const storno = await post(`/vorgaenge/${vorgangId}/storno`, { grund: "Fehlbuchung" }, bearbeiter);
+    const vorgangId = (await json(await buchen({ type: "commitment", valueDate: "2025-02-01", amount: "100.00", fields: { [ids.vorgang!]: "P-9", [ids.vorgangWahl!]: "dd" } }))).transaction.id as string;
+    const storno = await post(`/transactions/${vorgangId}/reverse`, { reason: "Fehlbuchung" }, bearbeiter);
     expect(storno.status, await storno.clone().text()).toBe(201);
-    const stornoId = (await json(storno)).storno.id as string;
+    const stornoId = (await json(storno)).reversal.id as string;
     expect((await json(await get(`/vorgaenge/${stornoId}/felder`, ADMIN))).werte).toEqual({ [ids.vorgang!]: "P-9", [ids.vorgangWahl!]: "dd" });
   });
 
   it("die Periodensperre gilt auch für Vorgänge mit Werten; archivierte Felder sind beim Anlegen nicht erlaubt", async () => {
     expect((await put(`/fonds/${F1}/periodensperre`, { gesperrtBis: "2025-12-31" }, verwalter)).status).toBe(200);
-    const gesperrt = await buchen({ art: "zusage", valuta: "2025-02-01", betrag: "10.00", felder: { [ids.vorgang!]: "P-3" } });
+    const gesperrt = await buchen({ type: "commitment", valueDate: "2025-02-01", amount: "10.00", fields: { [ids.vorgang!]: "P-3" } });
     expect(gesperrt.status).toBe(409);
-    expect((await json(gesperrt)).fehler.code).toBe("PERIODE_GESPERRT");
+    expect((await json(gesperrt)).error.code).toBe("period_locked");
     expect((await post(`/crm/felder/${ids.vorgang}/archivieren`, {}, ADMIN)).status).toBe(200);
-    expect((await buchen({ art: "zusage", valuta: "2026-01-01", betrag: "10.00", felder: { [ids.vorgang!]: "P-4" } })).status).toBe(400);
+    expect((await buchen({ type: "commitment", valueDate: "2026-01-01", amount: "10.00", fields: { [ids.vorgang!]: "P-4" } })).status).toBe(400);
   });
 
   it("ein unbekannter Vorgang und ein Stand vor der Erfassung geben 404", async () => {
     expect((await get(`/vorgaenge/00000000-0000-4000-8000-00000000dead/felder`, ADMIN)).status).toBe(404);
-    const vorgangId = (await json(await buchen({ art: "zusage", valuta: "2025-02-01", betrag: "100.00", felder: { [ids.vorgang!]: "P-7" } }))).vorgang.id as string;
+    const vorgangId = (await json(await buchen({ type: "commitment", valueDate: "2025-02-01", amount: "100.00", fields: { [ids.vorgang!]: "P-7" } }))).transaction.id as string;
     expect((await get(`/vorgaenge/${vorgangId}/felder?stand=2000-01-01T00:00:00Z`, ADMIN)).status).toBe(404);
     expect((await get(`/vorgaenge/${vorgangId}/felder?stand=2999-01-01T00:00:00Z`, ADMIN)).status).toBe(200);
   });
@@ -279,7 +279,7 @@ describe("Wissensstand und Änderungsprotokoll", () => {
     await setze(`/fonds/${F1}/felder`, { [ids.text!]: "Gleich" });
     await setze(`/fonds/${F1}/felder`, { [ids.text!]: "Gleich" });
     expect(await protokollZeilen(db, "fonds", "felder_setzen")).toHaveLength(1);
-    const aenderungen = await get(`/aenderungen?fondsId=${F1}`, betrachter);
+    const aenderungen = await get(`/changes?fondsId=${F1}`, betrachter);
     expect(aenderungen.status).toBe(200);
   });
 
@@ -313,11 +313,11 @@ describe("Export und Schnittstelle", () => {
 
   it("die OpenAPI beschreibt die Routen und das Schema der Werte", async () => {
     const doc = await json(await t.request("/openapi.json", { als: null }));
-    for (const pfad of ["/fonds/{id}/felder", "/beteiligungen/{id}/felder", "/beteiligungen/{id}/instrumentfelder", "/finanzierungsrunden/{id}/felder", "/vorgaenge/{id}/felder", "/zusatzfelder/{objekt}/schema", "/zusatzfelder/{objekt}/definitionen"]) {
+    for (const pfad of ["/funds/{id}/fields", "/investments/{id}/fields", "/investments/{id}/instrument-fields", "/financing-rounds/{id}/fields", "/transactions/{id}/fields", "/custom-fields/{object}/schema", "/custom-fields/{object}/definitions"]) {
       expect(doc.paths[pfad], pfad).toBeDefined();
     }
-    expect(doc.components.schemas.Zusatzfelder).toMatchObject({ type: "object", additionalProperties: true });
-    const felder = doc.paths["/beteiligungen/{id}/vorgaenge"].post.requestBody.content["application/json"].schema;
-    expect(JSON.stringify(felder)).toContain("felder");
+    expect(doc.components.schemas.CustomFields).toMatchObject({ type: "object", additionalProperties: true });
+    const felder = doc.paths["/investments/{id}/transactions"].post.requestBody.content["application/json"].schema;
+    expect(JSON.stringify(felder)).toContain("fields");
   });
 });

@@ -35,6 +35,7 @@ interface Props {
   sortierung: Konfig["sortierung"];
   onSortieren: (feld: string) => void;
   onBreite: (feld: string, breite: number) => void;
+  onVerschieben?: (feld: string, nach: number) => void;
   auswahl: ReadonlySet<string>;
   onAuswahl: (neu: Set<string>) => void;
   darfSchreiben: (zeile: Zeile, feld: Feld) => boolean;
@@ -119,7 +120,7 @@ export function GruppierteTabelle({ objekt, basis, gruppeFeld, spalten, beschrif
   );
 }
 
-function Gruppenzeilen({ objekt, basis, gruppeFeld, wert, spalten, gesamt: erwartet, beschriftung, sortierung, onSortieren, onBreite, auswahl, onAuswahl, darfSchreiben, onAendern, onOeffnen }: Props & { wert: string | null; gesamt: number }) {
+function Gruppenzeilen({ objekt, basis, gruppeFeld, wert, spalten, gesamt: erwartet, beschriftung, sortierung, onSortieren, onBreite, onVerschieben, auswahl, onAuswahl, darfSchreiben, onAendern, onOeffnen }: Props & { wert: string | null; gesamt: number }) {
   const eingabe: AbfrageEingabe = { ...basis, filter: mitBedingung(basis.filter as Gruppe | undefined, gruppenBedingung(gruppeFeld, wert)) };
   const seiten = useInfiniteQuery({
     queryKey: ["crm", "abfrage", objekt, "gruppenzeilen", eingabe],
@@ -147,6 +148,7 @@ function Gruppenzeilen({ objekt, basis, gruppeFeld, wert, spalten, gesamt: erwar
       sortierung={sortierung}
       onSortieren={onSortieren}
       onBreite={onBreite}
+      onVerschieben={onVerschieben}
       auswahl={auswahl}
       onAuswahl={onAuswahl}
       darfSchreiben={darfSchreiben}

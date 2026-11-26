@@ -72,7 +72,7 @@ describe("Bewertungen an der Beteiligung", () => {
       [`POST /api/v1/beteiligungen/${BET_ID}/bewertungen`]: (a) =>
         (a.koerper as { begruendung?: string }).begruendung
           ? { status: 201, koerper: { bewertung: bewertungZeile("n1", "2026-09-30", "3000000.00", "entwurf"), ersetzt: null } }
-          : fehler(400, "EINGABE_UNGUELTIG", { felder: [{ feld: "begruendung", code: "begruendung_erforderlich", meldung: "x" }] }),
+          : fehler(400, "invalid_input", { felder: [{ feld: "begruendung", code: "justification_required", meldung: "x" }] }),
     });
     rendereApp(`/beteiligungen/${BET_ID}?tab=bewertung`);
     const nutzer = userEvent.setup();
@@ -82,7 +82,7 @@ describe("Bewertungen an der Beteiligung", () => {
     await nutzer.selectOptions(dialog.getByLabelText("Methode"), "multiplikator");
     expect(dialog.getByText("Pflicht bei dieser Methode.")).toBeTruthy();
     await nutzer.click(dialog.getByRole("button", { name: "Entwurf speichern" }));
-    expect(await dialog.findByText(de.feldfehler.begruendung_erforderlich)).toBeTruthy();
+    expect(await dialog.findByText(de.feldfehler.justification_required)).toBeTruthy();
     fireEvent.change(dialog.getByLabelText("Begründung"), { target: { value: "Vergleichsmultiplikator" } });
     await nutzer.click(dialog.getByRole("button", { name: "Entwurf speichern" }));
     await screen.findByRole("heading", { name: "Bewertungen" });
@@ -109,7 +109,7 @@ describe("Bewertungen an der Beteiligung", () => {
   });
 
   it("sperrt Freigeben für Bearbeiter mit der Rolle als Grund und blendet das Erfassen für Betrachter aus", async () => {
-    spieleApi({ "/api/v1/ich": alsRolle("bearbeiter") });
+    spieleApi({ "/api/v1/me": alsRolle("bearbeiter") });
     const { unmount } = rendereApp(`/beteiligungen/${BET_ID}?tab=bewertung`);
     const fremde = await zeileMit("2.500.000");
     expect((await within(fremde).findByRole("button", { name: /Freigeben/ }) as HTMLButtonElement).disabled).toBe(true);
@@ -117,20 +117,20 @@ describe("Bewertungen an der Beteiligung", () => {
     expect(screen.getByRole("button", { name: "Bewertung erfassen" })).toBeTruthy();
     unmount();
 
-    spieleApi({ "/api/v1/ich": alsRolle("betrachter") });
+    spieleApi({ "/api/v1/me": alsRolle("betrachter") });
     rendereApp(`/beteiligungen/${BET_ID}?tab=bewertung`);
     await screen.findByRole("heading", { name: "Bewertungen" });
     expect(screen.queryByRole("button", { name: "Bewertung erfassen" })).toBeNull();
   });
 
   it("übersetzt die Fehler des Freigebens (Status, Vier-Augen) in beiden Sprachen", async () => {
-    spieleApi({ "POST /api/v1/bewertungen/w4/freigeben": fehler(409, "BEWERTUNG_STATUS_UNGUELTIG", { status: "verworfen" }) });
+    spieleApi({ "POST /api/v1/bewertungen/w4/freigeben": fehler(409, "valuation_status_invalid", { status: "verworfen" }) });
     localStorage.setItem("carraway.sprache", "en");
     rendereApp(`/beteiligungen/${BET_ID}?tab=bewertung`);
     const nutzer = userEvent.setup();
     const fremde = await zeileMit("2,500,000", "Valuations");
     await nutzer.click(await within(fremde).findByRole("button", { name: /Release: valuation at 31\/12\/2026/ }));
-    expect(await screen.findByText(en.fehler.BEWERTUNG_STATUS_UNGUELTIG)).toBeTruthy();
+    expect(await screen.findByText(en.fehler.valuation_status_invalid)).toBeTruthy();
     expect(screen.getAllByText(/Replaced on/).length).toBeGreaterThan(0);
     localStorage.removeItem("carraway.sprache");
   });

@@ -193,7 +193,7 @@ function Stufen({ b, kontrolle, person }: { b: BerichtDetail; kontrolle: Bericht
   function ausfuehren(ergebnis: "ok" | "zurueck") {
     setLokal(null);
     if (ergebnis === "zurueck" && kommentar.trim() === "") {
-      setLokal({ feld: "kommentar", text: feldCodeText(t, "kommentar_erforderlich") });
+      setLokal({ feld: "kommentar", text: feldCodeText(t, "comment_required") });
       return;
     }
     if (ergebnis === "ok" && ueberschreiben && grund.trim() === "") {

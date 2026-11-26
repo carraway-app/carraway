@@ -83,10 +83,10 @@ interface Plan {
 }
 
 function parseZeilen(csv: string): string[][] {
-  if (Buffer.byteLength(csv, "utf8") > MAX_BYTES) throw new Fachfehler(400, "CRM_IMPORT_UNGUELTIG", "Die Datei ist zu groß (höchstens 2 MB).", { grund: "zu_gross" });
+  if (Buffer.byteLength(csv, "utf8") > MAX_BYTES) throw new Fachfehler(400, "crm_import_invalid", "The file is too large (at most 2 MB).", { grund: "zu_gross" });
   const zeilen = leseCsv(csv);
-  if (zeilen.length < 2) throw new Fachfehler(400, "CRM_IMPORT_UNGUELTIG", "Die Datei braucht eine Kopfzeile und mindestens eine Datenzeile.", { grund: "leer" });
-  if (zeilen.length - 1 > MAX_ZEILEN) throw new Fachfehler(400, "CRM_IMPORT_UNGUELTIG", `Höchstens ${MAX_ZEILEN} Zeilen je Import.`, { grund: "zu_viele_zeilen" });
+  if (zeilen.length < 2) throw new Fachfehler(400, "crm_import_invalid", "The file needs a header row and at least one data row.", { grund: "leer" });
+  if (zeilen.length - 1 > MAX_ZEILEN) throw new Fachfehler(400, "crm_import_invalid", `At most ${MAX_ZEILEN} rows per import.`, { grund: "zu_viele_zeilen" });
   return zeilen;
 }
 
@@ -106,10 +106,10 @@ async function baueFuer(tx: Tx, objekt: Exclude<Objekt, "deal">, csv: string, zu
   for (const d of eigene) felder.set(d.id, { typ: d.typ, optionen: d.optionen, system: false, definition: d });
   const schluessel = new Set<string>();
   for (const z of zuordnung) {
-    if (z.spalte >= spalten) throw new Fachfehler(400, "CRM_IMPORT_UNGUELTIG", "Die Zuordnung nennt eine Spalte, die es nicht gibt.", { grund: "spalte", spalte: z.spalte });
+    if (z.spalte >= spalten) throw new Fachfehler(400, "crm_import_invalid", "The mapping names a column that does not exist.", { grund: "spalte", spalte: z.spalte });
     const bekannt = felder.has(z.feld) || (objekt === "person" && z.feld === "unternehmen");
-    if (!bekannt) throw new Fachfehler(400, "CRM_IMPORT_UNGUELTIG", "Die Zuordnung nennt ein Feld, das es nicht gibt oder nicht beschreibbar ist.", { grund: "feld", feld: z.feld });
-    if (schluessel.has(z.feld)) throw new Fachfehler(400, "CRM_IMPORT_UNGUELTIG", "Ein Feld ist mehreren Spalten zugeordnet.", { grund: "doppelt", feld: z.feld });
+    if (!bekannt) throw new Fachfehler(400, "crm_import_invalid", "The mapping names a field that does not exist or is not writable.", { grund: "feld", feld: z.feld });
+    if (schluessel.has(z.feld)) throw new Fachfehler(400, "crm_import_invalid", "A field is mapped to several columns.", { grund: "doppelt", feld: z.feld });
     schluessel.add(z.feld);
   }
   const plaene: Plan[] = [];

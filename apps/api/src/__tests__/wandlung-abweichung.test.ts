@@ -25,8 +25,8 @@ const betraege = (zeilen: { art: string; betrag: string }[], art: string) => zei
 beforeEach(async () => {
   await grundbestand(db);
   const b = ID.wandel;
-  await post(`/beteiligungen/${b}/vorgaenge`, { art: "zusage", valuta: "2026-01-01", betrag: "200000" });
-  await post(`/beteiligungen/${b}/vorgaenge`, { art: "auszahlung", valuta: "2026-01-01", betrag: "100000" });
+  await post(`/investments/${b}/transactions`, { type: "commitment", valueDate: "2026-01-01", amount: "200000" });
+  await post(`/investments/${b}/transactions`, { type: "disbursement", valueDate: "2026-01-01", amount: "100000" });
   await post(`/beteiligungen/${b}/konditionen`, KONDITION);
   await leereAuftraege(db);
 });
@@ -129,15 +129,15 @@ describe("Wandlung mit abweichenden Beträgen", () => {
     const fehler = async (koerper: object) => {
       const antwort = await wandle({ ...basis, ...koerper });
       expect(antwort.status).toBe(400);
-      return (await json(antwort)).fehler.felder[0];
+      return (await json(antwort)).error.fields[0];
     };
-    expect(await fehler({ gewandeltesDarlehen: "100000.01" })).toMatchObject({ feld: "gewandeltesDarlehen", code: "ueber_ausstehend" });
-    expect(await fehler({ gewandelteZinsen: "3000.01" })).toMatchObject({ feld: "gewandelteZinsen", code: "ueber_ausstehend" });
-    expect(await fehler({ zinsenWandeln: false, gewandelteZinsen: "1" })).toMatchObject({ feld: "gewandelteZinsen", code: "zinsen_nicht_gewandelt" });
-    expect(await fehler({ gewandeltesDarlehen: "0", gewandelteZinsen: "0" })).toMatchObject({ feld: "gewandeltesDarlehen", code: "nichts_gewandelt" });
-    expect(await fehler({ gewandeltesDarlehen: "-5" })).toMatchObject({ feld: "gewandeltesDarlehen" });
+    expect(await fehler({ gewandeltesDarlehen: "100000.01" })).toMatchObject({ field: "gewandeltesDarlehen", code: "exceeds_outstanding" });
+    expect(await fehler({ gewandelteZinsen: "3000.01" })).toMatchObject({ field: "gewandelteZinsen", code: "exceeds_outstanding" });
+    expect(await fehler({ zinsenWandeln: false, gewandelteZinsen: "1" })).toMatchObject({ field: "gewandelteZinsen", code: "interest_not_converted" });
+    expect(await fehler({ gewandeltesDarlehen: "0", gewandelteZinsen: "0" })).toMatchObject({ field: "gewandeltesDarlehen", code: "nothing_converted" });
+    expect(await fehler({ gewandeltesDarlehen: "-5" })).toMatchObject({ field: "gewandeltesDarlehen" });
     // 5 Zinsen-Cent über dem Preis: gewandelt 0 Darlehen, 3.000 Zinsen ergeben ohne Rest 0 Spitzenbetrag; mit Preis 7,30 bleibt 4,60 Spitzenbetrag
-    expect(await fehler({ gewandeltesDarlehen: "0", zinsenWandeln: true, preisregel: { rundenpreisJeAnteil: "12.5", discount: "0.2", bewertungsobergrenze: { betrag: "3650000", anteileVorRunde: "500000" } } })).toMatchObject({ feld: "gewandeltesDarlehen", code: "unter_spitzenbetrag" });
+    expect(await fehler({ gewandeltesDarlehen: "0", zinsenWandeln: true, preisregel: { rundenpreisJeAnteil: "12.5", discount: "0.2", bewertungsobergrenze: { betrag: "3650000", anteileVorRunde: "500000" } } })).toMatchObject({ field: "gewandeltesDarlehen", code: "below_residual_amount" });
     expect(await anzahl(db, "wandlung")).toBe(0);
     expect(await anzahl(db, "vorgang", "art IN ('zins', 'tilgung', 'zinszahlung')")).toBe(0);
     const [quelle] = await db.select().from(s.instrument).where(and(eq(s.instrument.beteiligungId, ID.wandel), eq(s.instrument.art, "wandeldarlehen")));

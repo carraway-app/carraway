@@ -10,7 +10,7 @@ import { useT } from "../i18n";
 
 const route = getRouteApi("/passwort-aendern");
 
-/** Startpasswort ersetzen: Bis dahin antwortet die API auf alles andere mit 403 `PASSWORT_AENDERN`. */
+/** Startpasswort ersetzen: Bis dahin antwortet die API auf alles andere mit 403 `password_change_required`. */
 export function PasswortAendernSeite() {
   const t = useT();
   const p = t.passwort;

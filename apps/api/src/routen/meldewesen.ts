@@ -2,6 +2,7 @@ import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import {
+  definitionSchema,
   kennzahlSchluessel,
   pruefeDefinition,
   programmSchluessel,
@@ -11,16 +12,20 @@ import {
 import { beteiligung, foerderprogramm, kennzahlDefinition, meldeAktivierung, meldeDefinition, organisation, organisationMeldedaten, type Db, type MeldeDefinition } from "@carraway/db";
 import { Fachfehler } from "../fehler";
 import { ladeZuordnungen } from "../melde/quellen";
-import { pruefe } from "../pruefung";
 import { heute, idParam, ladeFonds, optionalerText, schreibe, textEingabe } from "../schreiben";
 import { lese, type Tx } from "../zeitlimit";
+import { berichtPruefung, berichtSchema } from "../berichte-pruefung";
+import { berichtAnApi } from "../berichte-vertrag";
+
+const pruefeApi = berichtPruefung("reporting");
+const anApi = <T>(wert: T) => berichtAnApi("reporting", wert);
 
 /**
  * Förder- und Meldeberichte, Teil 1 (Etappe 15): Meldedefinitionen als versionierte Konfiguration (nur globale Verwalter schreiben), Förderprogramme,
  * Aktivierung je Fonds, die Schlüssel der Beteiligungen (lesend) und Sitzland und Region der Organisationen. Die Läufe stehen in `meldelaeufe.ts`.
  */
 
-const bezeichner = z.string().regex(/^[a-z][a-z0-9_]{1,59}$/, "Kleinbuchstaben, Ziffern und Unterstrich, 2 bis 60 Zeichen, mit einem Buchstaben beginnen");
+const bezeichner = z.string().regex(/^[a-z][a-z0-9_]{1,59}$/, "Lowercase letters, digits and underscore, 2 to 60 characters, starting with a letter");
 
 const kopf = {
   bezeichnungDe: textEingabe(200),
@@ -43,11 +48,12 @@ const neueVersion = z.object({
   definition: kopf.definition,
 });
 const pruefAnfrage = z.object({ definition: z.unknown() });
+const pruefBeschreibung = berichtSchema("reporting", z.object({ definition: definitionSchema }));
 const schluesselParam = z.object({ schluessel: bezeichner });
 const versionParam = z.object({ schluessel: bezeichner, version: z.coerce.number().int().min(1) });
 const programmEingabe = z.object({ schluessel: bezeichner, bezeichnung: textEingabe(200) });
 const aktivierungEingabe = z.object({ aktiv: z.boolean(), foerderprogramm: bezeichner.nullable().optional() });
-const meldedatenEingabe = z.object({ sitzland: z.string().regex(/^[A-Z]{2}$/, "Zwei Großbuchstaben (ISO 3166-1) erwartet").nullable(), region: optionalerText(100) });
+const meldedatenEingabe = z.object({ sitzland: z.string().regex(/^[A-Z]{2}$/, "Two uppercase letters (ISO 3166-1) expected").nullable(), region: optionalerText(100) });
 
 const tagDavor = (d: string) => new Date(Date.parse(`${d}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
 
@@ -78,7 +84,7 @@ export async function geltendeVersion(tx: Pick<Tx, "execute" | "select">, schlue
 
 /**
  * Prüft Aufbau (Zod, Verweise, Zyklen) und Verweise auf die Datenbank: jede gelesene Kennzahl muss im Katalog stehen, jedes Förderprogramm in einem Filter
- * muss es geben. Fehler tragen den Pfad im JSON; sie kommen als 400 `MELDEDEFINITION_UNGUELTIG` mit der Liste in `definitionsfehler`.
+ * muss es geben. Fehler tragen den Pfad im JSON; sie kommen als 400 `reporting_definition_invalid` mit der Liste in `definitionsfehler`.
  */
 export async function pruefeDefinitionMitDatenbank(tx: Pick<Tx, "select">, roh: unknown): Promise<{ ok: true; definition: DefinitionInhalt } | { ok: false; fehler: DefinitionsFehler[] }> {
   const e = pruefeDefinition(roh);
@@ -97,7 +103,36 @@ export async function pruefeDefinitionMitDatenbank(tx: Pick<Tx, "select">, roh: 
   return fehler.length ? { ok: false, fehler } : e;
 }
 
-const ungueltig = (fehler: DefinitionsFehler[]) => new Fachfehler(400, "MELDEDEFINITION_UNGUELTIG", "Die Meldedefinition ist ungültig.", { definitionsfehler: fehler });
+const DEFINITION_MESSAGES: Record<string, string> = {
+  art_unbekannt: "The type is unknown or missing.",
+  bereich_leer: "The range must specify at least one bound.",
+  doppelte_id: "Identifiers must be unique.",
+  falscher_typ: "The value has the wrong type.",
+  filter_nicht_erlaubt: "A filter is unavailable for this source.",
+  format_passt_nicht: "The value format does not match the source.",
+  format_ungueltig: "The value has an invalid format.",
+  pflicht_nur_felder: "Only individual fields can be required.",
+  summe_nur_zahlen: "All operands must be numeric.",
+  unbekannte_kennzahl: "The metric is missing from the catalog.",
+  unbekannte_referenz: "The definition references an unknown value.",
+  unbekanntes_feld: "The definition contains unknown properties.",
+  unbekanntes_programm: "The funding program does not exist.",
+  wert_nicht_erlaubt: "The value is outside the allowed set.",
+  zu_gross: "The value exceeds the maximum.",
+  zu_klein: "The value is below the minimum.",
+  zyklus: "The definition contains a circular reference.",
+};
+
+function definitionFehlerApi(fehler: DefinitionsFehler) {
+  return {
+    ...fehler,
+    meldungDe: fehler.meldung,
+    meldung: DEFINITION_MESSAGES[fehler.code] ?? "The definition contains an invalid value.",
+  };
+}
+const ungueltig = (fehler: DefinitionsFehler[]) => new Fachfehler(400, "reporting_definition_invalid", "The reporting definition is invalid.", {
+  definitionsfehler: fehler.map(definitionFehlerApi),
+});
 
 /** Strukturansicht für die Vorschau: Abschnitte mit Zahl der Felder und Quellenarten. */
 function vorschau(d: DefinitionInhalt) {
@@ -122,19 +157,19 @@ export function meldedefinitionRouten(db: Db) {
           return { ...definitionKopf(aktuell), anzahlVersionen: versionen.length, hinweis };
         });
       });
-      return c.json({ daten }, 200);
+      return c.json(anApi({ daten }), 200);
     })
     /** Prüft eine Definition, ohne sie zu speichern: `probleme` mit Pfad und Meldung, bei gültigem Aufbau die Strukturansicht. */
-    .post("/pruefen", pruefe("json", pruefAnfrage), async (c) => {
+    .post("/validate", pruefeApi("json", pruefAnfrage, {}, pruefBeschreibung), async (c) => {
       const { definition } = c.req.valid("json");
       const e = await lese(db, (tx) => pruefeDefinitionMitDatenbank(tx, definition));
-      return c.json(e.ok ? { ok: true as const, probleme: [] as DefinitionsFehler[], vorschau: vorschau(e.definition) } : { ok: false as const, probleme: e.fehler, vorschau: null }, 200);
+      return c.json(anApi(e.ok ? { ok: true as const, probleme: [] as DefinitionsFehler[], vorschau: vorschau(e.definition) } : { ok: false as const, probleme: e.fehler.map(definitionFehlerApi), vorschau: null }), 200);
     })
-    .post("/", pruefe("json", neueDefinition), async (c) => {
+    .post("/", pruefeApi("json", neueDefinition, {}, berichtSchema("reporting", neueDefinition.extend({ definition: definitionSchema }))), async (c) => {
       const e = c.req.valid("json");
       const neu = await schreibe(db, c, async (tx, protokoll) => {
         const [vorhanden] = await tx.select({ id: meldeDefinition.id }).from(meldeDefinition).where(eq(meldeDefinition.schluessel, e.schluessel)).limit(1);
-        if (vorhanden) throw new Fachfehler(409, "MELDEDEFINITION_VORHANDEN", "Diese Meldedefinition gibt es schon; eine Änderung ist eine neue Version.", { schluessel: e.schluessel });
+        if (vorhanden) throw new Fachfehler(409, "reporting_definition_exists", "This reporting definition already exists; a change is a new version.", { schluessel: e.schluessel });
         const geprueft = await pruefeDefinitionMitDatenbank(tx, e.definition);
         if (!geprueft.ok) throw ungueltig(geprueft.fehler);
         const [zeile] = await tx
@@ -144,34 +179,34 @@ export function meldedefinitionRouten(db: Db) {
         await protokoll("anlegen", "melde_definition", zeile!.id, null, zeile);
         return zeile!;
       });
-      return c.json(definitionKopf(neu), 201);
+      return c.json(anApi(definitionKopf(neu)), 201);
     })
     /** Alle Versionen eines Schlüssels (ohne Inhalt). */
-    .get("/:schluessel", pruefe("param", schluesselParam), async (c) => {
+    .get("/:key", pruefeApi("param", schluesselParam), async (c) => {
       const { schluessel } = c.req.valid("param");
       const zeilen = await lese(db, (tx) => tx.select().from(meldeDefinition).where(eq(meldeDefinition.schluessel, schluessel)).orderBy(desc(meldeDefinition.version)));
-      if (zeilen.length === 0) throw new Fachfehler(404, "MELDEDEFINITION_NICHT_GEFUNDEN", "Meldedefinition nicht gefunden.", { schluessel });
-      return c.json({ daten: zeilen.map(definitionKopf) }, 200);
+      if (zeilen.length === 0) throw new Fachfehler(404, "reporting_definition_not_found", "Reporting definition not found.", { schluessel });
+      return c.json(anApi({ daten: zeilen.map(definitionKopf) }), 200);
     })
     /** Eine Version mit Inhalt (JSON) und Strukturansicht. */
-    .get("/:schluessel/versionen/:version", pruefe("param", versionParam), async (c) => {
+    .get("/:key/versions/:version", pruefeApi("param", versionParam), async (c) => {
       const { schluessel, version } = c.req.valid("param");
       const [d] = await lese(db, (tx) => tx.select().from(meldeDefinition).where(and(eq(meldeDefinition.schluessel, schluessel), eq(meldeDefinition.version, version))));
-      if (!d) throw new Fachfehler(404, "MELDEDEFINITION_NICHT_GEFUNDEN", "Version der Meldedefinition nicht gefunden.", { schluessel, version });
+      if (!d) throw new Fachfehler(404, "reporting_definition_not_found", "Version of the reporting definition not found.", { schluessel, version });
       const geprueft = pruefeDefinition(d.definition);
-      return c.json({ ...definitionKopf(d), definition: d.definition as DefinitionInhalt, vorschau: geprueft.ok ? vorschau(geprueft.definition) : [] }, 200);
+      return c.json(anApi({ ...definitionKopf(d), definition: d.definition as DefinitionInhalt, vorschau: geprueft.ok ? vorschau(geprueft.definition) : [] }), 200);
     })
     /** Neue Version: die bisherige gilt bis zum Tag vor `gueltigAb`; bestehende Läufe behalten ihre Version. */
-    .post("/:schluessel/versionen", pruefe("param", schluesselParam), pruefe("json", neueVersion), async (c) => {
+    .post("/:key/versions", pruefeApi("param", schluesselParam), pruefeApi("json", neueVersion, {}, berichtSchema("reporting", neueVersion.extend({ definition: definitionSchema }))), async (c) => {
       const { schluessel } = c.req.valid("param");
       const e = c.req.valid("json");
       const neu = await schreibe(db, c, async (tx, protokoll) => {
         const [letzte] = await tx.select().from(meldeDefinition).where(eq(meldeDefinition.schluessel, schluessel)).orderBy(desc(meldeDefinition.version)).limit(1).for("update");
-        if (!letzte) throw new Fachfehler(404, "MELDEDEFINITION_NICHT_GEFUNDEN", "Meldedefinition nicht gefunden.", { schluessel });
+        if (!letzte) throw new Fachfehler(404, "reporting_definition_not_found", "Reporting definition not found.", { schluessel });
         const geprueft = await pruefeDefinitionMitDatenbank(tx, e.definition);
         if (!geprueft.ok) throw ungueltig(geprueft.fehler);
         const ab = e.gueltigAb ?? heute();
-        if (ab <= letzte.gueltigAb) throw new Fachfehler(409, "MELDEDEFINITION_VERSION_ZEITRAUM", "Die neue Version muss nach dem Beginn der bisherigen gelten.", { gueltigAbBisher: letzte.gueltigAb });
+        if (ab <= letzte.gueltigAb) throw new Fachfehler(409, "reporting_definition_version_period", "The new version must take effect after the start of the previous one.", { gueltigAbBisher: letzte.gueltigAb });
         const [zeile] = await tx
           .insert(meldeDefinition)
           .values({
@@ -195,7 +230,7 @@ export function meldedefinitionRouten(db: Db) {
         await protokoll("anlegen", "melde_definition", zeile!.id, null, zeile);
         return zeile!;
       });
-      return c.json(definitionKopf(neu), 201);
+      return c.json(anApi(definitionKopf(neu)), 201);
     });
 }
 
@@ -203,31 +238,31 @@ export function foerderprogrammRouten(db: Db) {
   return new Hono()
     .get("/", async (c) => {
       const daten = await lese(db, (tx) => tx.select().from(foerderprogramm).orderBy(asc(foerderprogramm.bezeichnung)));
-      return c.json({ daten }, 200);
+      return c.json(anApi({ daten }), 200);
     })
-    .post("/", pruefe("json", programmEingabe), async (c) => {
+    .post("/", pruefeApi("json", programmEingabe), async (c) => {
       const e = c.req.valid("json");
       const neu = await schreibe(db, c, async (tx, protokoll) => {
         const [vorhanden] = await tx.select({ id: foerderprogramm.id }).from(foerderprogramm).where(eq(foerderprogramm.schluessel, e.schluessel));
-        if (vorhanden) throw new Fachfehler(409, "FOERDERPROGRAMM_VORHANDEN", "Dieses Förderprogramm gibt es schon.", { schluessel: e.schluessel });
+        if (vorhanden) throw new Fachfehler(409, "funding_program_exists", "This funding program already exists.", { schluessel: e.schluessel });
         const [zeile] = await tx.insert(foerderprogramm).values({ schluessel: e.schluessel, bezeichnung: e.bezeichnung, erstelltVon: protokoll.akteur }).returning();
         await protokoll("anlegen", "foerderprogramm", zeile!.id, null, zeile);
         return zeile!;
       });
-      return c.json(neu, 201);
+      return c.json(anApi(neu), 201);
     });
 }
 
 async function ladeProgramm(tx: Tx, schluessel: string) {
   const [p] = await tx.select().from(foerderprogramm).where(eq(foerderprogramm.schluessel, schluessel));
-  if (!p) throw new Fachfehler(404, "FOERDERPROGRAMM_NICHT_GEFUNDEN", "Förderprogramm nicht gefunden.", { schluessel });
+  if (!p) throw new Fachfehler(404, "funding_program_not_found", "Funding program not found.", { schluessel });
   return p;
 }
 
 /** Routen unter `/fonds`: Aktivierung der Definitionen und Schlüssel der Beteiligungen des Fonds (lesend; geändert wird unter `/beteiligungen/:id/buchhaltungsschluessel`). */
 export function fondsMeldewesenRouten(db: Db) {
   return new Hono()
-    .get("/:id/meldedefinitionen", pruefe("param", idParam), async (c) => {
+    .get("/:id/reporting-definitions", pruefeApi("param", idParam), async (c) => {
       const { id } = c.req.valid("param");
       const daten = await lese(db, async (tx) => {
         await ladeFonds(tx, id);
@@ -242,16 +277,16 @@ export function fondsMeldewesenRouten(db: Db) {
           return { ...definitionKopf(aktuell), aktiviert: a !== undefined, foerderprogramm: a?.schluessel ? { schluessel: a.schluessel, bezeichnung: a.bezeichnung! } : null };
         });
       });
-      return c.json({ daten }, 200);
+      return c.json(anApi({ daten }), 200);
     })
     /** Aktiviert eine Definition für den Fonds (optional mit einem Förderprogramm als Filter aller Läufe) oder nimmt die Aktivierung zurück. */
-    .put("/:id/meldedefinitionen/:schluessel", pruefe("param", z.object({ id: z.uuid(), schluessel: bezeichner })), pruefe("json", aktivierungEingabe), async (c) => {
+    .put("/:id/reporting-definitions/:key", pruefeApi("param", z.object({ id: z.uuid(), schluessel: bezeichner })), pruefeApi("json", aktivierungEingabe), async (c) => {
       const { id, schluessel } = c.req.valid("param");
       const e = c.req.valid("json");
       const ergebnis = await schreibe(db, c, async (tx, protokoll) => {
         await ladeFonds(tx, id);
         const [d] = await tx.select({ id: meldeDefinition.id }).from(meldeDefinition).where(eq(meldeDefinition.schluessel, schluessel)).limit(1);
-        if (!d) throw new Fachfehler(404, "MELDEDEFINITION_NICHT_GEFUNDEN", "Meldedefinition nicht gefunden.", { schluessel });
+        if (!d) throw new Fachfehler(404, "reporting_definition_not_found", "Reporting definition not found.", { schluessel });
         const [vorher] = await tx.select().from(meldeAktivierung).where(and(eq(meldeAktivierung.fondsId, id), eq(meldeAktivierung.schluessel, schluessel)));
         if (!e.aktiv) {
           if (vorher) {
@@ -268,10 +303,10 @@ export function fondsMeldewesenRouten(db: Db) {
         await protokoll(vorher ? "aendern" : "aktivieren", "melde_aktivierung", id, vorher ?? null, { ...nachher, fondsId: id });
         return { aktiviert: true, foerderprogramm: programm ? { schluessel: programm.schluessel, bezeichnung: programm.bezeichnung } : null };
       });
-      return c.json(ergebnis, 200);
+      return c.json(anApi(ergebnis), 200);
     })
     /** Förder- und Buchhaltungsschlüssel aller Beteiligungen des Fonds (Lesen; Ändern unter `PUT /beteiligungen/:id/buchhaltungsschluessel`) mit Sitzland und Region der Unternehmen. */
-    .get("/:id/melde-zuordnungen", pruefe("param", idParam), async (c) => {
+    .get("/:id/reporting-assignments", pruefeApi("param", idParam), async (c) => {
       const { id } = c.req.valid("param");
       const daten = await lese(db, async (tx) => {
         await ladeFonds(tx, id);
@@ -291,29 +326,29 @@ export function fondsMeldewesenRouten(db: Db) {
           region: z.organisation.get(o.id)?.region ?? null,
         }));
       });
-      return c.json({ daten }, 200);
+      return c.json(anApi({ daten }), 200);
     });
 }
 
 /** Sitzland und Region einer Organisation lesen und setzen (die Bearbeitung der Organisation zeigt sie neben dem NACE-Abschnitt). */
 export function organisationMeldedatenRouten(db: Db) {
   return new Hono()
-    .get("/:id/meldedaten", pruefe("param", idParam), async (c) => {
+    .get("/:id/reporting-data", pruefeApi("param", idParam), async (c) => {
       const { id } = c.req.valid("param");
       const ergebnis = await lese(db, async (tx) => {
         const [o] = await tx.select({ id: organisation.id }).from(organisation).where(eq(organisation.id, id));
-        if (!o) throw new Fachfehler(404, "ORGANISATION_NICHT_GEFUNDEN", "Organisation nicht gefunden.");
+        if (!o) throw new Fachfehler(404, "organization_not_found", "Organization not found.");
         const [m] = await tx.select().from(organisationMeldedaten).where(eq(organisationMeldedaten.organisationId, id));
         return { organisationId: id, sitzland: m?.sitzland ?? null, region: m?.region ?? null };
       });
-      return c.json(ergebnis, 200);
+      return c.json(anApi(ergebnis), 200);
     })
-    .put("/:id/meldedaten", pruefe("param", idParam), pruefe("json", meldedatenEingabe), async (c) => {
+    .put("/:id/reporting-data", pruefeApi("param", idParam), pruefeApi("json", meldedatenEingabe), async (c) => {
     const { id } = c.req.valid("param");
     const e = c.req.valid("json");
     const ergebnis = await schreibe(db, c, async (tx, protokoll) => {
       const [o] = await tx.select({ id: organisation.id }).from(organisation).where(eq(organisation.id, id));
-      if (!o) throw new Fachfehler(404, "ORGANISATION_NICHT_GEFUNDEN", "Organisation nicht gefunden.");
+      if (!o) throw new Fachfehler(404, "organization_not_found", "Organization not found.");
       const [vorher] = await tx.select().from(organisationMeldedaten).where(eq(organisationMeldedaten.organisationId, id));
       const werte = { sitzland: e.sitzland, region: e.region ?? null, geaendertVon: protokoll.akteur, geaendertAm: new Date() };
       const [nachher] = vorher
@@ -322,7 +357,7 @@ export function organisationMeldedatenRouten(db: Db) {
       await protokoll(vorher ? "aendern" : "anlegen", "organisation_meldedaten", id, vorher ?? null, nachher);
       return { organisationId: id, sitzland: nachher!.sitzland, region: nachher!.region };
     });
-    return c.json(ergebnis, 200);
+    return c.json(anApi(ergebnis), 200);
   });
 }
 

@@ -49,7 +49,7 @@ afterAll(async () => {
   await pool.end();
 });
 
-const bericht = (sprache: "de" | "en", extra = "") => get(`/beteiligungen/${ID.eigen}/berichte/quartalsbericht?stichtag=2026-09-30&sprache=${sprache}${extra}`, bearbeiter);
+const bericht = (sprache: "de" | "en", extra = "") => get(`/investments/${ID.eigen}/reports/quarterly-report?stichtag=2026-09-30&sprache=${sprache}${extra}`, bearbeiter);
 
 describe("Quartalsbericht mit Kennzahlen des Unternehmens", () => {
   it("zeigt je ausgewählter Kennzahl den zuletzt bestätigten Ist-Wert gegen den Plan, mit Abweichung, in Deutsch", async () => {
@@ -93,31 +93,31 @@ describe("Quartalsbericht mit Kennzahlen des Unternehmens", () => {
   });
 
   it("die Vorlage steuert den Abschnitt: weglassen, eigene Kennzahlenliste, Reihenfolge; der Freigabeweg nimmt die festgehaltene Vorlage", async () => {
-    expect((await put(`/fonds/${ID.fonds}/berichtsvorlagen/quartalsbericht`, { abschnitte: ["vorgaenge", "bewertungsverlauf"] }, verwalter)).status).toBe(200);
+    expect((await put(`/funds/${ID.fonds}/report-templates/quarterly_report`, { abschnitte: ["vorgaenge", "bewertungsverlauf"] }, verwalter)).status).toBe(200);
     expect((await text(await bericht("de"))).text).not.toContain("Kennzahlen des Unternehmens");
-    expect((await put(`/fonds/${ID.fonds}/berichtsvorlagen/quartalsbericht`, { unternehmenskennzahlen: ["ebitda"] }, verwalter)).status).toBe(200);
+    expect((await put(`/funds/${ID.fonds}/report-templates/quarterly_report`, { unternehmenskennzahlen: ["ebitda"] }, verwalter)).status).toBe(200);
     const nur = (await text(await bericht("de"))).text;
     expect(nur).toContain("EBITDA");
     expect(nur).not.toContain("Umsatz Q3");
     // Freigabeweg: Vorlage wird bei der Anlage festgehalten, spätere Änderungen wirken nicht mehr
-    const angelegt = await json(await post("/berichte", { art: "quartalsbericht", beteiligungId: ID.eigen, stichtag: "2026-09-30", sprache: "de" }, bearbeiter));
-    await put(`/fonds/${ID.fonds}/berichtsvorlagen/quartalsbericht`, { unternehmenskennzahlen: ["umsatz"] }, verwalter);
-    const datei = (await text(await get(`/berichte/${angelegt.id}/datei`, bearbeiter))).text;
+    const angelegt = await json(await post("/reports", { art: "quartalsbericht", beteiligungId: ID.eigen, stichtag: "2026-09-30", sprache: "de" }, bearbeiter));
+    await put(`/funds/${ID.fonds}/report-templates/quarterly_report`, { unternehmenskennzahlen: ["umsatz"] }, verwalter);
+    const datei = (await text(await get(`/reports/${angelegt.id}/file`, bearbeiter))).text;
     expect(datei).toContain("EBITDA");
     expect(datei).not.toContain("Umsatz Q3");
     expect(datei).toContain("ENTWURF");
   });
 
   it("Prüfung der Vorlage: unbekannte Kennzahl 404, falsche Form 400, nur für den Quartalsbericht; alte Vorlagen ohne das Feld bleiben lesbar", async () => {
-    const vorlage = (koerper: object, art = "quartalsbericht") => put(`/fonds/${ID.fonds}/berichtsvorlagen/${art}`, koerper, verwalter);
+    const vorlage = (koerper: object, art = "quarterly_report") => put(`/funds/${ID.fonds}/report-templates/${art}`, koerper, verwalter);
     expect((await vorlage({ unternehmenskennzahlen: ["gibt_es_nicht"] })).status).toBe(404);
     expect((await vorlage({ unternehmenskennzahlen: ["Umsatz"] })).status).toBe(400);
     expect((await vorlage({ unternehmenskennzahlen: ["umsatz", "umsatz"] })).status).toBe(400);
-    expect((await vorlage({ unternehmenskennzahlen: ["umsatz"] }, "fondsbericht")).status).toBe(400);
+    expect((await vorlage({ unternehmenskennzahlen: ["umsatz"] }, "fund_report")).status).toBe(400);
     expect((await vorlage({ abschnitte: ["unbekannt"] })).status).toBe(400);
     // eine früher gespeicherte Vorlage mit leeren Abschnitten und ohne das neue Feld ergibt die Standardabschnitte
     await db.execute(sql`INSERT INTO bericht_vorlage (fonds_id, art, konfiguration, geaendert_von) VALUES (${ID.fonds}, 'quartalsbericht', '{"einheit":"TEUR","abschnitte":[],"kennzahlen":[],"spalten":[]}'::jsonb, 'alt') ON CONFLICT (fonds_id, art) DO UPDATE SET konfiguration = EXCLUDED.konfiguration`);
-    const gelesen = await json(await get(`/fonds/${ID.fonds}/berichtsvorlagen`, verwalter));
+    const gelesen = await json(await get(`/funds/${ID.fonds}/report-templates`, verwalter));
     const q = gelesen.daten.find((x: { art: string }) => x.art === "quartalsbericht");
     expect(q.konfiguration).toMatchObject({ einheit: "TEUR", abschnitte: ["bewertungsverlauf", "vorgaenge", "unternehmenskennzahlen"], unternehmenskennzahlen: [] });
     expect((await text(await bericht("de"))).text).toContain("Kennzahlen des Unternehmens");

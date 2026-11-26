@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { rendereApp, spieleApi } from "../test/hilfen";
@@ -81,6 +81,47 @@ describe("Tabelle der Datensätze: ein Scrollbereich mit klebenden Rändern", ()
     await nutzer.keyboard("{End}");
     await waitFor(() => expect(document.activeElement?.getAttribute("data-z")?.startsWith("1:")).toBe(true));
     expect(within(grid).getAllByRole("columnheader").length).toBeGreaterThan(3);
+  });
+
+  it("setzt die Kantenmarken nur, solange unter den klebenden Rändern Inhalt liegt", async () => {
+    spieleApi();
+    rendereApp("/kontakte");
+    const grid = await screen.findByRole("grid", { name: "Unternehmen" });
+    expect(grid.hasAttribute("data-kante-links")).toBe(false);
+    expect(grid.hasAttribute("data-kante-rechts")).toBe(false);
+    // Breiter Inhalt als Fenster: am Anfang nur rechts verdeckt, in der Mitte beidseitig, am Ende nur links.
+    Object.defineProperty(grid, "clientWidth", { configurable: true, value: 600 });
+    Object.defineProperty(grid, "scrollWidth", { configurable: true, value: 1400 });
+    const scrolle = (links: number) => {
+      grid.scrollLeft = links;
+      fireEvent.scroll(grid);
+    };
+    scrolle(0);
+    expect([grid.hasAttribute("data-kante-links"), grid.hasAttribute("data-kante-rechts")]).toEqual([false, true]);
+    scrolle(300);
+    expect([grid.hasAttribute("data-kante-links"), grid.hasAttribute("data-kante-rechts")]).toEqual([true, true]);
+    scrolle(800);
+    expect([grid.hasAttribute("data-kante-links"), grid.hasAttribute("data-kante-rechts")]).toEqual([true, false]);
+  });
+
+  it("legt Ebenen, Trenner und Kantenschatten fest (deckend, ohne Versatz, nur bei verdecktem Inhalt)", () => {
+    const css = readFileSync(resolve(process.cwd(), "src/crm.css"), "utf8");
+    const regel = (wahl: string) => new RegExp(`(?:^|\\n)${wahl.replace(/[.[\]()>*]/g, "\\$&")}\\s*\\{([^}]*)\\}`).exec(css)?.[1] ?? "";
+    const ebene = (wahl: string) => Number(/z-index:\s*(\d+)/.exec(regel(wahl))?.[1]);
+    // Kopf über Ecken über klebenden Rändern über dem scrollenden Inhalt.
+    expect(ebene(".app-gitter__kopf")).toBeGreaterThan(ebene(".app-gitter__kopf > .app-gitter__links, .app-gitter__kopf > .app-gitter__rechts"));
+    expect(ebene(".app-gitter__kopf > .app-gitter__links, .app-gitter__kopf > .app-gitter__rechts")).toBeGreaterThan(ebene(".app-gitter .app-gitter__links, .app-gitter .app-gitter__rechts"));
+    expect(ebene(".app-gitter .app-gitter__links, .app-gitter .app-gitter__rechts")).toBeGreaterThan(ebene(".app-gitter__zelle"));
+    expect(ebene(".app-gitter__kopf > .app-gitter__links, .app-gitter__kopf > .app-gitter__rechts")).toBeGreaterThan(ebene(".app-gitter__kopfzelle"));
+    // Der Zeilentrenner liegt an den Zellen, nicht an der Zeile, und Hover deckt wie die Auswahl (die klebenden Zellen erben den Grund).
+    expect(regel(".app-gitter__zeile > *")).toMatch(/border-bottom:\s*1px solid var\(--cw-line\)/);
+    expect(regel(".app-gitter__zeile")).not.toMatch(/border-bottom/);
+    expect(regel(".app-gitter__zeile:not(.app-gitter__kopf):hover")).toMatch(/background:\s*var\(--cw-hover\)/);
+    // Kantenschatten nur mit Marke, keine dauerhafte Linie.
+    expect(regel(".app-gitter__erste")).not.toMatch(/box-shadow/);
+    expect(regel(".app-gitter__rechts")).not.toMatch(/box-shadow/);
+    expect(regel(".app-gitter[data-kante-links] .app-gitter__erste")).toMatch(/box-shadow/);
+    expect(regel(".app-gitter[data-kante-rechts] .app-gitter__rechts")).toMatch(/box-shadow/);
   });
 
   it("legt die Stile fest: ein Scrollbereich in beide Richtungen, klebende Ränder mit Grund der Zeile, Kopf klebt oben", () => {

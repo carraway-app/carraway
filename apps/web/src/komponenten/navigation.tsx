@@ -6,6 +6,7 @@ import {
   BookOpenIcon,
   CalculatorIcon,
   ChartLineUpIcon,
+  ChartPieSliceIcon,
   HouseIcon,
   KanbanIcon,
   ListMagnifyingGlassIcon,
@@ -60,6 +61,7 @@ export function navigationsgruppen(t: Texte, ich: Ich | undefined, fondsId: stri
       label: "",
       items: [
         { id: "fonds", label: t.nav.fonds, icon: <BankIcon />, ziel: { to: "/fonds", search: {} }, aktiv: (p) => p === "/fonds" },
+        { id: "dashboard", label: t.nav.dashboard, icon: <ChartPieSliceIcon />, ziel: { to: "/portfolio", search: {} }, aktiv: (p) => p === "/portfolio" },
         {
           id: "portfolio",
           label: t.nav.portfolio,
@@ -88,7 +90,7 @@ export function navigationsgruppen(t: Texte, ich: Ich | undefined, fondsId: stri
  * Bereich je Eintrag der Seitenleiste (Schlüssel wie `BEREICHE` der API), wo er nicht der Kennung des Eintrags entspricht (Portfolio, Dealflow,
  * Kontakte, Berichte) oder in der Gruppe Finanzen nicht `finanzen` ist. Leer: immer sichtbar.
  */
-const NAV_BEREICH: Record<string, string> = { fonds: "", register: "kontakte", meldungen: "meldewesen", berichte: "berichte", import: "daten" };
+const NAV_BEREICH: Record<string, string> = { fonds: "", dashboard: "portfolio", register: "kontakte", meldungen: "meldewesen", berichte: "berichte", import: "daten" };
 
 export interface Brotkrume {
   label: string;
@@ -117,6 +119,7 @@ const DETAILS: [RegExp, keyof Texte["nav"]["detail"]][] = [
   [/^\/fonds\/[^/]+\/reserven/, "reserven"],
   [/^\/fonds\/[^/]+\/zinsen/, "zinsen"],
   [/^\/fonds\/[^/]+\/bewertungsrunde/, "bewertungsrunde"],
+  [/^\/fonds\/[^/]+\/zielfonds/, "zielfonds"],
 ];
 
 /**
@@ -124,7 +127,6 @@ const DETAILS: [RegExp, keyof Texte["nav"]["detail"]][] = [
  * Der Name des Datensatzes steht im Titel der Seite, nicht hier.
  */
 export function brotkruemel(t: Texte, pfad: string, gruppen: NavGruppeDefinition[]): Brotkrume[] {
-  if (pfad.startsWith("/verwaltung/mail")) return [{ label: t.nav.verwaltung, ziel: { to: "/verwaltung" } }, { label: t.nav.mailversand }];
   if (pfad.startsWith("/verwaltung")) return [{ label: t.nav.verwaltung }];
   if (pfad.startsWith("/einstellungen")) return [{ label: t.nav.einstellungen }];
   for (const g of gruppen) {

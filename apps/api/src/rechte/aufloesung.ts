@@ -1,6 +1,7 @@
 import { eq, sql, type SQL } from "drizzle-orm";
 import { nutzergruppe, nutzergruppeMitglied, nutzergruppeRolle, rechterolle, wirksameFondsrolle, wirksamesBereichsrecht, type FondsRolle } from "@carraway/db";
 import type { Tx } from "../zeitlimit";
+import { stufenJeBereichAnApi } from "./api-namen";
 import { BEREICHE, hoehereStufe, istBereich, niedrigereStufe, type Bereich } from "./bereiche";
 
 /** Wirksame Rechte einer Person aus eigenen Fondsrollen, Gruppen und Rollen (docs/rechte-modell.md, „Auflösung“). */
@@ -9,7 +10,7 @@ export interface WirksameRechte {
   rollen: Map<string, FondsRolle>;
   /** Bereiche aus den Rollen aller Gruppen der Person; `null` ohne Gruppe (alle Bereiche, wie vor dem Rechtemodell). */
   bereiche: Set<Bereich> | null;
-  /** Höchste Stufe der Gruppen, auch ohne Fonds (Anzeige in `/ich`). `null` ohne Gruppe. Die Prüfung nutzt `stufeOhneFondsJeBereich`. */
+  /** Höchste Stufe der Gruppen, auch ohne Fonds (Anzeige in `/me`). `null` ohne Gruppe. Die Prüfung nutzt `stufeOhneFondsJeBereich`. */
   stufeOhneFonds: FondsRolle | null;
   /** Stufe je Fonds und Bereich aus der Sicht `wirksames_bereichsrecht`; `null` ohne Gruppe (dann gilt `rollen` für jeden Bereich). */
   stufen: Map<string, Map<Bereich, FondsRolle>> | null;
@@ -103,13 +104,15 @@ export async function ladeRechte(tx: Tx, benutzerId: string): Promise<WirksameRe
 }
 
 /**
- * Stufen je Fonds und Bereich für `/ich` und `/benutzer/:id/rechte`: `null` ohne Unterscheidung nach Bereich (keine Gruppe, globale
- * Verwalter); dann gilt die Stufe am Fonds aus `rollen` für jeden Bereich aus `bereiche`.
+ * Stufen je Fonds und Bereich für `/me` und `/users/:id/permissions` (englische Namen, `rechte/api-namen.ts`): `null` ohne Unterscheidung
+ * nach Bereich (keine Gruppe, globale Verwalter); dann gilt die Stufe am Fonds aus `roles` für jeden Bereich aus `areas`.
  */
 export function bereicheJeFondsAuszug(r: { globalVerwalter: boolean; stufen: ReadonlyMap<string, ReadonlyMap<Bereich, FondsRolle>> | null; stufeOhneFondsJeBereich: ReadonlyMap<Bereich, FondsRolle> | null }) {
-  if (r.globalVerwalter || r.stufen === null) return { bereicheJeFonds: null, stufeOhneFondsJeBereich: null };
-  const bereicheJeFonds: Record<string, Partial<Record<Bereich, FondsRolle>>> = {};
-  for (const [fondsId, jeBereich] of [...r.stufen].sort(([a], [b]) => a.localeCompare(b))) bereicheJeFonds[fondsId] = Object.fromEntries(BEREICHE.filter((b) => jeBereich.has(b)).map((b) => [b, jeBereich.get(b)!]));
+  if (r.globalVerwalter || r.stufen === null) return { areaLevelsPerFund: null, levelWithoutFundPerArea: null };
+  const areaLevelsPerFund: Record<string, Record<string, string>> = {};
+  for (const [fondsId, jeBereich] of [...r.stufen].sort(([a], [b]) => a.localeCompare(b))) {
+    areaLevelsPerFund[fondsId] = stufenJeBereichAnApi(Object.fromEntries(BEREICHE.filter((b) => jeBereich.has(b)).map((b) => [b, jeBereich.get(b)!])));
+  }
   const ohne = r.stufeOhneFondsJeBereich ?? new Map<Bereich, FondsRolle>();
-  return { bereicheJeFonds, stufeOhneFondsJeBereich: Object.fromEntries(BEREICHE.filter((b) => ohne.has(b)).map((b) => [b, ohne.get(b)!])) as Partial<Record<Bereich, FondsRolle>> };
+  return { areaLevelsPerFund, levelWithoutFundPerArea: stufenJeBereichAnApi(Object.fromEntries(BEREICHE.filter((b) => ohne.has(b)).map((b) => [b, ohne.get(b)!]))) };
 }

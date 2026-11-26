@@ -8,7 +8,7 @@ import { relativerPfad } from "./rechte/pruefen";
 /**
  * Kopf `Idempotency-Key` für alle POST-Routen: Derselbe Schlüssel (je Akteur) mit demselben Körper liefert 24 Stunden lang dieselbe
  * Antwort, ohne die Anfrage noch einmal auszuführen (Kopf `Idempotent-Replayed: true`). Derselbe Schlüssel mit anderem Körper, anderer
- * Methode oder anderem Pfad ist 409 `IDEMPOTENZ_KONFLIKT`; läuft die erste Anfrage noch, ist es 409 `IDEMPOTENZ_LAUFEND`.
+ * Methode oder anderem Pfad ist 409 `idempotency_conflict`; läuft die erste Anfrage noch, ist es 409 `idempotency_in_progress`.
  * Gespeichert werden die Antworten bis 4xx; ein Serverfehler (5xx) gibt den Schlüssel wieder frei, damit die Wiederholung gelingt.
  * Ohne Kopf bleibt alles beim Alten. Ausgenommen sind `/auth/*` und die Einrichtung (ohne Akteur).
  */
@@ -38,9 +38,9 @@ export function idempotenz(db: Db): MiddlewareHandler {
     const schluessel = c.req.header("Idempotency-Key");
     const pfad = relativerPfad(c);
     const akteur = c.get("akteur");
-    if (schluessel === undefined || c.req.method !== "POST" || !akteur || pfad.startsWith("/auth/") || pfad === "/einrichtung") return next();
+    if (schluessel === undefined || c.req.method !== "POST" || !akteur || pfad.startsWith("/auth/") || pfad === "/setup") return next();
     if (!SCHLUESSEL.test(schluessel)) {
-      throw new Fachfehler(400, "IDEMPOTENZ_SCHLUESSEL_UNGUELTIG", "Der Idempotency-Key besteht aus 1 bis 200 druckbaren ASCII-Zeichen ohne Leerzeichen.");
+      throw new Fachfehler(400, "idempotency_key_invalid", "The Idempotency-Key consists of 1 to 200 printable ASCII characters without spaces.");
     }
     const anfrage = createHash("sha256").update(`${c.req.method}\n${pfad}${new URL(c.req.url).search}\n`).update(await koerperHash(c)).digest("hex");
 
@@ -56,11 +56,11 @@ export function idempotenz(db: Db): MiddlewareHandler {
       const gespeichert = rows[0];
       if (!gespeichert) return next(); // zwischen Einfügen und Lesen abgelaufen: wie eine neue Anfrage behandeln
       if (gespeichert.anfrage_hash !== anfrage) {
-        throw new Fachfehler(409, "IDEMPOTENZ_KONFLIKT", "Dieser Idempotency-Key wurde schon mit einer anderen Anfrage verwendet.");
+        throw new Fachfehler(409, "idempotency_conflict", "This Idempotency-Key was already used with a different request.");
       }
       if (gespeichert.status === null) {
         c.header("Retry-After", "1");
-        throw new Fachfehler(409, "IDEMPOTENZ_LAUFEND", "Die Anfrage mit diesem Idempotency-Key läuft noch.");
+        throw new Fachfehler(409, "idempotency_in_progress", "The request with this Idempotency-Key is still in progress.");
       }
       return new Response(gespeichert.antwort ?? "", {
         status: gespeichert.status,

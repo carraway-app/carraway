@@ -86,12 +86,12 @@ describe("Berechtigungstabelle", () => {
     }
   });
 
-  it("nicht angemeldet: 401 NICHT_ANGEMELDET; ohne Rolle an irgendeinem Fonds: 403 KEINE_BERECHTIGUNG (außer den offenen Routen und /ich)", async () => {
+  it("nicht angemeldet: 401 not_authenticated; ohne Rolle an irgendeinem Fonds: 403 forbidden (außer den offenen Routen und /ich)", async () => {
     for (const r of REGELN.filter((x) => x.zugriff !== "oeffentlich")) {
       const pfad = r.muster.replace(/:jahr/, "2025").replace(/:\w+/g, () => randomUUID());
       const anonym = await anfrage(r.methode, pfad, null, r.methode === "GET" ? undefined : {});
       expect(anonym.status, `${r.methode} ${r.muster} anonym`).toBe(401);
-      expect((await json(anonym)).fehler.code).toBe("NICHT_ANGEMELDET");
+      expect((await json(anonym)).error.code).toBe("not_authenticated");
       const ohne = await anfrage(r.methode, pfad, ohneRolle, r.methode === "GET" ? undefined : {});
       if (r.zugriff === "angemeldet") {
         // Lesen antwortet 200; eine Änderung mit leerem Körper erreicht den Handler (400 der Eingabeprüfung, 404 bei unbekannter Kennung, 200 bei
@@ -101,27 +101,27 @@ describe("Berechtigungstabelle", () => {
         continue;
       }
       expect(ohne.status, `${r.methode} ${r.muster} ohne Rolle`).toBe(403);
-      expect((await json(ohne)).fehler.code).toBe("KEINE_BERECHTIGUNG");
+      expect((await json(ohne)).error.code).toBe("forbidden");
     }
   });
 
   it("alle öffentlichen Routen sind bewusst öffentlich: Gesundheit, Umgebung, Anmeldung, Ersteinrichtung und die API-Beschreibung und der Link der Kennzahlen-Abfrage", () => {
     expect(REGELN.filter((r) => r.zugriff === "oeffentlich").map((r) => `${r.methode} ${r.muster}`)).toEqual([
-      "GET /gesundheit",
-      "GET /umgebung",
+      "GET /health",
+      "GET /environment",
       "GET /auth/*",
       "POST /auth/*",
-      "POST /einrichtung",
+      "POST /setup",
       // Passwort zurücksetzen per Mail: gleiche Antwort für jede Adresse, begrenzt je IP und Adresse, siehe `passwort-zuruecksetzen.test.ts`.
-      "POST /passwort/vergessen",
+      "POST /password/forgot",
       "GET /openapi.json",
       "GET /docs",
       // Link ohne Konto der Kennzahlen-Abfrage (Etappe 11): der Zugang ist das Token, siehe `kennzahlen-abfrage.test.ts`.
-      "GET /extern/abfragen/:token",
-      "PUT /extern/abfragen/:token",
-      "POST /extern/abfragen/:token/einreichen",
+      "GET /external/requests/:token",
+      "PUT /external/requests/:token",
+      "POST /external/requests/:token/submit",
       // Kalenderabonnement (ICS) einer Person (Etappe 17): Das Token vor `.ics` ist der Zugang, siehe `kalender-ics.test.ts`.
-      "GET /kalender/:datei",
+      "GET /calendar/:file",
     ]);
   });
 });
@@ -131,15 +131,15 @@ describe("Rollenmatrix (Fonds Eins)", () => {
   const faelle = (ids: { vorgang: string; meilenstein: string }): [string, string, unknown, 1 | 2 | 3 | 4][] => [
     ["GET", `/fonds/${F1}/uebersicht`, undefined, 1],
     ["GET", `/fonds/${F1}/abgrenzung`, undefined, 1],
-    ["GET", `/fonds/${F1}/berichte/portfolioliste`, undefined, 1],
+    ["GET", `/funds/${F1}/reports/portfolio-list`, undefined, 1],
     ["POST", `/fonds/${F1}/neuberechnen`, undefined, 2],
     ["GET", `/beteiligungen/${ID.eigen}`, undefined, 1],
     ["GET", `/beteiligungen/${ID.eigen}/instrumentdaten`, undefined, 1],
-    ["POST", `/beteiligungen/${ID.eigen}/vorgaenge`, { art: "zusage", valuta: "2025-01-01", betrag: "1000" }, 2],
+    ["POST", `/investments/${ID.eigen}/transactions`, { type: "commitment", valueDate: "2025-01-01", amount: "1000" }, 2],
     ["POST", `/beteiligungen/${ID.darlehen}/meilensteine`, { bezeichnung: "M", betrag: "1000" }, 2],
     ["PUT", `/beteiligungen/${ID.darlehen}/jahresueberschuss/2025`, { betrag: "100" }, 2],
     ["POST", `/beteiligungen/${ID.eigen}/insolvenz`, { datum: "2999-01-01" }, 2],
-    ["POST", `/vorgaenge/${ids.vorgang}/storno`, { grund: "Test" }, 2],
+    ["POST", `/transactions/${ids.vorgang}/reverse`, { reason: "Test" }, 2],
     ["POST", `/meilensteine/${ids.meilenstein}/erfuellt`, {}, 2],
     ["GET", `/zinslaeufe/${LAUF_F1}`, undefined, 1],
     ["GET", `/zinslaeufe/${LAUF_F1}/kontrolle`, undefined, 1],
@@ -149,19 +149,19 @@ describe("Rollenmatrix (Fonds Eins)", () => {
     ["POST", `/deals/${DEAL_F1}/beschluesse`, { gremium: "IA", datum: "2026-01-01", ergebnis: "vertagt" }, 2],
     ["GET", `/fonds/${F1}/periodensperre`, undefined, 4],
     ["PUT", `/fonds/${F1}/periodensperre`, { gesperrtBis: "2020-01-01" }, 4],
-    ["GET", `/fonds/${F1}/rollen`, undefined, 4],
+    ["GET", `/fonds/${F1}/roles`, undefined, 4],
     ["POST", `/aktivitaeten`, { art: "notiz", datum: "2026-01-01", titel: "Neu", dealId: DEAL_F1 }, 2],
   ];
 
-  it("unterhalb der Mindestrolle 403 KEINE_BERECHTIGUNG, ab der Mindestrolle nie 403 (betrachter < bearbeiter < freigeber < verwalter)", async () => {
-    const vorgang = (await json(await post(`/beteiligungen/${ID.eigen}/vorgaenge`, { art: "zusage", valuta: "2025-01-01", betrag: "100000" }))).vorgang.id as string;
+  it("unterhalb der Mindestrolle 403 forbidden, ab der Mindestrolle nie 403 (betrachter < bearbeiter < freigeber < verwalter)", async () => {
+    const vorgang = (await json(await post(`/investments/${ID.eigen}/transactions`, { type: "commitment", valueDate: "2025-01-01", amount: "100000" }))).transaction.id as string;
     const meilenstein = (await json(await post(`/beteiligungen/${ID.darlehen}/meilensteine`, { bezeichnung: "Erster Schritt", betrag: "1000" }))).id as string;
     for (const [methode, pfad, body, min] of faelle({ vorgang, meilenstein })) {
       for (const [p, rang] of stufe) {
         const antwort = await anfrage(methode, pfad, p, body);
         if (rang < min) {
           expect(antwort.status, `${methode} ${pfad} als ${p.name}`).toBe(403);
-          expect((await json(antwort)).fehler.code).toBe("KEINE_BERECHTIGUNG");
+          expect((await json(antwort)).error.code).toBe("forbidden");
         } else {
           expect(antwort.status, `${methode} ${pfad} als ${p.name}`).not.toBe(403);
           expect(antwort.status, `${methode} ${pfad} als ${p.name}`).toBeLessThan(500);
@@ -176,7 +176,7 @@ describe("Rollenmatrix (Fonds Eins)", () => {
 
   it("der Betrachter schreibt nichts: kein Vorgang, keine Änderung am Deal, kein neuer Kontakt", async () => {
     const vorher = (await db.execute(sql`SELECT (SELECT count(*) FROM vorgang)::int AS v, (SELECT count(*) FROM organisation)::int AS o, (SELECT count(*) FROM aenderung)::int AS a`)).rows[0];
-    expect((await anfrage("POST", `/beteiligungen/${ID.eigen}/vorgaenge`, betrachter, { art: "zusage", valuta: "2025-01-01", betrag: "1000" })).status).toBe(403);
+    expect((await anfrage("POST", `/investments/${ID.eigen}/transactions`, betrachter, { type: "commitment", valueDate: "2025-01-01", amount: "1000" })).status).toBe(403);
     expect((await anfrage("PATCH", `/deals/${DEAL_F1}`, betrachter, { titel: "Umbenannt" })).status).toBe(403);
     expect((await anfrage("POST", `/organisationen`, betrachter, { name: "Nordwind Technik", art: "unternehmen" })).status).toBe(403);
     expect((await db.execute(sql`SELECT (SELECT count(*) FROM vorgang)::int AS v, (SELECT count(*) FROM organisation)::int AS o, (SELECT count(*) FROM aenderung)::int AS a`)).rows[0]).toEqual(vorher);
@@ -213,12 +213,12 @@ describe("Fonds trennen: die Rolle an Fonds Eins gilt nicht an Fonds Zwei", () =
     for (const [methode, pfad] of [
       ["GET", `/beteiligungen/${B2}`],
       ["GET", `/beteiligungen/${B2}/instrumentdaten`],
-      ["POST", `/beteiligungen/${B2}/vorgaenge`],
+      ["POST", `/investments/${B2}/transactions`],
       ["GET", `/fonds/${F2}/uebersicht`],
       ["GET", `/fonds/${F2}/abgrenzung`],
-      ["GET", `/fonds/${F2}/berichte/portfolioliste`],
+      ["GET", `/funds/${F2}/reports/portfolio-list`],
       ["PUT", `/fonds/${F2}/periodensperre`],
-      ["GET", `/fonds/${F2}/rollen`],
+      ["GET", `/fonds/${F2}/roles`],
     ] as const) {
       const antwort = await anfrage(methode, pfad, verwalter, methode === "GET" ? undefined : {});
       expect(antwort.status, `${methode} ${pfad}`).toBe(403);
@@ -226,9 +226,9 @@ describe("Fonds trennen: die Rolle an Fonds Eins gilt nicht an Fonds Zwei", () =
   });
 
   it("Vorgang und Meilenstein eines anderen Fonds lassen sich nicht stornieren oder erfüllen", async () => {
-    const vorgang = (await json(await post(`/beteiligungen/${B2}/vorgaenge`, { art: "zusage", valuta: "2025-01-01", betrag: "1000" }))).vorgang.id as string;
-    expect((await anfrage("POST", `/vorgaenge/${vorgang}/storno`, bearbeiter, { grund: "Test" })).status).toBe(403);
-    expect((await anfrage("POST", `/vorgaenge/${vorgang}/storno`, nurFonds2, { grund: "Test" })).status).toBe(201);
+    const vorgang = (await json(await post(`/investments/${B2}/transactions`, { type: "commitment", valueDate: "2025-01-01", amount: "1000" }))).transaction.id as string;
+    expect((await anfrage("POST", `/transactions/${vorgang}/reverse`, bearbeiter, { reason: "Test" })).status).toBe(403);
+    expect((await anfrage("POST", `/transactions/${vorgang}/reverse`, nurFonds2, { reason: "Test" })).status).toBe(201);
     const meilenstein = (await json(await post(`/beteiligungen/${B2}/meilensteine`, { bezeichnung: "Schritt", betrag: "1000" }))).id as string;
     expect((await anfrage("POST", `/meilensteine/${meilenstein}/erfuellt`, bearbeiter, {})).status).toBe(403);
     expect((await anfrage("POST", `/meilensteine/${meilenstein}/erfuellt`, nurFonds2, {})).status).toBe(200);
@@ -307,9 +307,9 @@ describe("Listen und eingebettete Daten zeigen nur, was die Person sehen darf", 
 
   it("Gremienvorlage: nur Deals in sichtbaren Fonds", async () => {
     await db.update(s.deal).set({ phase: "investitionsausschuss" });
-    const antwort = await anfrage("GET", "/berichte/gremienvorlage", betrachter);
+    const antwort = await anfrage("GET", "/reports/committee-pack", betrachter);
     expect(antwort.status).toBe(200);
-    const alles = await anfrage("GET", "/berichte/gremienvorlage", STANDARD);
+    const alles = await anfrage("GET", "/reports/committee-pack", STANDARD);
     expect(alles.status).toBe(200);
     expect((await antwort.arrayBuffer()).byteLength).toBeLessThan((await alles.arrayBuffer()).byteLength);
   });
@@ -322,11 +322,11 @@ describe("Vier-Augen-Prinzip mit echten Benutzern", () => {
     return ergebnisse;
   };
 
-  it("zwei verschiedene Freigeber: prüfen und freigeben gelingt; dieselbe Person scheitert mit VIER_AUGEN_VERLETZT", async () => {
+  it("zwei verschiedene Freigeber: prüfen und freigeben gelingt; dieselbe Person scheitert mit four_eyes_violated", async () => {
     const [geprueft, gleiche] = await stufen(LAUF_F1, ["pruefen", freigeber], ["freigeben", freigeber]);
     expect(geprueft!.status).toBe(200);
     expect(gleiche!.status).toBe(409);
-    expect((await json(gleiche!)).fehler.code).toBe("VIER_AUGEN_VERLETZT");
+    expect((await json(gleiche!)).error.code).toBe("four_eyes_violated");
 
     const [anderer] = await stufen(LAUF_F1, ["freigeben", freigeber2]);
     expect(anderer!.status).toBe(200);
@@ -353,24 +353,24 @@ describe("Vier-Augen-Prinzip mit echten Benutzern", () => {
   it("die Vier-Augen-Prüfung vergleicht Benutzer-IDs: zwei Konten derselben Rolle zählen als zwei Personen, ein Verwalter für beide Schritte nicht", async () => {
     await stufen(LAUF_F1, ["pruefen", STANDARD]);
     const nochmal = await stufen(LAUF_F1, ["freigeben", STANDARD]);
-    expect((await json(nochmal[0]!)).fehler.code).toBe("VIER_AUGEN_VERLETZT");
+    expect((await json(nochmal[0]!)).error.code).toBe("four_eyes_violated");
     expect((await stufen(LAUF_F1, ["freigeben", verwalter]))[0]!.status).toBe(200);
   });
 });
 
 describe("Benutzer und Rollen verwalten", () => {
   it("nur globale Verwalter legen Benutzer an; der neue Benutzer meldet sich an und muss erst den zweiten Faktor einrichten", async () => {
-    expect((await anfrage("POST", "/benutzer", verwalter, { name: "Neu Person", email: "neu@test.example", passwort: "Startpasswort-123" })).status).toBe(403);
-    expect((await anfrage("GET", "/benutzer", verwalter)).status).toBe(403);
-    const angelegt = await anfrage("POST", "/benutzer", STANDARD, { name: "Neu Person", email: " Neu@Test.example ", passwort: "Startpasswort-123" });
+    expect((await anfrage("POST", "/users", verwalter, { name: "Neu Person", email: "neu@test.example", password: "Startpasswort-123" })).status).toBe(403);
+    expect((await anfrage("GET", "/users", verwalter)).status).toBe(403);
+    const angelegt = await anfrage("POST", "/users", STANDARD, { name: "Neu Person", email: " Neu@Test.example ", password: "Startpasswort-123" });
     expect(angelegt.status).toBe(201);
     const neu = await json(angelegt);
-    expect(neu).toMatchObject({ name: "Neu Person", email: "neu@test.example", aktiv: true, globalVerwalter: false });
+    expect(neu).toMatchObject({ name: "Neu Person", email: "neu@test.example", active: true, globalAdmin: false });
     expect(JSON.stringify(neu)).not.toContain("Startpasswort");
 
-    const doppelt = await anfrage("POST", "/benutzer", STANDARD, { name: "Nochmal", email: "neu@test.example", passwort: "Startpasswort-123" });
-    expect((await json(doppelt)).fehler.code).toBe("BENUTZER_VORHANDEN");
-    expect((await anfrage("POST", "/benutzer", STANDARD, { name: "Kurz", email: "kurz@test.example", passwort: "kurz" })).status).toBe(400);
+    const doppelt = await anfrage("POST", "/users", STANDARD, { name: "Nochmal", email: "neu@test.example", password: "Startpasswort-123" });
+    expect((await json(doppelt)).error.code).toBe("user_exists");
+    expect((await anfrage("POST", "/users", STANDARD, { name: "Kurz", email: "kurz@test.example", password: "kurz" })).status).toBe(400);
 
     const anmeldung = await t.app.request("/api/v1/auth/sign-in/email", {
       method: "POST",
@@ -379,10 +379,10 @@ describe("Benutzer und Rollen verwalten", () => {
     });
     expect(anmeldung.status).toBe(200);
     const cookie = anmeldung.headers.getSetCookie().map((c) => c.split(";")[0]).join("; ");
-    const fonds = await t.app.request("/api/v1/fonds", { headers: { cookie } });
+    const fonds = await t.app.request("/api/v1/funds", { headers: { cookie } });
     expect(fonds.status).toBe(403);
     // Ein von Verwaltern angelegter Benutzer muss zuerst das Startpasswort ändern (danach den zweiten Faktor einrichten).
-    expect((await json(fonds)).fehler.code).toBe("PASSWORT_AENDERN");
+    expect((await json(fonds)).error.code).toBe("password_change_required");
     expect((await protokollZeilen(db, "benutzer", "anlegen"))[0]?.nachher).not.toHaveProperty("passwort");
     await db.execute(sql`DELETE FROM benutzer WHERE email = 'neu@test.example'`);
   });
@@ -393,33 +393,33 @@ describe("Benutzer und Rollen verwalten", () => {
     expect((await anfrage("GET", `/fonds/${F1}`, ziel)).status).toBe(403);
     expect((await anfrage("GET", `/fonds/${F1}/uebersicht`, ziel)).status).toBe(403);
 
-    const setzen = await anfrage("PUT", `/fonds/${F1}/rollen/${zielId}`, verwalter, { rolle: "bearbeiter" });
+    const setzen = await anfrage("PUT", `/fonds/${F1}/roles/${zielId}`, verwalter, { role: "editor" });
     expect(setzen.status).toBe(200);
-    expect(await json(setzen)).toEqual({ benutzerId: zielId, fondsId: F1, rolle: "bearbeiter" });
+    expect(await json(setzen)).toEqual({ userId: zielId, fundId: F1, role: "editor" });
     expect((await anfrage("GET", `/fonds/${F1}/uebersicht`, ziel)).status).toBe(200);
     expect((await anfrage("POST", `/zinslaeufe/${LAUF_F1}/pruefen`, ziel, {})).status).toBe(403);
 
-    expect((await anfrage("PUT", `/fonds/${F1}/rollen/${zielId}`, verwalter, { rolle: "freigeber" })).status).toBe(200);
+    expect((await anfrage("PUT", `/fonds/${F1}/roles/${zielId}`, verwalter, { role: "approver" })).status).toBe(200);
     expect((await anfrage("POST", `/zinslaeufe/${LAUF_F1}/pruefen`, ziel, {})).status).toBe(200);
 
-    const liste = await json(await anfrage("GET", `/fonds/${F1}/rollen`, verwalter));
-    expect(liste.daten.find((r: { benutzerId: string }) => r.benutzerId === zielId)).toMatchObject({ rolle: "freigeber", name: ziel.name });
-    expect((await anfrage("PUT", `/fonds/${F2}/rollen/${zielId}`, verwalter, { rolle: "betrachter" })).status).toBe(403); // fremder Fonds
-    expect((await anfrage("PUT", `/fonds/${F1}/rollen/${zielId}`, bearbeiter, { rolle: "verwalter" })).status).toBe(403);
-    expect((await anfrage("PUT", `/fonds/${F1}/rollen/${zielId}`, verwalter, { rolle: "chef" })).status).toBe(400);
+    const liste = await json(await anfrage("GET", `/fonds/${F1}/roles`, verwalter));
+    expect(liste.data.find((r: { userId: string }) => r.userId === zielId)).toMatchObject({ role: "approver", name: ziel.name });
+    expect((await anfrage("PUT", `/fonds/${F2}/roles/${zielId}`, verwalter, { role: "viewer" })).status).toBe(403); // fremder Fonds
+    expect((await anfrage("PUT", `/fonds/${F1}/roles/${zielId}`, bearbeiter, { role: "admin" })).status).toBe(403);
+    expect((await anfrage("PUT", `/fonds/${F1}/roles/${zielId}`, verwalter, { role: "chef" })).status).toBe(400);
 
-    expect((await anfrage("DELETE", `/fonds/${F1}/rollen/${zielId}`, verwalter)).status).toBe(204);
+    expect((await anfrage("DELETE", `/fonds/${F1}/roles/${zielId}`, verwalter)).status).toBe(204);
     expect((await anfrage("GET", `/fonds/${F1}/uebersicht`, ziel)).status).toBe(403);
-    expect((await anfrage("DELETE", `/fonds/${F1}/rollen/${zielId}`, verwalter)).status).toBe(404);
+    expect((await anfrage("DELETE", `/fonds/${F1}/roles/${zielId}`, verwalter)).status).toBe(404);
     expect((await protokollZeilen(db, "fondsrolle")).map((z) => z.aktion)).toEqual(["rolle_setzen", "rolle_setzen", "rolle_entziehen"]);
   });
 
   it("Rollen für technische Benutzer und unbekannte Benutzer werden abgelehnt", async () => {
-    expect((await anfrage("PUT", `/fonds/${F1}/rollen/${randomUUID()}`, verwalter, { rolle: "betrachter" })).status).toBe(404);
+    expect((await anfrage("PUT", `/fonds/${F1}/roles/${randomUUID()}`, verwalter, { role: "viewer" })).status).toBe(404);
     const [technisch] = await db.insert(s.benutzer).values({ name: "API: Test", email: `t-${randomUUID()}@technisch.invalid`, technisch: true }).returning();
-    const antwort = await anfrage("PUT", `/fonds/${F1}/rollen/${technisch!.id}`, verwalter, { rolle: "betrachter" });
+    const antwort = await anfrage("PUT", `/fonds/${F1}/roles/${technisch!.id}`, verwalter, { role: "viewer" });
     expect(antwort.status).toBe(403);
-    expect((await json(antwort)).fehler.code).toBe("TECHNISCHER_BENUTZER");
+    expect((await json(antwort)).error.code).toBe("technical_user");
     await db.delete(s.benutzer).where(sql`${s.benutzer.id} = ${technisch!.id}`);
   });
 
@@ -427,42 +427,42 @@ describe("Benutzer und Rollen verwalten", () => {
     const opfer = person("sperre-opfer", { rollen: { [F1]: "bearbeiter" } }); // eigene Person: die Sperre löscht ihre Sitzungen
     const id = await legePersonAn(db, opfer);
     expect((await anfrage("GET", `/fonds`, opfer)).status).toBe(200); // legt die Sitzung an
-    expect((await anfrage("PATCH", `/benutzer/${id}`, opfer, { aktiv: false })).status).toBe(403);
-    const gesperrt = await anfrage("PATCH", `/benutzer/${id}`, STANDARD, { aktiv: false });
+    expect((await anfrage("PATCH", `/users/${id}`, opfer, { active: false })).status).toBe(403);
+    const gesperrt = await anfrage("PATCH", `/users/${id}`, STANDARD, { active: false });
     expect(gesperrt.status).toBe(200);
     expect((await anfrage("GET", `/fonds`, opfer)).status).toBe(401);
     // Allein ist STANDARD der letzte aktive Verwalter (409); mit einer zweiten Verwalterperson greift der Selbstschutz (403).
     const standardId = await idVon(db, STANDARD);
     const andere = (await db.execute<{ id: string }>(sql`UPDATE benutzer SET global_verwalter = false WHERE global_verwalter AND id <> ${standardId} RETURNING id`)).rows;
-    const letzter = await anfrage("PATCH", `/benutzer/${standardId}`, STANDARD, { aktiv: false });
+    const letzter = await anfrage("PATCH", `/users/${standardId}`, STANDARD, { active: false });
     expect(letzter.status).toBe(409);
-    expect((await json(letzter)).fehler.code).toBe("LETZTER_VERWALTER");
+    expect((await json(letzter)).error.code).toBe("last_admin");
     await legePersonAn(db, person("zweiter-verwalter", { globalVerwalter: true }));
-    expect((await anfrage("PATCH", `/benutzer/${standardId}`, STANDARD, { aktiv: false })).status).toBe(403);
+    expect((await anfrage("PATCH", `/users/${standardId}`, STANDARD, { active: false })).status).toBe(403);
     await db.execute(sql`DELETE FROM benutzer WHERE email = 'zweiter-verwalter@test.example'`);
     for (const { id: anderer } of andere) await db.execute(sql`UPDATE benutzer SET global_verwalter = true WHERE id = ${anderer}`);
-    expect((await anfrage("PATCH", `/benutzer/${id}`, STANDARD, {})).status).toBe(400);
-    expect((await anfrage("PATCH", `/benutzer/${randomUUID()}`, STANDARD, { aktiv: true })).status).toBe(404);
-    const entsperrt = await anfrage("PATCH", `/benutzer/${id}`, STANDARD, { aktiv: true });
+    expect((await anfrage("PATCH", `/users/${id}`, STANDARD, {})).status).toBe(400);
+    expect((await anfrage("PATCH", `/users/${randomUUID()}`, STANDARD, { active: true })).status).toBe(404);
+    const entsperrt = await anfrage("PATCH", `/users/${id}`, STANDARD, { active: true });
     expect(entsperrt.status).toBe(200);
     expect((await protokollZeilen(db, "benutzer", "aendern")).length).toBe(2);
   });
 
   it("Benutzerliste zeigt Rollen und Zwei-Faktor-Stand, nie Passwort oder Geheimnisse", async () => {
-    const liste = await json(await anfrage("GET", "/benutzer", STANDARD));
-    const eintrag = liste.daten.find((b: { email: string }) => b.email === bearbeiter.email);
-    expect(eintrag).toMatchObject({ rollen: [{ fondsId: F1, rolle: "bearbeiter" }], zweiFaktorAktiv: true, aktiv: true, technisch: false });
-    expect(JSON.stringify(liste)).not.toMatch(/password|secret|hash/i);
+    const liste = await json(await anfrage("GET", "/users", STANDARD));
+    const eintrag = liste.data.find((b: { email: string }) => b.email === bearbeiter.email);
+    expect(eintrag).toMatchObject({ roles: [{ fundId: F1, role: "editor" }], twoFactorEnabled: true, active: true, technicalUser: false });
+    expect(JSON.stringify(liste)).not.toMatch(/"password"|secret|hash/i);
   });
 });
 
 describe("Akteur im Änderungsprotokoll", () => {
   it("Schreibzugriffe tragen die Benutzer-ID und den Namen der angemeldeten Person; ein X-Akteur-Header ändert daran nichts", async () => {
-    const antwort = await t.request(`/beteiligungen/${ID.eigen}/vorgaenge`, {
+    const antwort = await t.request(`/investments/${ID.eigen}/transactions`, {
       method: "POST",
       als: bearbeiter,
       headers: { "content-type": "application/json", "X-Akteur": "Jemand anderes" },
-      body: JSON.stringify({ art: "zusage", valuta: "2025-01-01", betrag: "1000" }),
+      body: JSON.stringify({ type: "commitment", valueDate: "2025-01-01", amount: "1000" }),
     });
     expect(antwort.status).toBe(201);
     const [zeile] = await protokollZeilen(db, "vorgang", "anlegen");
@@ -470,10 +470,10 @@ describe("Akteur im Änderungsprotokoll", () => {
     expect(await auftraege(db)).toBe(1);
   });
 
-  it("GET /ich nennt Person, Verwalterstatus und Rollen", async () => {
-    const ich = await json(await anfrage("GET", "/ich", freigeber));
-    expect(ich).toMatchObject({ name: freigeber.name, technisch: false, globalVerwalter: false, zweiFaktorAktiv: true, zweiFaktorErforderlich: false, rollen: [{ fondsId: F1, rolle: "freigeber" }] });
-    expect((await json(await anfrage("GET", "/ich", STANDARD))).globalVerwalter).toBe(true);
+  it("GET /me nennt Person, Verwalterstatus und Rollen", async () => {
+    const ich = await json(await anfrage("GET", "/me", freigeber));
+    expect(ich).toMatchObject({ name: freigeber.name, technicalUser: false, globalAdmin: false, twoFactorEnabled: true, twoFactorSetupRequired: false, roles: [{ fundId: F1, role: "approver" }] });
+    expect((await json(await anfrage("GET", "/me", STANDARD))).globalAdmin).toBe(true);
   });
 });
 

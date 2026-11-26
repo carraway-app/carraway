@@ -52,12 +52,12 @@ describe("Kurstabelle", () => {
     const erster = await json(await kurs("2025-02-01", "EUR", "USD", "1.0800"));
     const doppelt = await kurs("2025-02-01", "EUR", "USD", "1.0900");
     expect(doppelt.status).toBe(409);
-    expect((await json(doppelt)).fehler.code).toBe("KURS_VORHANDEN");
+    expect((await json(doppelt)).error.code).toBe("rate_exists");
     // Korrektur ohne Grund oder mit falschem Verweis
     expect((await post("/wechselkurse", { datum: "2025-02-01", basis: "EUR", quote: "USD", kurs: "1.0900", korrigiertKursId: erster.id }, ADMIN)).status).toBe(400);
     const falsch = await post("/wechselkurse", { datum: "2025-02-01", basis: "EUR", quote: "USD", kurs: "1.0900", korrigiertKursId: "00000000-0000-4000-8000-00000000dead", grund: "Tippfehler" }, ADMIN);
     expect(falsch.status).toBe(404);
-    expect((await json(falsch)).fehler.code).toBe("KURS_NICHT_GEFUNDEN");
+    expect((await json(falsch)).error.code).toBe("rate_not_found");
     await new Promise((r) => setTimeout(r, 25));
     const vorKorrektur = new Date().toISOString();
     await new Promise((r) => setTimeout(r, 25));
@@ -82,54 +82,54 @@ describe("Kurstabelle", () => {
 describe("Kursimport aus einer Datei", () => {
   // Erfundene Kurse im Aufbau der EZB-Referenzkurse (Basis EUR, N/A für fehlende Tage, Komma am Zeilenende).
   const EZB = ["Date,USD,JPY,GBP,", "2026-09-30,1.1000,160.50,0.8600,", "2026-09-29,N/A,159.90,0.8590,", "2026-09-28,1.0850,159.10,N/A,"].join("\n");
-  const importiere = (koerper: Record<string, unknown>, als = ADMIN) => post("/wechselkurse/import", koerper, als);
+  const importiere = (koerper: Record<string, unknown>, als = ADMIN) => t.requestApi("/exchange-rates/import", { method: "POST", als, headers: { "content-type": "application/json" }, body: JSON.stringify(koerper) });
 
   it("Vorschau liest und prüft ohne zu schreiben; Übernehmen schreibt nur Neues, wiederholt ist es unverändert", async () => {
-    const vorschau = await importiere({ inhalt: EZB, dateiname: "ezb-test.csv" });
+    const vorschau = await importiere({ content: EZB, sourceFile: "ezb-test.csv" });
     expect(vorschau.status).toBe(200);
-    expect(await json(vorschau)).toMatchObject({ format: "ezb", zeilen: 3, gelesen: 7, neu: 7, unveraendert: 0, uebernommen: false, fehlerAnzahl: 0 });
+    expect(await json(vorschau)).toMatchObject({ format: "ecb", rows: 3, read: 7, newCount: 7, unchanged: 0, applied: false, errorCount: 0 });
     expect((await db.execute(sql`SELECT count(*)::int AS n FROM wechselkurs`)).rows[0]).toEqual({ n: 0 });
 
-    const fertig = await importiere({ inhalt: EZB, dateiname: "ezb-test.csv", vorschau: false });
+    const fertig = await importiere({ content: EZB, sourceFile: "ezb-test.csv", preview: false });
     expect(fertig.status).toBe(201);
-    expect(await json(fertig)).toMatchObject({ neu: 7, uebernommen: true });
+    expect(await json(fertig)).toMatchObject({ newCount: 7, applied: true });
     const zeilen = (await db.execute(sql`SELECT basis, quote, datum::text AS datum, kurs::text AS kurs, quelle::text AS quelle, quelle_datei FROM wechselkurs ORDER BY datum, quote`)).rows;
     expect(zeilen).toHaveLength(7);
     expect(zeilen.find((z) => z.datum === "2026-09-30" && z.quote === "USD")).toMatchObject({ basis: "EUR", kurs: "1.10000000", quelle: "import", quelle_datei: "ezb-test.csv" });
 
-    const nochmal = await json(await importiere({ inhalt: EZB, dateiname: "ezb-test.csv", vorschau: false }));
-    expect(nochmal).toMatchObject({ neu: 0, unveraendert: 7, abweichendAnzahl: 0 });
+    const nochmal = await json(await importiere({ content: EZB, sourceFile: "ezb-test.csv", preview: false }));
+    expect(nochmal).toMatchObject({ newCount: 0, unchanged: 7, conflictCount: 0 });
     expect((await db.execute(sql`SELECT count(*)::int AS n FROM aenderung WHERE tabelle = 'wechselkurs' AND aktion = 'importieren'`)).rows[0]).toEqual({ n: 7 });
   });
 
   it("ein abweichender Kurs wird gemeldet und nicht überschrieben; Filter auf Währungen und Tage", async () => {
-    await importiere({ inhalt: EZB, dateiname: "a.csv", vorschau: false });
+    await importiere({ content: EZB, sourceFile: "a.csv", preview: false });
     const geaendert = EZB.replace("1.1000", "1.1111");
-    const r = await json(await importiere({ inhalt: geaendert, dateiname: "b.csv", vorschau: false }));
-    expect(r).toMatchObject({ neu: 0, abweichendAnzahl: 1 });
-    expect(r.abweichend[0]).toMatchObject({ datum: "2026-09-30", quote: "USD", kurs: "1.1111", vorhanden: "1.1" });
+    const r = await json(await importiere({ content: geaendert, sourceFile: "b.csv", preview: false }));
+    expect(r).toMatchObject({ newCount: 0, conflictCount: 1 });
+    expect(r.conflicting[0]).toMatchObject({ date: "2026-09-30", quote: "USD", exchangeRate: "1.1111", existing: "1.1" });
     expect((await db.execute(sql`SELECT kurs::text AS kurs FROM wechselkurs WHERE quote = 'USD' AND datum = '2026-09-30'`)).rows).toEqual([{ kurs: "1.10000000" }]);
     await db.execute(sql`ALTER TABLE wechselkurs DISABLE TRIGGER wechselkurs_kein_update_delete`);
     await db.execute(sql`DELETE FROM wechselkurs`);
     await db.execute(sql`ALTER TABLE wechselkurs ENABLE TRIGGER wechselkurs_kein_update_delete`);
-    const gefiltert = await json(await importiere({ inhalt: EZB, dateiname: "c.csv", waehrungen: ["GBP"], ab: "2026-09-29" }));
-    expect(gefiltert).toMatchObject({ gelesen: 7, ausgewaehlt: 2, neu: 2 });
+    const gefiltert = await json(await importiere({ content: EZB, sourceFile: "c.csv", currencies: ["GBP"], since: "2026-09-29" }));
+    expect(gefiltert).toMatchObject({ read: 7, selected: 2, newCount: 2 });
   });
 
   it("der lange Aufbau mit Semikolon und Dezimalkomma wird gelesen; Fehler stehen mit Zeile, eine unlesbare Datei ist 400", async () => {
     const lang = ["Datum;Basis;Quote;Kurs", "30.09.2026;GBP;USD;1,2800", "30.09.2026;EUR;CHF;0,9400", "2026-09-29;eur;chf;0,9390", "kein Datum;EUR;CHF;0,94", "30.09.2026;EUR;CHF;abc"].join("\n");
-    const r = await json(await importiere({ inhalt: lang, dateiname: "lang.csv" }));
-    expect(r).toMatchObject({ format: "lang", zeilen: 5, gelesen: 3, neu: 3, fehlerAnzahl: 2 });
-    expect(r.fehler.map((x: { zeile: number }) => x.zeile)).toEqual([5, 6]);
-    expect(r.fehler[0].meldung).toContain("Datum");
-    const kaputt = await importiere({ inhalt: "ganz etwas anderes\nohne Kopf", dateiname: "x.csv" });
+    const r = await json(await importiere({ content: lang, sourceFile: "lang.csv" }));
+    expect(r).toMatchObject({ format: "long", rows: 5, read: 3, newCount: 3, errorCount: 2 });
+    expect(r.errors.map((x: { row: number }) => x.row)).toEqual([5, 6]);
+    expect(r.errors[0].code).toBe("invalid_date");
+    const kaputt = await importiere({ content: "ganz etwas anderes\nohne Kopf", sourceFile: "x.csv" });
     expect(kaputt.status).toBe(400);
-    expect((await json(kaputt)).fehler.code).toBe("KURSDATEI_UNGUELTIG");
+    expect((await json(kaputt)).error.code).toBe("rate_file_invalid");
     // zwei verschiedene Kurse für denselben Tag in einer Datei
-    const doppelt = await json(await importiere({ inhalt: "Date,USD\n2026-09-30,1.1\n2026-09-30,1.2", dateiname: "d.csv" }));
-    expect(doppelt.fehlerAnzahl).toBe(1);
+    const doppelt = await json(await importiere({ content: "Date,USD\n2026-09-30,1.1\n2026-09-30,1.2", sourceFile: "d.csv" }));
+    expect(doppelt.errorCount).toBe(1);
     // nur globale Verwalter
-    expect((await importiere({ inhalt: EZB, dateiname: "e.csv" }, bearbeiter)).status).toBe(403);
+    expect((await importiere({ content: EZB, sourceFile: "e.csv" }, bearbeiter)).status).toBe(403);
   });
 });
 
@@ -144,21 +144,21 @@ describe("Beteiligung in lokaler Währung", () => {
   });
 
   it("lokale Beträge nur bei abweichender Währung; ohne Kurs kein Betrag (409), nie ein geschätzter", async () => {
-    const ohneWaehrung = await post(`/beteiligungen/${B}/vorgaenge`, { art: "zusage", valuta: "2025-02-01", betragLokal: "1000.00" }, bearbeiter);
+    const ohneWaehrung = await post(`/investments/${B}/transactions`, { type: "commitment", valueDate: "2025-02-01", localAmount: "1000.00" }, bearbeiter);
     expect(ohneWaehrung.status).toBe(409);
-    expect((await json(ohneWaehrung)).fehler.code).toBe("WAEHRUNG_GLEICH");
+    expect((await json(ohneWaehrung)).error).toMatchObject({ code: "currency_same", field: "localAmount" });
     await setzeUsd();
-    const keinKurs = await post(`/beteiligungen/${B}/vorgaenge`, { art: "zusage", valuta: "2025-02-01", betragLokal: "1000.00" }, bearbeiter);
+    const keinKurs = await post(`/investments/${B}/transactions`, { type: "commitment", valueDate: "2025-02-01", localAmount: "1000.00" }, bearbeiter);
     expect(keinKurs.status).toBe(409);
-    const f = (await json(keinKurs)).fehler;
-    expect(f).toMatchObject({ code: "KURS_FEHLT", von: "USD", nach: "EUR", stichtag: "2025-02-01", grund: "kein_kurs" });
+    const f = (await json(keinKurs)).error;
+    expect(f).toMatchObject({ code: "rate_missing", from: "USD", toCurrency: "EUR", asOf: "2025-02-01", reason: "no_rate" });
     // Ein zu alter Kurs zählt nicht (Höchstalter 7 Tage).
     await kurs("2025-01-20", "EUR", "USD", "1.0800");
-    const zuAlt = await post(`/beteiligungen/${B}/vorgaenge`, { art: "zusage", valuta: "2025-02-01", betragLokal: "1000.00" }, bearbeiter);
-    expect((await json(zuAlt)).fehler).toMatchObject({ code: "KURS_FEHLT", grund: "veraltet", letzterKursDatum: "2025-01-20" });
+    const zuAlt = await post(`/investments/${B}/transactions`, { type: "commitment", valueDate: "2025-02-01", localAmount: "1000.00" }, bearbeiter);
+    expect((await json(zuAlt)).error).toMatchObject({ code: "rate_missing", reason: "stale", lastRateDate: "2025-01-20" });
     expect((await db.execute(sql`SELECT count(*)::int AS n FROM vorgang`)).rows[0]).toEqual({ n: 0 });
     // ohne lokalen Betrag und ohne Betrag: Eingabefehler
-    expect((await post(`/beteiligungen/${B}/vorgaenge`, { art: "zusage", valuta: "2025-02-01" }, bearbeiter)).status).toBe(400);
+    expect((await post(`/investments/${B}/transactions`, { type: "commitment", valueDate: "2025-02-01" }, bearbeiter)).status).toBe(400);
     // die Währung ändern geht, solange es keine lokalen Beträge gibt
     expect((await put(`/beteiligungen/${B}/waehrung`, { waehrung: "GBP" }, bearbeiter)).status).toBe(200);
     await setzeUsd();
@@ -167,27 +167,27 @@ describe("Beteiligung in lokaler Währung", () => {
   it("Zahlungen: lokaler Betrag zum Kurs der Valuta, beide Beträge mit abgeleitetem Kurs, Storno negiert beides; die Währung ist danach fest", async () => {
     await setzeUsd();
     await kurs("2025-02-01", "EUR", "USD", "1.0800");
-    const zusage = await post(`/beteiligungen/${B}/vorgaenge`, { art: "zusage", valuta: "2025-02-01", betragLokal: "200000.00" }, bearbeiter);
+    const zusage = await post(`/investments/${B}/transactions`, { type: "commitment", valueDate: "2025-02-01", localAmount: "200000.00" }, bearbeiter);
     expect(zusage.status, await zusage.clone().text()).toBe(201);
     // 200000 USD / 1,08 = 185185,185… EUR
-    expect((await json(zusage)).vorgang).toMatchObject({ betrag: "185185.19", betragLokal: "200000.00", kurs: "0.925925925926" });
+    expect((await json(zusage)).transaction).toMatchObject({ amount: "185185.19", localAmount: "200000.00", exchangeRate: "0.925925925926" });
     // Kontoauszug: beide Beträge sind bekannt, der gebuchte Fondsbetrag gilt, der Kurs ist daraus abgeleitet.
-    const aus = await post(`/beteiligungen/${B}/vorgaenge`, { art: "auszahlung", valuta: "2025-02-01", betrag: "92000.00", betragLokal: "100000.00" }, bearbeiter);
+    const aus = await post(`/investments/${B}/transactions`, { type: "disbursement", valueDate: "2025-02-01", amount: "92000.00", localAmount: "100000.00" }, bearbeiter);
     expect(aus.status).toBe(201);
-    const v = (await json(aus)).vorgang;
-    expect(v).toMatchObject({ betrag: "92000.00", betragLokal: "100000.00", kurs: "0.920000000000", kursId: null });
+    const v = (await json(aus)).transaction;
+    expect(v).toMatchObject({ amount: "92000.00", localAmount: "100000.00", exchangeRate: "0.920000000000", exchangeRateId: null });
     // Storno: Gegenbuchung mit negiertem Fonds- und lokalem Betrag und demselben Kurs
-    const storno = await json(await post(`/vorgaenge/${v.id}/storno`, { grund: "Testbuchung" }, bearbeiter));
-    expect(storno.storno).toMatchObject({ betrag: "-92000.00", betragLokal: "-100000.00", kurs: "0.920000000000" });
+    const storno = await json(await post(`/transactions/${v.id}/reverse`, { reason: "Testbuchung" }, bearbeiter));
+    expect(storno.reversal).toMatchObject({ amount: "-92000.00", localAmount: "-100000.00", exchangeRate: "0.920000000000" });
     const summen = (await db.execute(sql`SELECT sum(betrag)::text AS f, sum(betrag_lokal)::text AS l FROM vorgang WHERE art = 'auszahlung'`)).rows[0];
     expect(summen).toEqual({ f: "0.00", l: "0.00" });
     // Die Währung lässt sich nicht mehr ändern.
     const aendern = await put(`/beteiligungen/${B}/waehrung`, { waehrung: "GBP" }, bearbeiter);
     expect(aendern.status).toBe(409);
-    expect((await json(aendern)).fehler.code).toBe("WAEHRUNG_NICHT_AENDERBAR");
+    expect((await json(aendern)).error.code).toBe("currency_not_changeable");
     // Die Periodensperre gilt unverändert.
     expect((await put(`/fonds/${F1}/periodensperre`, { gesperrtBis: "2025-12-31" }, ADMIN)).status).toBe(200);
-    expect((await post(`/beteiligungen/${B}/vorgaenge`, { art: "zusage", valuta: "2025-03-01", betragLokal: "1.00" }, bearbeiter)).status).toBe(409);
+    expect((await post(`/investments/${B}/transactions`, { type: "commitment", valueDate: "2025-03-01", localAmount: "1.00" }, bearbeiter)).status).toBe(409);
   });
 
   it("Bewertung: lokaler Wert zum Kurs des Stichtags; eine Änderung des Fondswerts löscht den veralteten lokalen Wert", async () => {
@@ -203,7 +203,7 @@ describe("Beteiligung in lokaler Währung", () => {
     expect(neuLokal).toMatchObject({ wert: "125833.33", wertLokal: "151000.00" });
     const ohneKurs = await post(`/beteiligungen/${B}/bewertungen`, { stichtag: "2026-06-30", wertLokal: "100.00", methode: "sonstige", begruendung: "x" }, bearbeiter);
     expect(ohneKurs.status).toBe(409);
-    expect((await json(ohneKurs)).fehler.code).toBe("KURS_FEHLT");
+    expect((await json(ohneKurs)).error.code).toBe("rate_missing");
   });
 });
 
@@ -214,8 +214,8 @@ describe("Währungssicht", () => {
     for (const [d, q, k] of [["2025-02-01", "USD", "1.0800"], ["2025-02-01", "GBP", "0.8300"], ["2025-12-31", "USD", "1.2000"], ["2025-12-31", "GBP", "0.8500"], ["2026-06-30", "USD", "1.1000"], ["2026-06-30", "GBP", "0.8700"]] as const) {
       expect((await kurs(d, "EUR", q, k)).status).toBe(201);
     }
-    await post(`/beteiligungen/${B}/vorgaenge`, { art: "zusage", valuta: "2025-02-01", betragLokal: "200000.00" }, bearbeiter);
-    await post(`/beteiligungen/${B}/vorgaenge`, { art: "auszahlung", valuta: "2025-02-01", betragLokal: "100000.00" }, bearbeiter);
+    await post(`/investments/${B}/transactions`, { type: "commitment", valueDate: "2025-02-01", localAmount: "200000.00" }, bearbeiter);
+    await post(`/investments/${B}/transactions`, { type: "disbursement", valueDate: "2025-02-01", localAmount: "100000.00" }, bearbeiter);
     for (const [stichtag, lokal] of [["2025-12-31", "150000.00"], ["2026-06-30", "160000.00"]] as const) {
       const b = await json(await post(`/beteiligungen/${B}/bewertungen`, { stichtag, wertLokal: lokal, methode: "sonstige", begruendung: "Beispiel" }, ADMIN));
       expect((await post(`/bewertungen/${b.bewertung.id}/freigeben`, undefined, ADMIN2)).status).toBe(200);
@@ -225,11 +225,11 @@ describe("Währungssicht", () => {
   it("zeigt Fonds, lokal und Vergleich getrennt: Kosten zum Kurs der Valuta, Zeitwert zum Kurs des Bewertungsstichtags, mit Kurs und Datum", async () => {
     await aufbau();
     const s = await sicht("?stichtag=2026-06-30&vergleich=GBP");
-    expect(s.waehrungen).toEqual({ fonds: "EUR", lokal: "USD", vergleich: "GBP" });
+    expect(s.waehrungen).toEqual({ fonds: "EUR", lokal: "USD", vergleich: "GBP", haus: "EUR" });
     // 100000 USD / 1,08 = 92592,59 EUR, in GBP 92592,59 × 0,83 = 76851,85
-    expect(s.kennzahlen.investiert).toEqual({ fonds: "92592.59", lokal: "100000.00", vergleich: "76851.85" });
+    expect(s.kennzahlen.investiert).toEqual({ fonds: "92592.59", lokal: "100000.00", vergleich: "76851.85", haus: "92592.59" });
     // letzte Bewertung 160000 USD, EUR/USD 1,10: 145454,55 EUR; in GBP × 0,87 = 126545,46
-    expect(s.kennzahlen.bewertung).toEqual({ fonds: "145454.55", lokal: "160000.00", vergleich: "126545.46" });
+    expect(s.kennzahlen.bewertung).toEqual({ fonds: "145454.55", lokal: "160000.00", vergleich: "126545.46", haus: "145454.55" });
     expect(s.bewertungKurse.map((k: { von: string; nach: string; kurs: string; kursDatum: string; tag: string }) => [k.tag, k.von, k.nach, k.kurs, k.kursDatum])).toEqual([["2026-06-30", "EUR", "GBP", "0.87", "2026-06-30"]]);
     // Die Fondswerte stimmen mit den Kennzahlen der Beteiligung überein.
     const detail = await json(await get(`/beteiligungen/${B}?stichtag=2026-06-30`, ADMIN));
@@ -258,12 +258,12 @@ describe("Währungssicht", () => {
   it("fehlt ein Kurs, steht dort eine Lücke und die Summe ist selbst eine Lücke; nie ein geschätzter Wert", async () => {
     await aufbau();
     // Auszahlung nur in Fondswährung, 6 Wochen nach dem letzten Kurs: Lokalwert ist nicht ableitbar.
-    expect((await post(`/beteiligungen/${B}/vorgaenge`, { art: "auszahlung", valuta: "2025-03-15", betrag: "10000.00" }, bearbeiter)).status).toBe(201);
+    expect((await post(`/investments/${B}/transactions`, { type: "disbursement", valueDate: "2025-03-15", amount: "10000.00" }, bearbeiter)).status).toBe(201);
     const s = await sicht("?stichtag=2026-06-30&vergleich=GBP");
-    expect(s.kennzahlen.investiert).toEqual({ fonds: "102592.59", lokal: null, vergleich: null });
+    expect(s.kennzahlen.investiert).toEqual({ fonds: "102592.59", lokal: null, vergleich: null, haus: "102592.59" });
     expect(s.luecken).toEqual(expect.arrayContaining([expect.objectContaining({ verwendung: "kosten", tag: "2025-03-15", von: "EUR", nach: "USD", grund: "veraltet", letzterKursDatum: "2025-02-01" })]));
     const zeile = s.vorgaenge.find((v: { valuta: string }) => v.valuta === "2025-03-15");
-    expect(zeile.betrag).toEqual({ fonds: "10000.00", lokal: null, vergleich: null });
+    expect(zeile.betrag).toEqual({ fonds: "10000.00", lokal: null, vergleich: null, haus: "10000.00" });
     // Die übrigen Posten bleiben gültig.
     expect(s.vorgaenge.find((v: { art: string }) => v.art === "zusage").betrag.lokal).toBe("200000.00");
   });
@@ -272,7 +272,7 @@ describe("Währungssicht", () => {
     await aufbau();
     // Auszahlung nur in Fondswährung am Tag mit Kurs: Lokalwert wird aus dem Kurs abgeleitet.
     await kurs("2025-04-01", "EUR", "USD", "1.1000");
-    await post(`/beteiligungen/${B}/vorgaenge`, { art: "auszahlung", valuta: "2025-04-01", betrag: "10000.00" }, bearbeiter);
+    await post(`/investments/${B}/transactions`, { type: "disbursement", valueDate: "2025-04-01", amount: "10000.00" }, bearbeiter);
     await new Promise((r) => setTimeout(r, 25));
     const vorher = new Date().toISOString();
     await new Promise((r) => setTimeout(r, 25));
@@ -290,7 +290,7 @@ describe("Währungssicht", () => {
   it("Fondssicht: je Beteiligung lokal, Fonds und Vergleich, Summen nur in Fonds- und Vergleichswährung", async () => {
     await aufbau();
     const s = await json(await get(`/fonds/${F1}/waehrungssicht?stichtag=2026-06-30&vergleich=GBP`, betrachter));
-    expect(s.waehrungen).toEqual({ fonds: "EUR", vergleich: "GBP" });
+    expect(s.waehrungen).toEqual({ fonds: "EUR", vergleich: "GBP", haus: "EUR" });
     const zeile = s.zeilen.find((z: { beteiligungId: string }) => z.beteiligungId === B);
     expect(zeile).toMatchObject({ lokalWaehrung: "USD", investiert: { fonds: "92592.59", lokal: "100000.00", vergleich: "76851.85" }, bewertung: { fonds: "145454.55", lokal: "160000.00", vergleich: "126545.46" } });
     // Die anderen Beteiligungen des Fonds sind in Fondswährung: lokal = Fonds.
@@ -317,14 +317,14 @@ describe("Währungssicht", () => {
 
 
 describe("Vorzeichen lokaler Beträge", () => {
-  it.each(["zusage", "auszahlung", "rueckfluss", "tilgung"])("%s: ein negativer lokaler Betrag wird abgelehnt, auch ohne Fondsbetrag", async (art) => {
+  it.each(["commitment", "disbursement", "return_flow", "repayment"])("%s: ein negativer lokaler Betrag wird abgelehnt, auch ohne Fondsbetrag", async (art) => {
     await put(`/beteiligungen/${B}/waehrung`, { waehrung: "USD" }, bearbeiter);
     await kurs("2025-02-01", "EUR", "USD", "1.0800");
-    for (const koerper of [{ betragLokal: "-1000.00" }, { betragLokal: "-1000.00", betrag: "900.00" }, { betragLokal: "1000.00", betrag: "-900.00" }]) {
-      const r = await post(`/beteiligungen/${B}/vorgaenge`, { art, valuta: "2025-02-01", ...koerper }, bearbeiter);
+    for (const koerper of [{ localAmount: "-1000.00" }, { localAmount: "-1000.00", amount: "900.00" }, { localAmount: "1000.00", amount: "-900.00" }]) {
+      const r = await post(`/investments/${B}/transactions`, { type: art, valueDate: "2025-02-01", ...koerper }, bearbeiter);
       expect(r.status, `${art} ${JSON.stringify(koerper)}`).toBe(400);
     }
-    const einheitlich = await post(`/fonds/${F1}/buchungen`, { typ: art, beteiligungId: B, valuta: "2025-02-01", betragLokal: "-1000.00" }, bearbeiter);
+    const einheitlich = await post(`/funds/${F1}/postings`, { kind: art, investmentId: B, valueDate: "2025-02-01", localAmount: "-1000.00" }, bearbeiter);
     expect(einheitlich.status).toBe(400);
     expect((await db.execute(sql`SELECT count(*)::int AS n FROM vorgang`)).rows[0]).toEqual({ n: 0 });
   });
@@ -332,18 +332,18 @@ describe("Vorzeichen lokaler Beträge", () => {
   it("die Wertberichtigung darf beide Vorzeichen lokal haben, ein Storno bleibt möglich", async () => {
     await put(`/beteiligungen/${B}/waehrung`, { waehrung: "USD" }, bearbeiter);
     await kurs("2025-02-01", "EUR", "USD", "1.0800");
-    await post(`/beteiligungen/${B}/vorgaenge`, { art: "zusage", valuta: "2025-02-01", betragLokal: "200000.00" }, bearbeiter);
-    await post(`/beteiligungen/${B}/vorgaenge`, { art: "auszahlung", valuta: "2025-02-01", betragLokal: "100000.00" }, bearbeiter);
-    const plus = await post(`/beteiligungen/${B}/vorgaenge`, { art: "wertberichtigung", valuta: "2025-02-01", betragLokal: "10800.00" }, bearbeiter);
+    await post(`/investments/${B}/transactions`, { type: "commitment", valueDate: "2025-02-01", localAmount: "200000.00" }, bearbeiter);
+    await post(`/investments/${B}/transactions`, { type: "disbursement", valueDate: "2025-02-01", localAmount: "100000.00" }, bearbeiter);
+    const plus = await post(`/investments/${B}/transactions`, { type: "impairment", valueDate: "2025-02-01", localAmount: "10800.00" }, bearbeiter);
     expect(plus.status, await plus.clone().text()).toBe(201);
-    const plusVorgang = (await json(plus)).vorgang;
-    expect(plusVorgang.betrag).toBe("10000.00");
-    const minus = await post(`/beteiligungen/${B}/vorgaenge`, { art: "wertberichtigung", valuta: "2025-02-01", betragLokal: "-5400.00" }, bearbeiter);
+    const plusVorgang = (await json(plus)).transaction;
+    expect(plusVorgang.amount).toBe("10000.00");
+    const minus = await post(`/investments/${B}/transactions`, { type: "impairment", valueDate: "2025-02-01", localAmount: "-5400.00" }, bearbeiter);
     expect(minus.status, await minus.clone().text()).toBe(201);
-    const minusVorgang = (await json(minus)).vorgang;
-    expect(minusVorgang.betrag).toBe("-5000.00");
-    const storno = await post(`/vorgaenge/${minusVorgang.id}/storno`, { grund: "Test" }, bearbeiter);
+    const minusVorgang = (await json(minus)).transaction;
+    expect(minusVorgang.amount).toBe("-5000.00");
+    const storno = await post(`/transactions/${minusVorgang.id}/reverse`, { reason: "Test" }, bearbeiter);
     expect(storno.status, await storno.clone().text()).toBe(201);
-    expect((await json(storno)).storno).toMatchObject({ betrag: "5000.00", betragLokal: "5400.00" });
+    expect((await json(storno)).reversal).toMatchObject({ amount: "5000.00", localAmount: "5400.00" });
   });
 });

@@ -22,7 +22,6 @@ import { meldeSitzungsFehler, setzeSitzungsHandler } from "./api/sitzung";
 import { Fehleransicht } from "./komponenten/Fehleransicht";
 import { Huelle, ladeAnwendungsHuelle } from "./komponenten/Huelle";
 import { Seitenskelett } from "./komponenten/Skelett";
-import { KeinFonds } from "./seiten/Platzhalter";
 import { wirksamerFonds } from "./lib/fonds";
 import { standAusUrl } from "./lib/zeit";
 import { ladeSeitentexte, useT } from "./i18n";
@@ -98,7 +97,7 @@ const wurzel = createRootRouteWithContext<RouterKontext>()({
       return;
     }
     // Investor-Benutzer gehören ins LP-Portal (Erweiterung, eigener Einstieg): jede andere Seite der Anwendung führt dorthin, noch bevor sie Daten lädt.
-    // Ohne Portal gibt es für sie keine Seite; die API sperrt alle internen Routen (403 `NUR_PORTAL`).
+    // Ohne Portal gibt es für sie keine Seite; die API sperrt alle internen Routen (403 `portal_only`).
     if (ich.investor) {
       const portalStart = alle("einstiege").find((e) => e.fuerInvestoren)?.fuerInvestoren;
       if (portalStart && !weitererEinstieg) throw redirect({ to: portalStart as never, replace: true });
@@ -143,7 +142,7 @@ const start = createRoute({
     const ziel = fonds.find((f) => f.id === letzterFonds()) ?? fonds[0];
     if (ziel) throw redirect({ to: "/fonds/$fondsId", params: { fondsId: ziel.id }, search: {}, replace: true });
   },
-  component: KeinFonds,
+  component: lazyRouteComponent(() => import("./seiten/Platzhalter"), "KeinFonds"),
 });
 
 const fondsVerwaltung = createRoute({
@@ -158,7 +157,7 @@ const fondsVerwaltung = createRoute({
   loaderDeps: ({ search }) => ({ fondsId: search.fondsId }),
   loader: async ({ context, deps }) => {
     const liste = await context.queryClient.ensureQueryData(fondsListe());
-    if (deps.fondsId && !liste.some((f) => f.id === deps.fondsId)) throw new ApiFehler("FONDS_NICHT_GEFUNDEN", 404);
+    if (deps.fondsId && !liste.some((f) => f.id === deps.fondsId)) throw new ApiFehler("fund_not_found", 404);
   },
   pendingComponent: () => <Seitenskelett kacheln={0} zeilen={5} />,
   component: lazyRouteComponent(() => import("./seiten/Fondsverwaltung"), "FondsverwaltungSeite"),
@@ -298,6 +297,25 @@ const bewertungsrunde = createRoute({
   component: lazyRouteComponent(() => import("./seiten/Bewertungsrunde"), "BewertungsrundeSeite"),
 });
 
+const zielfondsRoute = createRoute({
+  getParentRoute: () => fondsRahmen,
+  path: "zielfonds",
+  loader: async ({ context }) => {
+    await context.queryClient.ensureQueryData(fondsListe());
+  },
+  pendingComponent: () => <Seitenskelett kacheln={0} zeilen={5} />,
+  component: lazyRouteComponent(() => import("./seiten/Zielfonds"), "ZielfondsSeite"),
+});
+
+/** Portfolio-Dashboard über alle sichtbaren Fonds (Hauswährung); Stichtag und Wissensstand in der Adresse. */
+const portfolioDashboardRoute = createRoute({
+  getParentRoute: () => wurzel,
+  path: "/portfolio",
+  validateSearch: stichtagUndStand,
+  pendingComponent: () => <Seitenskelett kacheln={6} zeilen={6} />,
+  component: lazyRouteComponent(() => import("./seiten/PortfolioDashboard"), "PortfolioDashboardSeite"),
+});
+
 const journalRoute = createRoute({
   getParentRoute: () => wurzel,
   path: "/fonds/$fondsId/journal",
@@ -431,6 +449,13 @@ const person = createRoute({
   },
   pendingComponent: () => <Seitenskelett zeilen={4} />,
   component: lazyRouteComponent(() => import("./seiten/Person"), "PersonSeite"),
+});
+
+/** Neue Kontakte aus Postfach und Kalender: Vorschläge aus dem eigenen Postfach (die API zeigt nur diese). */
+const kontaktVorschlaege = createRoute({
+  getParentRoute: () => wurzel,
+  path: "/kontakte/vorschlaege",
+  component: lazyRouteComponent(() => import("./seiten/KontaktVorschlaege"), "KontaktVorschlaegeSeite"),
 });
 
 const kontaktImport = createRoute({
@@ -722,16 +747,13 @@ const einstellungenPostfach = createRoute({
   component: lazyRouteComponent(() => import("./seiten/EinstellungenPostfach"), "EinstellungenPostfachSeite"),
 });
 
-/** Verwaltung des Mailversands (Etappe 17): nur globale Verwalter; die API prüft jede Anfrage trotzdem selbst. */
+/** Der Mailversand ist ein Bereich der Verwaltung; alte Adressen führen dorthin. */
 const mailversand = createRoute({
   getParentRoute: () => wurzel,
   path: "/verwaltung/mail",
-  beforeLoad: async ({ context }) => {
-    const ich = await context.queryClient.fetchQuery(ichAbfrage());
-    if (!ich.globalVerwalter) throw redirect({ to: "/", replace: true });
+  beforeLoad: () => {
+    throw redirect({ to: "/verwaltung", search: { tab: "mail" }, replace: true });
   },
-  pendingComponent: () => <Seitenskelett kacheln={0} zeilen={6} />,
-  component: lazyRouteComponent(() => import("./seiten/Mailversand"), "MailversandSeite"),
 });
 
 const verwaltung = createRoute({
@@ -751,8 +773,8 @@ const verwaltung = createRoute({
   component: lazyRouteComponent(() => import("./seiten/Verwaltung"), "VerwaltungSeite"),
 });
 
-const fondsKinder = [portfolio, kennzahlenabfragen, szenarien, reserven, fondsZinsenRoute, bewertungsrunde];
-const wurzelKinder = [start, fondsVerwaltung, fondsRahmen.addChildren(fondsKinder), meldungen, meldelauf, journalRoute, dealflow, auswertung, deal, organisation, person, beteiligung, kapitalQuelle, dokumentRoute, kontakte, kontaktImport, registerUebersicht, wiedervorlagen, beschlussvorlagen, berichte, vorlagen, bericht, zinslaeufe, zinslauf, belege, beleg, buchhaltung, datenuebernahme, datenuebernahmeLauf, anmelden, einrichtung, passwortVergessen, passwortSetzen, passwortAendern, zweiFaktor, verwaltung, einstellungenPostfach, mailversand];
+const fondsKinder = [portfolio, kennzahlenabfragen, szenarien, reserven, fondsZinsenRoute, bewertungsrunde, zielfondsRoute];
+const wurzelKinder = [start, fondsVerwaltung, portfolioDashboardRoute, fondsRahmen.addChildren(fondsKinder), meldungen, meldelauf, journalRoute, dealflow, auswertung, deal, organisation, person, beteiligung, kapitalQuelle, dokumentRoute, kontakte, kontaktImport, kontaktVorschlaege, registerUebersicht, wiedervorlagen, beschlussvorlagen, berichte, vorlagen, bericht, zinslaeufe, zinslauf, belege, beleg, buchhaltung, datenuebernahme, datenuebernahmeLauf, anmelden, einrichtung, passwortVergessen, passwortSetzen, passwortAendern, zweiFaktor, verwaltung, einstellungenPostfach, mailversand];
 /** Der Baum des Kerns (Typ aller Adressen der Anwendung). */
 const kernBaum = () => wurzel.addChildren(wurzelKinder);
 

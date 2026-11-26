@@ -1,3 +1,5 @@
+import { pruefeFonds } from "../fonds-pruefung";
+import { fondsAnApi, fondsEnumAnApi, fondsEnumVonApi } from "../fonds-vertrag";
 import ExcelJS from "exceljs";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -12,22 +14,28 @@ import {
   type JournalSumme,
   type JournalZeile,
 } from "../journal/journal";
-import { pruefe } from "../pruefung";
 import { csvFeld } from "./dealflow";
 import { idParam, ladeFonds, protokolliereLesen } from "../schreiben";
 import { lese } from "../zeitlimit";
 
 /**
- * `GET /fonds/:id/journal` (Etappe 4b): das Journal des Fonds, seitenweise mit Cursor, mit Summen auf der ersten Seite. Mit `format=csv|xlsx`
+ * `GET /funds/:id/journal` (Etappe 4b): das Journal des Fonds, seitenweise mit Cursor, mit Summen auf der ersten Seite. Mit `format=csv|xlsx`
  * kommt der ganze Filter als Datei (höchstens `MAX_EXPORTZEILEN`); die Datei bekommt eine Zeile `gelesen` im Protokoll.
  */
 
 export const MAX_EXPORTZEILEN = 100_000;
 
-const typListe = z
-  .string()
-  .transform((t) => t.split(",").map((x) => x.trim()).filter((x) => x !== ""))
-  .pipe(z.array(z.enum(JOURNAL_TYPEN)).min(1).max(JOURNAL_TYPEN.length));
+const journalTyp = z.enum(JOURNAL_TYPEN);
+const typListe = z.string().transform((text, ctx) => {
+  const namen = text.split(",").map((name) => name.trim()).filter(Boolean);
+  const typen = namen.map(fondsEnumVonApi);
+  const geprueft = z.array(journalTyp).min(1).max(JOURNAL_TYPEN.length).safeParse(typen);
+  if (!geprueft.success || namen.some((name, i) => name !== fondsEnumAnApi(typen[i]!))) {
+    ctx.addIssue({ code: "custom", message: "Expected a comma-separated list of journal entry types" });
+    return z.NEVER;
+  }
+  return geprueft.data;
+});
 
 export const journalAbfrage = z
   .object({
@@ -42,13 +50,13 @@ export const journalAbfrage = z
     cursor: z
       .string()
       .max(500)
-      .refine((c) => dekodiereCursor(c) !== null, { message: "Cursor ungültig" })
+      .refine((c) => dekodiereCursor(c) !== null, { message: "Invalid cursor" })
       .optional(),
     limit: z.coerce.number().int().min(1).max(500).default(100),
     format: z.enum(["csv", "xlsx"]).optional(),
     sprache: z.enum(["de", "en"]).default("de"),
   })
-  .refine((a) => !a.von || !a.bis || a.von <= a.bis, { message: "von darf nicht nach bis liegen", path: ["von"] });
+  .refine((a) => !a.von || !a.bis || a.von <= a.bis, { message: "The start date must not be after the end date", path: ["von"] });
 
 const KOEPFE = {
   de: ["Valuta", "Erfasst am", "Typ", "Unternehmen", "Instrument", "Betrag", "Kassenwirkung", "Richtung", "Storno von", "Storniert durch", "Herkunft", "Erfasst von", "Bemerkung"],
@@ -127,9 +135,9 @@ async function alsXlsx(zeilen: JournalZeile[], summen: { nachTyp: JournalSumme[]
   return Buffer.from(await mappe.xlsx.writeBuffer());
 }
 
-/** Mount unter `/fonds`. */
+/** Mount unter `/funds`. */
 export function fondsJournalRouten(db: Db) {
-  return new Hono().get("/:id/journal", pruefe("param", idParam, { query: journalAbfrage }), pruefe("query", journalAbfrage), async (c) => {
+  return new Hono().get("/:id/journal", pruefeFonds("param", idParam, { query: journalAbfrage }), pruefeFonds("query", journalAbfrage), async (c) => {
     const { id } = c.req.valid("param");
     const q = c.req.valid("query");
     const filter: JournalFilter = {
@@ -151,8 +159,8 @@ export function fondsJournalRouten(db: Db) {
           const seite = await ladeJournalSeite(tx, filter, { nach: cursor, richtung: q.richtung, limit: 5000 });
           alle.push(...seite.daten);
           if (alle.length > MAX_EXPORTZEILEN) {
-            throw new Fachfehler(400, "EINGABE_UNGUELTIG", "Die Eingabe ist ungültig.", {
-              felder: [{ feld: "von", code: "export_zu_gross", meldung: `Der Export hat mehr als ${MAX_EXPORTZEILEN} Zeilen; bitte den Zeitraum einschränken` }],
+            throw new Fachfehler(400, "invalid_input", "The input is invalid.", {
+              felder: [{ feld: "von", code: "export_too_large", meldung: `The export has more than ${MAX_EXPORTZEILEN} rows; please narrow the period` }],
             });
           }
           if (!seite.naechsterCursor) break;
@@ -179,6 +187,6 @@ export function fondsJournalRouten(db: Db) {
       const summen = nach ? null : await ladeJournalSummen(tx, filter);
       return { ...seite, summen };
     });
-    return c.json(antwort, 200);
+    return c.json(fondsAnApi(antwort), 200);
   });
 }

@@ -16,8 +16,8 @@ const wandle = (koerper: object) => post(`/beteiligungen/${ID.wandel}/wandlung`,
 beforeEach(async () => {
   await grundbestand(db);
   const b = ID.wandel;
-  await post(`/beteiligungen/${b}/vorgaenge`, { art: "zusage", valuta: "2026-01-01", betrag: "200000" });
-  await post(`/beteiligungen/${b}/vorgaenge`, { art: "auszahlung", valuta: "2026-01-01", betrag: "100000" });
+  await post(`/investments/${b}/transactions`, { type: "commitment", valueDate: "2026-01-01", amount: "200000" });
+  await post(`/investments/${b}/transactions`, { type: "disbursement", valueDate: "2026-01-01", amount: "100000" });
   await post(`/beteiligungen/${b}/konditionen`, KONDITION);
   await leereAuftraege(db);
 });

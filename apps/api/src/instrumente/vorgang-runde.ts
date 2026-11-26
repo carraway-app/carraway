@@ -16,14 +16,14 @@ type VorgangKurz = { id: string; beteiligungId: string; instrumentId: string; st
 /** Die Runde gehört zum Unternehmen der Beteiligung; sonst 404 oder 409. */
 async function pruefeRunde(tx: Tx, rundeId: string, organisationId: string): Promise<void> {
   const [r] = await tx.select({ organisationId: finanzierungsrunde.organisationId }).from(finanzierungsrunde).where(eq(finanzierungsrunde.id, rundeId));
-  if (!r) throw new Fachfehler(404, "RUNDE_NICHT_GEFUNDEN", "Finanzierungsrunde nicht gefunden.");
-  if (r.organisationId !== organisationId) throw new Fachfehler(409, "VORGANG_RUNDE_FREMD", "Die Runde gehört zu einem anderen Unternehmen als der Vorgang.", { rundeId });
+  if (!r) throw new Fachfehler(404, "round_not_found", "Financing round not found.");
+  if (r.organisationId !== organisationId) throw new Fachfehler(409, "transaction_round_foreign", "The round belongs to a different company than the transaction.", { rundeId });
 }
 
 /** Prüft nur, ob eine ausdrücklich genannte Runde zum Unternehmen der Beteiligung gehört (vor dem Buchen, damit nichts halb entsteht). */
 export async function pruefeRundeDerBeteiligung(tx: Tx, beteiligungId: string, rundeId: string): Promise<void> {
   const [b] = await tx.select({ organisationId: beteiligung.organisationId }).from(beteiligung).where(eq(beteiligung.id, beteiligungId));
-  if (!b) throw new Fachfehler(404, "BETEILIGUNG_NICHT_GEFUNDEN", "Beteiligung nicht gefunden.");
+  if (!b) throw new Fachfehler(404, "investment_not_found", "Investment not found.");
   await pruefeRunde(tx, rundeId, b.organisationId);
 }
 
@@ -44,7 +44,7 @@ export async function standardRunde(tx: Tx, v: Pick<VorgangKurz, "instrumentId" 
  */
 export async function ordneRundeZu(tx: Tx, protokoll: Protokollant, v: VorgangKurz, opts: { rundeId?: string | null | undefined; quelle?: Quelle } = {}): Promise<string | null> {
   const [b] = await tx.select({ fondsId: beteiligung.fondsId, organisationId: beteiligung.organisationId }).from(beteiligung).where(eq(beteiligung.id, v.beteiligungId));
-  if (!b) throw new Fachfehler(404, "BETEILIGUNG_NICHT_GEFUNDEN", "Beteiligung nicht gefunden.");
+  if (!b) throw new Fachfehler(404, "investment_not_found", "Investment not found.");
   let rundeId: string | null;
   let quelle: Quelle = "automatisch";
   if (opts.rundeId === undefined) rundeId = await standardRunde(tx, v);
@@ -62,7 +62,7 @@ export async function ordneRundeZu(tx: Tx, protokoll: Protokollant, v: VorgangKu
 /** Nachträglich ändern (`rundeId` = `null` entfernt die Zuordnung). Quelle danach `manuell`. Keine Zeile bei keiner Änderung. */
 export async function setzeVorgangRunde(tx: Tx, protokoll: Protokollant, v: VorgangKurz, rundeId: string | null): Promise<{ rundeId: string | null; geaendert: boolean }> {
   const [b] = await tx.select({ fondsId: beteiligung.fondsId, organisationId: beteiligung.organisationId }).from(beteiligung).where(eq(beteiligung.id, v.beteiligungId));
-  if (!b) throw new Fachfehler(404, "BETEILIGUNG_NICHT_GEFUNDEN", "Beteiligung nicht gefunden.");
+  if (!b) throw new Fachfehler(404, "investment_not_found", "Investment not found.");
   if (rundeId) await pruefeRunde(tx, rundeId, b.organisationId);
   const [vorher] = await tx.select().from(vorgangRunde).where(eq(vorgangRunde.vorgangId, v.id)).for("update");
   if ((vorher?.rundeId ?? null) === rundeId) return { rundeId, geaendert: false };

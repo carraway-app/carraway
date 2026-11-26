@@ -27,9 +27,9 @@ const NEU_SEKUNDEN = 15 * 60;
 const NEU_KENNUNG = (benutzerId: string) => `zf-neu:${benutzerId}`;
 
 const passwortFeld = z.string().min(1).max(128);
-const aendernPasswort = z.object({ aktuell: passwortFeld, neu: z.string().min(MINDESTLAENGE_PASSWORT).max(128), andereSitzungenBeenden: z.boolean().default(true) }).strict();
-const mitPasswort = z.object({ passwort: passwortFeld.optional() }).strict();
-const bestaetigen = z.object({ code: z.string().trim().min(6).max(12), andereSitzungenBeenden: z.boolean().default(false) }).strict();
+const aendernPasswort = z.object({ currentPassword: passwortFeld, newPassword: z.string().min(MINDESTLAENGE_PASSWORT).max(128), endOtherSessions: z.boolean().default(true) }).strict();
+const mitPasswort = z.object({ password: passwortFeld.optional() }).strict();
+const bestaetigen = z.object({ code: z.string().trim().min(6).max(12), endOtherSessions: z.boolean().default(false) }).strict();
 const sitzungsId = z.object({ id: z.uuid() });
 
 function codeListe(): string[] {
@@ -39,12 +39,12 @@ function codeListe(): string[] {
 export function kontoSicherheitRouten(db: Db, auth: Auth, konfig: Konfiguration) {
   const nurPerson = (c: Context) => {
     const akteur = aktuellerAkteur(c);
-    if (akteur.quelle !== "sitzung" || akteur.technisch) throw new Fachfehler(403, "TECHNISCHER_BENUTZER", "Diese Einstellungen gelten nur für angemeldete Personen, nicht für API-Schlüssel.");
+    if (akteur.quelle !== "sitzung" || akteur.technisch) throw new Fachfehler(403, "technical_user", "These settings apply only to signed-in persons, not to API keys.");
     return akteur;
   };
   const aktuelleSitzungId = async (c: Context): Promise<string> => {
     const daten = await auth.api.getSession({ headers: c.req.raw.headers });
-    if (!daten) throw new Fachfehler(401, "NICHT_ANGEMELDET", "Bitte anmelden.");
+    if (!daten) throw new Fachfehler(401, "not_authenticated", "Please sign in.");
     return daten.session.id;
   };
   const schluessel = async () => (await auth.$context).secretConfig;
@@ -74,7 +74,7 @@ export function kontoSicherheitRouten(db: Db, auth: Auth, konfig: Konfiguration)
     });
     if (!ids) {
       c.header("Retry-After", String(Math.round(fensterMs / 1000)));
-      throw new Fachfehler(429, "ZU_VIELE_VERSUCHE", "Zu viele Fehlversuche. Bitte später erneut versuchen.");
+      throw new Fachfehler(429, "too_many_attempts", "Too many failed attempts. Please try again later.");
     }
     return async () => {
       await db.execute(sql`DELETE FROM anmeldeversuch WHERE id IN (${sql.join(ids.map((i) => sql`${i}::uuid`), sql`, `)})`);
@@ -93,7 +93,7 @@ export function kontoSicherheitRouten(db: Db, auth: Auth, konfig: Konfiguration)
       return { hatPasswort: false };
     }
     const ok = passwort !== undefined && (await (await auth.$context).password.verify({ hash: zeile.password, password: passwort }));
-    if (!ok) throw new Fachfehler(400, "PASSWORT_FALSCH", "Das aktuelle Passwort ist nicht richtig.");
+    if (!ok) throw new Fachfehler(400, "password_incorrect", "The current password is not correct.");
     await freigeben();
     return { hatPasswort: true };
   };
@@ -101,7 +101,7 @@ export function kontoSicherheitRouten(db: Db, auth: Auth, konfig: Konfiguration)
   const zweiFaktorZeile = (benutzerId: string) => lese(db, async (tx) => (await tx.select().from(zweiFaktor).where(eq(zweiFaktor.userId, benutzerId)))[0]);
 
   return new Hono()
-    .get("/sicherheit", async (c) => {
+    .get("/security", async (c) => {
       const akteur = nurPerson(c);
       const [konten, zeile, sitzungen] = await lese(db, async (tx) =>
         Promise.all([
@@ -123,24 +123,24 @@ export function kontoSicherheitRouten(db: Db, auth: Auth, konfig: Konfiguration)
       const pw = konten.find((k) => k.anbieter === "credential" && k.passwort);
       return c.json(
         {
-          passwortVorhanden: Boolean(pw),
-          passwortGeaendertAm: pw?.aktualisiertAm.toISOString() ?? null,
-          anbieter: konten.filter((k) => k.anbieter !== "credential").map((k) => k.anbieter),
-          zweiFaktorAktiv: akteur.zweiFaktorAktiv,
-          zweiFaktorPflicht: konfig.zweiFaktorPflicht,
-          codesUebrig,
-          sitzungenAnzahl: sitzungen.length,
+          passwordSet: Boolean(pw),
+          passwordChangedAt: pw?.aktualisiertAm.toISOString() ?? null,
+          providers: konten.filter((k) => k.anbieter !== "credential").map((k) => k.anbieter),
+          twoFactorEnabled: akteur.zweiFaktorAktiv,
+          twoFactorRequired: konfig.zweiFaktorPflicht,
+          recoveryCodesRemaining: codesUebrig,
+          sessionCount: sitzungen.length,
         },
         200,
       );
     })
-    .post("/passwort", pruefe("json", aendernPasswort), async (c) => {
+    .post("/password", pruefe("json", aendernPasswort), async (c) => {
       const akteur = nurPerson(c);
-      const { aktuell, neu, andereSitzungenBeenden } = c.req.valid("json");
+      const { currentPassword: aktuell, newPassword: neu, endOtherSessions: andereSitzungenBeenden } = c.req.valid("json");
       const aktuelleId = await aktuelleSitzungId(c);
       const { hatPasswort } = await bestaetigePasswort(c, akteur.id, aktuell);
-      if (!hatPasswort) throw new Fachfehler(400, "KEIN_PASSWORT", "Diese Anmeldung läuft über einen Anbieter und hat kein Passwort.");
-      if (neu === aktuell) throw new Fachfehler(400, "PASSWORT_UNVERAENDERT", "Das neue Passwort muss sich vom bisherigen unterscheiden.");
+      if (!hatPasswort) throw new Fachfehler(400, "no_password", "This sign-in uses a provider and has no password.");
+      if (neu === aktuell) throw new Fachfehler(400, "password_unchanged", "The new password must differ from the previous one.");
       const hash = await (await auth.$context).password.hash(neu);
       const beendet = await schreibe(db, c, async (tx, protokoll) => {
         await tx.update(konto).set({ password: hash, updatedAt: new Date() }).where(and(eq(konto.userId, akteur.id), eq(konto.providerId, "credential")));
@@ -151,9 +151,9 @@ export function kontoSicherheitRouten(db: Db, auth: Auth, konfig: Konfiguration)
         await protokoll("passwort_aendern", "benutzer", akteur.id, null, { andereSitzungenBeendet: weg.length });
         return weg.length;
       });
-      return c.json({ ok: true as const, andereSitzungenBeendet: beendet }, 200);
+      return c.json({ ok: true as const, otherSessionsEnded: beendet }, 200);
     })
-    .get("/sitzungen", async (c) => {
+    .get("/sessions", async (c) => {
       const akteur = nurPerson(c);
       const aktuelleId = await aktuelleSitzungId(c);
       const zeilen = await lese(db, (tx) =>
@@ -169,18 +169,18 @@ export function kontoSicherheitRouten(db: Db, auth: Auth, konfig: Konfiguration)
           .filter((z) => z.laeuftAbAm.getTime() > jetzt)
           .map((z) => ({
             id: z.id,
-            aktuell: z.id === aktuelleId,
-            erstelltAm: z.erstelltAm.toISOString(),
-            zuletztAktivAm: z.zuletztAktivAm.toISOString(),
-            laeuftAbAm: z.laeuftAbAm.toISOString(),
+            current: z.id === aktuelleId,
+            createdAt: z.erstelltAm.toISOString(),
+            lastActiveAt: z.zuletztAktivAm.toISOString(),
+            expiresAt: z.laeuftAbAm.toISOString(),
             ip: z.ip,
-            geraet: z.geraet?.slice(0, 300) ?? null,
+            device: z.geraet?.slice(0, 300) ?? null,
           })),
         200,
       );
     })
-    // Zuerst die feste Adresse, damit `andere-beenden` nicht als Kennung gelesen wird.
-    .post("/sitzungen/andere-beenden", async (c) => {
+    // Zuerst die feste Adresse, damit `end-others` nicht als Kennung gelesen wird.
+    .post("/sessions/end-others", async (c) => {
       const akteur = nurPerson(c);
       const aktuelleId = await aktuelleSitzungId(c);
       const anzahl = await schreibe(db, c, async (tx, protokoll) => {
@@ -188,23 +188,23 @@ export function kontoSicherheitRouten(db: Db, auth: Auth, konfig: Konfiguration)
         if (weg.length > 0) await protokoll("sitzungen_beenden", "benutzer", akteur.id, null, { anzahl: weg.length });
         return weg.length;
       });
-      return c.json({ beendet: anzahl }, 200);
+      return c.json({ ended: anzahl }, 200);
     })
-    .delete("/sitzungen/:id", pruefe("param", sitzungsId), async (c) => {
+    .delete("/sessions/:id", pruefe("param", sitzungsId), async (c) => {
       const akteur = nurPerson(c);
       const { id } = c.req.valid("param");
-      if (id === (await aktuelleSitzungId(c))) throw new Fachfehler(400, "SITZUNG_AKTUELL", "Die aktuelle Sitzung wird über „Abmelden“ beendet.");
+      if (id === (await aktuelleSitzungId(c))) throw new Fachfehler(400, "session_current", "The current session is ended with 'Sign out'.");
       await schreibe(db, c, async (tx, protokoll) => {
         const weg = await tx.delete(sitzung).where(and(eq(sitzung.id, id), eq(sitzung.userId, akteur.id))).returning({ id: sitzung.id });
-        if (weg.length === 0) throw new Fachfehler(404, "NICHT_GEFUNDEN", "Die Sitzung gibt es nicht.");
+        if (weg.length === 0) throw new Fachfehler(404, "not_found", "The session does not exist.");
         await protokoll("sitzung_beenden", "sitzung", id, null, null);
       });
       return c.body(null, 204);
     })
-    .post("/zwei-faktor/neu", pruefe("json", mitPasswort), async (c) => {
+    .post("/two-factor/restart", pruefe("json", mitPasswort), async (c) => {
       const akteur = nurPerson(c);
-      if (!akteur.zweiFaktorAktiv) throw new Fachfehler(400, "ZWEI_FAKTOR_AUS", "Der zweite Faktor ist nicht eingerichtet; die Ersteinrichtung läuft über die Einrichtungsseite.");
-      await bestaetigePasswort(c, akteur.id, c.req.valid("json").passwort);
+      if (!akteur.zweiFaktorAktiv) throw new Fachfehler(400, "two_factor_disabled", "The second factor is not set up; the initial setup runs through the setup page.");
+      await bestaetigePasswort(c, akteur.id, c.req.valid("json").password);
       const geheimnis = generateRandomString(32);
       const codes = codeListe();
       const key = await schluessel();
@@ -214,18 +214,18 @@ export function kontoSicherheitRouten(db: Db, auth: Auth, konfig: Konfiguration)
         await tx.insert(verifizierung).values({ identifier: NEU_KENNUNG(akteur.id), value: wert, expiresAt: new Date(Date.now() + NEU_SEKUNDEN * 1000) });
         await protokoll("zwei_faktor_neu_beginnen", "benutzer", akteur.id, null, { ablaufSekunden: NEU_SEKUNDEN });
       });
-      return c.json({ totpURI: totpAdresse(geheimnis, "Carraway", akteur.email), backupCodes: codes, ablaufSekunden: NEU_SEKUNDEN }, 200);
+      return c.json({ totpUri: totpAdresse(geheimnis, "Carraway", akteur.email), recoveryCodes: codes, expiresInSeconds: NEU_SEKUNDEN }, 200);
     })
-    .post("/zwei-faktor/neu/bestaetigen", pruefe("json", bestaetigen), async (c) => {
+    .post("/two-factor/restart/confirm", pruefe("json", bestaetigen), async (c) => {
       const akteur = nurPerson(c);
-      const { code, andereSitzungenBeenden } = c.req.valid("json");
+      const { code, endOtherSessions: andereSitzungenBeenden } = c.req.valid("json");
       const aktuelleId = await aktuelleSitzungId(c);
       const freigeben = await pruefeSperre(c, akteur.id);
       const [offen] = await lese(db, (tx) => tx.select().from(verifizierung).where(eq(verifizierung.identifier, NEU_KENNUNG(akteur.id))));
-      if (!offen || offen.expiresAt.getTime() <= Date.now()) throw new Fachfehler(400, "EINRICHTUNG_ABGELAUFEN", "Die Neueinrichtung ist abgelaufen oder nicht begonnen. Bitte neu starten.");
+      if (!offen || offen.expiresAt.getTime() <= Date.now()) throw new Fachfehler(400, "setup_expired", "The new setup has expired or was not started. Please start again.");
       const key = await schluessel();
       const { geheimnis, codes } = JSON.parse(await symmetricDecrypt({ key, data: offen.value })) as { geheimnis: string; codes: string[] };
-      if (!totpPasst(geheimnis, code)) throw new Fachfehler(400, "CODE_UNGUELTIG", "Der Code stimmt nicht. Bitte den aktuellen Code der App eingeben.");
+      if (!totpPasst(geheimnis, code)) throw new Fachfehler(400, "code_invalid", "The code is not correct. Please enter the current code from the app.");
       await freigeben();
       const geheim = await symmetricEncrypt({ key, data: geheimnis });
       const codesVerschluesselt = await symmetricEncrypt({ key, data: JSON.stringify(codes) });
@@ -239,20 +239,20 @@ export function kontoSicherheitRouten(db: Db, auth: Auth, konfig: Konfiguration)
         await protokoll("zwei_faktor_neu", "benutzer", akteur.id, null, { andereSitzungenBeendet: weg.length });
         return weg.length;
       });
-      return c.json({ ok: true as const, andereSitzungenBeendet: beendet }, 200);
+      return c.json({ ok: true as const, otherSessionsEnded: beendet }, 200);
     })
-    .post("/wiederherstellungscodes", pruefe("json", mitPasswort), async (c) => {
+    .post("/recovery-codes", pruefe("json", mitPasswort), async (c) => {
       const akteur = nurPerson(c);
-      if (!akteur.zweiFaktorAktiv) throw new Fachfehler(400, "ZWEI_FAKTOR_AUS", "Der zweite Faktor ist nicht eingerichtet.");
-      await bestaetigePasswort(c, akteur.id, c.req.valid("json").passwort);
+      if (!akteur.zweiFaktorAktiv) throw new Fachfehler(400, "two_factor_disabled", "The second factor is not set up.");
+      await bestaetigePasswort(c, akteur.id, c.req.valid("json").password);
       const zeile = await zweiFaktorZeile(akteur.id);
-      if (!zeile) throw new Fachfehler(400, "ZWEI_FAKTOR_AUS", "Der zweite Faktor ist nicht eingerichtet.");
+      if (!zeile) throw new Fachfehler(400, "two_factor_disabled", "The second factor is not set up.");
       const codes = codeListe();
       const verschluesselt = await symmetricEncrypt({ key: await schluessel(), data: JSON.stringify(codes) });
       await schreibe(db, c, async (tx, protokoll) => {
         await tx.update(zweiFaktor).set({ backupCodes: verschluesselt }).where(eq(zweiFaktor.id, zeile.id));
         await protokoll("wiederherstellungscodes_erneuern", "benutzer", akteur.id, null, { anzahl: codes.length });
       });
-      return c.json({ backupCodes: codes }, 200);
+      return c.json({ recoveryCodes: codes }, 200);
     });
 }

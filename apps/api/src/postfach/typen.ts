@@ -1,7 +1,8 @@
 /**
  * Gemeinsame Typen der Postfach- und Kalenderanbindung. Die Anbieter (Microsoft Graph, Gmail, IMAP, Demo) liefern nur diese schmalen
  * Formen: Kopfdaten von Nachrichten, Termine, auf Anforderung einen Textauszug. Anhänge, Empfängerlisten in Klartext und vollständige
- * Nachrichten verlassen die Anbieter-Adapter nie; was nicht zu bekannten CRM-Kontakten passt, wird verworfen, bevor es gespeichert wird.
+ * Nachrichten verlassen die Anbieter-Adapter nie; was nicht zu bekannten CRM-Kontakten passt, wird verworfen, bevor es gespeichert wird (mit eingeschalteten
+ * Kontakten aus Postfach und Kalender bleiben von echten Gegenübern nur Adresse und Anzeigename als Vorschlag, siehe `kontakte.ts`).
  */
 
 export type ImapSicherheit = "tls" | "starttls" | "keine";
@@ -21,6 +22,15 @@ export interface MailKopf {
   von: string;
   an: string[];
   cc: string[];
+  /** Anzeigenamen aus den Adressfeldern (kleingeschriebene Adresse → Name), wenn der Anbieter sie nennt; nur für Kontakte aus Postfach und Kalender. */
+  namen?: Record<string, string>;
+  /**
+   * Die Nachricht stammt aus dem Gesendet-Ordner des Postfachs (Anbieterfakt: Gmail-Label `SENT`, Graph-Ordner `sentitems`, IMAP-Ordner mit Sonderverwendung `\\Sent`),
+   * nicht aus der fälschbaren From-Zeile. Nur solche Nachrichten ergeben Kontakte aus Postfach und Kalender.
+   */
+  gesendet?: boolean;
+  /** Listen- oder Massenmail (Kopfzeilen `List-Id`, `List-Unsubscribe`, `Precedence: bulk|list|junk`, `Auto-Submitted`), wenn der Anbieter sie nennt. */
+  massenmail?: boolean;
 }
 
 export interface Termin {
@@ -35,6 +45,13 @@ export interface Termin {
   teilnehmer: string[];
   /** Adresse des Organisators, wenn der Anbieter sie nennt; Teil des Namensraums für die Dublettenprüfung. */
   organisator?: string | null;
+  /**
+   * Antwort der Person selbst (Anbieterfakt): `organisator` (sie hat den Termin angelegt), `angenommen`, `vorbehalt`, `abgelehnt` oder `offen` (Einladung ohne Antwort).
+   * Nur organisierte und angenommene Termine ergeben Kontakte aus Postfach und Kalender: Eine Einladung allein kann jeder Fremde schicken.
+   */
+  eigeneAntwort?: "organisator" | "angenommen" | "vorbehalt" | "abgelehnt" | "offen";
+  /** Anzeigenamen der Teilnehmer (kleingeschriebene Adresse → Name), wenn der Anbieter sie nennt. */
+  namen?: Record<string, string>;
   abgesagt: boolean;
 }
 
@@ -76,7 +93,48 @@ export class PostfachFehler extends Error {
   }
 }
 
+/** Feld nur setzen, wenn ein Wert da ist (optionale Felder bleiben sonst ganz weg). */
+export const optional = <K extends string, V>(schluessel: K, wert: V | undefined): { [P in K]?: V } => (wert === undefined ? {} : ({ [schluessel]: wert } as { [P in K]?: V }));
+
+/** Anzeigenamen je kleingeschriebener Adresse (leere und adressgleiche Namen fallen weg); `undefined`, wenn keiner bleibt. */
+export function namenAus(paare: readonly { adresse?: string | null; name?: string | null }[]): Record<string, string> | undefined {
+  const aus: Record<string, string> = {};
+  for (const p of paare) {
+    const a = p.adresse?.trim().toLowerCase();
+    const n = p.name?.trim().replace(/^["']|["']$/g, "").trim();
+    if (a && a.includes("@") && n && !n.includes("@") && !aus[a]) aus[a] = n.slice(0, 200);
+  }
+  return Object.keys(aus).length ? aus : undefined;
+}
+
+/** Listen- oder Massenmail nach Kopfzeilen: `List-Id`, `List-Unsubscribe`, `Precedence: bulk|list|junk`, `Auto-Submitted` (außer `no`). */
+export function istMassenmail(kopf: (name: string) => string | undefined): boolean {
+  if (kopf("List-Id") || kopf("List-Unsubscribe")) return true;
+  if (/^\s*(bulk|list|junk)\b/i.test(kopf("Precedence") ?? "")) return true;
+  const auto = kopf("Auto-Submitted")?.trim().toLowerCase();
+  return Boolean(auto && auto !== "no");
+}
+
+/** Kopfzeilen, die `istMassenmail` liest. */
+export const MASSEN_KOPFZEILEN = ["List-Id", "List-Unsubscribe", "Precedence", "Auto-Submitted"] as const;
+
 /** Tage, die der erste Abgleich zurückschaut. */
 export const ERSTER_ABGLEICH_TAGE = 30;
 /** Höchstzahl Nachrichten je Abgleich und Verbindung (Schutz vor Lawinen; der Rest folgt im nächsten Lauf). */
 export const MAX_MAILS_JE_ABGLEICH = 500;
+
+/**
+ * Erweiterungspunkt (Open Core): Neue eingehende Mails bekannter Personen nach dem Speichern. Der Kern ruft ihn nur auf, wenn eine Erweiterung ihn mitbringt, und fängt jeden
+ * Fehler ab (der Abgleich läuft weiter). Den Text holt die Erweiterung selbst und nur bei Bedarf (`holeText`); der Kern speichert ihn nicht.
+ */
+export interface NeueMailBekannterPerson {
+  /** Die Person (bei zusammengeführten das Ziel), deren Adresse als Absender steht. Die From-Zeile ist fälschbar: Ergebnisse daraus dürfen nur Vorschläge sein. */
+  personId: string;
+  absender: string;
+  datum: Date;
+  /** Klartext der Nachricht, höchstens `max` Zeichen, aus dem Postfach der Person (nicht gespeichert). */
+  holeText(max: number): Promise<string>;
+}
+export interface NachNeuenMails {
+  (e: { verbindungId: string; benutzerId: string; anbieter: string; mails: NeueMailBekannterPerson[] }): Promise<void>;
+}

@@ -1,3 +1,4 @@
+import { kontaktJson, pruefeKontakt } from "../kontakte/http";
 import { and, asc, desc, eq, ilike, isNull, or } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -8,8 +9,8 @@ import { setzeHauptunternehmen } from "../crm/datensatz";
 import { findePersonenDubletten } from "../dubletten";
 import { Fachfehler, fehlerAntwort } from "../fehler";
 import { fuehrePersonenZusammen, PERSON_FELDER, vorschauPersonen } from "../kontakte/zusammenfuehren";
-import { pruefe } from "../pruefung";
 import { idParam, ladeOrganisation, ladePerson, MINDESTENS_EIN_FELD, mindestensEins, nurGesetzte, optionalerText, schreibe, textEingabe } from "../schreiben";
+import { herkunftVon } from "../postfach/kontakte";
 import { lese } from "../zeitlimit";
 
 const neuePerson = z.object({
@@ -42,20 +43,20 @@ const maskiere = (text: string) => text.replace(/[\\%_]/g, (zeichen) => `\\${zei
 export function personRouten(db: Db) {
   return new Hono()
     .get(
-      "/dubletten",
-      pruefe(
+      "/duplicates",
+      pruefeKontakt(
         "query",
         z.object({ vorname: textEingabe(200), nachname: textEingabe(200), email: z.string().trim().max(300).optional(), ausser: z.uuid().optional() }),
       ),
       async (c) => {
         const { vorname, nachname, email, ausser } = c.req.valid("query");
         const kandidaten = await lese(db, (tx) => findePersonenDubletten(tx, { vorname, nachname, email }, { ausser }));
-        return c.json({ daten: kandidaten }, 200);
+        return kontaktJson(c, { daten: kandidaten }, 200);
       },
     )
     .get(
       "/",
-      pruefe("query", z.object({ organisationId: z.uuid().optional(), suche: z.string().trim().min(1).max(200).optional(), geaendertSeit: geaendertSeitEingabe })),
+      pruefeKontakt("query", z.object({ organisationId: z.uuid().optional(), suche: z.string().trim().min(1).max(200).optional(), geaendertSeit: geaendertSeitEingabe })),
       async (c) => {
         const { organisationId, suche, geaendertSeit } = c.req.valid("query");
         const muster = suche ? `%${maskiere(suche)}%` : undefined;
@@ -82,22 +83,22 @@ export function personRouten(db: Db) {
             )
             .orderBy(asc(person.nachname), asc(person.vorname), asc(person.id)),
         );
-        return c.json({ daten: zeilen }, 200);
+        return kontaktJson(c, { daten: zeilen }, 200);
       },
     )
-    .post("/:id/zusammenfuehren/vorschau", pruefe("param", idParam), pruefe("json", z.object({ quelleId: z.uuid() })), async (c) => {
+    .post("/:id/merge/preview", pruefeKontakt("param", idParam), pruefeKontakt("json", z.object({ quelleId: z.uuid() })), async (c) => {
       const { id } = c.req.valid("param");
       const { quelleId } = c.req.valid("json");
       const vorschau = await lese(db, (tx) => vorschauPersonen(tx, aktuellerAkteur(c), id, quelleId));
-      return c.json(vorschau, 200);
+      return kontaktJson(c, vorschau, 200);
     })
-    .post("/:id/zusammenfuehren", pruefe("param", idParam), pruefe("json", zusammenfuehrenEingabe), async (c) => {
+    .post("/:id/merge", pruefeKontakt("param", idParam), pruefeKontakt("json", zusammenfuehrenEingabe), async (c) => {
       const { id } = c.req.valid("param");
       const { quelleId, felder } = c.req.valid("json");
       const ergebnis = await schreibe(db, c, (tx, protokoll) => fuehrePersonenZusammen(tx, protokoll, aktuellerAkteur(c), id, quelleId, felder));
-      return c.json(ergebnis, 200);
+      return kontaktJson(c, ergebnis, 200);
     })
-    .get("/:id", pruefe("param", idParam), async (c) => {
+    .get("/:id", pruefeKontakt("param", idParam), async (c) => {
       const { id } = c.req.valid("param");
       const ergebnis = await lese(db, async (tx) => {
         const [zeile] = await tx.select().from(person).where(eq(person.id, id));
@@ -110,18 +111,18 @@ export function personRouten(db: Db) {
           .where(eq(kontaktrolle.personId, id))
           .orderBy(asc(organisation.name), asc(kontaktrolle.rolle), asc(kontaktrolle.id));
         const [letzte] = await tx.select({ n: aktivitaet.datum }).from(aktivitaet).where(eq(aktivitaet.personId, id)).orderBy(desc(aktivitaet.datum)).limit(1);
-        return { ...zeile, organisation: org ?? null, rollen, letzteAktivitaet: letzte?.n ?? null };
+        return { ...zeile, organisation: org ?? null, rollen, letzteAktivitaet: letzte?.n ?? null, herkunft: await herkunftVon(tx, { personId: id }) };
       });
-      if (!ergebnis) return fehlerAntwort(c, 404, "PERSON_NICHT_GEFUNDEN", "Person nicht gefunden.");
-      return c.json(ergebnis, 200);
+      if (!ergebnis) return fehlerAntwort(c, 404, "person_not_found", "Person not found.");
+      return kontaktJson(c, ergebnis, 200);
     })
-    .post("/", pruefe("json", neuePerson), async (c) => {
+    .post("/", pruefeKontakt("json", neuePerson), async (c) => {
       const { dubletteBestaetigt, ...werte } = c.req.valid("json");
       const neu = await schreibe(db, c, async (tx, protokoll) => {
         if (werte.organisationId) await ladeOrganisation(tx, werte.organisationId);
         if (!dubletteBestaetigt) {
           const kandidaten = await findePersonenDubletten(tx, werte);
-          if (kandidaten.length > 0) throw new Fachfehler(409, "DUBLETTE_MOEGLICH", "Es gibt bereits ähnliche Personen.", { kandidaten });
+          if (kandidaten.length > 0) throw new Fachfehler(409, "possible_duplicate", "Similar persons already exist.", { kandidaten });
         }
         const [zeile] = await tx.insert(person).values(werte).returning();
         if (!zeile) throw new Error("Person nicht angelegt");
@@ -129,9 +130,9 @@ export function personRouten(db: Db) {
         if (zeile.organisationId) await setzeHauptunternehmen(tx, zeile.id, zeile.organisationId, zeile.funktion);
         return zeile;
       });
-      return c.json(neu, 201);
+      return kontaktJson(c, neu, 201);
     })
-    .patch("/:id", pruefe("param", idParam), pruefe("json", aenderungPerson), async (c) => {
+    .patch("/:id", pruefeKontakt("param", idParam), pruefeKontakt("json", aenderungPerson), async (c) => {
       const { id } = c.req.valid("param");
       const aenderungen = nurGesetzte(c.req.valid("json"));
       const neu = await schreibe(db, c, async (tx, protokoll) => {
@@ -142,6 +143,6 @@ export function personRouten(db: Db) {
         if (nachher && (aenderungen.organisationId !== undefined || aenderungen.funktion !== undefined)) await setzeHauptunternehmen(tx, id, nachher.organisationId, nachher.funktion);
         return nachher;
       });
-      return c.json(neu, 200);
+      return kontaktJson(c, neu, 200);
     });
 }

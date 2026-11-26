@@ -62,18 +62,18 @@ describe("Vorlage rendern (Einheit)", () => {
 describe("Änderungsabfrage (Etappe 6) für die Tabellen der Etappe 7", () => {
   it("Vorlagen eines Fonds erscheinen nur für Personen mit Rolle an diesem Fonds, Kontaktrollen ohne Fonds für jede Person mit Rolle", async () => {
     const seit = new Date(Date.now() - 60_000).toISOString();
-    const vorlage = await json(await senden("POST", "/beschlussvorlagen", verwalter, { fondsId: F1, name: "Feed", text: "Antrag {{titel}}" }));
+    const vorlage = await json(await senden("POST", "/resolution-templates", verwalter, { fondsId: F1, name: "Feed", text: "Antrag {{titel}}" }));
     const org = await json(await senden("POST", "/organisationen", bearbeiter, { name: "Feed Organisation", art: "unternehmen" }));
     const pers = await json(await senden("POST", "/personen", bearbeiter, { vorname: "Fee", nachname: "Dtester", organisationId: org.id }));
     const rolle = await senden("POST", "/kontaktrollen", bearbeiter, { personId: pers.id, organisationId: org.id, rolle: "gruender" });
     expect(rolle.status).toBe(201);
-    const lies = async (als: Testperson) => (await json(await senden("GET", `/aenderungen?seit=${encodeURIComponent(seit)}&limit=1000`, als))).daten as { tabelle: string; fondsId: string | null }[];
+    const lies = async (als: Testperson) => (await json(await senden("GET", `/changes?since=${encodeURIComponent(seit)}&limit=1000`, als))).data as { table: string; fundId: string | null }[];
     const eigene = await lies(betrachter);
-    expect(eigene.find((z) => z.tabelle === "beschlussvorlage")).toMatchObject({ fondsId: F1 });
-    expect(eigene.some((z) => z.tabelle === "kontaktrolle" && z.fondsId === null)).toBe(true);
+    expect(eigene.find((z) => z.table === "beschlussvorlage")).toMatchObject({ fundId: F1 });
+    expect(eigene.some((z) => z.table === "kontaktrolle" && z.fundId === null)).toBe(true);
     const fremde = await lies(nurF2);
-    expect(fremde.some((z) => z.tabelle === "beschlussvorlage")).toBe(false);
-    expect(fremde.some((z) => z.tabelle === "kontaktrolle")).toBe(true);
+    expect(fremde.some((z) => z.table === "beschlussvorlage")).toBe(false);
+    expect(fremde.some((z) => z.table === "kontaktrolle")).toBe(true);
     expect(vorlage.id).toBeTruthy();
   });
 });
@@ -84,61 +84,61 @@ describe("Änderungsabfrage: gelöschte Fondsdaten bleiben beim Fonds", () => {
     const org = await json(await senden("POST", "/organisationen", bearbeiter, { name: "Leck Organisation", art: "investor" }));
     const bez = await json(await senden("POST", "/organisationsbeziehungen", bearbeiter, { vonOrganisationId: org.id, fondsId: F1, art: "investor" }));
     expect((await senden("DELETE", `/organisationsbeziehungen/${bez.id}`, bearbeiter)).status).toBe(204);
-    const vorlage = await json(await senden("POST", "/beschlussvorlagen", verwalter, { fondsId: F1, name: "Leck", text: "x" }));
-    expect((await senden("DELETE", `/beschlussvorlagen/${vorlage.id}`, verwalter)).status).toBe(204);
-    const lies = async (als: Testperson) => (await json(await senden("GET", `/aenderungen?seit=${encodeURIComponent(seit)}&limit=1000`, als))).daten as { tabelle: string; aktion: string; datensatzId: string; fondsId: string | null }[];
+    const vorlage = await json(await senden("POST", "/resolution-templates", verwalter, { fondsId: F1, name: "Leck", text: "x" }));
+    expect((await senden("DELETE", `/resolution-templates/${vorlage.id}`, verwalter)).status).toBe(204);
+    const lies = async (als: Testperson) => (await json(await senden("GET", `/changes?since=${encodeURIComponent(seit)}&limit=1000`, als))).data as { table: string; action: string; recordId: string; fundId: string | null }[];
     const eigene = await lies(betrachter);
     for (const id of [bez.id, vorlage.id]) {
-      const zeilen = eigene.filter((z) => z.datensatzId === id);
-      expect(zeilen.map((z) => z.aktion)).toContain("loeschen");
-      expect(zeilen.every((z) => z.fondsId === F1)).toBe(true);
+      const zeilen = eigene.filter((z) => z.recordId === id);
+      expect(zeilen.map((z) => z.action)).toContain("loeschen");
+      expect(zeilen.every((z) => z.fundId === F1)).toBe(true);
     }
     const fremde = await lies(nurF2);
-    expect(fremde.some((z) => z.datensatzId === bez.id || z.datensatzId === vorlage.id)).toBe(false);
+    expect(fremde.some((z) => z.recordId === bez.id || z.recordId === vorlage.id)).toBe(false);
   });
 });
 
 describe("Beschlussvorlagen (API)", () => {
   const neu = (als: Testperson, extra: Record<string, unknown> = {}) =>
-    senden("POST", "/beschlussvorlagen", als, { fondsId: F1, name: "Standard", text: "Antrag: {{organisation}} erhält {{ticket}} aus {{fonds}}.", ...extra });
+    senden("POST", "/resolution-templates", als, { fondsId: F1, name: "Standard", text: "Antrag: {{organisation}} erhält {{ticket}} aus {{fonds}}.", ...extra });
 
   it("Verwalter des Fonds pflegen Vorlagen; Freigeber und darunter nicht; Betrachter lesen die Vorlagen ihrer Fonds", async () => {
     for (const als of [freigeber, bearbeiter, betrachter, nurF2, ohneRolle]) expect((await neu(als)).status, als.name).toBe(403);
     const angelegt = await neu(verwalter);
     expect(angelegt.status).toBe(201);
     const v = await json(angelegt);
-    expect((await senden("POST", "/beschlussvorlagen", verwalter, { fondsId: F2, name: "Fremd", text: "x" })).status).toBe(403);
+    expect((await senden("POST", "/resolution-templates", verwalter, { fondsId: F2, name: "Fremd", text: "x" })).status).toBe(403);
 
-    const liste = await json(await senden("GET", "/beschlussvorlagen", betrachter));
+    const liste = await json(await senden("GET", "/resolution-templates", betrachter));
     expect(liste.daten).toHaveLength(1);
     expect(liste.daten[0]).toMatchObject({ id: v.id, name: "Standard", fonds: { id: F1 } });
     expect(liste.platzhalter).toContain("organisation");
-    expect((await json(await senden("GET", "/beschlussvorlagen", nurF2))).daten).toEqual([]);
-    expect((await senden("GET", `/beschlussvorlagen?fondsId=${F1}`, nurF2)).status).toBe(403);
+    expect((await json(await senden("GET", "/resolution-templates", nurF2))).daten).toEqual([]);
+    expect((await senden("GET", `/resolution-templates?fondsId=${F1}`, nurF2)).status).toBe(403);
 
-    expect((await senden("PATCH", `/beschlussvorlagen/${v.id}`, freigeber, { name: "Neu" })).status).toBe(403);
-    const geaendert = await senden("PATCH", `/beschlussvorlagen/${v.id}`, verwalter, { name: "Zweite Fassung", text: "Neu: {{titel}}" });
+    expect((await senden("PATCH", `/resolution-templates/${v.id}`, freigeber, { name: "Neu" })).status).toBe(403);
+    const geaendert = await senden("PATCH", `/resolution-templates/${v.id}`, verwalter, { name: "Zweite Fassung", text: "Neu: {{titel}}" });
     expect(geaendert.status).toBe(200);
     expect(await json(geaendert)).toMatchObject({ name: "Zweite Fassung", text: "Neu: {{titel}}" });
-    expect((await senden("PATCH", `/beschlussvorlagen/${v.id}`, verwalter, {})).status).toBe(400);
-    expect((await senden("PATCH", `/beschlussvorlagen/${randomUUID()}`, verwalter, { name: "x" })).status).toBe(404);
-    expect((await senden("DELETE", `/beschlussvorlagen/${v.id}`, bearbeiter)).status).toBe(403);
-    expect((await senden("DELETE", `/beschlussvorlagen/${v.id}`, verwalter)).status).toBe(204);
-    expect((await senden("DELETE", `/beschlussvorlagen/${v.id}`, verwalter)).status).toBe(404);
+    expect((await senden("PATCH", `/resolution-templates/${v.id}`, verwalter, {})).status).toBe(400);
+    expect((await senden("PATCH", `/resolution-templates/${randomUUID()}`, verwalter, { name: "x" })).status).toBe(404);
+    expect((await senden("DELETE", `/resolution-templates/${v.id}`, bearbeiter)).status).toBe(403);
+    expect((await senden("DELETE", `/resolution-templates/${v.id}`, verwalter)).status).toBe(204);
+    expect((await senden("DELETE", `/resolution-templates/${v.id}`, verwalter)).status).toBe(404);
     expect((await protokollZeilen(db, "beschlussvorlage")).map((z) => z.aktion)).toEqual(["anlegen", "aendern", "loeschen"]);
   });
 
   it("lehnt unbekannte Platzhalter, doppelte Namen und leere Texte ab", async () => {
     const falsch = await neu(verwalter, { text: "{{organisation}} {{gewinn}}" });
     expect(falsch.status).toBe(400);
-    expect((await json(falsch)).fehler).toMatchObject({ code: "PLATZHALTER_UNBEKANNT", unbekannt: ["gewinn"] });
+    expect((await json(falsch)).error).toMatchObject({ code: "placeholder_unknown", unbekannt: ["gewinn"] });
     expect((await neu(verwalter)).status).toBe(201);
     const doppelt = await neu(verwalter);
     expect(doppelt.status).toBe(409);
-    expect((await json(doppelt)).fehler.code).toBe("VORLAGE_VORHANDEN");
+    expect((await json(doppelt)).error.code).toBe("template_exists");
     expect((await neu(verwalter, { name: "Leer", text: "  " })).status).toBe(400);
     const [v] = await db.select().from(s.beschlussvorlage);
-    expect((await senden("PATCH", `/beschlussvorlagen/${v!.id}`, verwalter, { text: "{{x}}" })).status).toBe(400);
+    expect((await senden("PATCH", `/resolution-templates/${v!.id}`, verwalter, { text: "{{x}}" })).status).toBe(400);
   });
 
   async function dealMit(extra: Partial<typeof s.deal.$inferInsert> = {}) {
@@ -190,7 +190,7 @@ describe("Beschlussvorlagen (API)", () => {
     await legePersonAn(db, beideFonds);
     const konflikt = await senden("POST", `/deals/${dealId}/beschlussvorschlag`, beideFonds, { vorlageId: v2!.id });
     expect(konflikt.status).toBe(409);
-    expect((await json(konflikt)).fehler.code).toBe("VORLAGE_FONDS_ABWEICHEND");
+    expect((await json(konflikt)).error.code).toBe("template_fund_mismatch");
     expect((await senden("POST", `/deals/${ohneFonds}/beschlussvorschlag`, beideFonds, { vorlageId: v2!.id })).status).toBe(200);
 
     expect((await senden("POST", `/deals/${dealId}/beschlussvorschlag`, betrachter, { vorlageId: v1!.id })).status).toBe(403);

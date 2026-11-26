@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { asc, inArray } from "drizzle-orm";
 import { benutzer, erstelleDb, fonds, pruefeSeedErlaubt } from "../src/index";
 import { verlangeDatenbankUrl } from "../src/schutz";
-import { DEMO_ZUGAENGE, demoSpracheAus, erzeugeDemodaten, schreibeDemoCrmNachZugaengen, schreibeDemoPortfolio, schreibeDemoWaehrung, schreibeDemoZugaenge, schreibeDemodaten, zugangsdokument } from "../src/demo/index";
+import { DEMO_ZUGAENGE, demoSpracheAus, erzeugeDemodaten, schreibeDemoCrmNachZugaengen, schreibeDemoDachfonds, schreibeDemoPortfolio, schreibeDemoWaehrung, schreibeDemoZugaenge, schreibeDemodaten, zugangsdokument } from "../src/demo/index";
 
 // Vor allem anderen: Im Echtbestand wird weder geschrieben noch gelöscht.
 pruefeSeedErlaubt(process.env.CARRAWAY_UMGEBUNG);
@@ -25,6 +25,8 @@ try {
   if (verwalterin) await schreibeDemoCrmNachZugaengen(db, { besitzerId: verwalterin, betreuerIds: intern.flatMap((z) => nachEmail.get(z.email) ?? []), sprache });
   await schreibeDemoWaehrung(db, { sprache });
   await schreibeDemoPortfolio(db);
+  // Dachfonds und Manager-Profil zuletzt: ein zusätzlicher Fonds, die übrigen Zahlen bleiben unverändert.
+  await schreibeDemoDachfonds(db, { sprache });
 } finally {
   await pool.end();
 }

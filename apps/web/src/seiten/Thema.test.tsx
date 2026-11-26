@@ -12,10 +12,10 @@ const wurzel = () => document.documentElement;
 const einstellungen = { sprache: "de", mailBerichtFreigegeben: false, mailRegisterEreignis: false, mailVerfuegbar: true };
 const einstellungenApi = (abweichend: Parameters<typeof spieleApi>[0] = {}) =>
   spieleApi({
-    "/api/v1/ich": alsRolle("bearbeiter"),
+    "/api/v1/me": alsRolle("bearbeiter"),
     "/api/v1/postfach": { koerper: { anbieter: { microsoft: true, google: false, imap: true }, schluesselVorhanden: true, verbindungen: [] } },
-    "/api/v1/einstellungen": { koerper: einstellungen },
-    "/api/v1/einstellungen/kalender-link": { koerper: { aktiv: false, erstelltAm: null, letzterZugriffAm: null } },
+    "/api/v1/settings": { koerper: einstellungen },
+    "/api/v1/settings/calendar-link": { koerper: { aktiv: false, erstelltAm: null, letzterZugriffAm: null } },
     ...abweichend,
   });
 
@@ -30,7 +30,7 @@ afterEach(() => {
 describe("Thema: Kontomenü", () => {
   it("wählt Hell und Dunkel sofort, ohne Neuladen und ohne das Menü zu schließen; speichert im Browser und beim Server", async () => {
     wurzel().dataset.theme = "system";
-    const api = spieleApi({ "PATCH /api/v1/thema": (a) => ({ koerper: a.koerper }) });
+    const api = spieleApi({ "PATCH /api/v1/theme": (a) => ({ koerper: a.koerper }) });
     const nutzer = userEvent.setup();
     rendereApp("/");
     await nutzer.click(await screen.findByRole("button", { name: /Kontomenü/ }));
@@ -46,19 +46,19 @@ describe("Thema: Kontomenü", () => {
     expect(localStorage.getItem(THEMA_SCHLUESSEL)).toBe("hell");
     expect(wahl("Hell").getAttribute("aria-checked")).toBe("true");
     expect(screen.getByRole("menu")).toBeTruthy();
-    await waitFor(() => expect(api.anfragen("PATCH", "/api/v1/thema")).toHaveLength(1));
-    expect(api.anfragen("PATCH", "/api/v1/thema")[0]!.koerper).toEqual({ thema: "hell" });
+    await waitFor(() => expect(api.anfragen("PATCH", "/api/v1/theme")).toHaveLength(1));
+    expect(api.anfragen("PATCH", "/api/v1/theme")[0]!.koerper).toEqual({ theme: "light" });
 
     await nutzer.click(wahl("Dunkel"));
     expect(wurzel().dataset.theme).toBe("dunkel");
     await nutzer.click(wahl("System"));
     expect(wurzel().dataset.theme).toBe("system");
-    await waitFor(() => expect(api.anfragen("PATCH", "/api/v1/thema").map((a) => a.koerper)).toEqual([{ thema: "hell" }, { thema: "dunkel" }, { thema: "system" }]));
+    await waitFor(() => expect(api.anfragen("PATCH", "/api/v1/theme").map((a) => a.koerper)).toEqual([{ theme: "light" }, { theme: "dark" }, { theme: "system" }]));
   });
 
   it("ist mit der Tastatur bedienbar: Pfeile zum Eintrag und zwischen den Segmenten, Eingabetaste wählt", async () => {
     wurzel().dataset.theme = "system";
-    const api = spieleApi({ "PATCH /api/v1/thema": (a) => ({ koerper: a.koerper }) });
+    const api = spieleApi({ "PATCH /api/v1/theme": (a) => ({ koerper: a.koerper }) });
     const nutzer = userEvent.setup();
     rendereApp("/");
     const knopf = await screen.findByRole("button", { name: /Kontomenü/ });
@@ -74,7 +74,7 @@ describe("Thema: Kontomenü", () => {
     expect(wurzel().dataset.theme).toBe("hell");
     await nutzer.keyboard("{ArrowRight}{Enter}");
     expect(wurzel().dataset.theme).toBe("dunkel");
-    await waitFor(() => expect(api.anfragen("PATCH", "/api/v1/thema")).toHaveLength(2));
+    await waitFor(() => expect(api.anfragen("PATCH", "/api/v1/theme")).toHaveLength(2));
     // Escape schließt das Menü und gibt den Fokus zurück.
     await nutzer.keyboard("{Escape}");
     expect(screen.queryByRole("menu")).toBeNull();
@@ -93,37 +93,37 @@ describe("Thema: Kontomenü", () => {
 
   it("übernimmt nach der Anmeldung den Wert des Servers, wenn er vom Browser abweicht; der Browser merkt ihn", async () => {
     wurzel().dataset.theme = "system";
-    const api = spieleApi({ "/api/v1/thema": { koerper: { thema: "hell" } } });
+    const api = spieleApi({ "/api/v1/theme": { koerper: { thema: "hell" } } });
     rendereApp("/");
     await waitFor(() => expect(wurzel().dataset.theme).toBe("hell"));
     expect(localStorage.getItem(THEMA_SCHLUESSEL)).toBe("hell");
-    expect(api.anfragen("GET", "/api/v1/thema")).toHaveLength(1);
+    expect(api.anfragen("GET", "/api/v1/theme")).toHaveLength(1);
   });
 
   it("überschreibt eine Wahl dieser Sitzung nicht mehr mit dem Wert des Servers", async () => {
     wurzel().dataset.theme = "system";
     let antwort: (wert: Response) => void = () => {};
     const spaet = new Promise<Response>((r) => (antwort = r));
-    const api = spieleApi({ "PATCH /api/v1/thema": (a) => ({ koerper: a.koerper }) });
+    const api = spieleApi({ "PATCH /api/v1/theme": (a) => ({ koerper: a.koerper }) });
     const echt = globalThis.fetch;
     // Der Abgleich antwortet erst, nachdem die Person gewählt hat.
     vi.stubGlobal("fetch", (eingabe: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(eingabe instanceof Request ? eingabe.url : String(eingabe), "http://localhost");
-      return url.pathname === "/api/v1/thema" && (init?.method ?? "GET") === "GET" ? spaet : echt(eingabe, init);
+      return url.pathname === "/api/v1/theme" && (init?.method ?? "GET") === "GET" ? spaet : echt(eingabe, init);
     });
     const nutzer = userEvent.setup();
     rendereApp("/");
     await nutzer.click(await screen.findByRole("button", { name: /Kontomenü/ }));
     await nutzer.click(await screen.findByRole("menuitemradio", { name: "Dunkel" }));
     antwort(Response.json({ thema: "hell" }));
-    await waitFor(() => expect(api.anfragen("PATCH", "/api/v1/thema")).toHaveLength(1));
+    await waitFor(() => expect(api.anfragen("PATCH", "/api/v1/theme")).toHaveLength(1));
     await new Promise((r) => setTimeout(r, 50));
     expect(wurzel().dataset.theme).toBe("dunkel");
   });
 
   it("bleibt bei einem Fehler des Servers beim gewählten Thema", async () => {
     wurzel().dataset.theme = "system";
-    spieleApi({ "PATCH /api/v1/thema": { status: 500, koerper: { fehler: { code: "UNBEKANNT", meldung: "x" } } } });
+    spieleApi({ "PATCH /api/v1/theme": { status: 500, koerper: { error: { code: "UNBEKANNT", message: "x" } } } });
     const nutzer = userEvent.setup();
     rendereApp("/");
     await nutzer.click(await screen.findByRole("button", { name: /Kontomenü/ }));
@@ -136,7 +136,7 @@ describe("Thema: Kontomenü", () => {
 describe("Thema: Einstellungen", () => {
   it("bietet dieselbe Wahl im Reiter Darstellung, auf Deutsch und Englisch", async () => {
     wurzel().dataset.theme = "hell";
-    const api = einstellungenApi({ "PATCH /api/v1/thema": (a) => ({ koerper: a.koerper }) });
+    const api = einstellungenApi({ "PATCH /api/v1/theme": (a) => ({ koerper: a.koerper }) });
     const nutzer = userEvent.setup();
     rendereApp("/einstellungen/postfach?tab=darstellung");
     const gruppe = await screen.findByRole("group", { name: "Thema" });
@@ -144,7 +144,7 @@ describe("Thema: Einstellungen", () => {
     expect(within(gruppe).getByRole("button", { name: "System" }).getAttribute("aria-pressed")).toBe("false");
     await nutzer.click(within(gruppe).getByRole("button", { name: "Dunkel" }));
     expect(wurzel().dataset.theme).toBe("dunkel");
-    await waitFor(() => expect(api.anfragen("PATCH", "/api/v1/thema")[0]?.koerper).toEqual({ thema: "dunkel" }));
+    await waitFor(() => expect(api.anfragen("PATCH", "/api/v1/theme")[0]?.koerper).toEqual({ theme: "dark" }));
     expect(within(gruppe).getByRole("button", { name: "Dunkel" }).getAttribute("aria-pressed")).toBe("true");
   });
 

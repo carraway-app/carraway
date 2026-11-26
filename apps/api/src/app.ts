@@ -18,12 +18,15 @@ import { kontoRouten } from "./routen/konto";
 import { kontoSicherheitRouten } from "./routen/konto-sicherheit";
 import { fondsInvestorRouten } from "./routen/investoren";
 import { bewegungRouten } from "./routen/bewegungen";
-import { berichteRouten } from "./routen/berichte";
+import { fondsKostenRouten } from "./routen/fondskosten";
+import { berichteFuerFonds, berichteRouten } from "./routen/berichte";
 import { berichtFreigabeRouten } from "./routen/berichtsfreigabe";
 import { foerderprogrammRouten, fondsMeldewesenRouten, meldedefinitionRouten, organisationMeldedatenRouten } from "./routen/meldewesen";
 import { meldelaufRouten } from "./routen/meldelaeufe";
 import { erstelleStandardSpeicher, type Speicher } from "./berichte/speicher";
 import { aenderungenRouten } from "./routen/aenderungen";
+import { webhookRouten } from "./routen/webhooks";
+import { liveRouten } from "./live/route";
 import { exportRoute } from "./routen/export";
 import { openapiRouten } from "./routen/openapi";
 import { stapelRouten } from "./routen/stapel";
@@ -40,16 +43,18 @@ import { beschlussvorlageRouten } from "./routen/beschlussvorlagen";
 import { kontaktimportRouten } from "./routen/kontaktimport";
 import { kontaktrolleRouten } from "./routen/kontaktrollen";
 import { beziehungRouten } from "./routen/organisationsbeziehungen";
-import { vehikelRouten } from "./routen/vehikel";
+import { organisationVehikelRouten, vehikelRouten } from "./routen/vehikel";
+import { beteiligungMandatRouten, fondsMandatRouten } from "./routen/mandate";
 import { sucheRouten } from "./routen/suche";
-import { betriebRouten } from "./routen/betrieb";
+import { betriebRouten, workerAnApi } from "./routen/betrieb";
 import { dokumentRouten } from "./routen/dokumente";
+import { berichtsvorlagenRouten, freigabestufenRouten } from "./routen/berichtsvorlagen";
 import { fondsRouten } from "./routen/fonds";
 import { rundenpositionRouten } from "./routen/kapital";
 import { setzeStandardSicht } from "./kapital/sicht";
-import { fondsbewegungRouten } from "./routen/buchungen";
+import { fondsbewegungRouten, fondsBuchungRouten } from "./routen/buchungen";
 import { positionZahlungRouten, rundenRouten } from "./routen/runden";
-import { organisationRouten } from "./routen/organisationen";
+import { organisationPortfolioRouten, organisationRouten } from "./routen/organisationen";
 import { reserveRouten, szenarioFondsRouten, szenarioRouten } from "./routen/szenarien";
 import { registerBeteiligungRouten, registerOrganisationRouten, registerRouten } from "./routen/register";
 import { erstelleRegisterAnbieter, type RegisterAnbieter } from "./register/anbieter";
@@ -61,9 +66,10 @@ import { belegRouten } from "./routen/belege";
 import { beteiligungBuchhaltungRouten, fondsBuchhaltungRouten, kontenregelRouten } from "./routen/buchhaltung";
 import { buchungsexportRouten, fondsExportRouten } from "./routen/buchungsexport";
 import { fondsSaldenRouten, saldenlaufRouten } from "./routen/saldenlaeufe";
-import { meilensteinRouten, vorgangRouten } from "./routen/vorgaenge";
+import { beteiligungVorgangRouten, meilensteinRouten, vorgangRouten } from "./routen/vorgaenge";
 import { instrumentRouten, trancheRouten } from "./routen/instrumente";
 import { beteiligungWaehrungRouten, fondsWaehrungRouten, wechselkursRouten } from "./routen/waehrung";
+import { managerProfilRouten, portfolioRouten, zielfondsRouten } from "./routen/portfolio";
 import { beteiligungFelderRouten, fondsFelderRouten, rundenFelderRouten, vorgangFelderRouten, zusatzfelderRouten } from "./routen/zusatzfelder";
 import { leseBetriebszustand } from "./beobachtung/betrieb";
 import { Metriken, type Poolstand } from "./beobachtung/metriken";
@@ -74,9 +80,10 @@ import { mailRouten } from "./routen/mail";
 import { einstellungenRouten } from "./routen/einstellungen";
 import { themaRouten } from "./routen/thema";
 import { kalenderOeffentlichRouten } from "./routen/kalender";
+import { kontaktvorschlaegeRouten } from "./routen/kontaktvorschlaege";
 import { postfachRouten } from "./routen/postfach";
 import { terminRouten } from "./routen/termine";
-import { anhangRouten } from "./routen/anhaenge";
+import { anhangRouten, erstelleAnhangDienst } from "./routen/anhaenge";
 import { erstelleEchteImapVerbindung, type ImapFabrik } from "./postfach/imap";
 import type { Aufloeser } from "./postfach/ziel";
 import { lese } from "./zeitlimit";
@@ -113,19 +120,19 @@ const standardLogger = loggerAusUmgebung("api");
 export function behandleFehler(fehler: unknown, c: Context, logger: Logger = standardLogger) {
   if (fehler instanceof Fachfehler) return fehlerAntwort(c, fehler.status, fehler.code, fehler.message, undefined, fehler.zusatz);
   if (fehler instanceof HTTPException) {
-    if (fehler.status === 404) return fehlerAntwort(c, 404, "NICHT_GEFUNDEN", "Die angeforderte Ressource gibt es nicht.");
-    if (fehler.status === 400) return fehlerAntwort(c, 400, "EINGABE_UNGUELTIG", "Die Anfrage ist ungültig.");
+    if (fehler.status === 404) return fehlerAntwort(c, 404, "not_found", "The requested resource does not exist.");
+    if (fehler.status === 400) return fehlerAntwort(c, 400, "invalid_input", "The request is invalid.");
   }
   if (istPeriodensperre(fehler)) {
     // Der Trigger legt das Sperrdatum in `DETAIL` (PostgreSQL-Fehler `detail`), wie die API-Prüfung nennt sie `gesperrtBis`.
     const gesperrtBis = sperrdatumAus(fehler);
-    return fehlerAntwort(c, 409, "PERIODE_GESPERRT", gesperrtBis ? `Die Periode ist bis ${gesperrtBis} gesperrt.` : "Die Periode ist gesperrt.", undefined, gesperrtBis ? { gesperrtBis } : undefined);
+    return fehlerAntwort(c, 409, "period_locked", gesperrtBis ? `The period is locked until ${gesperrtBis}.` : "The period is locked.", undefined, gesperrtBis ? { gesperrtBis } : undefined);
   }
-  if (istInvestorAusschluss(fehler)) return fehlerAntwort(c, 409, "INVESTOR_BENUTZER", "Investor-Benutzer des LP-Portals erhalten keine Fondsrollen und keine Verwalterrechte.");
-  if (istZeitueberschreitung(fehler)) return fehlerAntwort(c, 503, "ABFRAGE_ZU_LANG", "Die Abfrage hat zu lange gedauert.");
-  if (istSperrzeitueberschreitung(fehler)) return fehlerAntwort(c, 503, "SPERRE_ZU_LANG", "Der Datensatz ist gerade gesperrt, bitte erneut versuchen.");
+  if (istInvestorAusschluss(fehler)) return fehlerAntwort(c, 409, "investor_user", "Investor users of the LP portal cannot receive fund roles or admin rights.");
+  if (istZeitueberschreitung(fehler)) return fehlerAntwort(c, 503, "query_too_long", "The query took too long.");
+  if (istSperrzeitueberschreitung(fehler)) return fehlerAntwort(c, 503, "lock_too_long", "The record is currently locked; please try again.");
   logger("error", "unbehandelter Fehler", { anfrageId: c.get("anfrageId"), methode: c.req.method, ...fehlerFelder(fehler) });
-  return fehlerAntwort(c, 500, "INTERNER_FEHLER", "Interner Fehler.");
+  return fehlerAntwort(c, 500, "internal_error", "Internal error.");
 }
 
 /** Zusätzliche Optionen der Anwendung (Tests). */
@@ -160,6 +167,7 @@ export function erstelleApp(db: Db, optionen: Partial<Konfiguration> & AppOption
   const anmeldeanbieter = anmeldeanbieterAus(erweiterungen, konfig);
   const auth = erstelleAuth(db, konfig, anmeldeanbieter);
   const dateiSpeicher = speicher ?? erstelleStandardSpeicher();
+  const anhaenge = erstelleAnhangDienst(db, { konfig, abrufer: abrufer ?? fetch, imapFabrik: imapFabrik ?? erstelleEchteImapVerbindung, speicher: dateiSpeicher });
   const regelwerk = erstelleRegelwerk(erweiterungen.flatMap((e) => e.regeln ?? []));
   meldeBerichtsartenAn(erweiterungen);
   const app = new Hono();
@@ -173,12 +181,12 @@ export function erstelleApp(db: Db, optionen: Partial<Konfiguration> & AppOption
     c.res.headers.set("Server-Timing", `app;dur=${(performance.now() - start).toFixed(1)}`);
   });
 
-  app.notFound((c) => fehlerAntwort(c, 404, "NICHT_GEFUNDEN", "Die angeforderte Ressource gibt es nicht."));
+  app.notFound((c) => fehlerAntwort(c, 404, "not_found", "The requested resource does not exist."));
 
   app.onError((fehler, c) => behandleFehler(fehler, c, logger));
 
-  /** Der Stapel ruft die fertige App für jede Operation auf; gesetzt, sobald sie gebaut ist. */
-  const aufrufer: { fetch?: (anfrage: Request) => Promise<Response> | Response; app?: Hono } = {};
+  /** Stapel und Erweiterungen durchlaufen für jeden internen Aufruf die fertige App. */
+  const apiAnfrage = (anfrage: Request) => app.fetch(anfrage);
   const v1 = new Hono()
     .use("*", ursprungPruefung(konfig))
     .use("*", async (c, next) => {
@@ -188,114 +196,130 @@ export function erstelleApp(db: Db, optionen: Partial<Konfiguration> & AppOption
     })
     .use("*", rechtePruefung(db, auth, konfig, regelwerk))
     .use("*", idempotenz(db))
-    .get("/gesundheit", async (c) => {
+    .get("/health", async (c) => {
       try {
         await lese(db, (tx) => tx.execute(sql`SELECT 1`));
       } catch {
-        return c.json({ ok: false as const, datenbank: false as const }, 503);
+        return c.json({ ok: false as const, database: false as const }, 503);
       }
       // 200/503 hängen nur an der Datenbank: Ein Worker-Ausfall macht die API nicht unbereit, er steht im Feld `worker`.
       const betrieb = await leseBetriebszustand(db);
       return c.json(
         {
           ok: true as const,
-          datenbank: true as const,
-          worker: betrieb.worker,
-          warteschlange: {
-            wartend: betrieb.warteschlange?.wartend ?? null,
-            aeltesterWartenderSekunden: betrieb.warteschlange?.aeltesterWartenderSekunden ?? null,
-            ausgangskorb: betrieb.ausgangskorb?.anzahl ?? null,
-            ausgangskorbAeltesterSekunden: betrieb.ausgangskorb?.aeltesterSekunden ?? null,
+          database: true as const,
+          worker: workerAnApi(betrieb.worker),
+          queue: {
+            waiting: betrieb.warteschlange?.wartend ?? null,
+            oldestWaitingSeconds: betrieb.warteschlange?.aeltesterWartenderSekunden ?? null,
+            outbox: betrieb.ausgangskorb?.anzahl ?? null,
+            outboxOldestSeconds: betrieb.ausgangskorb?.aeltesterSekunden ?? null,
           },
         },
         200,
       );
     })
     .route("/", kontoRouten(konfig, db, Object.keys(anmeldeanbieter.socialProviders)))
-    .route("/konto", kontoSicherheitRouten(db, auth, konfig))
+    .route("/account", kontoSicherheitRouten(db, auth, konfig))
     .route("/auth", authRouten(auth, konfig))
-    .route("/einrichtung", einrichtungRouten(db))
-    .route("/passwort", passwortRouten(db, auth, konfig))
-    .route("/benutzer", benutzerRouten(db, auth))
-    .route("/rechte", rechteRouten(db))
-    .route("/betrieb", betriebRouten(db, dateiSpeicher, konfig, erweiterungen))
-    .route("/api-schluessel", apiSchluesselRouten(db))
-    .route("/fonds/:fondsId/investorenzugaenge", fondsInvestorRouten(db))
-    .route("/fonds", fondsRouten(db))
-    .route("/fonds", bewegungRouten(db, dateiSpeicher))
-    .route("/fonds", fondsBuchhaltungRouten(db))
-    .route("/fonds", fondsSaldenRouten(db))
-    .route("/fonds", fondsExportRouten(db, dateiSpeicher))
-    .route("/kontenregeln", kontenregelRouten(db))
-    .route("/belege", belegRouten(db, dateiSpeicher))
-    .route("/saldenlaeufe", saldenlaufRouten(db))
-    .route("/buchungsexporte", buchungsexportRouten(db, dateiSpeicher))
-    .route("/beteiligungen", beteiligungBuchhaltungRouten(db))
-    .route("/fonds", fondsMeldewesenRouten(db))
-    .route("/beteiligungen", beteiligungRouten(db))
-    .route("/berichte", berichteRouten(db))
-    .route("/berichte", berichtFreigabeRouten(db, dateiSpeicher))
-    .route("/meldedefinitionen", meldedefinitionRouten(db))
-    .route("/foerderprogramme", foerderprogrammRouten(db))
-    .route("/meldelaeufe", meldelaufRouten(db, dateiSpeicher))
+    .route("/setup", einrichtungRouten(db))
+    .route("/password", passwortRouten(db, auth, konfig))
+    .route("/users", benutzerRouten(db, auth))
+    .route("/permissions", rechteRouten(db))
+    .route("/operations", betriebRouten(db, dateiSpeicher, konfig, erweiterungen))
+    .route("/api-keys", apiSchluesselRouten(db))
+    .route("/funds/:fundId/investor-access", fondsInvestorRouten(db))
+    .route("/funds", fondsRouten(db))
+    .route("/funds", bewegungRouten(db, dateiSpeicher))
+    .route("/funds", fondsKostenRouten(db))
+    .route("/funds", fondsBuchungRouten(db))
+    .route("/funds/:id", freigabestufenRouten(db))
+    .route("/funds/:id", berichtsvorlagenRouten(db))
+    .route("/funds/:id/reports", berichteFuerFonds(db))
+    .route("/investments/:id", beteiligungVorgangRouten(db))
+    .route("/funds", fondsBuchhaltungRouten(db))
+    .route("/funds", fondsSaldenRouten(db))
+    .route("/funds", fondsExportRouten(db, dateiSpeicher))
+    .route("/account-rules", kontenregelRouten(db))
+    .route("/vouchers", belegRouten(db, dateiSpeicher))
+    .route("/balance-runs", saldenlaufRouten(db))
+    .route("/posting-exports", buchungsexportRouten(db, dateiSpeicher))
+    .route("/investments", beteiligungBuchhaltungRouten(db))
+    .route("/funds", fondsMeldewesenRouten(db))
+    .route("/investments", beteiligungRouten(db))
+    .route("/reports", berichteRouten(db))
+    .route("/reports", berichtFreigabeRouten(db, dateiSpeicher))
+    .route("/reporting-definitions", meldedefinitionRouten(db))
+    .route("/funding-programs", foerderprogrammRouten(db))
+    .route("/reporting-runs", meldelaufRouten(db, dateiSpeicher))
     .route("/deals", dealRouten(db))
-    .route("/organisationen", organisationRouten(db))
-    .route("/organisationen", organisationMeldedatenRouten(db))
-    .route("/organisationen", registerOrganisationRouten(db, anbieter))
+    .route("/organizations", organisationRouten(db))
+    .route("/organizations", organisationPortfolioRouten(db))
+    .route("/organizations/:id", organisationVehikelRouten(db))
+    .route("/organizations", organisationMeldedatenRouten(db))
+    .route("/organizations", registerOrganisationRouten(db, anbieter))
     .route("/register", registerRouten(db, anbieter))
-    .route("/beteiligungen", registerBeteiligungRouten(db))
-    .route("/fonds", szenarioFondsRouten(db))
-    .route("/szenarien", szenarioRouten(db))
-    .route("/beteiligungen", reserveRouten(db))
-    .route("/rundenpositionen", rundenpositionRouten(db))
-    .route("/rundenpositionen", positionZahlungRouten(db))
-    .route("/finanzierungsrunden", rundenRouten(db))
-    .route("/personen", personRouten(db))
-    .route("/kontaktrollen", kontaktrolleRouten(db))
-    .route("/organisationsbeziehungen", beziehungRouten(db))
-    .route("/vehikel", vehikelRouten(db))
-    .route("/kontaktimport", kontaktimportRouten(db))
-    .route("/suche", sucheRouten(db))
-    .route("/dokumente", dokumentRouten(db, dateiSpeicher, konfig.dokumentAufbewahrungTage))
-    .route("/beschlussvorlagen", beschlussvorlageRouten(db))
-    .route("/aktivitaeten", aktivitaetRouten(db))
-    .route("/aktivitaeten", anhangRouten(db, { konfig, abrufer: abrufer ?? fetch, imapFabrik: imapFabrik ?? erstelleEchteImapVerbindung, speicher: dateiSpeicher }))
-    .route("/wiedervorlagen", wiedervorlageRouten(db))
+    .route("/investments", registerBeteiligungRouten(db))
+    .route("/funds", szenarioFondsRouten(db))
+    .route("/scenarios", szenarioRouten(db))
+    .route("/investments", reserveRouten(db))
+    .route("/investments", beteiligungMandatRouten(db))
+    .route("/funds", fondsMandatRouten(db))
+    .route("/round-positions", rundenpositionRouten(db))
+    .route("/round-positions", positionZahlungRouten(db))
+    .route("/financing-rounds", rundenRouten(db))
+    .route("/people", personRouten(db))
+    .route("/contact-roles", kontaktrolleRouten(db))
+    .route("/organization-relationships", beziehungRouten(db))
+    .route("/vehicles", vehikelRouten(db))
+    .route("/contact-import", kontaktimportRouten(db))
+    .route("/search", sucheRouten(db))
+    .route("/documents", dokumentRouten(db, dateiSpeicher, konfig.dokumentAufbewahrungTage))
+    .route("/resolution-templates", beschlussvorlageRouten(db))
+    .route("/activities", aktivitaetRouten(db))
+    .route("/activities", anhangRouten(anhaenge))
+    .route("/follow-ups", wiedervorlageRouten(db))
     .route("/dealflow", dealflowRouten(db))
     .route("/crm", crmRouten(db))
-    .route("/vorgaenge", vorgangRouten(db))
-    .route("/vorgaenge", vorgangFelderRouten(db))
-    .route("/zusatzfelder", zusatzfelderRouten(db))
-    .route("/wechselkurse", wechselkursRouten(db))
-    .route("/beteiligungen", beteiligungWaehrungRouten(db))
-    .route("/fonds", fondsWaehrungRouten(db))
-    .route("/fonds", fondsFelderRouten(db))
-    .route("/beteiligungen", beteiligungFelderRouten(db))
-    .route("/finanzierungsrunden", rundenFelderRouten(db))
-    .route("/fondsbewegungen", fondsbewegungRouten(db))
-    .route("/meilensteine", meilensteinRouten(db))
-    .route("/instrumente", instrumentRouten(db))
-    .route("/tranchen", trancheRouten(db))
-    .route("/zinslaeufe", zinslaufRouten(db))
-    .route("/forderungen", forderungRouten(db))
-    .route("/verkaeufe", verkaufRouten(db))
-    .route("/bewertungen", bewertungRouten(db))
-    .route("/bewertungsrunden", bewertungsrundeRouten(db))
-    .route("/kennzahlen", kennzahlRouten(db))
-    .route("/extern", externRouten(db, konfig))
+    .route("/transactions", vorgangRouten(db))
+    .route("/transactions", vorgangFelderRouten(db))
+    .route("/custom-fields", zusatzfelderRouten(db))
+    .route("/exchange-rates", wechselkursRouten(db))
+    .route("/investments", beteiligungWaehrungRouten(db))
+    .route("/funds", fondsWaehrungRouten(db))
+    .route("/funds", zielfondsRouten(db))
+    .route("/manager-profile", managerProfilRouten(db))
+    .route("/portfolio", portfolioRouten(db))
+    .route("/funds", fondsFelderRouten(db))
+    .route("/investments", beteiligungFelderRouten(db))
+    .route("/financing-rounds", rundenFelderRouten(db))
+    .route("/fund-movements", fondsbewegungRouten(db))
+    .route("/milestones", meilensteinRouten(db))
+    .route("/instruments", instrumentRouten(db))
+    .route("/tranches", trancheRouten(db))
+    .route("/interest-runs", zinslaufRouten(db))
+    .route("/receivables", forderungRouten(db))
+    .route("/sales", verkaufRouten(db))
+    .route("/valuations", bewertungRouten(db))
+    .route("/valuation-rounds", bewertungsrundeRouten(db))
+    .route("/metrics", kennzahlRouten(db))
+    .route("/external", externRouten(db, konfig))
     .route("/mail", mailRouten(db))
-    .route("/einstellungen", einstellungenRouten(db))
-    .route("/thema", themaRouten(db))
-    .route("/postfach", postfachRouten(db, { konfig, abrufer: abrufer ?? fetch, imapFabrik: imapFabrik ?? erstelleEchteImapVerbindung, aufloeser }))
-    .route("/termine", terminRouten(db))
-    .route("/kalender", kalenderOeffentlichRouten(db, konfig))
+    .route("/settings", einstellungenRouten(db))
+    .route("/theme", themaRouten(db))
+    .route("/contact-suggestions", kontaktvorschlaegeRouten(db))
+    .route("/mailbox", postfachRouten(db, { konfig, abrufer: abrufer ?? fetch, imapFabrik: imapFabrik ?? erstelleEchteImapVerbindung, aufloeser }))
+    .route("/meetings", terminRouten(db))
+    .route("/calendar", kalenderOeffentlichRouten(db, konfig))
     .route("/import", importRouten(db))
     .route("/export", exportRoute(db, dateiSpeicher))
-    .route("/aenderungen", aenderungenRouten(db))
-    .route("/", openapiRouten(() => aufrufer.app!, regelwerk))
-    .route("/stapel", stapelRouten(db, (anfrage) => aufrufer.fetch!(anfrage)));
+    .route("/changes", aenderungenRouten(db))
+    .route("/webhooks", webhookRouten(db, { ring: konfig.schluessel, aufloeser }))
+    .route("/live", liveRouten(konfig))
+    .route("/", openapiRouten(() => app, regelwerk))
+    .route("/batch", stapelRouten(db, apiAnfrage));
   // Routen der Erweiterungen hängen hinter denen des Kerns; ihre Regeln stehen im Regelwerk oben. Der Typ `AppType` kennt nur den Kern.
-  for (const e of erweiterungen) if (e.routen) v1.route("/", e.routen({ db, auth, konfig, speicher: dateiSpeicher }));
+  for (const e of erweiterungen) if (e.routen) v1.route("/", e.routen({ apiAnfrage, db, auth, konfig, speicher: dateiSpeicher, anhaenge }));
 
   if (konfig.webVerzeichnis) app.use(
       "*",
@@ -306,16 +330,13 @@ export function erstelleApp(db: Db, optionen: Partial<Konfiguration> & AppOption
 
   // Metriken im Prometheus-Format, außerhalb von `/api/v1` und der Rechteprüfung, mit eigenem Token.
   app.get("/metriken", async (c) => {
-    if (!konfig.metrikenToken) return fehlerAntwort(c, 404, "NICHT_GEFUNDEN", "Die angeforderte Ressource gibt es nicht.");
-    if (!tokenGleich(c.req.header("Authorization"), konfig.metrikenToken)) return fehlerAntwort(c, 401, "NICHT_ANGEMELDET", "Metriken-Token fehlt oder ist falsch.");
+    if (!konfig.metrikenToken) return fehlerAntwort(c, 404, "not_found", "The requested resource does not exist.");
+    if (!tokenGleich(c.req.header("Authorization"), konfig.metrikenToken)) return fehlerAntwort(c, 401, "not_authenticated", "Metrics token is missing or incorrect.");
     const betrieb = await leseBetriebszustand(db).catch(() => undefined);
     return c.body(metriken.rendere(pool, betrieb), 200, { "Content-Type": "text/plain; version=0.0.4; charset=utf-8", "Cache-Control": "no-store" });
   });
 
-  const gesamt = app.route("/api/v1", v1);
-  aufrufer.fetch = (anfrage) => gesamt.fetch(anfrage);
-  aufrufer.app = gesamt;
-  return gesamt;
+  return app.route("/api/v1", v1);
 }
 
 /** Vergleicht `Authorization: Bearer <token>` in konstanter Zeit (Vergleich über SHA-256, damit die Länge nichts verrät). */

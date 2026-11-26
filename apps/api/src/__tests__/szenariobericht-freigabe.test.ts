@@ -46,10 +46,10 @@ async function szenario(name: string, multiple: string, festschreiben: boolean) 
   if (festschreiben) expect((await post(`/szenarien/${id}/festschreiben`, undefined, "szb-verwalter")).status).toBe(200);
   return id;
 }
-const anlegen = (szenarioIds: string[], extra: object = {}) => post("/berichte", { art: "szenariobericht", fondsId: ID.fonds, sprache: "de", szenarioIds, ...extra }, "szb-autor");
+const anlegen = (szenarioIds: string[], extra: object = {}) => post("/reports", { art: "szenariobericht", fondsId: ID.fonds, sprache: "de", szenarioIds, ...extra }, "szb-autor");
 async function freigeben(id: string) {
   let letzte: Response | undefined;
-  for (const [i, akteur] of ["szb-a1", "szb-a2", "szb-a3"].entries()) letzte = await post(`/berichte/${id}/stufe`, { stufe: STUFEN[i], ergebnis: "ok" }, akteur);
+  for (const [i, akteur] of ["szb-a1", "szb-a2", "szb-a3"].entries()) letzte = await post(`/reports/${id}/stage`, { stufe: STUFEN[i], ergebnis: "ok" }, akteur);
   return letzte!;
 }
 
@@ -80,12 +80,12 @@ describe("Szenariobericht mit Freigabe", () => {
     const fest = await szenario("Basis", "2.5", true);
     const abgelehnt = await anlegen([entwurf]);
     expect(abgelehnt.status).toBe(409);
-    expect((await json(abgelehnt)).fehler.code).toBe("SZENARIO_NICHT_FESTGESCHRIEBEN");
+    expect((await json(abgelehnt)).error.code).toBe("scenario_not_locked");
     expect((await anlegen([fest, entwurf])).status).toBe(409);
     expect((await anlegen([])).status).toBe(400);
     expect((await anlegen([fest, fest])).status).toBe(400);
     expect((await anlegen(["00000000-0000-4000-8000-000000000999"])).status).toBe(404);
-    expect((await post("/berichte", { art: "fondsbericht", fondsId: ID.fonds, sprache: "de", szenarioIds: [fest] }, "szb-autor")).status).toBe(400);
+    expect((await post("/reports", { art: "fondsbericht", fondsId: ID.fonds, sprache: "de", szenarioIds: [fest] }, "szb-autor")).status).toBe(400);
     const { rows } = await db.execute<{ n: string }>(sql`SELECT count(*)::text AS n FROM bericht WHERE art = 'szenariobericht'`);
     expect(rows[0]!.n).toBe("0");
   });
@@ -100,29 +100,29 @@ describe("Szenariobericht mit Freigabe", () => {
     const { rows } = await db.execute<{ parameter: { szenarioIds: string[] }; stichtag: string }>(sql`SELECT parameter, stichtag::text FROM bericht WHERE id = ${bericht.id}`);
     expect(rows[0]!.parameter).toEqual({ szenarioIds: [a, b] });
 
-    const entwurfsDatei = await pdfText(await bytesVon(await get(`/berichte/${bericht.id}/datei`, "szb-autor")));
+    const entwurfsDatei = await pdfText(await bytesVon(await get(`/reports/${bericht.id}/file`, "szb-autor")));
     expect(entwurfsDatei).toContain("ENTWURF");
     expect(entwurfsDatei).toContain("Basis");
     expect(entwurfsDatei).toContain("Vorsichtig");
 
     // der Ersteller gibt nicht frei
-    expect((await post(`/berichte/${bericht.id}/stufe`, { stufe: STUFEN[0], ergebnis: "ok" }, "szb-autor")).status).toBe(409);
+    expect((await post(`/reports/${bericht.id}/stage`, { stufe: STUFEN[0], ergebnis: "ok" }, "szb-autor")).status).toBe(409);
     const letzte = await freigeben(bericht.id);
     expect(letzte.status, await letzte.clone().text()).toBe(200);
     const frei = await json(letzte);
     expect(frei).toMatchObject({ status: "freigegeben", naechsteStufe: 3 });
     expect(frei.dateiSha256).toMatch(/^[0-9a-f]{64}$/);
-    const datei = await get(`/berichte/${bericht.id}/datei`, "szb-autor");
+    const datei = await get(`/reports/${bericht.id}/file`, "szb-autor");
     const bytes = await bytesVon(datei);
     expect(sha(bytes)).toBe(frei.dateiSha256);
-    expect(datei.headers.get("X-Datei-Sha256")).toBe(frei.dateiSha256);
+    expect(datei.headers.get("X-File-Sha256")).toBe(frei.dateiSha256);
     const text = await pdfText(bytes);
     expect(text).not.toContain("ENTWURF");
     expect(text).toContain("Basis");
 
     // Spätere Änderungen an den Bewegungen des Fonds ändern die freigegebene Datei nicht
     await db.insert(s.fondsBewegung).values({ fondsId: ID.fonds, art: "abruf", valuta: "2026-01-15", betrag: "100000.00" });
-    expect(sha(await bytesVon(await get(`/berichte/${bericht.id}/datei`, "szb-autor")))).toBe(frei.dateiSha256);
+    expect(sha(await bytesVon(await get(`/reports/${bericht.id}/file`, "szb-autor")))).toBe(frei.dateiSha256);
     await expect(db.execute(sql`UPDATE bericht SET sprache = 'en' WHERE id = ${bericht.id}`)).rejects.toThrow();
     // protokolliert
     const zeilen = (await db.execute(sql`SELECT aktion FROM aenderung WHERE tabelle = 'bericht' AND datensatz_id = ${bericht.id}`)).rows.map((r) => (r as { aktion: string }).aktion);

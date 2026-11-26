@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { erstelleGoogle, adressenAusKopf } from "../postfach/google";
+import { erstelleGoogle, adressenAusKopf, eigeneAntwortGoogle, zerlegeAdressliste } from "../postfach/google";
 import { erstelleImap, type ImapKopf, type ImapVerbindung } from "../postfach/imap";
-import { erstelleMicrosoft } from "../postfach/microsoft";
+import { eigeneAntwortGraph, erstelleMicrosoft } from "../postfach/microsoft";
 import { textauszug } from "../postfach/mime";
 import { baueAutorisierungsUrl, pruefeIdToken, sha256Hex } from "../postfach/oauth";
 import { pruefeImapZiel, istPrivateAdresse } from "../postfach/ziel";
@@ -59,6 +59,8 @@ describe("Microsoft Graph", () => {
       ["g1", "<g1@x>", "owner@example.com", ["anna@alpha.example.com"], []],
     ]);
     expect(r.stand).toBe("2026-03-02T09:00:00.000Z");
+    // Gesendet nur aus dem Ordner „Gesendete Elemente“ (Anbieterfakt), nie aus der From-Zeile
+    expect(r.koepfe.map((m) => m.gesendet ?? false)).toEqual([false, true]);
     for (const a of aufrufe) {
       expect(a.kopf.get("authorization")).toBe("Bearer zugriffstoken");
       expect(a.init?.redirect).toBe("error");
@@ -110,17 +112,18 @@ describe("Microsoft Graph", () => {
     const { abrufer, aufrufe } = fakeFetch(() =>
       antwort(200, {
         value: [
-          { id: "ev1", iCalUId: "uid-1", subject: "Gespräch", start: { dateTime: "2026-03-05T09:00:00.0000000" }, end: { dateTime: "2026-03-05T10:00:00.0000000" }, organizer: { emailAddress: { address: "Org@Alpha.example.com" } }, attendees: [{ emailAddress: { address: "owner@example.com" } }], type: "singleInstance" },
+          { id: "ev1", iCalUId: "uid-1", subject: "Gespräch", start: { dateTime: "2026-03-05T09:00:00.0000000" }, end: { dateTime: "2026-03-05T10:00:00.0000000" }, organizer: { emailAddress: { address: "Org@Alpha.example.com" } }, attendees: [{ emailAddress: { address: "owner@example.com" } }], type: "singleInstance", responseStatus: { response: "accepted" } },
           { id: "ev2", iCalUId: "uid-2", subject: "Serie", start: { dateTime: "2026-03-06T09:00:00.0000000" }, end: { dateTime: "2026-03-06T10:00:00.0000000" }, attendees: [], type: "occurrence", originalStart: "2026-03-06T09:00:00Z", isCancelled: true },
         ],
       }),
     );
     const termine = await erstelleMicrosoft(k, abrufer).holeTermine(oauth, new Date("2026-03-01T00:00:00Z"), new Date("2026-06-01T00:00:00Z"));
     expect(aufrufe[0]!.kopf.get("prefer")).toContain('outlook.timezone="UTC"');
+    expect(aufrufe[0]!.url.searchParams.get("$select")).toContain("isOrganizer,responseStatus");
     expect(aufrufe[0]!.url.searchParams.get("startDateTime")).toBe("2026-03-01T00:00:00.000Z");
     expect(termine).toEqual([
-      { id: "uid-1", instanz: null, titel: "Gespräch", beginn: new Date("2026-03-05T09:00:00Z"), ende: new Date("2026-03-05T10:00:00Z"), teilnehmer: ["org@alpha.example.com", "owner@example.com"], organisator: "org@alpha.example.com", abgesagt: false },
-      { id: "uid-2", instanz: "2026-03-06T09:00:00.000Z", titel: "Serie", beginn: new Date("2026-03-06T09:00:00Z"), ende: new Date("2026-03-06T10:00:00Z"), teilnehmer: [], organisator: null, abgesagt: true },
+      { id: "uid-1", instanz: null, titel: "Gespräch", beginn: new Date("2026-03-05T09:00:00Z"), ende: new Date("2026-03-05T10:00:00Z"), teilnehmer: ["org@alpha.example.com", "owner@example.com"], organisator: "org@alpha.example.com", eigeneAntwort: "angenommen", abgesagt: false },
+      { id: "uid-2", instanz: "2026-03-06T09:00:00.000Z", titel: "Serie", beginn: new Date("2026-03-06T09:00:00Z"), ende: new Date("2026-03-06T10:00:00Z"), teilnehmer: [], organisator: null, eigeneAntwort: "offen", abgesagt: true },
     ]);
   });
 
@@ -148,11 +151,18 @@ describe("Gmail und Google Kalender", () => {
       const id = u.pathname.split("/").pop();
       return antwort(200, {
         id,
+        labelIds: id === "a" ? ["INBOX"] : ["SENT"],
         internalDate: String(Date.parse(id === "a" ? "2026-03-03T10:00:00Z" : "2026-03-04T10:00:00Z")),
-        payload: { headers: [{ name: "From", value: '"Anna Alpha" <Anna@alpha.example.com>' }, { name: "To", value: "owner@example.com, Bruno <b@beta.example.com>" }, { name: "Subject", value: `Betreff ${id}` }, { name: "Message-ID", value: `<${id}@g>` }] },
+        payload: { headers: [{ name: "From", value: '"Anna Alpha" <Anna@alpha.example.com>' }, { name: "To", value: "owner@example.com, Bruno <b@beta.example.com>" }, { name: "Subject", value: `Betreff ${id}` }, { name: "Message-ID", value: `<${id}@g>` }, ...(id === "b" ? [{ name: "List-Unsubscribe", value: "<https://liste.example/ab>" }] : [])] },
       });
     });
     const r = await erstelleGoogle(k, abrufer).holeMailKoepfe(oauth, "2026-03-01T00:00:00.000Z");
+    // Anzeigenamen und Massenmail-Kennung nur für Kontakte aus Postfach und Kalender
+    expect(r.koepfe.map((m) => [m.namen, m.massenmail ?? false])).toEqual([
+      [{ "anna@alpha.example.com": "Anna Alpha", "b@beta.example.com": "Bruno" }, false],
+      [{ "anna@alpha.example.com": "Anna Alpha", "b@beta.example.com": "Bruno" }, true],
+    ]);
+    expect(r.koepfe.map((m) => m.gesendet ?? false)).toEqual([false, true]);
     expect(r.koepfe.map((m) => [m.id, m.von, m.an, m.betreff, m.nachrichtenId])).toEqual([
       ["a", "anna@alpha.example.com", ["owner@example.com", "b@beta.example.com"], "Betreff a", "<a@g>"],
       ["b", "anna@alpha.example.com", ["owner@example.com", "b@beta.example.com"], "Betreff b", "<b@g>"],
@@ -162,7 +172,7 @@ describe("Gmail und Google Kalender", () => {
     expect(liste.searchParams.get("q")).toMatch(/^after:\d+$/);
     for (const a of aufrufe.slice(1)) {
       expect(a.url.searchParams.get("format")).toBe("metadata");
-      expect(a.url.searchParams.getAll("metadataHeaders").sort()).toEqual(["Cc", "From", "Message-ID", "Subject", "To"]);
+      expect(a.url.searchParams.getAll("metadataHeaders").sort()).toEqual(["Auto-Submitted", "Cc", "From", "List-Id", "List-Unsubscribe", "Message-ID", "Precedence", "Subject", "To"]);
     }
     expect(aufrufe.every((a) => a.kopf.get("authorization") === "Bearer zugriffstoken" && (a.init?.method ?? "GET") === "GET")).toBe(true);
   });
@@ -178,9 +188,9 @@ describe("Gmail und Google Kalender", () => {
     const { abrufer, aufrufe } = fakeFetch(() =>
       antwort(200, {
         items: [
-          { id: "g1", iCalUID: "ical-1@google.com", summary: "Gespräch", start: { dateTime: "2026-03-05T10:00:00+01:00" }, end: { dateTime: "2026-03-05T11:00:00+01:00" }, organizer: { email: "Org@alpha.example.com" }, attendees: [{ email: "owner@example.com" }] },
+          { id: "g1", iCalUID: "ical-1@google.com", summary: "Gespräch", start: { dateTime: "2026-03-05T10:00:00+01:00" }, end: { dateTime: "2026-03-05T11:00:00+01:00" }, organizer: { email: "Org@alpha.example.com" }, attendees: [{ email: "owner@example.com", self: true, responseStatus: "needsAction" }] },
           { id: "g2_20260306", iCalUID: "ical-2@google.com", summary: "Serie", recurringEventId: "g2", originalStartTime: { dateTime: "2026-03-06T10:00:00+01:00" }, start: { dateTime: "2026-03-06T12:00:00+01:00" }, end: { dateTime: "2026-03-06T13:00:00+01:00" }, status: "cancelled" },
-          { id: "g3", summary: "Ganztags", start: { date: "2026-03-09" }, end: { date: "2026-03-10" } },
+          { id: "g3", summary: "Ganztags", start: { date: "2026-03-09" }, end: { date: "2026-03-10" }, organizer: { email: "owner@example.com", self: true } },
         ],
       }),
     );
@@ -188,8 +198,10 @@ describe("Gmail und Google Kalender", () => {
     expect(termine.map((x) => [x.id, x.instanz, x.titel, x.abgesagt, x.teilnehmer])).toEqual([
       ["ical-1@google.com", null, "Gespräch", false, ["org@alpha.example.com", "owner@example.com"]],
       ["ical-2@google.com", "2026-03-06T09:00:00.000Z", "Serie", true, []],
-      ["g3", null, "Ganztags", false, []],
+      ["g3", null, "Ganztags", false, ["owner@example.com"]],
     ]);
+    // Eigene Antwort aus Anbieterfakten: offene Einladung, selbst organisiert
+    expect(termine.map((x) => x.eigeneAntwort)).toEqual(["offen", "offen", "organisator"]);
     expect(termine[0]!.beginn.toISOString()).toBe("2026-03-05T09:00:00.000Z");
     expect(aufrufe[0]!.url.pathname).toBe("/calendar/v3/calendars/primary/events");
     expect(aufrufe[0]!.url.searchParams.get("singleEvents")).toBe("true");
@@ -219,6 +231,25 @@ describe("Gmail und Google Kalender", () => {
     await expect(gross.holeAnhang!(oauth, "m1", "a1", 100)).rejects.toMatchObject({ code: "ANHANG_ZU_GROSS" });
     const ohneKopf = erstelleMicrosoft(m, fakeFetch(() => new Response(new Uint8Array(500), { status: 200 })).abrufer);
     await expect(ohneKopf.holeAnhang!(oauth, "m1", "a1", 100)).rejects.toMatchObject({ code: "ANHANG_ZU_GROSS" });
+  });
+
+  it("eigene Antwort auf Termine: nur organisiert oder angenommen zählt als gemeinsamer Termin", () => {
+    expect(eigeneAntwortGraph({ isOrganizer: true })).toBe("organisator");
+    expect(eigeneAntwortGraph({ responseStatus: { response: "accepted" } })).toBe("angenommen");
+    expect(eigeneAntwortGraph({ responseStatus: { response: "tentativelyAccepted" } })).toBe("vorbehalt");
+    expect(eigeneAntwortGraph({ responseStatus: { response: "declined" } })).toBe("abgelehnt");
+    expect(eigeneAntwortGraph({ responseStatus: { response: "notResponded" } })).toBe("offen");
+    expect(eigeneAntwortGoogle({ attendees: [{ self: false, responseStatus: "accepted" }, { self: true, responseStatus: "declined" }] })).toBe("abgelehnt");
+    expect(eigeneAntwortGoogle({ attendees: [{ self: true, responseStatus: "accepted" }] })).toBe("angenommen");
+    expect(eigeneAntwortGoogle({})).toBe("offen");
+  });
+
+  it("Adresslisten nach RFC 5322: Adresse aus spitzen Klammern, nie aus dem Anzeigenamen", () => {
+    expect(zerlegeAdressliste('"owner@example.com" <fremd@angreifer.example>')).toEqual([{ adresse: "fremd@angreifer.example", name: "owner@example.com" }]);
+    expect(adressenAusKopf('owner@example.com <fremd@angreifer.example>')).toEqual(["fremd@angreifer.example"]);
+    expect(adressenAusKopf('"Muster, (Erika)" <e@x.example>, Bert (Büro) <b@y.example>, c@z.example (Kommentar)')).toEqual(["e@x.example", "b@y.example", "c@z.example"]);
+    expect(adressenAusKopf("Gruppe: a@x.example, b@y.example;")).toEqual(["a@x.example", "b@y.example"]);
+    expect(adressenAusKopf("kein Eintrag, <kaputt>")).toEqual([]);
   });
 
   it("adressenAusKopf liest Namen und Listen", () => {
@@ -263,14 +294,14 @@ describe("IMAP-Adapter", () => {
   const kopf = (uid: number, tage: number): ImapKopf => ({ uid, nachrichtenId: `<${uid}@imap>`, datum: new Date(Date.now() - tage * 86_400_000), betreff: `Mail ${uid}`, von: "anna@alpha.example.com", an: ["owner@example.org"], cc: [] });
   const oeffentlich = async () => ["93.184.216.34"];
 
-  function fakeVerbindung(ordner: Record<string, { validity: string; mails: ImapKopf[] }>) {
+  function fakeVerbindung(ordner: Record<string, { validity: string; mails: ImapKopf[]; gesendet?: boolean }>, sentOrdner?: string | null) {
     const log: string[] = [];
     let offen = "";
     const v: ImapVerbindung = {
       async oeffne(o) {
         offen = o;
         log.push(`oeffne ${o}`);
-        return { uidValidity: ordner[o]!.validity };
+        return { uidValidity: ordner[o]!.validity, ...(ordner[o]!.gesendet ? { gesendet: true } : {}) };
       },
       async uidsNach(ab) {
         log.push(`nach ${ab}`);
@@ -283,6 +314,7 @@ describe("IMAP-Adapter", () => {
       async koepfe(uids) {
         return ordner[offen]!.mails.filter((m) => uids.includes(m.uid));
       },
+      ...(sentOrdner === undefined ? {} : { gesendetOrdner: async () => sentOrdner }),
       async rohtext() {
         return "Content-Type: text/plain; charset=utf-8\r\n\r\nHallo aus IMAP";
       },
@@ -292,6 +324,44 @@ describe("IMAP-Adapter", () => {
     };
     return { v, log };
   }
+
+  it("Gesendet nur aus dem Ordner mit Sonderverwendung \\Sent, nie aus der From-Zeile", async () => {
+    const gefaelscht = { ...kopf(1, 1), von: "owner@example.org", an: ["fremd@angreifer.example"] };
+    const ordner = { INBOX: { validity: "7", mails: [gefaelscht] }, Gesendet: { validity: "9", mails: [kopf(5, 1)], gesendet: true } };
+    const { v } = fakeVerbindung(ordner);
+    const adapter = erstelleImap({ fabrik: async () => v, privateZiele: false, aufloeser: oeffentlich });
+    const r = await adapter.holeMailKoepfe(zugang(["INBOX", "Gesendet"]), null);
+    expect(r.koepfe.map((m) => [m.id, m.gesendet ?? false])).toEqual([
+      ["0:1", false],
+      ["1:5", true],
+    ]);
+  });
+
+  it("Gesendet-Ordner (SPECIAL-USE \\Sent) wird automatisch mit abgeglichen, auch für den Text, ohne Doppelung", async () => {
+    const ordner = { INBOX: { validity: "7", mails: [kopf(1, 1)] }, "Gesendete Objekte": { validity: "9", mails: [kopf(5, 1)], gesendet: true } };
+    const { v, log } = fakeVerbindung(ordner, "Gesendete Objekte");
+    const adapter = erstelleImap({ fabrik: async () => v, privateZiele: false, aufloeser: oeffentlich });
+    const r = await adapter.holeMailKoepfe(zugang(["INBOX"]), null);
+    expect(r.koepfe.map((m) => [m.id, m.gesendet ?? false])).toEqual([
+      ["0:1", false],
+      ["1:5", true],
+    ]);
+    expect(JSON.parse(r.stand!)).toEqual({ INBOX: "7:1", "Gesendete Objekte": "9:5" });
+    expect(await adapter.holeMailText(zugang(["INBOX"]), r.koepfe[1]!, 100)).toContain("Hallo aus IMAP");
+    expect(log).toContain("oeffne Gesendete Objekte");
+    // Schon eingerichtet (andere Schreibweise): kein zweites Mal.
+    const { v: v2 } = fakeVerbindung(ordner, "gesendete objekte");
+    const a2 = erstelleImap({ fabrik: async () => v2, privateZiele: false, aufloeser: oeffentlich });
+    expect((await a2.holeMailKoepfe(zugang(["INBOX", "Gesendete Objekte"]), null)).koepfe.map((m) => m.id)).toEqual(["0:1", "1:5"]);
+    // Kein Gesendet-Ordner oder Fehler bei der Ordnerliste: nur die eingerichteten Ordner.
+    const { v: v3 } = fakeVerbindung(ordner, null);
+    const a3 = erstelleImap({ fabrik: async () => v3, privateZiele: false, aufloeser: oeffentlich });
+    expect((await a3.holeMailKoepfe(zugang(["INBOX"]), null)).koepfe.map((m) => m.id)).toEqual(["0:1"]);
+    const { v: v4 } = fakeVerbindung(ordner, "Gesendete Objekte");
+    v4.gesendetOrdner = async () => Promise.reject(new Error("LIST nicht erlaubt"));
+    const a4 = erstelleImap({ fabrik: async () => v4, privateZiele: false, aufloeser: oeffentlich });
+    expect((await a4.holeMailKoepfe(zugang(["INBOX"]), null)).koepfe.map((m) => m.id)).toEqual(["0:1"]);
+  });
 
   it("erster Abgleich: letzte 30 Tage je Ordner; danach nur neue UIDs; ändert sich UIDVALIDITY, beginnt der Ordner neu", async () => {
     const ordner = { INBOX: { validity: "7", mails: [kopf(1, 3), kopf(2, 2)] }, Sent: { validity: "9", mails: [kopf(5, 1)] } };

@@ -44,16 +44,16 @@ describe.skipIf(process.env.SKIP_PERF === "1")("Import einer Datei mit rund 10.0
     const form = new FormData();
     form.append("datei", new File([new Uint8Array(datei)], "leistung.xlsx"));
     const t0 = performance.now();
-    const hoch = await t.request("/import/laeufe", { method: "POST", body: form, als: ANNA });
+    const hoch = await t.request("/import/runs", { method: "POST", body: form, als: ANNA });
     expect(hoch.status).toBe(201);
     const id = (await json(hoch)).id as string;
     const tHochladen = performance.now() - t0;
 
     const t1 = performance.now();
-    const gepruefte = await json(await t.request(`/import/laeufe/${id}/pruefen`, { method: "POST", als: ANNA }));
+    const gepruefte = await json(await t.request(`/import/runs/${id}/validate`, { method: "POST", als: ANNA }));
     const tPruefen = performance.now() - t1;
     if (gepruefte.fehlerAnzahl !== 0) {
-      const b = (await json(await t.request(`/import/laeufe/${id}/befunde?limit=1000&schweregrad=fehler`, { als: ANNA }))).daten as { code: string; blatt: string; meldung: string }[];
+      const b = (await json(await t.request(`/import/runs/${id}/findings?limit=1000&schweregrad=fehler`, { als: ANNA }))).daten as { code: string; blatt: string; meldung: string }[];
       const je = new Map<string, number>();
       for (const x of b) je.set(`${x.blatt}/${x.code}: ${x.meldung}`, (je.get(`${x.blatt}/${x.code}: ${x.meldung}`) ?? 0) + 1);
       console.log([...je].slice(0, 8));
@@ -61,7 +61,7 @@ describe.skipIf(process.env.SKIP_PERF === "1")("Import einer Datei mit rund 10.0
     expect(gepruefte.fehlerAnzahl).toBe(0);
 
     const t2 = performance.now();
-    const antwort = await t.request(`/import/laeufe/${id}/uebernehmen`, { method: "POST", als: BERTA });
+    const antwort = await t.request(`/import/runs/${id}/apply`, { method: "POST", als: BERTA });
     const tUebernehmen = performance.now() - t2;
     expect(antwort.status, await antwort.clone().text()).toBe(200);
 

@@ -25,14 +25,14 @@ const aenderungPfad = `${zugangsPfad}/zusageaenderungen`;
 const verwalterF1 = person("verwalter-f1-austritt", { rollen: { [ID.fonds]: "verwalter" } });
 const investor1 = person("austritt-inv1");
 
-const abruf = (valuta: string, betrag: string) => ({ typ: "fondsbewegung", art: "abruf", valuta, betrag });
+const abruf = (valueDate: string, amount: string) => ({ kind: "fund_posting", type: "capital_call", valueDate, amount });
 const aufteilung = async (bewegungId: string) => {
   const antwort = await json(await get(`/fondsbewegungen/${bewegungId}`));
   return Object.fromEntries(antwort.aufteilung.map((a: { organisationId: string; betrag: string }) => [a.organisationId, a.betrag])) as Record<string, string>;
 };
 const zeichnungen = async () => Object.fromEntries((await db.select().from(s.fondsZeichnung).where(eq(s.fondsZeichnung.fondsId, ID.fonds))).map((z) => [z.organisationId, z]));
 const kapital = async () => (await db.select().from(s.fonds).where(eq(s.fonds.id, ID.fonds)))[0]!.zeichnungskapital;
-const fehler = async (antwort: Response) => (await json(antwort)).fehler.code as string;
+const fehler = async (antwort: Response) => (await json(antwort)).error.code as string;
 const konten = async (stichtag: string, stand?: string) => Object.fromEntries((await ladeKapitalkonten(db, ID.fonds, stichtag, stand, "0")).map((k) => [k.investor, k]));
 const verringerung = (neueZusage: string, zusatz: object = {}) => ({ art: "verringerung", wirksamAm: "2026-06-01", investoren: [{ organisationId: INV1, neueZusage }], ...zusatz });
 const austritt = (organisationId = INV2, zusatz: object = {}) => ({ art: "austritt", wirksamAm: "2026-06-01", investoren: [{ organisationId }], ...zusatz });
@@ -51,7 +51,7 @@ beforeEach(async () => {
   await legeInvestorAn(db, investor1, [INV1]);
   // 6 und 4 Millionen bei 10 Millionen Zeichnungskapital; erster Abruf: 600000.01 und 400000.00.
   expect((await post(`${zugangsPfad}/zeichnungen`, { zeichnungen: [{ organisationId: INV1, zusage: "6000000" }, { organisationId: INV2, zusage: "4000000" }] })).status).toBe(201);
-  abruf1 = (await json(await post(`${fondsPfad}/buchungen`, abruf("2026-05-01", "1000000.01")))).bewegung.id;
+  abruf1 = (await json(await post(`/funds/${ID.fonds}/postings`, abruf("2026-05-01", "1000000.01")))).movement.id;
 });
 afterAll(async () => {
   await leeren(db);
@@ -73,7 +73,7 @@ describe("Verringerung der Zusage", () => {
 
     // Früherer Abruf unverändert; späterer verteilt nach der neuen Grundlage; Valuta gleich Wirksamkeitsdatum zählt schon neu.
     expect(await aufteilung(abruf1)).toEqual({ [INV1]: "600000.01", [INV2]: "400000.00" });
-    const amTag = (await json(await post(`${fondsPfad}/buchungen`, abruf("2026-06-01", "700000.00")))).bewegung.id;
+    const amTag = (await json(await post(`/funds/${ID.fonds}/postings`, abruf("2026-06-01", "700000.00")))).movement.id;
     expect(await aufteilung(amTag)).toEqual({ [INV1]: "300000.00", [INV2]: "400000.00" });
 
     const sicht = await json(await get(zugangsPfad));
@@ -84,7 +84,7 @@ describe("Verringerung der Zusage", () => {
 
   it("lässt die Zusage genau bis zum bereits Abgerufenen sinken und nicht darunter", async () => {
     // Abgerufen sind 600000.01.
-    expect(await fehler(await post(aenderungPfad, verringerung("600000.00")))).toBe("LP_ZUSAGE_UNTER_ABGERUFEN");
+    expect(await fehler(await post(aenderungPfad, verringerung("600000.00")))).toBe("lp_commitment_below_called");
     expect(await kapital()).toBe("10000000.00");
     expect((await post(aenderungPfad, verringerung("600000.01"))).status).toBe(201);
     expect((await zeichnungen())[INV1]).toMatchObject({ zusage: "600000.01", ausgetreten: false });
@@ -98,7 +98,7 @@ describe("Verringerung der Zusage", () => {
     const stand0 = new Date().toISOString();
     await warte();
     expect((await post(aenderungPfad, verringerung("3000000"))).status).toBe(201);
-    await post(`${fondsPfad}/buchungen`, abruf("2026-07-01", "700000.00"));
+    await post(`/funds/${ID.fonds}/postings`, abruf("2026-07-01", "700000.00"));
 
     expect((await konten("2026-05-31"))["Erster Investor Beispiel"]).toMatchObject({ zusage: "6000000.00", anteil: "0.600000" });
     expect((await konten("2026-06-01"))["Erster Investor Beispiel"]).toMatchObject({ zusage: "3000000.00" });
@@ -110,12 +110,12 @@ describe("Verringerung der Zusage", () => {
   });
 
   it("wehrt unzulässige Eingaben ab", async () => {
-    expect(await fehler(await post(aenderungPfad, verringerung("6000000")))).toBe("LP_ZUSAGE_NICHT_KLEINER");
-    expect(await fehler(await post(aenderungPfad, verringerung("7000000")))).toBe("LP_ZUSAGE_NICHT_KLEINER");
-    expect(await fehler(await post(aenderungPfad, verringerung("0")))).toBe("LP_ZUSAGE_NULL");
+    expect(await fehler(await post(aenderungPfad, verringerung("6000000")))).toBe("lp_commitment_not_lower");
+    expect(await fehler(await post(aenderungPfad, verringerung("7000000")))).toBe("lp_commitment_not_lower");
+    expect(await fehler(await post(aenderungPfad, verringerung("0")))).toBe("lp_commitment_zero");
     expect((await post(aenderungPfad, { ...verringerung("1"), investoren: [{ organisationId: INV1 }] })).status).toBe(400);
-    expect(await fehler(await post(aenderungPfad, verringerung("3000000", { investoren: [{ organisationId: INV3, neueZusage: "1" }] })))).toBe("LP_ZEICHNUNG_NICHT_GEFUNDEN");
-    expect(await fehler(await post(aenderungPfad, verringerung("3000000", { wirksamAm: "2026-05-01" })))).toBe("LP_CLOSING_VOR_BEWEGUNG");
+    expect(await fehler(await post(aenderungPfad, verringerung("3000000", { investoren: [{ organisationId: INV3, neueZusage: "1" }] })))).toBe("lp_subscription_not_found");
+    expect(await fehler(await post(aenderungPfad, verringerung("3000000", { wirksamAm: "2026-05-01" })))).toBe("lp_closing_before_movement");
     expect(await db.select().from(s.fondsClosing)).toHaveLength(0);
   });
 });
@@ -129,7 +129,7 @@ describe("Austritt", () => {
     expect(je[INV2]).toMatchObject({ zusage: "400000.00", anteil: "0.000000", ausgetreten: true });
     expect(je[INV1]).toMatchObject({ zusage: "6000000.00", anteil: "1.000000", ausgetreten: false });
 
-    const spaeter = (await json(await post(`${fondsPfad}/buchungen`, abruf("2026-07-01", "500000.00")))).bewegung.id;
+    const spaeter = (await json(await post(`/funds/${ID.fonds}/postings`, abruf("2026-07-01", "500000.00")))).movement.id;
     expect(await aufteilung(spaeter)).toEqual({ [INV1]: "500000.00", [INV2]: "0.00" });
     expect(await aufteilung(abruf1)).toEqual({ [INV1]: "600000.01", [INV2]: "400000.00" });
 
@@ -147,23 +147,23 @@ describe("Austritt", () => {
     expect((await json(antwort)).zeichnungskapital).toBe("10000000.00");
     expect((await zeichnungen())[INV3]).toMatchObject({ zusage: "0.00", anteil: "0.000000", ausgetreten: true });
     expect((await ladeVerteilungsgrundlageZum(db, ID.fonds, "2026-06-15")).zeichnungen.map((z) => z.zusage)).toEqual(["5000000.00", "6000000.00", "4000000.00"]);
-    const spaeter = (await json(await post(`${fondsPfad}/buchungen`, abruf("2026-08-01", "1000000.00")))).bewegung.id;
+    const spaeter = (await json(await post(`/funds/${ID.fonds}/postings`, abruf("2026-08-01", "1000000.00")))).movement.id;
     expect(await aufteilung(spaeter)).toEqual({ [INV3]: "0.00", [INV1]: "600000.00", [INV2]: "400000.00" });
   });
 
   it("verteilt auch bei Verteilung nach Zusage nichts mehr auf den Ausgetretenen", async () => {
     await db.update(s.fonds).set({ lpVerteilungNachZusage: true }).where(eq(s.fonds.id, ID.fonds));
     expect((await post(aenderungPfad, austritt())).status).toBe(201);
-    const spaeter = (await json(await post(`${fondsPfad}/buchungen`, abruf("2026-07-01", "100.00")))).bewegung.id;
+    const spaeter = (await json(await post(`/funds/${ID.fonds}/postings`, abruf("2026-07-01", "100.00")))).movement.id;
     expect(await aufteilung(spaeter)).toEqual({ [INV1]: "100.00", [INV2]: "0.00" });
   });
 
   it("lässt den letzten Investor nicht austreten und keinen Ausgetretenen aufstocken oder erneut austreten", async () => {
-    expect(await fehler(await post(aenderungPfad, { art: "austritt", wirksamAm: "2026-06-01", investoren: [{ organisationId: INV1 }, { organisationId: INV2 }] }))).toBe("LP_LETZTER_INVESTOR");
+    expect(await fehler(await post(aenderungPfad, { art: "austritt", wirksamAm: "2026-06-01", investoren: [{ organisationId: INV1 }, { organisationId: INV2 }] }))).toBe("lp_last_investor");
     expect((await post(aenderungPfad, austritt())).status).toBe(201);
-    expect(await fehler(await post(aenderungPfad, austritt(INV2, { wirksamAm: "2026-07-01" })))).toBe("LP_AUSGETRETEN");
-    expect(await fehler(await post(closingPfad, { wirksamAm: "2026-07-01", zusagen: [{ organisationId: INV2, zusage: "1000" }] }))).toBe("LP_AUSGETRETEN");
-    expect(await fehler(await post(aenderungPfad, { ...verringerung("1000"), investoren: [{ organisationId: INV2, neueZusage: "1000" }], wirksamAm: "2026-07-01" }))).toBe("LP_AUSGETRETEN");
+    expect(await fehler(await post(aenderungPfad, austritt(INV2, { wirksamAm: "2026-07-01" })))).toBe("lp_withdrawn");
+    expect(await fehler(await post(closingPfad, { wirksamAm: "2026-07-01", zusagen: [{ organisationId: INV2, zusage: "1000" }] }))).toBe("lp_withdrawn");
+    expect(await fehler(await post(aenderungPfad, { ...verringerung("1000"), investoren: [{ organisationId: INV2, neueZusage: "1000" }], wirksamAm: "2026-07-01" }))).toBe("lp_withdrawn");
     expect((await post(aenderungPfad, { art: "austritt", wirksamAm: "2026-07-01", investoren: [{ organisationId: INV1, neueZusage: "1" }] })).status).toBe(400);
   });
 });
@@ -183,7 +183,7 @@ describe("Storno von Verringerung und Austritt", () => {
     expect(await kapital()).toBe("10000000.00");
     expect(await db.select().from(s.fondsClosing)).toHaveLength(1);
     expect(await db.select().from(s.fondsClosingStorno)).toEqual([expect.objectContaining({ closingId: id })]);
-    const spaeter = (await json(await post(`${fondsPfad}/buchungen`, abruf("2026-07-01", "1000000.00")))).bewegung.id;
+    const spaeter = (await json(await post(`/funds/${ID.fonds}/postings`, abruf("2026-07-01", "1000000.00")))).movement.id;
     expect(await aufteilung(spaeter)).toEqual({ [INV1]: "600000.00", [INV2]: "400000.00" });
 
     const idV = await legeAn(verringerung("3000000", { wirksamAm: "2026-08-01" }));
@@ -194,8 +194,8 @@ describe("Storno von Verringerung und Austritt", () => {
 
   it("lehnt das Storno ab, sobald ab dem Wirksamkeitsdatum eine Kapitalbewegung gebucht ist", async () => {
     const id = await legeAn(austritt());
-    await post(`${fondsPfad}/buchungen`, abruf("2026-06-15", "1000.00"));
-    expect(await fehler(await post(stornoPfad(id), { grund: "Irrtum" }))).toBe("LP_CLOSING_BEWEGUNG_GEBUCHT");
+    await post(`/funds/${ID.fonds}/postings`, abruf("2026-06-15", "1000.00"));
+    expect(await fehler(await post(stornoPfad(id), { grund: "Irrtum" }))).toBe("lp_closing_movement_posted");
     expect((await zeichnungen())[INV2]).toMatchObject({ ausgetreten: true });
     expect(await db.select().from(s.fondsClosingStorno)).toHaveLength(0);
   });
@@ -218,7 +218,7 @@ describe("Storno von Verringerung und Austritt", () => {
     const id = await legeAn(austritt());
     const korrektur = await post(`${closingPfad}/${id}/korrektur`, { grund: "x", wirksamAm: "2026-06-01", zusagen: [{ organisationId: INV3, zusage: "1000" }] });
     expect(korrektur.status).toBe(409);
-    expect(await fehler(korrektur)).toBe("LP_KORREKTUR_NUR_CLOSING");
+    expect(await fehler(korrektur)).toBe("lp_correction_closing_only");
     expect(await db.select().from(s.fondsClosingStorno)).toHaveLength(0);
   });
 });

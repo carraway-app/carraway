@@ -20,11 +20,11 @@ export function ursprungPruefung(konfig: Pick<Konfiguration, "appOrigins">): Mid
     if (!SCHREIBEND.has(c.req.method)) return next();
     const ursprung = c.req.header("Origin");
     if (ursprung !== undefined) {
-      if (!konfig.appOrigins.includes(ursprung)) throw new Fachfehler(403, "ORIGIN_UNGUELTIG", "Der Ursprung der Anfrage ist nicht erlaubt.");
+      if (!konfig.appOrigins.includes(ursprung)) throw new Fachfehler(403, "origin_invalid", "The origin of the request is not allowed.");
       return next();
     }
     const mitSchluessel = /^Bearer /i.test(c.req.header("Authorization") ?? "");
-    if (c.req.header("Cookie") && !mitSchluessel) throw new Fachfehler(403, "ORIGIN_UNGUELTIG", "Der Ursprung der Anfrage fehlt.");
+    if (c.req.header("Cookie") && !mitSchluessel) throw new Fachfehler(403, "origin_invalid", "The origin of the request is missing.");
     return next();
   };
 }
@@ -54,7 +54,7 @@ const KANONISCH = /^\/api\/v1\/auth(\/[a-z0-9]+(-[a-z0-9]+)*)+$/;
 const ZWEI_FAKTOR_ERLAUBT = new Set(["/api/v1/auth/two-factor/enable", "/api/v1/auth/two-factor/verify-totp", "/api/v1/auth/two-factor/verify-backup-code"]);
 
 /**
- * Das Zurücksetzen des Passworts läuft über `/passwort/vergessen` (gleiche Antwort für jede Adresse, Begrenzung je IP und Adresse, Mail über den
+ * Das Zurücksetzen des Passworts läuft über `/password/forgot` (gleiche Antwort für jede Adresse, Begrenzung je IP und Adresse, Mail über den
  * Ausgangskorb). Die Anfrage-Wege von Better Auth selbst sind aus; nur das Einlösen (`POST /reset-password`) ist offen.
  */
 const ZURUECKSETZEN_AUS = ["/api/v1/auth/request-password-reset", "/api/v1/auth/forget-password"];
@@ -67,12 +67,12 @@ const ZURUECKSETZEN_AUS = ["/api/v1/auth/request-password-reset", "/api/v1/auth/
 export function authRouten(auth: Auth, konfig: Konfiguration) {
   return new Hono().on(["GET", "POST"], "/*", async (c) => {
     const roh = new URL(c.req.url).pathname;
-    if (!KANONISCH.test(roh) || !KANONISCH.test(c.req.path)) throw new Fachfehler(404, "NICHT_GEFUNDEN", "Die angeforderte Ressource gibt es nicht.");
+    if (!KANONISCH.test(roh) || !KANONISCH.test(c.req.path)) throw new Fachfehler(404, "not_found", "The requested resource does not exist.");
     if (ZURUECKSETZEN_AUS.includes(c.req.path) || c.req.path.startsWith("/api/v1/auth/reset-password/")) {
-      throw new Fachfehler(404, "NICHT_GEFUNDEN", "Die angeforderte Ressource gibt es nicht.");
+      throw new Fachfehler(404, "not_found", "The requested resource does not exist.");
     }
     if (c.req.path.startsWith("/api/v1/auth/two-factor/") && !ZWEI_FAKTOR_ERLAUBT.has(c.req.path)) {
-      throw new Fachfehler(404, "NICHT_GEFUNDEN", "Die angeforderte Ressource gibt es nicht.");
+      throw new Fachfehler(404, "not_found", "The requested resource does not exist.");
     }
     // Die IP kommt nie vom Client: ein mitgesendeter interner Kopf wird überschrieben.
     const kopf = new Headers(c.req.raw.headers);
@@ -80,9 +80,9 @@ export function authRouten(auth: Auth, konfig: Konfiguration) {
     const antwort = await auth.handler(new Request(c.req.raw, { headers: kopf }));
     if (antwort.status === 429) {
       const koerper = (await antwort.clone().json().catch(() => null)) as { code?: string } | null;
-      if (koerper?.code === "ZU_VIELE_VERSUCHE") {
+      if (koerper?.code === "too_many_attempts") {
         c.header("Retry-After", String(Math.round(konfig.anmeldeLimit.fensterMs / 1000)));
-        throw new Fachfehler(429, "ZU_VIELE_VERSUCHE", "Zu viele Fehlversuche. Bitte später erneut versuchen.");
+        throw new Fachfehler(429, "too_many_attempts", "Too many failed attempts. Please try again later.");
       }
     }
     return antwort;

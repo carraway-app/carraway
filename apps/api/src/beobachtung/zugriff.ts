@@ -49,7 +49,7 @@ export function zugriffsbeobachtung(optionen: { logger?: Logger; metriken?: Metr
       c.res.headers.set("X-Request-Id", anfrageId);
       optionen.metriken?.anfrage(c.req.method, route, c.res.status, dauerMs / 1000);
       // Der Health-Check des Containers fragt alle 30 Sekunden; erfolgreiche Abfragen davon kommen nur bei LOG_STUFE=debug.
-      const stufe = c.res.status >= 500 ? "error" : route === "/api/v1/gesundheit" && c.res.status < 400 ? "debug" : "info";
+      const stufe = c.res.status >= 500 ? "error" : route === "/api/v1/health" && c.res.status < 400 ? "debug" : "info";
       optionen.logger?.(stufe, "anfrage", {
         anfrageId,
         methode: c.req.method,

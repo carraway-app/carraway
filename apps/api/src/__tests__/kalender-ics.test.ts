@@ -25,11 +25,11 @@ const tag = (n: number) => {
 };
 
 const link = async (als: Testperson) => {
-  const antwort = await t.request("/einstellungen/kalender-link", { method: "POST", als });
+  const antwort = await t.request("/settings/calendar-link", { method: "POST", als });
   expect(antwort.status).toBe(201);
-  return (await json(antwort)) as { token: string; pfad: string; url: string };
+  return (await json(antwort)) as { token: string; path: string; url: string };
 };
-const ics = (token: string, app = t) => app.request(`/api/v1/kalender/${token}.ics`);
+const ics = (token: string, app = t) => app.request(`/api/v1/calendar/${token}.ics`);
 const wiedervorlage = (titel: string, benutzerId: string, zusatz: Partial<typeof s.aktivitaet.$inferInsert> = {}) =>
   db.insert(s.aktivitaet).values({ art: "notiz", datum: tag(-3), titel, organisationId: ID.orgA, wiedervorlage: tag(2), zustaendig: benutzerId, ...zusatz }).returning();
 
@@ -48,8 +48,8 @@ describe("Token", () => {
   it("256 Bit zufällig, nur der Hash in der Datenbank, nirgends im Protokoll; ein neuer Link ersetzt den alten", async () => {
     const a = await link(anna);
     expect(a.token).toMatch(/^[A-Za-z0-9_-]{43}$/);
-    expect(a.pfad).toBe(`/api/v1/kalender/${a.token}.ics`);
-    expect(a.url).toBe(`http://localhost:5173${a.pfad}`);
+    expect(a.path).toBe(`/api/v1/calendar/${a.token}.ics`);
+    expect(a.url).toBe(`http://localhost:5173${a.path}`);
     const zeilen = (await db.execute(sql`SELECT * FROM kalender_token`)).rows as Record<string, unknown>[];
     expect(zeilen).toHaveLength(1);
     expect(zeilen[0]!.token_hash).toBe(sha(a.token));
@@ -57,8 +57,8 @@ describe("Token", () => {
     const protokoll = JSON.stringify((await db.execute(sql`SELECT * FROM aenderung WHERE tabelle = 'kalender_token'`)).rows);
     expect(protokoll).not.toContain(a.token);
     expect(protokoll).not.toContain(sha(a.token));
-    const status = await json(await t.request("/einstellungen/kalender-link", { als: anna }));
-    expect(status).toMatchObject({ aktiv: true, letzterZugriffAm: null });
+    const status = await json(await t.request("/settings/calendar-link", { als: anna }));
+    expect(status).toMatchObject({ active: true, lastAccessAt: null });
     expect(JSON.stringify(status)).not.toContain(a.token);
 
     const b = await link(anna);
@@ -71,20 +71,20 @@ describe("Token", () => {
   it("widerrufen: sofort 404; ohne Link meldet der Status `aktiv: false`", async () => {
     const a = await link(anna);
     expect((await ics(a.token)).status).toBe(200);
-    expect((await t.request("/einstellungen/kalender-link", { method: "DELETE", als: anna })).status).toBe(204);
+    expect((await t.request("/settings/calendar-link", { method: "DELETE", als: anna })).status).toBe(204);
     expect((await ics(a.token)).status).toBe(404);
-    expect(await json(await t.request("/einstellungen/kalender-link", { als: anna }))).toMatchObject({ aktiv: false });
-    expect((await t.request("/einstellungen/kalender-link", { method: "DELETE", als: anna })).status).toBe(204); // idempotent
+    expect(await json(await t.request("/settings/calendar-link", { als: anna }))).toMatchObject({ active: false });
+    expect((await t.request("/settings/calendar-link", { method: "DELETE", als: anna })).status).toBe(204); // idempotent
   });
 
   it("jede Person verwaltet nur ihren eigenen Link; Investor-Benutzer und fremde Abrufe haben keinen Zugriff", async () => {
     const a = await link(anna);
-    expect(await json(await t.request("/einstellungen/kalender-link", { als: bernd }))).toMatchObject({ aktiv: false });
-    await t.request("/einstellungen/kalender-link", { method: "DELETE", als: bernd });
+    expect(await json(await t.request("/settings/calendar-link", { als: bernd }))).toMatchObject({ active: false });
+    await t.request("/settings/calendar-link", { method: "DELETE", als: bernd });
     expect((await ics(a.token)).status).toBe(200); // Berndes Widerruf trifft Annas Link nicht
-    const inv = await t.request("/einstellungen/kalender-link", { method: "POST", als: investor });
+    const inv = await t.request("/settings/calendar-link", { method: "POST", als: investor });
     expect(inv.status).toBe(403);
-    expect((await json(inv)).fehler.code).toBe("NUR_PORTAL");
+    expect((await json(inv)).error.code).toBe("portal_only");
   });
 });
 
@@ -114,7 +114,7 @@ describe("Inhalt", () => {
     expect(text).toContain("DESCRIPTION:Alpha Beispiel");
     expect(text).not.toMatch(/Gehört Bernd|Erledigt|Ohne Wiedervorlage/);
     // der Abruf wird festgehalten
-    expect(await json(await t.request("/einstellungen/kalender-link", { als: anna }))).toMatchObject({ aktiv: true });
+    expect(await json(await t.request("/settings/calendar-link", { als: anna }))).toMatchObject({ active: true });
     expect((await db.select().from(s.kalenderToken))[0]!.letzterZugriffAm).toBeInstanceOf(Date);
   });
 
@@ -166,13 +166,13 @@ describe("Begrenzung und Fehlgriffe", () => {
   it("falsche Form oder unbekanntes Token: 404 (nie 401), Fehlgriffe zählen, danach 429 mit Retry-After; öffentlich ohne Cookie", async () => {
     const falsch = ["kurz", `${"A".repeat(43)}`, `${"A".repeat(43)}.txt`, `${"A".repeat(44)}.ics`];
     const antworten: Response[] = [];
-    for (const f of falsch.slice(0, 3)) antworten.push(await knapp.app.request(`/api/v1/kalender/${f}`));
+    for (const f of falsch.slice(0, 3)) antworten.push(await knapp.app.request(`/api/v1/calendar/${f}`));
     expect(antworten.map((a) => a.status)).toEqual([404, 404, 404]);
-    expect((await json(antworten[0]!)).fehler.code).toBe("NICHT_GEFUNDEN");
-    const gesperrt = await knapp.app.request(`/api/v1/kalender/${falsch[3]}`);
+    expect((await json(antworten[0]!)).error.code).toBe("not_found");
+    const gesperrt = await knapp.app.request(`/api/v1/calendar/${falsch[3]}`);
     expect(gesperrt.status).toBe(429);
     expect(gesperrt.headers.get("retry-after")).toBe("60");
-    expect((await json(gesperrt)).fehler.code).toBe("ZU_VIELE_ANFRAGEN");
+    expect((await json(gesperrt)).error.code).toBe("too_many_requests");
   });
 
   it("je Token höchstens so viele Abrufe pro Minute wie konfiguriert", async () => {
@@ -184,7 +184,7 @@ describe("Begrenzung und Fehlgriffe", () => {
 
   it("der Abruf braucht keine Anmeldung und nimmt kein Cookie an: ein fremdes Cookie ändert nichts", async () => {
     const a = await link(anna);
-    const antwort = await t.app.request(`/api/v1/kalender/${a.token}.ics`, { headers: { cookie: "better-auth.session_token=egal" } });
+    const antwort = await t.app.request(`/api/v1/calendar/${a.token}.ics`, { headers: { cookie: "better-auth.session_token=egal" } });
     expect(antwort.status).toBe(200);
   });
 });

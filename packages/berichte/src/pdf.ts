@@ -293,7 +293,11 @@ export function lpBerichtQuelle(d: LpBerichtDaten, sprache: Sprache, optionen: B
   });
 
   const konten = d.kapitalkonten;
-  const kontoZeilen = konten.map((k) => [k.investor, formatProzent(k.anteil, sprache), betrag(k.zusage), betrag(k.abgerufen), betrag(k.ausgeschuettet), betrag(k.offeneZusage), betrag(k.navAnteil)]);
+  // Die Spalte für Vergütung und Kosten erscheint nur, wenn der Fonds Kostenbuchungen hat; sonst bleibt die Tabelle wie bisher.
+  const mitKosten = konten.some((k) => k.verwaltungsverguetung !== undefined || k.fondskosten !== undefined);
+  const kostenVon = (k: (typeof konten)[number]) => alsBetrag(summeCent([k.verwaltungsverguetung ?? "0", k.fondskosten ?? "0"]));
+  const kostenZelle = (w: string) => (mitKosten ? [betrag(w)] : []);
+  const kontoZeilen = konten.map((k) => [k.investor, formatProzent(k.anteil, sprache), betrag(k.zusage), betrag(k.abgerufen), betrag(k.ausgeschuettet), betrag(k.offeneZusage), ...kostenZelle(kostenVon(k)), betrag(k.navAnteil)]);
   const einzeln = optionen.kapitalkontoEinzeln === true && konten.length === 1;
   if (konten.length > 0 && !einzeln) {
     kontoZeilen.push([
@@ -303,6 +307,7 @@ export function lpBerichtQuelle(d: LpBerichtDaten, sprache: Sprache, optionen: B
       betrag(alsBetrag(summeCent(konten.map((k) => k.abgerufen)))),
       betrag(alsBetrag(summeCent(konten.map((k) => k.ausgeschuettet)))),
       betrag(alsBetrag(summeCent(konten.map((k) => k.offeneZusage)))),
+      ...kostenZelle(alsBetrag(summeCent(konten.map(kostenVon)))),
       betrag(d.kennzahlen.nav.wert === null ? null : alsBetrag(summeCent(konten.map((k) => k.navAnteil)))),
     ]);
   }
@@ -320,14 +325,14 @@ export function lpBerichtQuelle(d: LpBerichtDaten, sprache: Sprache, optionen: B
     abschnitte: konfiguration.abschnitte,
     freitexte: { vorwort: freitext("vorwort"), marktumfeld: freitext("marktumfeld"), ausblick: freitext("ausblick") },
     kacheln: gewaehlt.map((k) => ({ label: kennzahlen[k]!.label, wert: kennzahlen[k]!.wert, dunkel: kennzahlen[k]!.dunkel })),
-    kapitalkontenKopf: [t.lp.investor, t.kennzahlen.anteil, t.kennzahlen.zusage, t.kennzahlen.abgerufen, t.kennzahlen.ausschuettungen, t.kennzahlen.offeneZusage, `${t.kennzahlen.nav} ${t.kennzahlen.anteil.toLowerCase()}`],
+    kapitalkontenKopf: [t.lp.investor, t.kennzahlen.anteil, t.kennzahlen.zusage, t.kennzahlen.abgerufen, t.kennzahlen.ausschuettungen, t.kennzahlen.offeneZusage, ...(mitKosten ? [t.lp.kostenSpalte] : []), `${t.kennzahlen.nav} ${t.kennzahlen.anteil.toLowerCase()}`],
     zahlungenKopf: [t.lp.investor, t.kennzahlen.abgerufen, t.kennzahlen.eingezahlt, t.kennzahlen.offen, t.kennzahlen.ueberfaellig],
     zahlungen: konten.filter((k) => k.eingezahlt !== undefined).map((k) => [k.investor, betrag(k.abgerufen), betrag(k.eingezahlt ?? null), betrag(k.offen ?? null), betrag(k.ueberfaellig ?? null)]),
     kapitalkonten: kontoZeilen,
     kapitalkontenSumme: !einzeln,
-    kapitalkontenHinweis: einzeln ? t.lp.kapitalkontoEinzelHinweis.replace("{investor}", konten[0]!.investor) : t.lp.kapitalkontenHinweis,
-    kapitalkontenAusrichtung: ["left", "right", "right", "right", "right", "right", "right"],
-    kapitalkontenBreiten: [1, null, null, null, null, null, null],
+    kapitalkontenHinweis: (einzeln ? t.lp.kapitalkontoEinzelHinweis.replace("{investor}", konten[0]!.investor) : t.lp.kapitalkontenHinweis) + (mitKosten ? ` ${t.lp.kostenHinweis}` : ""),
+    kapitalkontenAusrichtung: ["left", "right", "right", "right", "right", "right", ...(mitKosten ? ["right"] : []), "right"],
+    kapitalkontenBreiten: [1, null, null, null, null, null, ...(mitKosten ? [null] : []), null],
     ...portfolioTabelle(d, sprache, konfiguration),
     ...realisierungen(d, sprache, konfiguration.einheit),
     ...bewertungsMethoden(d, sprache, konfiguration.einheit),

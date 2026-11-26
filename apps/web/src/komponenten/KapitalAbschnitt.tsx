@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { Auswahl, Button, Feld, Hinweis, Segment, Status, Tabelle, formatBetrag, formatDatum, type TabelleSpalte } from "@carraway/ui";
@@ -15,6 +15,9 @@ import { BetragFeld } from "./BetragFeld";
 import { betragRegel, ganzzahlRegel, pflichtRegel, prozentRegel } from "../lib/feldpruefung";
 import { MitarbeiterAbschnitt } from "./MitarbeiterAbschnitt";
 import { Skelettzeilen } from "./Skelett";
+
+// Übertragungen (Liste und Dialoge) laden erst mit dem Abschnitt der Seite.
+const UebertragungenAbschnitt = lazy(() => import("./Uebertragungen").then((m) => ({ default: m.UebertragungenAbschnitt })));
 
 type Klassenzeile = Kapitaltabelle["klassen"][number];
 type Inhaberzeile = Kapitaltabelle["inhaber"][number];
@@ -62,8 +65,9 @@ export function KapitalAbschnitt({ beteiligungId, organisationId, fondsId, stich
         {w.schaetzung}
       </Status>
     ) : null;
-  const gruppeOhneKlasse = (art: string) => (art === "wandlung" ? k.wandlungGruppe : k.poolGruppe);
-  const positionMitKlasse = (z: KapitalZeile) => z.halter.art === "fonds" || z.halter.art === "organisation";
+  const gruppeOhneKlasse = (art: string) => (art === "wandlung" ? k.wandlungGruppe : art === "optionsschein" ? k.optionsscheinGruppe : k.poolGruppe);
+  // Nur echte Rundenpositionen haben eine zuweisbare Klasse; Ausübungen, Übertragungen und Sammelzeilen (Id mit Doppelpunkt) erben sie.
+  const positionMitKlasse = (z: KapitalZeile) => (z.halter.art === "fonds" || z.halter.art === "organisation") && !z.id.includes(":");
   const investorLink = (id: string, name: string) => (
     <Link to="/organisationen/$id" params={{ id }} search={{ tab: "engagement", unter: "vehikel" }}>
       {name}
@@ -85,6 +89,8 @@ export function KapitalAbschnitt({ beteiligungId, organisationId, fondsId, stich
             inhaberName(z)
           )}
           {schaetzung(z.halter.art)}
+          {z.id.startsWith("ausuebung:") ? <Status variante="entwurf">{k.herkunft.ausuebung}</Status> : null}
+          {z.id.startsWith("uebertragung:") ? <Status variante="entwurf">{k.herkunft.uebertragung}</Status> : null}
           {z.diesesFonds ? <Status>{k.diesesFonds}</Status> : null}
         </span>
       ),
@@ -139,7 +145,7 @@ export function KapitalAbschnitt({ beteiligungId, organisationId, fondsId, stich
     { schluessel: "investiert", kopf: k.spalten.investiert, zahl: true, zelle: (x) => (Number(x.investiert) > 0 ? formatBetragCent(x.investiert, sprache) : t.gemeinsam.keinWert) },
   ];
   const klassenSpalten: TabelleSpalte<Klassenzeile>[] = [
-    { schluessel: "klasse", kopf: k.klassenSpalten.klasse, zelle: (x) => (x.art === "pool" || x.art === "wandlung" ? gruppeOhneKlasse(x.art) : (x.name ?? k.stammanteile)) },
+    { schluessel: "klasse", kopf: k.klassenSpalten.klasse, zelle: (x) => (x.art === "pool" || x.art === "wandlung" || x.art === "optionsschein" ? gruppeOhneKlasse(x.art) : (x.name ?? k.stammanteile)) },
     { schluessel: "rang", kopf: k.klassenSpalten.rang, zelle: (x) => (x.rang === null ? t.gemeinsam.keinWert : k.rang(x.rang)) },
     { schluessel: "anteile", kopf: k.klassenSpalten.anteile, zahl: true, zelle: (x) => formatAnzahl(x.anteile, sprache) },
     { schluessel: "anteil", kopf: k.klassenSpalten.anteil, zahl: true, zelle: (x) => anteilIn(x) },
@@ -210,11 +216,15 @@ export function KapitalAbschnitt({ beteiligungId, organisationId, fondsId, stich
             ) : (
               <Tabelle beschriftung={k.tabelle} spalten={zeilenSpalten} zeilen={data.zeilen.filter((z) => voll || z.ausgegeben)} zeilenSchluessel={(z) => z.id} ausgewaehlt={(z) => z.diesesFonds} />
             )}
-            <Tabelle beschriftung={k.klassenTabelle} spalten={klassenSpalten} zeilen={data.klassen.filter((x) => voll || (x.art !== "pool" && x.art !== "wandlung"))} zeilenSchluessel={(x) => x.id ?? x.art} />
+            <Tabelle beschriftung={k.klassenTabelle} spalten={klassenSpalten} zeilen={data.klassen.filter((x) => voll || (x.art !== "pool" && x.art !== "wandlung" && x.art !== "optionsschein"))} zeilenSchluessel={(x) => x.id ?? x.art} />
             {voll && mitWandlungen && offeneWandlungen.length > 0 ? <OffeneWandlungen liste={offeneWandlungen} referenzpreis={data.offeneWandlungen.referenzpreis} anteileVor={data.offeneWandlungen.anteileVorWandlung} /> : null}
           </>
         ) : null}
       </section>
+
+      <Suspense fallback={null}>
+        <UebertragungenAbschnitt beteiligungId={beteiligungId} organisationId={organisationId} fondsId={fondsId} lesend={lesend} />
+      </Suspense>
 
       <section className="app-karte" aria-labelledby="klassen-titel">
         <div className="app-karte__kopf">

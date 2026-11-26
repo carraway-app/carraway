@@ -28,7 +28,7 @@ describe("Dealflow: Phase ändern", () => {
     expect(within(screen.getByRole("region", { name: /^Anfrage/ })).queryByText("Alpha, Wachstum")).toBeNull();
     expect(api.anfragen("POST", `/api/v1/deals/${DEAL_ID}/phase`)[0]?.koerper).toEqual({ nachPhase: "pruefung" });
 
-    antworte(fehler(409, "BESCHLUSS_FEHLT"));
+    antworte(fehler(409, "resolution_missing"));
     const meldung = await screen.findByRole("alert");
     expect(meldung.textContent).toContain("zustimmender Beschluss");
     expect(within(screen.getByRole("region", { name: /^Anfrage/ })).getByText("Alpha, Wachstum")).toBeTruthy();
@@ -99,7 +99,7 @@ describe("Dealflow: Neuer Deal", () => {
     const kandidat = { id: ORG_A, name: "Alpha Energie", art: "unternehmen", ort: "Hamburg", score: 0.9 };
     const api = spieleApi({
       "POST /api/v1/deals": (a) =>
-        (a.koerper as { dubletteBestaetigt?: boolean }).dubletteBestaetigt ? neuerDeal() : fehler(409, "DUBLETTE_MOEGLICH", { kandidaten: [kandidat] }),
+        (a.koerper as { dubletteBestaetigt?: boolean }).dubletteBestaetigt ? neuerDeal() : fehler(409, "possible_duplicate", { kandidaten: [kandidat] }),
     });
     const { router } = rendereApp("/dealflow");
     const nutzer = userEvent.setup();
@@ -184,7 +184,7 @@ describe("Deal", () => {
     const api = spieleApi({
       [`POST /api/v1/deals/${DEAL_ID}/beschluesse`]: () =>
         ++versuch === 1
-          ? fehler(400, "EINGABE_UNGUELTIG", {
+          ? fehler(400, "invalid_input", {
               felder: [
                 { feld: "gremium", code: "too_small", meldung: "zu kurz" },
                 { feld: "betrag", code: "invalid_format", meldung: "falsch" },
@@ -270,10 +270,10 @@ describe("Deal", () => {
     expect(api.anfragen("GET", "/api/v1/organisationen")).toHaveLength(0);
   });
 
-  it("meldet BETEILIGUNG_VORHANDEN im Dialog und verweist auf die vorhandene Beteiligung", async () => {
+  it("meldet investment_exists im Dialog und verweist auf die vorhandene Beteiligung", async () => {
     spieleApi({
       [`/api/v1/deals/${DEAL_ID}`]: { koerper: { ...dealDetailDaten, beschluesse: [zustimmung] } },
-      [`POST /api/v1/deals/${DEAL_ID}/beteiligung`]: () => fehler(409, "BETEILIGUNG_VORHANDEN", { beteiligungId: "b9" }),
+      [`POST /api/v1/deals/${DEAL_ID}/beteiligung`]: () => fehler(409, "investment_exists", { beteiligungId: "b9" }),
     });
     rendereApp(`/deals/${DEAL_ID}`);
     const nutzer = userEvent.setup();

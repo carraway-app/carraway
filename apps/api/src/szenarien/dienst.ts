@@ -27,7 +27,7 @@ export const ergebnisHash = (z: { annahmen: unknown; basisStichtag: string; wiss
 
 export async function ladeSzenario(tx: Tx, id: string): Promise<SzenarioZeile> {
   const [z] = await tx.select().from(szenario).where(eq(szenario.id, id));
-  if (!z) throw new Fachfehler(404, "SZENARIO_NICHT_GEFUNDEN", "Szenario nicht gefunden.");
+  if (!z) throw new Fachfehler(404, "scenario_not_found", "Scenario not found.");
   return z;
 }
 

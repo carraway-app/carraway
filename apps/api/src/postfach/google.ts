@@ -1,6 +1,6 @@
 import { bearer, gleicherHost, rufeAuf, type Abrufer } from "./http";
 import type { OAuthAnbieter } from "./konfiguration";
-import { ERSTER_ABGLEICH_TAGE, MAX_MAILS_JE_ABGLEICH, PostfachFehler, type MailAbruf, type MailKopf, type PostfachAnbieter, type Termin, type Zugang } from "./typen";
+import { ERSTER_ABGLEICH_TAGE, istMassenmail, MASSEN_KOPFZEILEN, namenAus, optional, MAX_MAILS_JE_ABGLEICH, PostfachFehler, type MailAbruf, type MailKopf, type PostfachAnbieter, type Termin, type Zugang } from "./typen";
 
 /**
  * Gmail API und Google Kalender API, nur lesend, ohne SDK. NICHT gegen die echten Dienste geprüft (siehe oauth.ts).
@@ -14,6 +14,7 @@ interface GmailListe {
 }
 interface GmailNachricht {
   id: string;
+  labelIds?: string[];
   internalDate?: string;
   snippet?: string;
   payload?: { headers?: { name: string; value: string }[]; mimeType?: string; body?: { data?: string }; parts?: GmailTeil[] };
@@ -31,16 +32,86 @@ interface GoogleTermin {
   status?: string;
   start?: { dateTime?: string; date?: string };
   end?: { dateTime?: string; date?: string };
-  organizer?: { email?: string };
-  attendees?: { email?: string }[];
+  organizer?: { email?: string; displayName?: string; self?: boolean };
+  attendees?: { email?: string; displayName?: string; self?: boolean; responseStatus?: string }[];
   recurringEventId?: string;
   originalStartTime?: { dateTime?: string; date?: string };
 }
 
-/** Adressen aus einer Kopfzeile wie `Name <a@b.example>, c@d.example`. */
-export function adressenAusKopf(wert: string | undefined): string[] {
+/**
+ * Zerlegt eine Adressliste nach RFC 5322 in Einträge: Kommas in Anführungszeichen, Kommentaren und spitzen Klammern trennen nicht. Je Eintrag gilt die Adresse in spitzen
+ * Klammern (`angle-addr`), sonst der Eintrag selbst ohne Kommentare; der Anzeigename zählt nie als Adresse (`"chef@firma.example" <x@y.example>` ergibt `x@y.example`).
+ */
+export function zerlegeAdressliste(wert: string | undefined): { adresse: string; name: string }[] {
   if (!wert) return [];
-  return [...wert.matchAll(/[A-Za-z0-9._%+'-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g)].map((m) => m[0].toLowerCase());
+  const teile: string[] = [];
+  let aktuell = "";
+  let inZitat = false;
+  let klammer = 0;
+  let kommentar = 0;
+  for (let i = 0; i < wert.length; i++) {
+    const z = wert[i]!;
+    if (inZitat) {
+      if (z === "\\") {
+        aktuell += z + (wert[i + 1] ?? "");
+        i++;
+        continue;
+      }
+      if (z === '"') inZitat = false;
+    } else if (kommentar > 0) {
+      if (z === "(") kommentar++;
+      else if (z === ")") kommentar--;
+    } else if (z === '"') inZitat = true;
+    else if (z === "(") kommentar++;
+    else if (z === "<") klammer++;
+    else if (z === ">") klammer = Math.max(0, klammer - 1);
+    else if (z === "," && klammer === 0) {
+      teile.push(aktuell);
+      aktuell = "";
+      continue;
+    }
+    aktuell += z;
+  }
+  teile.push(aktuell);
+  const ADRESSE = /^[^\s@<>()",;:]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$/;
+  const aus: { adresse: string; name: string }[] = [];
+  for (const roh of teile) {
+    // Spitze Klammer außerhalb von Anführungszeichen suchen (die letzte gilt).
+    let start = -1;
+    let ende = -1;
+    let zitat = false;
+    for (let i = 0; i < roh.length; i++) {
+      const z = roh[i]!;
+      if (z === "\\" && zitat) {
+        i++;
+        continue;
+      }
+      if (z === '"') zitat = !zitat;
+      else if (!zitat && z === "<") start = i;
+      else if (!zitat && z === ">" && start >= 0) ende = i;
+    }
+    const ohneKommentar = (t: string) => t.replace(/\([^()]*\)/g, "").trim();
+    const adresse = (start >= 0 && ende > start ? roh.slice(start + 1, ende) : ohneKommentar(roh).replace(/^[^:<"@]*:/, "").replace(/;+$/, "")).trim().toLowerCase();
+    if (!ADRESSE.test(adresse)) continue;
+    const name = start >= 0 ? ohneKommentar(roh.slice(0, start)).replace(/^"|"$/g, "").replace(/\\(.)/g, "$1").trim() : "";
+    aus.push({ adresse, name });
+  }
+  return aus;
+}
+
+/** Adressen aus einer Kopfzeile wie `Name <a@b.example>, c@d.example` (RFC 5322, siehe `zerlegeAdressliste`). */
+export function adressenAusKopf(wert: string | undefined): string[] {
+  return zerlegeAdressliste(wert).map((e) => e.adresse);
+}
+
+/** Anzeigenamen aus einer Kopfzeile wie `"Nachname, Vorname" <a@b.example>, Name <c@d.example>`. */
+export const namenAusKopf = (wert: string | undefined) => zerlegeAdressliste(wert).filter((e) => e.name);
+
+/** Antwort der Person selbst auf einen Termin (`organizer.self`, sonst `responseStatus` des Teilnehmers mit `self`). */
+export function eigeneAntwortGoogle(t: { organizer?: { self?: boolean }; attendees?: { self?: boolean; responseStatus?: string }[] }): NonNullable<Termin["eigeneAntwort"]> {
+  if (t.organizer?.self === true) return "organisator";
+  const r = t.attendees?.find((a) => a.self === true)?.responseStatus;
+  return r === "accepted" ? "angenommen" : r === "tentative" ? "vorbehalt" : r === "declined" ? "abgelehnt" : "offen";
 }
 
 function textAusTeil(t: GmailTeil | GmailNachricht["payload"]): string | null {
@@ -80,7 +151,7 @@ export function erstelleGoogle(k: OAuthAnbieter, abrufer: Abrufer): PostfachAnbi
       for (const id of ids.slice(0, MAX_MAILS_JE_ABGLEICH)) {
         const u = new URL(`${k.apiBasis}/users/me/messages/${encodeURIComponent(id)}`);
         u.searchParams.set("format", "metadata");
-        for (const h of ["From", "To", "Cc", "Subject", "Message-ID"]) u.searchParams.append("metadataHeaders", h);
+        for (const h of ["From", "To", "Cc", "Subject", "Message-ID", ...MASSEN_KOPFZEILEN]) u.searchParams.append("metadataHeaders", h);
         const m = (await rufeAuf(abrufer, u.toString(), bearer(token(z)))) as GmailNachricht;
         const kopf = (name: string) => m.payload?.headers?.find((h) => h.name.toLowerCase() === name.toLowerCase())?.value;
         const datum = new Date(Number(m.internalDate));
@@ -93,6 +164,9 @@ export function erstelleGoogle(k: OAuthAnbieter, abrufer: Abrufer): PostfachAnbi
           von: adressenAusKopf(kopf("From"))[0] ?? "",
           an: adressenAusKopf(kopf("To")),
           cc: adressenAusKopf(kopf("Cc")),
+          ...optional("namen", namenAus(["From", "To", "Cc"].flatMap((h) => namenAusKopf(kopf(h))))),
+          ...(istMassenmail(kopf) ? { massenmail: true } : {}),
+          ...(m.labelIds?.includes("SENT") ? { gesendet: true } : {}),
         });
       }
       koepfe.sort((a, b) => a.datum.getTime() - b.datum.getTime());
@@ -153,6 +227,8 @@ export function erstelleGoogle(k: OAuthAnbieter, abrufer: Abrufer): PostfachAnbi
           ende: datumOderTag(t.end),
           teilnehmer: [t.organizer?.email, ...(t.attendees ?? []).map((a) => a.email)].filter((e): e is string => typeof e === "string" && e.includes("@")).map((e) => e.toLowerCase()),
           organisator: typeof t.organizer?.email === "string" && t.organizer.email.includes("@") ? t.organizer.email.toLowerCase() : null,
+          ...optional("namen", namenAus([t.organizer, ...(t.attendees ?? [])].map((a) => ({ adresse: a?.email, name: a?.displayName })))),
+          eigeneAntwort: eigeneAntwortGoogle(t),
           abgesagt: t.status === "cancelled",
         });
       }

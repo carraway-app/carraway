@@ -2,6 +2,8 @@ import { useState } from "react";
 import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { getRouteApi, Link } from "@tanstack/react-router";
 import { Button, Hinweis, Inhaltsverzeichnis, Seitenkopf, formatDatum } from "@carraway/ui";
+import { alle } from "../erweiterung";
+import { KontaktHerkunft } from "../komponenten/KontakteAusPostfach";
 import { personAktivitaeten, personDetail, personenDubletten } from "../api/abfragen";
 import { AktivitaetDialog, AktivitaetenListe } from "../komponenten/Aktivitaeten";
 import { AufgabenAbschnitt, Datensatzpanel, VerknuepftAbschnitt } from "../komponenten/crm/Datensatzpanel";
@@ -86,6 +88,10 @@ export function PersonSeite() {
         }
       />
       <NurLesen />
+      <KontaktHerkunft herkunft={p.herkunft} />
+      {alle("datensatzErgaenzung").map((E, i) => (
+        <E key={i} objekt="person" id={p.id} darfSchreiben={schreiben} />
+      ))}
       {weg ? (
         <Hinweis>
           {t.person.zusammengefuehrt}{" "}

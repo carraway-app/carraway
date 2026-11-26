@@ -18,7 +18,8 @@ export interface Wandlungspreisregel {
 
 export interface WandlungEingabe {
   bewegungen: Kapitalbewegung[];
-  bedingungen: Zinsbedingungen;
+  /** Zinsbedingungen; ohne Angabe (SAFE) gibt es keine Zinsen, der Wandlungsbetrag ist das offene Kapital. */
+  bedingungen?: Zinsbedingungen | undefined;
   cutoff: Datum;
   /** Zinsen in die Wandlung einbeziehen (true) oder auszahlen (false). */
   zinsenWandeln: boolean;
@@ -77,7 +78,7 @@ export interface Wandlungsergebnis {
   schritte: Rechenschritt[];
 }
 
-/** Wandlung eines Wandeldarlehens zum Cut-off als ein Vorgang (Zinsen, Erlöschen, neue Anteile). */
+/** Wandlung eines Wandeldarlehens oder SAFE zum Cut-off als ein Vorgang (Zinsen, Erlöschen, neue Anteile). Ein SAFE hat keine Zinsbedingungen. */
 export function wandlung(eingabe: WandlungEingabe): Wandlungsergebnis {
   const { cutoff } = eingabe;
   zerlege(cutoff);
@@ -93,7 +94,10 @@ export function wandlung(eingabe: WandlungEingabe): Wandlungsergebnis {
 
   const zinsenAb = eingabe.zinsenAb ?? erste;
   if (vergleiche(zinsenAb, cutoff) > 0) throw new Error(`Zinsbeginn ${zinsenAb} liegt nach dem Cut-off ${cutoff}`);
-  const zinsen = zinsenAufVerlauf(verlauf, zinsenAb, cutoff, eingabe.bedingungen);
+  if (!eingabe.bedingungen && eingabe.zinsenWandeln) throw new Error("Ohne Zinsbedingungen (SAFE) gibt es keine Zinsen, die mitwandeln");
+  const zinsen = eingabe.bedingungen
+    ? zinsenAufVerlauf(verlauf, zinsenAb, cutoff, eingabe.bedingungen)
+    : { betragGesamt: new Decimal(0), schritte: [{ zeichen: "" as const, bezeichnung: "Keine Zinsbedingungen (SAFE): keine Zinsen", wert: "0" }] };
   const zinsenGebucht = aufCent(zinsen.betragGesamt);
 
   const nennwert = new Decimal(eingabe.nennwertJeAnteil);

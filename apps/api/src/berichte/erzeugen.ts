@@ -96,7 +96,7 @@ export async function erzeugeBerichtDatei(tx: Tx, b: Bericht, optionen: { entwur
   const standIso = optionen.stand.toISOString();
   const typ = b.format === "pdf" ? PDF : XLSX;
   const fondsId = b.fondsId;
-  const nichtGefunden = () => new Fachfehler(404, "NICHT_GEFUNDEN", "Die Daten des Berichts gibt es nicht mehr.");
+  const nichtGefunden = () => new Fachfehler(404, "not_found", "The report data no longer exists.");
 
   let kuerzel: string;
   let gemeinsam: BerichtsOptionen = { entwurf: optionen.entwurf };
@@ -114,7 +114,7 @@ export async function erzeugeBerichtDatei(tx: Tx, b: Bericht, optionen: { entwur
   // Die bei der Anlage festgehaltene Vorlage gilt, nie die aktuelle des Fonds.
   gemeinsam = { ...gemeinsam, konfiguration: pruefeKonfiguration(b.art, b.konfiguration) };
   const erweiterung = istKernArt(b.art) ? undefined : berichtsartAusErweiterung(b.art);
-  if (!istKernArt(b.art) && !erweiterung) throw new Fachfehler(409, "BERICHTSART_NICHT_VERFUEGBAR", "Diese Berichtsart gibt es in dieser Installation nicht.", { art: b.art });
+  if (!istKernArt(b.art) && !erweiterung) throw new Fachfehler(409, "report_type_unavailable", "This report type is not available in this installation.", { art: b.art });
   const artName = istKernArt(b.art) ? ART_NAME[b.art][sprache] : erweiterung!.dateiname[sprache];
   const name = `${artName}-${kuerzel}-${b.stichtag}${optionen.entwurf ? (sprache === "de" ? "-entwurf" : "-draft") : ""}.${b.format}`;
   const stand = standIso;
@@ -180,7 +180,7 @@ export async function erzeugeBerichtDatei(tx: Tx, b: Bericht, optionen: { entwur
       const ids = szenarioIdsVon(b.parameter);
       const zeilen = ids.length > 0 ? (await ladeSzenarien(tx, fondsId!, ids)).sort((x, y) => ids.indexOf(x.id) - ids.indexOf(y.id)) : [];
       if (zeilen.length !== ids.length || zeilen.length === 0) throw nichtGefunden();
-      if (!optionen.entwurf && zeilen.some((z) => z.status !== "festgeschrieben")) throw new Fachfehler(409, "SZENARIO_NICHT_FESTGESCHRIEBEN", "Ein Szenarienbericht lässt sich nur mit festgeschriebenen Szenarien freigeben.");
+      if (!optionen.entwurf && zeilen.some((z) => z.status !== "festgeschrieben")) throw new Fachfehler(409, "scenario_not_locked", "A scenario report can only be approved with locked scenarios.");
       const d = await ladeSzenarioberichtDaten(tx, fondsId!, zeilen, standIso);
       bytes = b.format === "xlsx" ? await erzeugeSzenarioberichtExcel(d, sprache) : erzeugeSzenarioberichtPdf(d, sprache, { entwurf: optionen.entwurf });
       break;

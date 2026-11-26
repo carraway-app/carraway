@@ -6,9 +6,9 @@ import { ApiFehler } from "../api/client";
 import { aufzaehlung, useT } from "../i18n";
 import { useEntprellt } from "./formular";
 
-/** Kandidaten aus einem 409 `DUBLETTE_MOEGLICH`; sonst `null`. */
+/** Kandidaten aus einem 409 `possible_duplicate`; sonst `null`. */
 export function kandidatenAus(fehler: unknown): Dublette[] | null {
-  if (!(fehler instanceof ApiFehler) || fehler.code !== "DUBLETTE_MOEGLICH") return null;
+  if (!(fehler instanceof ApiFehler) || fehler.code !== "possible_duplicate") return null;
   return Array.isArray(fehler.zusatz.kandidaten) ? (fehler.zusatz.kandidaten as Dublette[]) : [];
 }
 
@@ -52,7 +52,7 @@ export function DublettenHinweis({ name, onVerwenden }: { name: string; onVerwen
   );
 }
 
-/** Antwort auf 409 `DUBLETTE_MOEGLICH`: Kandidaten zeigen, neu anlegen nur nach ausdrücklicher Bestätigung. */
+/** Antwort auf 409 `possible_duplicate`: Kandidaten zeigen, neu anlegen nur nach ausdrücklicher Bestätigung. */
 export function DublettenBestaetigung({
   kandidaten,
   onBestaetigen,
@@ -66,7 +66,7 @@ export function DublettenBestaetigung({
 }) {
   const t = useT();
   return (
-    <Hinweis variante="fehler" titel={t.fehler.DUBLETTE_MOEGLICH}>
+    <Hinweis variante="fehler" titel={t.fehler.possible_duplicate}>
       {t.dubletten.bestaetigung}
       <Kandidaten kandidaten={kandidaten} onVerwenden={onVerwenden} />
       <Button variante="gefahr" onClick={onBestaetigen} disabled={laeuft}>

@@ -28,7 +28,7 @@ export interface Akteur {
   zweiFaktorAktiv: boolean;
   /** Pflicht nicht erfüllt: Person mit Passwort ohne zweiten Faktor, solange `ZWEI_FAKTOR_PFLICHT` gilt. */
   zweiFaktorFehlt: boolean;
-  /** Startpasswort noch nicht geändert: alle Routen außer `/auth/*` und `/ich` antworten 403 `PASSWORT_AENDERN`. */
+  /** Startpasswort noch nicht geändert: alle Routen außer `/auth/*` und `/me` antworten 403 `password_change_required`. */
   passwortAendern: boolean;
   /** Wirksame Stufe je Fonds: eigene Fondsrolle, sonst die höchste Stufe der Gruppen mit Zugriff auf den Fonds (`rechte/aufloesung.ts`). */
   rollen: Map<string, FondsRolle>;
@@ -49,12 +49,12 @@ export interface Akteur {
   stufeOhneFondsJeBereich: ReadonlyMap<Bereich, FondsRolle> | null;
   /**
    * Investor-Benutzer des LP-Portals (Etappe 12): hat nie Fondsrollen und kommt nur an die Routen unter `/portal`.
-   * Alle internen Routen lehnt `rechtePruefung` für ihn mit 403 `NUR_PORTAL` ab.
+   * Alle internen Routen lehnt `rechtePruefung` für ihn mit 403 `portal_only` ab.
    */
   investor: boolean;
   /** Investor-Organisationen, deren Konten, Berichte und Mitteilungen der Investor-Benutzer sieht; sonst leer (auch bei API-Schlüsseln). */
   investorOrganisationen: string[];
-  /** `werteschluessel`: persönlicher Schlüssel `cww_…` (alt `fdw_…`), gilt nur für `/werte/*` (die Rechtsprüfung lehnt jede andere Route ab). */
+  /** `werteschluessel`: persönlicher Schlüssel `cww_…` (alt `fdw_…`), gilt nur für `/values/*` (die Rechtsprüfung lehnt jede andere Route ab). */
   quelle: "sitzung" | "schluessel" | "werteschluessel";
   schluesselId?: string;
 }
@@ -67,7 +67,7 @@ declare module "hono" {
 
 export function aktuellerAkteur(c: Context): Akteur {
   const akteur = c.get("akteur");
-  if (!akteur) throw new Fachfehler(401, "NICHT_ANGEMELDET", "Bitte anmelden.");
+  if (!akteur) throw new Fachfehler(401, "not_authenticated", "Please sign in.");
   return akteur;
 }
 
@@ -151,7 +151,7 @@ export function erzeugeWerteSchluessel(): { klartext: string; hash: string; vors
 }
 
 /** Rechte aus den Scopes: `lesen` entspricht Betrachter, `schreiben` Bearbeiter; nie Freigeber oder Verwalter. */
-function rollenAusScopes(scopes: SchluesselScope[]): Map<string, FondsRolle> {
+export function rollenAusScopes(scopes: SchluesselScope[]): Map<string, FondsRolle> {
   const rollen = new Map<string, FondsRolle>();
   for (const s of scopes) {
     const rolle: FondsRolle = s.recht === "schreiben" ? "bearbeiter" : "betrachter";
@@ -161,7 +161,7 @@ function rollenAusScopes(scopes: SchluesselScope[]): Map<string, FondsRolle> {
   return rollen;
 }
 
-const ungueltig = () => new Fachfehler(401, "NICHT_ANGEMELDET", "Bitte anmelden.");
+const ungueltig = () => new Fachfehler(401, "not_authenticated", "Please sign in.");
 
 async function akteurAusSchluessel(db: Db, klartext: string): Promise<Akteur> {
   const hash = hashSchluessel(klartext);
@@ -200,10 +200,10 @@ async function akteurAusSchluessel(db: Db, klartext: string): Promise<Akteur> {
 
 /**
  * Persönlicher Werteschlüssel: handelt als seine Person mit deren heutigen Rechten (Rollen werden bei jedem Aufruf gelesen), nie als
- * Verwalter über die Werte hinaus und nur auf `/werte/*`. Eine Beschränkung auf Fonds schneidet die Rollen zu. Investor-Benutzer,
+ * Verwalter über die Werte hinaus und nur auf `/values/*`. Eine Beschränkung auf Fonds schneidet die Rollen zu. Investor-Benutzer,
  * deaktivierte und technische Personen haben keinen Zugriff.
  */
-async function akteurAusWerteSchluessel(db: Db, klartext: string): Promise<Akteur> {
+async function akteurAusWerteSchluessel(db: Db, klartext: string, konfig: Konfiguration, werteSchreiben: boolean): Promise<Akteur> {
   const hash = hashSchluessel(klartext);
   const treffer = await lese(db, async (tx) => {
     const [z] = await tx
@@ -214,7 +214,10 @@ async function akteurAusWerteSchluessel(db: Db, klartext: string): Promise<Akteu
     if (!z) return undefined;
     const rechte = await ladeRechte(tx, z.benutzer.id);
     const [markiert] = await tx.select({ id: investorBenutzer.benutzerId }).from(investorBenutzer).where(eq(investorBenutzer.benutzerId, z.benutzer.id));
-    return { ...z, rechte, investor: markiert !== undefined };
+    const passwort = werteSchreiben && z.schluessel.darfSchreiben && konfig.zweiFaktorPflicht && !z.benutzer.twoFactorEnabled
+      ? await tx.select({ id: konto.id }).from(konto).where(and(eq(konto.userId, z.benutzer.id), eq(konto.providerId, "credential"))).limit(1)
+      : [];
+    return { ...z, rechte, investor: markiert !== undefined, hatPasswort: passwort.length > 0 };
   });
   if (!treffer || treffer.schluessel.widerrufenAm || treffer.schluessel.ablauf <= new Date() || !treffer.benutzer.aktiv || treffer.benutzer.technisch || treffer.investor) throw ungueltig();
   await db.execute(
@@ -222,15 +225,17 @@ async function akteurAusWerteSchluessel(db: Db, klartext: string): Promise<Akteu
   );
   const beschraenkt = treffer.schluessel.fondsIds;
   const eigene = treffer.rechte.rollen;
+  const schreiben = werteSchreiben && treffer.schluessel.darfSchreiben && beschraenkt.length > 0;
+  if (werteSchreiben && !schreiben) throw new Fachfehler(403, "forbidden", "This value key is read-only.");
   const global = treffer.benutzer.globalVerwalter && beschraenkt.length === 0;
   const rollen = new Map<string, FondsRolle>();
-  // Mit Beschränkung bleibt nur die Betrachterrolle an den genannten Fonds, an denen die Person überhaupt etwas darf: Der Schlüssel liest nur.
-  for (const fondsId of beschraenkt) if (treffer.benutzer.globalVerwalter || eigene.has(fondsId)) rollen.set(fondsId, "betrachter");
-  if (beschraenkt.length === 0) for (const [fondsId] of eigene) rollen.set(fondsId, "betrachter");
-  // Bereiche je Fonds der Person gelten auch für ihren Schlüssel: Betrachter nur an Fonds und Bereichen, an denen die Person etwas darf.
+  for (const fondsId of beschraenkt.length ? beschraenkt : eigene.keys()) {
+    const rolle = treffer.benutzer.globalVerwalter ? "verwalter" : eigene.get(fondsId);
+    if (rolle) rollen.set(fondsId, schreiben ? rolle : "betrachter");
+  }
   const stufenDerPerson = treffer.benutzer.globalVerwalter ? null : treffer.rechte.stufen;
   const stufen = stufenDerPerson
-    ? new Map([...rollen.keys()].map((fondsId) => [fondsId, new Map([...(stufenDerPerson.get(fondsId) ?? new Map<Bereich, FondsRolle>()).keys()].map((b) => [b, "betrachter" as FondsRolle]))]))
+    ? new Map([...rollen.keys()].map((fondsId) => [fondsId, new Map([...(stufenDerPerson.get(fondsId) ?? [])].map(([b, rolle]) => [b, schreiben ? rolle : "betrachter" as const]))]))
     : null;
   return {
     id: treffer.benutzer.id,
@@ -239,10 +244,9 @@ async function akteurAusWerteSchluessel(db: Db, klartext: string): Promise<Akteu
     technisch: false,
     globalVerwalter: global,
     zweiFaktorAktiv: treffer.benutzer.twoFactorEnabled === true,
-    zweiFaktorFehlt: false,
-    passwortAendern: false,
+    zweiFaktorFehlt: schreiben && istZweiFaktorOffen(konfig, { zweiFaktorAktiv: treffer.benutzer.twoFactorEnabled === true, hatPasswort: treffer.hatPasswort }),
+    passwortAendern: schreiben && treffer.benutzer.passwortAendern,
     rollen,
-    // Die Bereiche der Person gelten auch für ihren Schlüssel: ohne Portfolio keine Werte der Beteiligungen.
     bereiche: treffer.benutzer.globalVerwalter ? null : treffer.rechte.bereiche,
     stufeOhneFonds: null,
     stufen,
@@ -304,13 +308,13 @@ export function istZweiFaktorOffen(konfig: Pick<Konfiguration, "zweiFaktorPflich
 }
 
 /** Ermittelt den Akteur der Anfrage: `Authorization: Bearer cwk_…` oder `cww_…` (Werteschlüssel; die alten Präfixe `fdk_` und `fdw_` gelten weiter) oder die Sitzung per Cookie; sonst 401. */
-export async function ermittleAkteur(db: Db, auth: Auth, konfig: Konfiguration, c: Context): Promise<Akteur> {
+export async function ermittleAkteur(db: Db, auth: Auth, konfig: Konfiguration, c: Context, werteSchreiben = false): Promise<Akteur> {
   const kopf = c.req.header("Authorization");
   if (kopf !== undefined) {
     // Beide Präfixe je Schlüsselart: neu `cwk_`/`cww_`, alt `fdk_`/`fdw_` (siehe `ALTES_SCHLUESSEL_PRAEFIX`).
     const treffer = /^Bearer ((cwk|fdk|cww|fdw)_[A-Za-z0-9_-]{20,})$/.exec(kopf.trim());
     if (!treffer) throw ungueltig();
-    return treffer[2] === "cww" || treffer[2] === "fdw" ? akteurAusWerteSchluessel(db, treffer[1]!) : akteurAusSchluessel(db, treffer[1]!);
+    return treffer[2] === "cww" || treffer[2] === "fdw" ? akteurAusWerteSchluessel(db, treffer[1]!, konfig, werteSchreiben) : akteurAusSchluessel(db, treffer[1]!);
   }
   return akteurAusSitzung(db, auth, konfig, c);
 }

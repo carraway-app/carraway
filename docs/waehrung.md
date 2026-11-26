@@ -9,8 +9,17 @@ Dieses Dokument beschreibt, wie Carraway Beträge in mehreren Währungen führt,
 | Fondswährung | Währung der Buchführung des Fonds. Alle gebuchten Beträge (`vorgang.betrag`, `bewertung.wert`, Fondsbewegungen) und alle Kennzahlen (NAV, TVPI, DPI, IRR) beruhen darauf. | `fonds.waehrung` |
 | Lokale Währung | Währung der Beteiligung (z. B. Anteile in USD). Leer heißt Fondswährung. | `beteiligung.waehrung` |
 | Vergleichswährung | Eine Sicht auf Zahlen in einer dritten Währung. Sie wird nie gespeichert, sondern je Ansicht gewählt (`?vergleich=GBP`). | nur in der Adresse |
+| Hauswährung | Währung des Managers (der Installation). Sie rechnet nach denselben Regeln wie die Vergleichswährung, steht in der Währungssicht immer mit (`haus`, Sicht „Haus“, `?sicht=haus`) und ist die Währung der fondsübergreifenden Summen (Manager-Profil, Portfolio-Dashboard). Ohne Profil gilt EUR. | `manager_profil.hauswaehrung` (Verwaltung → Manager-Profil, nur globale Verwalter) |
 
 Die Beträge der Kennzahlen ändern sich durch die Währungssicht nicht. Lokale und Vergleichsbeträge sind eine Umrechnung oder ein zusätzlich gebuchter Betrag.
+
+### Fondsübergreifende Summen in der Hauswährung
+
+`GET /manager-profile` und `GET /portfolio/dashboard` summieren über alle Fonds, an denen die Person im Bereich Portfolio mindestens Betrachter ist, zu einem
+gemeinsamen Stichtag (`asOf`, Vorgabe: der späteste Standard-Stichtag der Fonds) und Wissensstand (`knowledgeDate`). Zahlungen (Einzahlungen der
+Investoren, Ausschüttungen, Abrufe der Zielfonds) gehen zum Kurs ihrer Valuta ein, Bestände (Zusagen, NAV, Werte) zum Kurs des Stichtags. Eine Lücke in
+einem Fonds macht die Summe zur Lücke. Hält ein Fonds einen Anteil an einem anderen Fonds der Summe (Zielfonds derselben Installation), werden Zusage,
+Abrufe, Ausschüttungen und Wert dieses Anteils abgezogen, damit nichts doppelt zählt (Rechenkern `portfolioSummen`, Herkunft je Summe).
 
 ### Kurstabelle
 
@@ -23,7 +32,7 @@ Die Beträge der Kennzahlen ändern sich durch die Währungssicht nicht. Lokale 
 
 ### Kursimport (Datei)
 
-`POST /api/v1/wechselkurse/import` mit `{ inhalt, dateiname, vorschau, waehrungen?, ab? }`. Standard ist die Vorschau (nichts wird geschrieben). Zwei Aufbauten werden erkannt, Trennzeichen Komma, Semikolon oder Tabulator:
+`POST /api/v1/exchange-rates/import` mit `{ content, sourceFile, preview, currencies?, since? }`. Standard ist die Vorschau (nichts wird geschrieben). Zwei Aufbauten werden erkannt, Trennzeichen Komma, Semikolon oder Tabulator:
 
 1. **EZB-Aufbau (breit):** Kopfzeile `Date,USD,JPY,GBP,`, je Zeile ein Tag `JJJJ-MM-TT` und je Währung der Kurs je 1 EUR; `N/A` und leere Felder heißen „kein Kurs“; ein Komma am Zeilenende ist erlaubt. Basis ist immer EUR.
 2. **Langer Aufbau:** Spalten `Datum`, `Basis`, `Quote`, `Kurs` (auch `Date`, `Base`, `Currency`, `Rate`). Datum als `JJJJ-MM-TT` oder `TT.MM.JJJJ`, Kurs mit Punkt oder (bei Semikolon) Komma.
@@ -53,16 +62,16 @@ Ein Kurs ist **höchstens sieben Tage alt**, sonst fehlt er (`veraltet`, mit dem
 
 Hat eine Beteiligung eine abweichende lokale Währung, kann eine Zahlung oder Bewertung auch lokal erfasst werden (`betragLokal` bzw. `wertLokal`):
 
-- Nur lokal: Der Fondsbetrag ist die Umrechnung zum Kurs der Tabelle am Tag (fehlt der Kurs: `409 KURS_FEHLT`).
+- Nur lokal: Der Fondsbetrag ist die Umrechnung zum Kurs der Tabelle am Tag (fehlt der Kurs: `409 rate_missing`).
 - Beide Beträge (etwa aus dem Kontoauszug): Der gebuchte Fondsbetrag gilt, der Kurs wird daraus abgeleitet.
 - Der Kurs wird an der Zeile **festgehalten** (`kurs`, `kurs_id`). Eine spätere Kurskorrektur ändert keine gebuchten Beträge. Ein Storno übernimmt den lokalen Betrag (negiert) und den Kurs.
 - Vorzeichen: Nur die Wertberichtigung darf negativ sein, bei allen anderen Arten muss auch der lokale Betrag größer als null sein.
-- Ohne abweichende lokale Währung sind lokale Beträge nicht zulässig (`409 WAEHRUNG_GLEICH`): Es gäbe zwei Wahrheiten für denselben Betrag. Die lokale Währung lässt sich nicht mehr ändern, sobald lokale Beträge erfasst sind.
+- Ohne abweichende lokale Währung sind lokale Beträge nicht zulässig (`409 currency_same`): Es gäbe zwei Wahrheiten für denselben Betrag. Die lokale Währung lässt sich nicht mehr ändern, sobald lokale Beträge erfasst sind.
 - Ohne gebuchten lokalen Betrag rechnet die Lokalsicht den Fondsbetrag zum Kurs des Tages zurück (nur solange es einen Kurs gibt).
 
 ### Währungssicht und Umschalter
 
-`GET /beteiligungen/:id/waehrungssicht` und `GET /fonds/:id/waehrungssicht` (`stichtag`, `stand`, `vergleich`) liefern je Betrag Fonds, lokal und Vergleich, die verwendeten Kurse mit Datum und die Lücken. Die Oberfläche zeigt die Leiste **Lokal | Fonds | Vergleich** an Beteiligung und Fonds-Portfolio, die Sicht steht in der Adresse.
+`GET /investments/:id/waehrungssicht` und `GET /fonds/:id/waehrungssicht` (`stichtag`, `stand`, `vergleich`) liefern je Betrag Fonds, lokal und Vergleich, die verwendeten Kurse mit Datum und die Lücken. Die Oberfläche zeigt die Leiste **Lokal | Fonds | Vergleich** an Beteiligung und Fonds-Portfolio, die Sicht steht in der Adresse.
 
 - Beträge tragen immer das Zeichen ihrer eigenen Währung. Kennzahlen in lokaler oder Vergleichswährung heißen z. B. „Investiert (USD)“.
 - **Lücken:** Fehlt ein Kurs, steht „Kurs fehlt“ statt einer Zahl, und die Leiste nennt Paar, Tag und Grund. Eine Summe mit einer Lücke ist selbst eine Lücke.
@@ -76,7 +85,7 @@ Beträge werden einmal gerundet, am Ende der Rechnung: auf Cent, kaufmännisch (
 
 ### Währungssicht in Berichten
 
-Fondsbericht (PDF, Excel), LP-Bericht, Portfolioliste und Exitliste (PDF, Excel) haben beim Anlegen eines Berichts (`POST /berichte`: `waehrungssicht`, `vergleichswaehrung`) und im Direkt-Download (`GET /fonds/:id/berichte/fondsbericht` und `/portfolioliste`, dieselben Parameter) eine Währungssicht:
+Fondsbericht (PDF, Excel), LP-Bericht, Portfolioliste und Exitliste (PDF, Excel) haben beim Anlegen eines Berichts (`POST /reports`: `currencyView`, `comparisonCurrency`) und im Direkt-Download (`GET /funds/:id/reports/fund-report` und `/portfolio-list`, dieselben Parameter) eine Währungssicht:
 
 | Sicht | Bedeutung |
 | --- | --- |
@@ -114,14 +123,14 @@ Die Felddefinitionen aus dem CRM (Typen Text, Langtext, Zahl, Betrag, Datum, Aus
 - **Vorgang:** Werte werden beim Anlegen gesetzt (auch über die einheitliche Erfassung). Der Vorgang ist unveränderlich; ein Storno trägt die Werte des Originals. Zum Ändern: stornieren und neu buchen. So bleibt gebuchtes unverändert und nichts wird still geändert.
 - **Periodensperre:** Vorgänge unterliegen ihr wie bisher (Valuta). Runden: Liegt das Rundendatum in einer gesperrten Periode eines beteiligten Fonds, sind Wertänderungen gesperrt. Fonds, Beteiligung und Instrument sind beschreibende Stammdaten ohne Buchungsdatum und nicht periodengebunden; jede Änderung steht mit Vorher und Nachher im Änderungsprotokoll.
 - **Wissensstand (`?stand=`):** Veränderbare Objekte lesen den Stand aus dem Änderungsprotokoll (Aktion `felder_setzen`): der Nachher-Stand der letzten Änderung bis dahin, davor der ursprüngliche Zustand. Ohne jede Änderung über die API gelten die aktuellen Werte (Altbestand, Beispieldaten). Vorgänge gelten ab ihrer Erfassung.
-- **Schnittstelle:** `GET/PUT /fonds/:id/felder`, `/beteiligungen/:id/felder`, `/beteiligungen/:id/instrumentfelder`, `/finanzierungsrunden/:id/felder`, `GET /vorgaenge/:id/felder`, dazu `GET /zusatzfelder/:objekt/definitionen` und `GET /zusatzfelder/:objekt/schema` (JSON-Schema aus den aktiven Definitionen, dynamisch). Die OpenAPI beschreibt die Werte als `Zusatzfelder` (Schlüssel sind die IDs der Definitionen).
+- **Schnittstelle:** `GET/PUT /fonds/:id/felder`, `/investments/:id/felder`, `/investments/:id/instrumentfelder`, `/financing-rounds/:id/felder`, `GET /vorgaenge/:id/felder`, dazu `GET /zusatzfelder/:objekt/definitionen` und `GET /zusatzfelder/:objekt/schema` (JSON-Schema aus den aktiven Definitionen, dynamisch). Die OpenAPI beschreibt die Werte als `Zusatzfelder` (Schlüssel sind die IDs der Definitionen).
 - **Export:** Der Vollexport enthält die Spalten `felder` und `instrument_felder` und die Definitionen.
 - **Oberfläche:** Reiter „Felder“ an Beteiligung (mit Unterreiter Instrument) und Fonds, Felder einer Runde und eines Vorgangs im Seitenpanel, Eingabe beim Buchen eines Vorgangs, „Felder verwalten“ für globale Verwalter.
 - **Spalten in Berichten (Nacharbeiten 9):** Die Vorlage der Arten Fondsbericht, LP-Bericht, Portfolioliste und Exitliste hat die Auswahl `zusatzfelder` (IDs von Felddefinitionen von Fonds, Runde, Instrument und Beteiligung, höchstens 8, mit Reihenfolge). Die Felder erscheinen als weitere Spalten nach den festen Spalten, in PDF und Excel, mit dem Wissensstand der Rechnung (`?stand=`, gleiche Regeln wie beim Lesen der Werte) und werden mit der Vorlage beim Anlegen des Berichts festgehalten. Auch der Direkt-Download nutzt die Vorlage des Fonds. Verwalter des Fonds wählen sie in der Oberfläche unter Berichte, Vorlagen („Eigene Felder als Spalten“).
   - Welcher Wert in der Zeile einer Beteiligung steht: Feld der **Beteiligung** und des **Instruments**: der Wert der Beteiligung; Feld der **Runde**: die letzte abgeschlossene Finanzierungsrunde des Unternehmens bis zum Stichtag (dieselbe Runde wie die Phase der Portfolioliste); Feld des **Fonds**: der Wert des Fonds (steht in jeder Zeile gleich). Vorgangsfelder sind keine Spalte (eine Zeile ist eine Beteiligung, Vorgänge sind einzelne Buchungen).
   - Sichtbarkeit: Ein Bericht sieht, was die Person sieht, die ihn für den Fonds erzeugt; die Felder haben keine eigene Sichtbarkeit (sie folgt dem Objekt, also den Rechten am Fonds). Verknüpfungs- und Personenfelder erscheinen mit dem Namen des Ziels; Verknüpfungen auf Deals werden im Bericht nie aufgelöst (er hat keine Sicht einer anfragenden Person) und bleiben leer. Archivierte Definitionen lassen sich nicht neu wählen, eine festgehaltene Vorlage zeigt sie weiter.
   - Darstellung: Betrag mit der Währung des Feldes, Zahl und Datum nach Sprache, Auswahl mit der Bezeichnung, Kontrollkästchen als ja/nein; ein fehlender Wert ist „–“ (Excel: leer). Excel schreibt Zahlen, Beträge und Datumswerte als Zahl und Datum.
-  - Die **Kennzahlenabfragen** (Anfragen der Unternehmenskennzahlen an die Unternehmen) haben keine Spalten aus Zusatzfeldern: Sie sind Anfragen und keine Listen. Die Abfragen der Portfolioliste sind die Downloads (`/fonds/:id/berichte/portfolioliste`, `/fondsbericht`) und die Berichte; sie tragen die Felder der Vorlage.
+  - Die **Kennzahlenabfragen** (Anfragen der Unternehmenskennzahlen an die Unternehmen) haben keine Spalten aus Zusatzfeldern: Sie sind Anfragen und keine Listen. Die Abfragen der Portfolioliste sind die Downloads (`/funds/:id/reports/portfolio-list`, `/fund-report`) und die Berichte; sie tragen die Felder der Vorlage.
 
 ## 3. Bewertungsszenarien
 

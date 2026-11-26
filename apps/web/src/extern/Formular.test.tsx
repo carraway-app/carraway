@@ -1,3 +1,4 @@
+import { aufDeutsch, aufEnglisch } from "@carraway/api/kontakte/api-namen";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -39,15 +40,15 @@ function abrufer(antworten: Partial<Record<"GET" | "PUT" | "POST", () => Respons
   const aufrufe: Aufruf[] = [];
   const f = vi.fn(async (url: RequestInfo | URL, init: RequestInit = {}) => {
     const methode = (init.method ?? "GET") as "GET" | "PUT" | "POST";
-    aufrufe.push({ methode, url: String(url), init, koerper: init.body ? JSON.parse(String(init.body)) : undefined });
+    aufrufe.push({ methode, url: String(url), init, koerper: init.body ? aufDeutsch(JSON.parse(String(init.body))) : undefined });
     const antwort = antworten[methode];
     if (!antwort) throw new Error(`unerwarteter Aufruf ${methode}`);
     return antwort();
   });
   return { f: f as unknown as typeof fetch, aufrufe };
 }
-const ok = (daten: unknown) => () => new Response(JSON.stringify(daten), { status: 200, headers: { "Content-Type": "application/json" } });
-const fehler = (status: number, code: string, zusatz: object = {}) => () => new Response(JSON.stringify({ fehler: { code, meldung: "x", ...zusatz } }), { status, headers: { "Content-Type": "application/json" } });
+const ok = (daten: unknown) => () => new Response(JSON.stringify(aufEnglisch(daten)), { status: 200, headers: { "Content-Type": "application/json" } });
+const fehler = (status: number, code: string, zusatz: object = {}) => () => new Response(JSON.stringify({ error: { code, message: "x", ...aufEnglisch(zusatz) } }), { status, headers: { "Content-Type": "application/json" } });
 
 /**
  * Die Seite startet in der Browsersprache (jsdom: Englisch) und wechselt erst nach der Antwort in die Sprache der Anfrage. Darum wartet der Helfer
@@ -80,7 +81,7 @@ describe("Öffentliche Abfrageseite", () => {
   it("lädt ohne Anmeldung nur mit dem Token, ohne Cookies und ohne Referrer", async () => {
     const a = await oeffne(basis);
     expect(a.aufrufe).toHaveLength(1);
-    expect(a.aufrufe[0]).toMatchObject({ methode: "GET", url: `/api/v1/extern/abfragen/${TOKEN}` });
+    expect(a.aufrufe[0]).toMatchObject({ methode: "GET", url: `/api/v1/external/requests/${TOKEN}` });
     expect(a.aufrufe[0]!.init).toMatchObject({ credentials: "omit", referrerPolicy: "no-referrer", cache: "no-store" });
     const kopf = a.aufrufe[0]!.init.headers as Record<string, string>;
     expect(Object.keys(kopf).map((k) => k.toLowerCase())).not.toContain("authorization");
@@ -147,7 +148,7 @@ describe("Öffentliche Abfrageseite", () => {
         { schluessel: "umsatz", wert: "1234567.89", kommentar: null },
         { schluessel: "mitarbeitende_vzae", wert: null, kommentar: null },
         { schluessel: "arr", wert: "12.5", kommentar: null },
-        { schluessel: "esg_verstoesse_ungc", wert: "nein", kommentar: null },
+        { schluessel: "esg_verstoesse_ungc", wert: "no", kommentar: null },
       ],
     });
     expect(await screen.findByText(/Entwurf gespeichert/)).toBeTruthy();
@@ -194,7 +195,7 @@ describe("Öffentliche Abfrageseite", () => {
     await nutzer.type(screen.getByLabelText(/Mitarbeitende/), "12");
     await nutzer.click(screen.getByRole("button", { name: "Einreichen" }));
     expect(await screen.findByRole("heading", { name: "Vielen Dank, Ihre Angaben sind eingereicht." })).toBeTruthy();
-    expect(a.aufrufe.map((x) => `${x.methode} ${x.url.replace(TOKEN, ":token")}`)).toEqual(["GET /api/v1/extern/abfragen/:token", "PUT /api/v1/extern/abfragen/:token", "POST /api/v1/extern/abfragen/:token/einreichen"]);
+    expect(a.aufrufe.map((x) => `${x.methode} ${x.url.replace(TOKEN, ":token")}`)).toEqual(["GET /api/v1/external/requests/:token", "PUT /api/v1/external/requests/:token", "POST /api/v1/external/requests/:token/submit"]);
     expect(screen.queryByRole("button", { name: "Einreichen" })).toBeNull();
     const liste = screen.getByText("Umsatz (EUR)").closest("dl")!;
     expect(within(liste).getByText("100,00")).toBeTruthy();
@@ -214,7 +215,7 @@ describe("Öffentliche Abfrageseite", () => {
   });
 
   it("schon eingereicht: nur lesen, keine Eingabefelder, Hinweis", async () => {
-    await oeffne({ ...basis, status: "eingereicht", schreibgeschuetzt: true, kennzahlen: basis.kennzahlen.map((k) => (k.schluessel === "esg_verstoesse_ungc" ? { ...k, wert: "ja", kommentar: "siehe Bericht" } : k)) });
+    await oeffne({ ...basis, status: "eingereicht", schreibgeschuetzt: true, kennzahlen: basis.kennzahlen.map((k) => (k.schluessel === "esg_verstoesse_ungc" ? { ...k, wert: "yes", kommentar: "siehe Bericht" } : k)) });
     expect(screen.getByText("Ihre Angaben sind eingereicht und lassen sich nicht mehr ändern.")).toBeTruthy();
     expect(screen.queryByRole("textbox")).toBeNull();
     expect(screen.queryByRole("button", { name: "Einreichen" })).toBeNull();
@@ -224,7 +225,7 @@ describe("Öffentliche Abfrageseite", () => {
 
   it("Fehler der API werden verständlich gezeigt: ungültiger, zurückgezogener, abgelaufener Link; zu viele Anfragen; Pflichtfehler des Servers", async () => {
     const text = (art: string, sprache: "de" | "en") => EXTERN_TEXTE[sprache][art as "fehlerLink"] as string;
-    for (const [status, code, art] of [[404, "ABFRAGE_NICHT_GEFUNDEN", "fehlerLink"], [410, "ABFRAGE_WIDERRUFEN", "fehlerWiderrufen"], [410, "ABFRAGE_ABGELAUFEN", "fehlerAbgelaufen"], [429, "ZU_VIELE_ANFRAGEN", "fehlerZuViele"], [500, "INTERNER_FEHLER", "fehlerAllgemein"]] as const) {
+    for (const [status, code, art] of [[404, "metric_request_not_found", "fehlerLink"], [410, "metric_request_revoked", "fehlerWiderrufen"], [410, "metric_request_expired", "fehlerAbgelaufen"], [429, "too_many_requests", "fehlerZuViele"], [500, "internal_error", "fehlerAllgemein"]] as const) {
       for (const sprache of ["de", "en"] as const) {
         const a = abrufer({ GET: fehler(status, code) });
         const { unmount } = render(<ExternesFormular token={TOKEN} abrufer={a.f} startSprache={sprache} />);
@@ -241,7 +242,7 @@ describe("Öffentliche Abfrageseite", () => {
     unmount();
     // Server meldet beim Einreichen fehlende Pflichtangaben
     const nutzer = userEvent.setup();
-    await oeffne(basis, { PUT: ok(basis), POST: fehler(400, "KENNZAHL_PFLICHT_FEHLT", { fehlend: ["umsatz"] }) });
+    await oeffne(basis, { PUT: ok(basis), POST: fehler(400, "metric_required_missing", { fehlend: ["umsatz"] }) });
     await nutzer.type(screen.getByLabelText(/Umsatz/), "1");
     await nutzer.type(screen.getByLabelText(/Mitarbeitende/), "1");
     await nutzer.click(screen.getByRole("button", { name: "Einreichen" }));

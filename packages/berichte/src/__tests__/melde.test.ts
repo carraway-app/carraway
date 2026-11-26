@@ -147,6 +147,20 @@ describe("Definition: Aufbau und Prüfung", () => {
     expect(efre).toContain("Anhang XVII");
   });
 
+  it("EFRE-Vorlage: SAFE und Optionsscheine zählen zum Beteiligungskapital, nicht zu den Darlehen", () => {
+    const efre = STANDARD_MELDEDEFINITIONEN.find((d) => d.schluessel === "efre_indikatoren")!.definition;
+    const finde = (knoten: unknown, id: string): { filter?: { instrument?: string[] } } | null => {
+      if (Array.isArray(knoten)) return knoten.map((k) => finde(k, id)).find((x) => x !== null) ?? null;
+      if (knoten && typeof knoten === "object") {
+        if ((knoten as { id?: unknown }).id === id) return knoten as { filter?: { instrument?: string[] } };
+        return Object.values(knoten).map((k) => finde(k, id)).find((x) => x !== null) ?? null;
+      }
+      return null;
+    };
+    expect(finde(efre, "ind_output_eigenkapital")?.filter?.instrument).toEqual(["offene_beteiligung", "stille_beteiligung", "safe", "optionsschein"]);
+    expect(finde(efre, "ind_output_darlehen")?.filter?.instrument).toEqual(["darlehen", "wandeldarlehen"]);
+  });
+
   it("ein Schema mit unbekannter Quelle wird mit Pfad und Meldung abgelehnt", () => {
     const e = pruefeDefinition(def([{ id: "a", typ: "felder", titel: t("A"), felder: [feld("x", { art: "orakel" })] }]));
     expect(e.ok).toBe(false);

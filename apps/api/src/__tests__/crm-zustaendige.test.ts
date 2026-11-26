@@ -85,7 +85,7 @@ describe("Zuständige für Aufgaben", () => {
     for (const [label, wer] of [["gesperrt", GESPERRT], ["ohne Rolle", OHNE_ROLLE], ["Investor", INVESTOR]] as const) {
       const r = await post("/aufgaben", { titel: label, organisationId: org, zustaendigId: ids[wer.email] ?? (await idVon(db, wer)) }, BEA_A);
       expect(r.status, label).toBe(400);
-      expect((await json(r)).fehler.code).toBe("ZUSTAENDIG_UNGUELTIG");
+      expect((await json(r)).error.code).toBe("assignee_invalid");
     }
   });
 

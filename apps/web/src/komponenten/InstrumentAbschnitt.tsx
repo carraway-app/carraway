@@ -135,11 +135,14 @@ function Inhalt({ daten, schreibgeschuetzt, onWahl, onHerkunft, children }: { da
   const b = t.inst.buchwert;
   const schreiben = !schreibgeschuetzt;
   const aktiv = daten.beteiligung.status === "aktiv";
+  // Ausgeschieden, aber Buchwert oder offenes Kapital nicht null (z. B. aus einer Datenübernahme): Hinweis statt stiller Nullsetzung.
+  const exitMitRest = daten.beteiligung.status === "exit" && (Number(daten.buchwert.wert) !== 0 || daten.instrumente.some((i) => i.darlehensartig && Number(i.offenesKapital ?? 0) !== 0));
   const ohneUeberschuesse = darlehensartig && daten.jahresueberschuesse.length === 0;
 
   return (
     <>
       {!aktiv ? <Hinweis>{t.inst.nichtAktiv}</Hinweis> : null}
+      {exitMitRest ? <Hinweis>{t.inst.exitMitRest}</Hinweis> : null}
       <p className="app-leer-text app-klein">{t.inst.stand}</p>
       <KennzahlenReihe aria-label={b.titel}>
         <Kennzahl titel={b.titel} wert={formatBetragCent(daten.buchwert.wert, sprache)} hervorgehoben onHerkunft={onHerkunft} />

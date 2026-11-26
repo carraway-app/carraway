@@ -18,9 +18,9 @@ export async function ladeZeile(tx: Tx, objekt: Objekt, id: string, sperren = tr
   const t = TABELLEN[objekt];
   const abfrage = tx.select().from(t as typeof organisation).where(eq(t.id, id));
   const [zeile] = (sperren ? await abfrage.for("update") : await abfrage) as (typeof organisation.$inferSelect)[];
-  if (!zeile) throw new Fachfehler(404, "DATENSATZ_NICHT_GEFUNDEN", "Datensatz nicht gefunden.");
+  if (!zeile) throw new Fachfehler(404, "record_not_found", "Record not found.");
   const roh = zeile as unknown as { zusammengefuehrtIn?: string | null; archiviertAm?: Date | null };
-  if (roh.zusammengefuehrtIn || roh.archiviertAm) throw new Fachfehler(404, "DATENSATZ_NICHT_GEFUNDEN", "Datensatz nicht gefunden.");
+  if (roh.zusammengefuehrtIn || roh.archiviertAm) throw new Fachfehler(404, "record_not_found", "Record not found.");
   return zeile as unknown as Record<string, unknown> & { id: string; felder: Record<string, unknown>; fondsId?: string | null; status?: string };
 }
 
@@ -28,14 +28,14 @@ export async function ladeZeile(tx: Tx, objekt: Objekt, id: string, sperren = tr
 export function verlangeDealSchreibrecht(c: Context, fondsId: string | null) {
   if (fondsId === null) return;
   const akteur = aktuellerAkteur(c);
-  if (!hatRolle(akteur, fondsId, "bearbeiter", "dealflow")) throw new Fachfehler(403, "KEINE_BERECHTIGUNG", "Dafür fehlt die Berechtigung am Fonds des Deals.");
+  if (!hatRolle(akteur, fondsId, "bearbeiter", "dealflow")) throw new Fachfehler(403, "forbidden", "You lack permission on the fund of the deal.");
 }
 
 /** Der Deal muss für die Person sichtbar sein, sonst gilt er als nicht vorhanden. */
 export async function verlangeDealSichtbar(tx: Tx, c: Context, id: string) {
   const bedingung = dealSichtbar(c);
   const [z] = await tx.select({ id: deal.id, fondsId: deal.fondsId }).from(deal).where(and(eq(deal.id, id), bedingung));
-  if (!z) throw new Fachfehler(404, "DEAL_NICHT_GEFUNDEN", "Deal nicht gefunden.");
+  if (!z) throw new Fachfehler(404, "deal_not_found", "Deal not found.");
   return z;
 }
 
@@ -67,21 +67,21 @@ export async function aendereDatensatz(
   for (const [schluessel, roh] of Object.entries(eingabe.system ?? {})) {
     const feld = def.felder.find((f) => f.schluessel === schluessel);
     if (!feld?.schreibbar) {
-      fehler.push({ feld: schluessel, code: "not_writable", meldung: "Das Feld lässt sich nicht ändern" });
+      fehler.push({ feld: schluessel, code: "not_writable", meldung: "The field cannot be changed" });
       continue;
     }
     if (roh === null) {
-      if (SYSTEM_WERTE.required.has(schluessel)) fehler.push({ feld: schluessel, code: "required", meldung: "Pflichtfeld" });
+      if (SYSTEM_WERTE.required.has(schluessel)) fehler.push({ feld: schluessel, code: "required", meldung: "Required field" });
       else set[feld.schreibbar.spalte] = null;
       continue;
     }
     const optionen = feld.optionen ? { optionen: feld.optionen.map((o) => ({ schluessel: o })) } : {};
     const ergebnis = wertSchema({ typ: feld.typ, optionen }).safeParse(roh);
-    if (!ergebnis.success) fehler.push({ feld: schluessel, code: "invalid_value", meldung: ergebnis.error.issues[0]?.message ?? "Ungültiger Wert" });
+    if (!ergebnis.success) fehler.push({ feld: schluessel, code: "invalid_value", meldung: ergebnis.error.issues[0]?.message ?? "Invalid value" });
     else set[feld.schreibbar.spalte] = ergebnis.data;
   }
-  if (fehler.length) throw new Fachfehler(400, "FELDWERT_UNGUELTIG", "Mindestens ein Feldwert ist ungültig.", { felder: fehler });
-  if (Object.keys(set).length && objekt === "deal" && vorher.status !== "offen") throw new Fachfehler(409, "DEAL_NICHT_OFFEN", "Der Deal ist nicht mehr offen.");
+  if (fehler.length) throw new Fachfehler(400, "field_value_invalid", "At least one field value is invalid.", { felder: fehler });
+  if (Object.keys(set).length && objekt === "deal" && vorher.status !== "offen") throw new Fachfehler(409, "deal_not_open", "The deal is no longer open.");
 
   let defs: FeldDef[] = [];
   let neueFelder = vorher.felder;
@@ -114,13 +114,13 @@ export async function synchronisiereVerknuepfungsfelder(tx: Tx, objekt: Objekt, 
 
 /** Archiviert Organisationen und Personen (weich). Organisationen mit Beteiligungen, Deals oder Investor-Zugängen bleiben. */
 export async function archiviere(tx: Tx, protokoll: Protokollant, objekt: Objekt, id: string) {
-  if (objekt === "deal") throw new Fachfehler(400, "MASSENAKTION_UNGUELTIG", "Deals werden nicht archiviert; sie lassen sich absagen.");
+  if (objekt === "deal") throw new Fachfehler(400, "bulk_action_invalid", "Deals are not archived; they can be cancelled.");
   const vorher = await ladeZeile(tx, objekt, id);
   if (objekt === "organisation") {
     const [b] = await tx.select({ n: sql<number>`count(*)::int` }).from(beteiligung).where(eq(beteiligung.organisationId, id));
     const [d] = await tx.select({ n: sql<number>`count(*)::int` }).from(deal).where(eq(deal.organisationId, id));
     const [z] = await tx.select({ n: sql<number>`count(*)::int` }).from(investorZugang).where(eq(investorZugang.organisationId, id));
-    if ((b?.n ?? 0) + (d?.n ?? 0) + (z?.n ?? 0) > 0) throw new Fachfehler(409, "DATENSATZ_REFERENZIERT", "Das Unternehmen hat Beteiligungen, Deals oder Zugänge und lässt sich nicht archivieren.");
+    if ((b?.n ?? 0) + (d?.n ?? 0) + (z?.n ?? 0) > 0) throw new Fachfehler(409, "record_referenced", "The company has investments, deals or accesses and cannot be archived.");
   } else {
     await tx.update(aufgabe).set({ erledigtAm: new Date() }).where(and(eq(aufgabe.personId, id), isNull(aufgabe.erledigtAm)));
   }

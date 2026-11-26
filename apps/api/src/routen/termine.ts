@@ -1,9 +1,9 @@
+import { kontaktJson, pruefeKontakt } from "../kontakte/http";
 import { and, asc, eq, gte, inArray, isNull, or, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import { aktivitaet, aktivitaetSync, deal, organisation, person, type Db } from "@carraway/db";
 import { aktuellerAkteur } from "../anmeldung/akteur";
-import { pruefe } from "../pruefung";
 import { dealSichtbar } from "../rechte/sichtbarkeit";
 import { lese } from "../zeitlimit";
 
@@ -22,7 +22,7 @@ const abfrage = z.object({
 });
 
 export function terminRouten(db: Db) {
-  return new Hono().get("/", pruefe("query", abfrage), async (c) => {
+  return new Hono().get("/", pruefeKontakt("query", abfrage), async (c) => {
     const { organisationId, personId, dealId, eigene, limit } = c.req.valid("query");
     const akteur = aktuellerAkteur(c);
     const sichtbar = dealSichtbar(c);
@@ -61,6 +61,6 @@ export function terminRouten(db: Db) {
         .orderBy(asc(aktivitaetSync.beginn), asc(aktivitaet.id))
         .limit(limit),
     );
-    return c.json({ daten: zeilen }, 200);
+    return kontaktJson(c, { daten: zeilen }, 200);
   });
 }

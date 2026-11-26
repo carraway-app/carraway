@@ -30,8 +30,8 @@ beforeEach(async () => {
 afterAll(async () => { await leeren(db); await pool.end(); });
 
 it("ein Teilverkauf zum Wertansatz tauscht Forderung gegen Bank, erst die Ausschüttung mindert den NAV", async () => {
-  for (const art of ["zusage", "auszahlung"]) {
-    expect((await post(`/beteiligungen/${ID.eigen}/vorgaenge`, { art, valuta: "2025-01-02", betrag: "1000" })).status).toBe(201);
+  for (const art of ["commitment", "disbursement"]) {
+    expect((await post(`/investments/${ID.eigen}/transactions`, { type: art, valueDate: "2025-01-02", amount: "1000" })).status).toBe(201);
   }
   const verkauft = await post(`/beteiligungen/${ID.eigen}/verkauf`, {
     datum: q2, kaufpreis: "500.00", anteilVerkauft: 0.5, treuhand: { betrag: "199.99", freigabeAm: q3 },
@@ -73,7 +73,7 @@ it("übersetzt die Bilanzsalden nur bei Übernahme und stimmt gegen die unabhän
   expect(u.kennzahlen.nav.wert).toBe("1012.34");
   expect(lp?.kennzahlen.nav.wert).toBe(u.kennzahlen.nav.wert);
   expect(lp?.kapitalkonten[0]?.navAnteil).toBe("1012.34");
-  const xlsx = await get(`/fonds/${f}/berichte/fondsbericht?format=xlsx&stichtag=${q2}&stand=${stand}`);
+  const xlsx = await get(`/funds/${f}/reports/fund-report?format=xlsx&stichtag=${q2}&stand=${stand}`);
   expect(xlsx.status).toBe(200);
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(await xlsx.arrayBuffer());
@@ -138,22 +138,22 @@ it("öffnet eine ersetzte Bewertung mit ihrer damaligen Freigabe und den damals 
   expect(quelle.portfolio).toMatchObject([{ bewertungId: alt!.id, wert: "1000.00", nachweise: [{ dateiname: "Grundlage.pdf", seite: 2 }] }]);
   const dokumentId = quelle.portfolio[0].nachweise[0].dokumentId;
   await db.insert(s.wertQuelle).values({ objektTyp: "bewertung", objektId: alt!.id, feld: "notiz", wert: "Nachtrag", dokumentId, seite: 3, zitat: "Ergänzung", erstelltVon: "test", erstelltAm: wechsel });
-  const detail = await json(await get(`/dokumente/${dokumentId}?stand=2025-07-03T10:00:00Z`));
+  const detail = await json(await get(`/documents/${dokumentId}?stand=2025-07-03T10:00:00Z`));
   expect(detail.fundstellen).toMatchObject([{ feld: "wert", seite: 2 }]);
-  expect((await get(`/dokumente/${dokumentId}?stand=2025-06-19T23:59:59Z`)).status).toBe(404);
+  expect((await get(`/documents/${dokumentId}?stand=2025-06-19T23:59:59Z`)).status).toBe(404);
   const bewertungen = `/beteiligungen/${ID.eigen}/bewertungen?bewertungId=${alt!.id}&${schnitt}`;
   expect((await json(await get(bewertungen))).daten).toMatchObject([{ id: alt!.id, status: "freigegeben", ersetztAm: null, freigegebenAm: alt!.freigegebenAm!.toISOString() }]);
   const fremd = person("anderer-fonds", { rollen: { [ID.anderer]: "betrachter" } });
   expect((await get(path, fremd)).status).toBe(403);
   expect((await get(bewertungen, fremd)).status).toBe(403);
-  expect((await get(`/dokumente/${quelle.portfolio[0].nachweise[0].dokumentId}`, fremd)).status).toBe(404);
+  expect((await get(`/documents/${quelle.portfolio[0].nachweise[0].dokumentId}`, fremd)).status).toBe(404);
 });
 
 it("zeigt Personen mit Portfolio am Fonds nur die dort erlaubten Einzelwerte", async () => {
   const leser = person("portfolio-herkunft");
   const mitglied = await legePersonAn(db, leser);
-  const rolle = await json(await post("/rechte/rollen", { name: "Herkunft", bereiche: ["portfolio", "finanzen", "dokumente"] }));
-  expect((await post("/rechte/gruppen", { name: "Herkunft", stufe: "betrachter", rollenIds: [rolle.id], mitglieder: [mitglied], fondsBeschraenkt: true, bereicheJeFonds: true, fondsIds: [f, ID.anderer], fondsBereiche: { [f]: ["portfolio"], [ID.anderer]: ["finanzen", "dokumente"] } })).status).toBe(201);
+  const rolle = await json(await post("/permissions/roles", { name: "Herkunft", areas: ["portfolio", "finance", "documents"] }));
+  expect((await post("/permissions/groups", { name: "Herkunft", level: "viewer", roleIds: [rolle.id], memberIds: [mitglied], fundsRestricted: true, areasPerFund: true, fundIds: [f, ID.anderer], fundAreas: { [f]: ["portfolio"], [ID.anderer]: ["finance", "documents"] } })).status).toBe(201);
   await uebernehmeSalden(db, f, q2, { "1200": "3.45" }, new Date("2025-07-01"));
   const url = `/fonds/${f}/nav-einzelwerte?stichtag=${q2}&stand=2025-07-03T10:00:00Z`;
   expect((await json(await get(url))).salden).toHaveLength(1);

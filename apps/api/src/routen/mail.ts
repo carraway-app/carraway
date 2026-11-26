@@ -1,3 +1,4 @@
+import { kontaktJson, pruefeKontakt } from "../kontakte/http";
 import { desc, eq, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -5,7 +6,6 @@ import { benutzerEinstellung, mailAuftrag, mailStatus as mailStatusEnum, type Db
 import { aktuellerAkteur } from "../anmeldung/akteur";
 import { legeMailAn, verlangeMail } from "../mail/auftraege";
 import { mailStatus } from "../mail/konfiguration";
-import { pruefe } from "../pruefung";
 import { schreibe } from "../schreiben";
 import { lese } from "../zeitlimit";
 
@@ -28,7 +28,8 @@ export function mailRouten(db: Db) {
           FROM mail_auftrag`);
         return rows[0] ?? { wartend: 0, fehlgeschlagen: 0, letzte_stunde: 0 };
       });
-      return c.json(
+      return kontaktJson(
+        c,
         { ...mailStatus(k?.konfig), schluesselVorhanden: Boolean(k?.ring), ausgangskorb: { wartend: zaehler.wartend, fehlgeschlagen: zaehler.fehlgeschlagen, gesendetLetzteStunde: zaehler.letzte_stunde } },
         200,
       );
@@ -41,10 +42,10 @@ export function mailRouten(db: Db) {
         const [e] = await tx.select({ sprache: benutzerEinstellung.sprache }).from(benutzerEinstellung).where(eq(benutzerEinstellung.benutzerId, akteur.id));
         return legeMailAn(tx, protokoll, c.get("mail"), { an: akteur.email, sprache: e?.sprache === "en" ? "en" : "de", vorlage: "testmail", parameter: {}, bezug: { art: "testmail", id: akteur.id } });
       });
-      return c.json({ auftragId: id }, 202);
+      return kontaktJson(c, { auftragId: id }, 202);
     })
     /** Ausgangskorb: Status, Versuche und Fehlercode, nie der Inhalt. */
-    .get("/auftraege", pruefe("query", listeAbfrage), async (c) => {
+    .get("/jobs", pruefeKontakt("query", listeAbfrage), async (c) => {
       const { status, limit } = c.req.valid("query");
       const zeilen = await lese(db, (tx) =>
         tx
@@ -67,6 +68,6 @@ export function mailRouten(db: Db) {
           .orderBy(desc(mailAuftrag.erstelltAm), desc(mailAuftrag.id))
           .limit(limit),
       );
-      return c.json({ daten: zeilen }, 200);
+      return kontaktJson(c, { daten: zeilen }, 200);
     });
 }

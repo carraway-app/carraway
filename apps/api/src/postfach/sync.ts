@@ -1,14 +1,15 @@
 import { and, eq, inArray, sql } from "drizzle-orm";
-import { aktivitaet, aktivitaetSync, deal, postfachVerbindung, syncAusschluss, type Db } from "@carraway/db";
+import { aktivitaet, aktivitaetSync, benutzer, deal, postfachVerbindung, syncAusschluss, type Db } from "@carraway/db";
 import type { Logger } from "../beobachtung/protokoll";
 import { GeheimnisFehler, type Schluesselring } from "../geheimnis/krypto";
 import { schreibe } from "../schreiben";
 import { lese, type Tx } from "../zeitlimit";
 import { adressHash, berlinerTag, externHash, externHashNeu, ladeBekannte, mailSchluessel, ordneZu, terminSchluessel, type Zuordnung } from "./abgleich";
+import { kandidatenAusMails, kandidatenAusTerminen, kontakteAusAbgleich } from "./kontakte";
 import { erneuere } from "./oauth";
 import type { Abrufer } from "./http";
 import type { PostfachKonfiguration } from "./konfiguration";
-import { PostfachFehler, type MailKopf, type PostfachAnbieter, type Termin, type Zugang } from "./typen";
+import { PostfachFehler, type MailKopf, type NachNeuenMails, type PostfachAnbieter, type Termin, type Zugang } from "./typen";
 import { leseZugang, verschluesseleZugang } from "./zugang";
 
 /**
@@ -17,7 +18,8 @@ import { leseZugang, verschluesseleZugang } from "./zugang";
  *    des Refresh-Tokens (rotierende Tokens) vor Doppelaufrufen.
  * 2. Zugang entschlüsseln, Zugriffstoken bei Bedarf erneuern und sofort verschlüsselt speichern.
  * 3. Kopfdaten holen, gegen die Positivliste der bekannten Kontakte prüfen und alles andere verwerfen. Erst für passende Nachrichten (und nur wenn die
- *    Person es erlaubt hat) wird der Textauszug nachgeladen.
+ *    Person es erlaubt hat) wird der Textauszug nachgeladen. Sind Kontakte aus Postfach und Kalender eingeschaltet und nimmt die Person teil, entstehen vorher
+ *    aus echten Gegenübern Vorschläge oder Kontakte (`kontakte.ts`); mit `aus` bleibt dieser Schritt ohne Wirkung.
  * 4. In einer Transaktion schreiben: Dublettenprüfung über den Hash der Nachrichten- oder Termin-ID, Ausschlüsse der Person beachten.
  *
  * Verwaiste Aktivitäten: Wird die Verbindung einer Person getrennt, bleiben ihre synchronisierten Aktivitäten bestehen (Teil der Historie am Kontakt), haben aber
@@ -40,6 +42,8 @@ export interface SyncOptionen {
   logger?: Logger;
   /** Höchstzahl Verbindungen je Durchlauf (Standard 10). */
   max?: number;
+  /** Erweiterungspunkt: wird nach dem Speichern neuer eingehender Mails bekannter Personen aufgerufen (`ApiErweiterung.postfachMails`). Fehler halten den Abgleich nicht auf. */
+  nachNeuenMails?: NachNeuenMails | undefined;
 }
 
 export interface SyncErgebnis {
@@ -87,7 +91,9 @@ export async function gleicheAb(db: Db, opt: SyncOptionen): Promise<SyncErgebnis
       UPDATE postfach_verbindung SET gesperrt_bis = ${new Date(jetzt.getTime() + SPERRE_MS).toISOString()}
       WHERE id IN (
         SELECT id FROM postfach_verbindung
-        WHERE naechster_abgleich_am <= ${new Date(jetzt.getTime() + 1000).toISOString()} AND status <> 'erneut_anmelden' AND (gesperrt_bis IS NULL OR gesperrt_bis < ${jetzt.toISOString()})
+        WHERE naechster_abgleich_am <= ${new Date(jetzt.getTime() + 1000).toISOString()} AND status <> 'erneut_anmelden'
+          AND EXISTS (SELECT 1 FROM benutzer b WHERE b.id = postfach_verbindung.benutzer_id AND b.aktiv)
+          AND (gesperrt_bis IS NULL OR gesperrt_bis < ${jetzt.toISOString()})
         ORDER BY naechster_abgleich_am LIMIT ${opt.max ?? 10} FOR UPDATE SKIP LOCKED)
       RETURNING id`);
     return rows.map((r) => r.id);
@@ -107,7 +113,16 @@ export async function gleicheVerbindungAb(db: Db, id: string, opt: SyncOptionen)
   const jetzt = opt.jetzt ?? (() => new Date());
   const [zeile] = await lese(db, (tx) => tx.select().from(postfachVerbindung).where(eq(postfachVerbindung.id, id)));
   if (!zeile) return { mails: 0, termine: 0, fehler: null };
+  // Gesperrte Personen werden nicht mehr abgeglichen (Sicherheit), auch nicht bei direktem Aufruf.
+  const [inhaber] = await lese(db, (tx) => tx.select({ aktiv: benutzer.aktiv }).from(benutzer).where(eq(benutzer.id, zeile.benutzerId)));
+  if (!inhaber?.aktiv) {
+    await schreibe(db, "system", async (tx) => {
+      await tx.update(postfachVerbindung).set({ gesperrtBis: null }).where(eq(postfachVerbindung.id, id));
+    });
+    return { mails: 0, termine: 0, fehler: null };
+  }
   let adapter: PostfachAnbieter | null = null;
+  let nachholen = false;
   try {
     let zugang: Zugang;
     try {
@@ -121,13 +136,15 @@ export async function gleicheVerbindungAb(db: Db, id: string, opt: SyncOptionen)
     let termine = 0;
     let neuerStand = zeile.abgleichStand;
     if (zeile.bereich === "mail") {
-      const abruf = await adapter.holeMailKoepfe(zugang, zeile.abgleichStand);
+      // Nach neuen Kontakten aus Postfach und Kalender schaut der Abgleich einmal wieder den ersten Zeitraum zurück (Merker atomar verbrauchen).
+      nachholen = zeile.nachholen && (await schreibe(db, "system", (tx) => tx.update(postfachVerbindung).set({ nachholen: false }).where(and(eq(postfachVerbindung.id, id), eq(postfachVerbindung.nachholen, true))).returning({ id: postfachVerbindung.id }))).length > 0;
+      const abruf = await adapter.holeMailKoepfe(zugang, nachholen ? null : zeile.abgleichStand);
       neuerStand = abruf.stand;
       mails = await verarbeiteMails(db, opt, zeile, zugang, adapter, abruf.koepfe);
     } else {
       const jetztWert = jetzt();
       const liste = await adapter.holeTermine(zugang, new Date(jetztWert.getTime() - TERMIN_ZURUECK_TAGE * 86_400_000), new Date(jetztWert.getTime() + TERMIN_VOR_TAGE * 86_400_000));
-      termine = await verarbeiteTermine(db, zeile, zugang, liste);
+      termine = await verarbeiteTermine(db, zeile, zugang, liste, opt.logger);
     }
     await schreibe(db, "system", async (tx) => {
       await tx
@@ -155,6 +172,7 @@ export async function gleicheVerbindungAb(db: Db, id: string, opt: SyncOptionen)
           letzterFehler: fehler.code,
           naechsterAbgleichAm: new Date(jetzt().getTime() + FEHLER_WARTEZEIT_MINUTEN * 60_000),
           gesperrtBis: null,
+          ...(nachholen ? { nachholen: true } : {}),
         })
         .where(eq(postfachVerbindung.id, id));
     });
@@ -188,7 +206,7 @@ interface Treffer {
 
 async function verarbeiteMails(db: Db, opt: SyncOptionen, zeile: Zeile, zugang: Zugang, adapter: PostfachAnbieter, koepfe: MailKopf[]): Promise<number> {
   if (koepfe.length === 0) return 0;
-  const bekannte = await lese(db, (tx) => ladeBekannte(tx));
+  const bekannte = await kontakteAusAbgleich(db, zeile.id, zeile.benutzerId, "mail", await lese(db, (tx) => ladeBekannte(tx)), (regeln, b) => kandidatenAusMails(koepfe, zugang.adresse, b, regeln), opt.logger);
   const treffer: Treffer[] = [];
   for (const kopf of koepfe) {
     const zuordnung = ordneZu([kopf.von, ...kopf.an, ...kopf.cc], zugang.adresse, bekannte);
@@ -220,7 +238,9 @@ async function verarbeiteMails(db: Db, opt: SyncOptionen, zeile: Zeile, zugang: 
       }
     }
   }
-  return schreibe(db, zeile.benutzerId, async (tx, protokoll) => {
+  const angelegt: Treffer[] = [];
+  const anzahl = await schreibe(db, zeile.benutzerId, async (tx, protokoll) => {
+    angelegt.length = 0; // bei einer Wiederholung der Transaktion
     if (!(await verbindungBesteht(tx, zeile.id))) return 0;
     // Mails, deren Besitzerin ihre Mailverbindung getrennt hat und die zu den gespeicherten Angaben passen, gehören jetzt dieser Person (ohne Anbieter-ID: keine Anhänge).
     for (const w of waisen) await uebernimmVerwaiste(tx, protokoll, { aktivitaetId: w.aktivitaetId, bisherigerBesitzer: w.benutzerId, bereich: "mail", benutzerId: zeile.benutzerId, anbieter: zeile.anbieter });
@@ -248,16 +268,37 @@ async function verarbeiteMails(db: Db, opt: SyncOptionen, zeile: Zeile, zugang: 
       });
       if (eingefuegt) {
         await protokoll("anlegen", "aktivitaet", eingefuegt.id, null, protokollSicht(eingefuegt));
+        angelegt.push(t);
         n++;
       }
     }
     return n;
   });
+  await rufeNachNeuenMailsAuf(opt, zeile, zugang, adapter, angelegt, bekannte);
+  return anzahl;
 }
 
-async function verarbeiteTermine(db: Db, zeile: Zeile, zugang: Zugang, termine: Termin[]): Promise<number> {
+/** Erweiterungspunkt für neue eingehende Mails bekannter Personen; ein Fehler dort hält den Abgleich nicht auf und nennt im Log nie Adressen. */
+async function rufeNachNeuenMailsAuf(opt: SyncOptionen, zeile: Zeile, zugang: Zugang, adapter: PostfachAnbieter, angelegt: readonly Treffer[], bekannte: Awaited<ReturnType<typeof ladeBekannte>>): Promise<void> {
+  if (!opt.nachNeuenMails || angelegt.length === 0) return;
+  const eigene = zugang.adresse.trim().toLowerCase();
+  const mails = angelegt.flatMap((t) => {
+    const absender = t.kopf.von.trim().toLowerCase();
+    const p = bekannte.personen.get(absender);
+    if (!p || absender === eigene || t.kopf.gesendet === true || t.kopf.massenmail) return [];
+    return [{ personId: p.id, absender, datum: t.kopf.datum, holeText: (max: number) => adapter.holeMailText(zugang, t.kopf, max) }];
+  });
+  if (mails.length === 0) return;
+  try {
+    await opt.nachNeuenMails({ verbindungId: zeile.id, benutzerId: zeile.benutzerId, anbieter: zeile.anbieter, mails });
+  } catch (e) {
+    opt.logger?.("warn", "Auswertung neuer Mails fehlgeschlagen", { verbindungId: zeile.id, fehlerArt: e instanceof Error ? e.name : typeof e });
+  }
+}
+
+async function verarbeiteTermine(db: Db, zeile: Zeile, zugang: Zugang, termine: Termin[], logger?: SyncOptionen["logger"]): Promise<number> {
   if (termine.length === 0) return 0;
-  const bekannte = await lese(db, (tx) => ladeBekannte(tx));
+  const bekannte = await kontakteAusAbgleich(db, zeile.id, zeile.benutzerId, "kalender", await lese(db, (tx) => ladeBekannte(tx)), (regeln, b) => kandidatenAusTerminen(termine, zugang.adresse, b, regeln), logger);
   return schreibe(db, zeile.benutzerId, async (tx, protokoll) => {
     if (!(await verbindungBesteht(tx, zeile.id))) return 0;
     const zugeordnet = termine.flatMap((t) => {

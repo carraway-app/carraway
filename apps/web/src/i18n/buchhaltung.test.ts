@@ -33,7 +33,7 @@ describe("Buchhaltung: Übersetzungen", () => {
 
   it("die neuen Fehlercodes der API sind übersetzt und haben dieselben Schlüssel in beiden Sprachen", () => {
     const quelle = /export type Fehlercode =([\s\S]*?);/.exec(lies("../api/src/fehler.ts"))?.[1] ?? "";
-    const neue = codes(quelle, /"((?:BELEG|MITTELARTEN|KONTO|GLIEDERUNG|KONTENREGEL|SALDENLAUF|SALDENLISTE|BUCHHALTUNG|BUCHUNGSREGEL|BUCHUNGSEXPORT)_[A-Z_]+)"/g);
+    const neue = codes(quelle, /"((?:voucher|funding_sources|account|layout|balance_run|trial_balance|accounting|posting_rule|posting_export)_[a-z_]+)"/g);
     expect(neue.length).toBeGreaterThan(25);
     for (const tabelle of [buchhaltungFehlerDe, buchhaltungFehlerEn]) expect(neue.filter((c) => !Object.hasOwn(tabelle, c))).toEqual([]);
     expect(Object.keys(buchhaltungFehlerDe).sort()).toEqual(Object.keys(buchhaltungFehlerEn).sort());

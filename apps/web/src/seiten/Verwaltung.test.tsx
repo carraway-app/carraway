@@ -47,17 +47,17 @@ const sperre = (extra: Record<string, unknown> = {}) => ({ fondsId: FONDS_ID, ge
 
 const verwaltungApi = (extra: Parameters<typeof spieleApi>[0] = {}) =>
   spieleApi({
-    "/api/v1/benutzer": { koerper: benutzer },
-    [`/api/v1/fonds/${FONDS_ID}/rollen`]: { koerper: { daten: [{ benutzerId: BERTA, name: "Berta Beispiel", email: "berta@beispiel.example", aktiv: true, rolle: "bearbeiter" }] } },
-    "/api/v1/api-schluessel": { koerper: { daten: [schluesselZeile()] } },
+    "/api/v1/users": { koerper: benutzer },
+    [`/api/v1/fonds/${FONDS_ID}/roles`]: { koerper: { daten: [{ benutzerId: BERTA, name: "Berta Beispiel", email: "berta@beispiel.example", aktiv: true, rolle: "bearbeiter" }] } },
+    "/api/v1/api-keys": { koerper: { daten: [schluesselZeile()] } },
     [`/api/v1/fonds/${FONDS_ID}/periodensperre`]: { koerper: sperre() },
-    "/api/v1/dokumente/aufbewahrung": { koerper: { aufbewahrungTage: 30, daten: [], endgueltigGeloescht: 0 } },
+    "/api/v1/documents/retention": { koerper: { aufbewahrungTage: 30, daten: [], endgueltigGeloescht: 0 } },
     ...extra,
   });
 
 describe("Verwaltung: Zugang", () => {
   it("führt Personen ohne globale Verwaltung zurück zur Startseite und zeigt ihnen keinen Menüpunkt", async () => {
-    verwaltungApi({ "/api/v1/ich": alsRolle("verwalter") });
+    verwaltungApi({ "/api/v1/me": alsRolle("verwalter") });
     const { router } = rendereApp("/verwaltung");
     await waitFor(() => expect(router.state.location.pathname).toBe(`/fonds/${FONDS_ID}`));
     expect(screen.queryByRole("link", { name: "Verwaltung" })).toBeNull();
@@ -74,7 +74,7 @@ describe("Verwaltung: Zugang", () => {
 
 describe("Verwaltung: Benutzer", () => {
   it("listet Personen (ohne technische Benutzer) und legt eine Person mit Startpasswort an", async () => {
-    const api = verwaltungApi({ "POST /api/v1/benutzer": { status: 201, koerper: { id: "n1", name: "Neue Person", email: "neu@beispiel.example", aktiv: true, globalVerwalter: false } } });
+    const api = verwaltungApi({ "POST /api/v1/users": { status: 201, koerper: { id: "n1", name: "Neue Person", email: "neu@beispiel.example", aktiv: true, globalVerwalter: false } } });
     rendereApp("/verwaltung");
     const nutzer = userEvent.setup();
     const tabelle = await karteInnen("Benutzer");
@@ -91,34 +91,34 @@ describe("Verwaltung: Benutzer", () => {
     await nutzer.type(dialog.getByLabelText("Startpasswort"), "kurz");
     await nutzer.click(dialog.getByRole("button", { name: "Benutzer anlegen" }));
     expect(dialog.getByText(de.passwort.zuKurz(12))).toBeTruthy();
-    expect(api.anfragen("POST", "/api/v1/benutzer")).toHaveLength(0);
+    expect(api.anfragen("POST", "/api/v1/users")).toHaveLength(0);
     await nutzer.clear(dialog.getByLabelText("Startpasswort"));
     await nutzer.type(dialog.getByLabelText("Startpasswort"), "Startpasswort-123456");
     await nutzer.click(dialog.getByRole("checkbox"));
     await nutzer.click(dialog.getByRole("button", { name: "Benutzer anlegen" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    expect(api.anfragen("POST", "/api/v1/benutzer")[0]!.koerper).toEqual({ name: "Neue Person", email: "neu@beispiel.example", passwort: "Startpasswort-123456", globalVerwalter: true });
+    expect(api.anfragen("POST", "/api/v1/users")[0]!.koerper).toEqual({ name: "Neue Person", email: "neu@beispiel.example", password: "Startpasswort-123456", globalAdmin: true });
     expect(screen.getByText(de.verwaltung.benutzer.angelegtText("Neue Person"))).toBeTruthy();
   });
 
-  it("sperrt eine Person und zeigt LETZTER_VERWALTER übersetzt", async () => {
+  it("sperrt eine Person und zeigt last_admin übersetzt", async () => {
     const api = verwaltungApi({
-      [`PATCH /api/v1/benutzer/${BERTA}`]: fehler(409, "LETZTER_VERWALTER"),
+      [`PATCH /api/v1/users/${BERTA}`]: fehler(409, "last_admin"),
     });
     rendereApp("/verwaltung");
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Berta Beispiel sperren" }));
-    expect((await screen.findByRole("alert")).textContent).toContain(de.fehler.LETZTER_VERWALTER);
-    expect(api.anfragen("PATCH", `/api/v1/benutzer/${BERTA}`)[0]!.koerper).toEqual({ aktiv: false });
+    expect((await screen.findByRole("alert")).textContent).toContain(de.fehler.last_admin);
+    expect(api.anfragen("PATCH", `/api/v1/users/${BERTA}`)[0]!.koerper).toEqual({ active: false });
   });
 });
 
 describe("Verwaltung: Rollen", () => {
   it("weist eine Rolle zu, ändert sie und entzieht sie (204 ohne Körper)", async () => {
     const api = verwaltungApi({
-      [`PUT /api/v1/fonds/${FONDS_ID}/rollen/${ICH_ID}`]: { koerper: { benutzerId: ICH_ID, fondsId: FONDS_ID, rolle: "freigeber" } },
-      [`PUT /api/v1/fonds/${FONDS_ID}/rollen/${BERTA}`]: { koerper: {} },
-      [`DELETE /api/v1/fonds/${FONDS_ID}/rollen/${BERTA}`]: { status: 204, koerper: null },
+      [`PUT /api/v1/fonds/${FONDS_ID}/roles/${ICH_ID}`]: { koerper: { benutzerId: ICH_ID, fondsId: FONDS_ID, rolle: "freigeber" } },
+      [`PUT /api/v1/fonds/${FONDS_ID}/roles/${BERTA}`]: { koerper: {} },
+      [`DELETE /api/v1/fonds/${FONDS_ID}/roles/${BERTA}`]: { status: 204, koerper: null },
     });
     rendereApp("/verwaltung?bereich=rollen");
     const nutzer = userEvent.setup();
@@ -127,14 +127,14 @@ describe("Verwaltung: Rollen", () => {
     await nutzer.selectOptions(bereich.getByRole("combobox", { name: "Person" }), ICH_ID);
     await nutzer.selectOptions(bereich.getByRole("combobox", { name: /^Rolle$/ }), "freigeber");
     await nutzer.click(bereich.getByRole("button", { name: "Rolle zuweisen" }));
-    await waitFor(() => expect(api.anfragen("PUT", `/api/v1/fonds/${FONDS_ID}/rollen/${ICH_ID}`)).toHaveLength(1));
-    expect(api.anfragen("PUT", `/api/v1/fonds/${FONDS_ID}/rollen/${ICH_ID}`)[0]!.koerper).toEqual({ rolle: "freigeber" });
+    await waitFor(() => expect(api.anfragen("PUT", `/api/v1/fonds/${FONDS_ID}/roles/${ICH_ID}`)).toHaveLength(1));
+    expect(api.anfragen("PUT", `/api/v1/fonds/${FONDS_ID}/roles/${ICH_ID}`)[0]!.koerper).toEqual({ role: "approver" });
 
     await nutzer.selectOptions(bereich.getByRole("combobox", { name: "Rolle von Berta Beispiel" }), "freigeber");
-    await waitFor(() => expect(api.anfragen("PUT", `/api/v1/fonds/${FONDS_ID}/rollen/${BERTA}`)).toHaveLength(1));
+    await waitFor(() => expect(api.anfragen("PUT", `/api/v1/fonds/${FONDS_ID}/roles/${BERTA}`)).toHaveLength(1));
 
     await nutzer.click(bereich.getByRole("button", { name: "Berta Beispiel die Rolle an diesem Fonds entziehen" }));
-    await waitFor(() => expect(api.anfragen("DELETE", `/api/v1/fonds/${FONDS_ID}/rollen/${BERTA}`)).toHaveLength(1));
+    await waitFor(() => expect(api.anfragen("DELETE", `/api/v1/fonds/${FONDS_ID}/roles/${BERTA}`)).toHaveLength(1));
     expect(screen.queryByRole("alert")).toBeNull();
   });
 });
@@ -151,9 +151,9 @@ describe("Verwaltung: Rollen und Gruppen", () => {
 
   it("zeigt Fondszugriff, Rollen und Gruppen, legt eine Rolle mit Bereichen an und stellt den Fondszugriff um", async () => {
     const api = verwaltungApi({
-      "/api/v1/rechte": { koerper: stand },
-      "POST /api/v1/rechte/rollen": { status: 201, koerper: { ...stand.rollen[0], id: "neu", name: "Controlling", bereiche: ["finanzen", "berichte"] } },
-      "PUT /api/v1/rechte/einstellung": { koerper: { fondsOffen: false } },
+      "/api/v1/permissions": { koerper: stand },
+      "POST /api/v1/permissions/roles": { status: 201, koerper: { ...stand.rollen[0], id: "neu", name: "Controlling", bereiche: ["finanzen", "berichte"] } },
+      "PUT /api/v1/permissions/settings": { koerper: { fondsOffen: false } },
     });
     rendereApp("/verwaltung?bereich=rechte");
     const nutzer = userEvent.setup();
@@ -169,18 +169,18 @@ describe("Verwaltung: Rollen und Gruppen", () => {
     // Höchste Stufe je Bereich: Finanzen nur lesen, Berichte ohne Grenze.
     await nutzer.selectOptions(dialog.getByLabelText(`${de.verwaltung.rechte.grenze}: Finanzen und Buchhaltung`), "betrachter");
     await nutzer.click(dialog.getByRole("button", { name: de.verwaltung.rechte.speichern }));
-    await waitFor(() => expect(api.anfragen("POST", "/api/v1/rechte/rollen")).toHaveLength(1));
-    expect(api.anfragen("POST", "/api/v1/rechte/rollen")[0]!.koerper).toEqual({ name: "Controlling", beschreibung: null, bereiche: ["finanzen", "berichte"], bereichStufen: { finanzen: "betrachter" } });
+    await waitFor(() => expect(api.anfragen("POST", "/api/v1/permissions/roles")).toHaveLength(1));
+    expect(api.anfragen("POST", "/api/v1/permissions/roles")[0]!.koerper).toEqual({ name: "Controlling", description: null, areas: ["finance", "reports"], areaLevels: { finance: "viewer" } });
 
     await nutzer.click(screen.getByRole("button", { name: de.verwaltung.rechte.zugriff.zugewiesen }));
-    await waitFor(() => expect(api.anfragen("PUT", "/api/v1/rechte/einstellung")).toHaveLength(1));
-    expect(api.anfragen("PUT", "/api/v1/rechte/einstellung")[0]!.koerper).toEqual({ fondsOffen: false });
+    await waitFor(() => expect(api.anfragen("PUT", "/api/v1/permissions/settings")).toHaveLength(1));
+    expect(api.anfragen("PUT", "/api/v1/permissions/settings")[0]!.koerper).toEqual({ fundsOpen: false });
   });
 
   it("Gruppe mit Bereichen je Fonds: Auswahl je Fonds aus den Bereichen ihrer Rollen", async () => {
     const api = verwaltungApi({
-      "/api/v1/rechte": { koerper: stand },
-      [`PATCH /api/v1/rechte/gruppen/${GRUPPE_ID}`]: { koerper: { ...stand.gruppen[0], fondsBeschraenkt: true, bereicheJeFonds: true, fondsIds: [FONDS_ID], fondsBereiche: { [FONDS_ID]: ["kontakte"] } } },
+      "/api/v1/permissions": { koerper: stand },
+      [`PATCH /api/v1/permissions/groups/${GRUPPE_ID}`]: { koerper: { ...stand.gruppen[0], fondsBeschraenkt: true, bereicheJeFonds: true, fondsIds: [FONDS_ID], fondsBereiche: { [FONDS_ID]: ["kontakte"] } } },
     });
     rendereApp("/verwaltung?bereich=rechte");
     const nutzer = userEvent.setup();
@@ -195,15 +195,26 @@ describe("Verwaltung: Rollen und Gruppen", () => {
     const jeFonds = within(dialog.getByRole("group", { name: de.verwaltung.rechte.bereicheJeFondsLegende("Beispielfonds I") }));
     await nutzer.click(jeFonds.getByLabelText("Kontakte"));
     await nutzer.click(dialog.getByRole("button", { name: de.verwaltung.rechte.speichern }));
-    await waitFor(() => expect(api.anfragen("PATCH", `/api/v1/rechte/gruppen/${GRUPPE_ID}`)).toHaveLength(1));
-    expect(api.anfragen("PATCH", `/api/v1/rechte/gruppen/${GRUPPE_ID}`)[0]!.koerper).toMatchObject({ fondsBeschraenkt: true, bereicheJeFonds: true, fondsIds: [FONDS_ID], fondsBereiche: { [FONDS_ID]: ["kontakte"] } });
+    await waitFor(() => expect(api.anfragen("PATCH", `/api/v1/permissions/groups/${GRUPPE_ID}`)).toHaveLength(1));
+    expect(api.anfragen("PATCH", `/api/v1/permissions/groups/${GRUPPE_ID}`)[0]!.koerper).toMatchObject({ fundsRestricted: true, areasPerFund: true, fundIds: [FONDS_ID], fundAreas: { [FONDS_ID]: ["contacts"] } });
   });
 });
 
 describe("Verwaltung: API-Schlüssel", () => {
+  it("erklärt die API beim Bereich: Basis-Adresse, Dokumentation und openapi.json öffnen im neuen Tab", async () => {
+    verwaltungApi();
+    rendereApp("/verwaltung?tab=schluessel");
+    expect(await screen.findByRole("heading", { name: de.verwaltung.schluessel.api.titel })).toBeTruthy();
+    expect(screen.getByText(`${window.location.origin}/api/v1`)).toBeTruthy();
+    const doku = screen.getByRole("link", { name: de.verwaltung.schluessel.api.doku });
+    expect(doku.getAttribute("href")).toBe("/api/v1/docs");
+    expect(doku.getAttribute("target")).toBe("_blank");
+    expect(screen.getByRole("link", { name: de.verwaltung.schluessel.api.spec }).getAttribute("href")).toBe("/api/v1/openapi.json");
+  });
+
   it("zeigt den neuen Schlüssel genau einmal, nicht im Cache, und die Liste danach nur mit Vorschau", async () => {
     const klartext = "cwk_GEHEIMER-KLARTEXT-nur-einmal-0123456789";
-    const api = verwaltungApi({ "POST /api/v1/api-schluessel": { status: 201, koerper: { ...schluesselZeile({ name: "Neuer Schlüssel", vorschau: "cwk_GEHEIM" }), schluessel: klartext } } });
+    const api = verwaltungApi({ "POST /api/v1/api-keys": { status: 201, koerper: { ...schluesselZeile({ name: "Neuer Schlüssel", vorschau: "cwk_GEHEIM" }), schluessel: klartext } } });
     const { queryClient } = rendereApp("/verwaltung?bereich=schluessel");
     const nutzer = userEvent.setup();
     expect(await screen.findByText("cwk_ab12cd…")).toBeTruthy();
@@ -219,9 +230,9 @@ describe("Verwaltung: API-Schlüssel", () => {
     expect(erzeugt.getByText(klartext)).toBeTruthy();
     expect(erzeugt.getByText(de.verwaltung.schluessel.form.einmaligText)).toBeTruthy();
     expect(erzeugt.getByRole("button", { name: "Schlüssel kopieren" })).toBeTruthy();
-    const anfrage = api.anfragen("POST", "/api/v1/api-schluessel")[0]!.koerper as { name: string; scopes: unknown; ablauf: string };
+    const anfrage = api.anfragen("POST", "/api/v1/api-keys")[0]!.koerper as { name: string; scopes: unknown; expiresAt: string };
     expect(anfrage.name).toBe("Neuer Schlüssel");
-    expect(anfrage.scopes).toEqual([{ fondsId: FONDS_ID, recht: "schreiben" }]);
+    expect(anfrage.scopes).toEqual([{ fundId: FONDS_ID, permission: "write" }]);
     // Der Klartext liegt in keinem Cache.
     const alleDaten = JSON.stringify([...queryClient.getQueryCache().getAll().map((q) => q.state.data), ...queryClient.getMutationCache().getAll().map((m) => m.state.data)]);
     expect(alleDaten).not.toContain("GEHEIMER-KLARTEXT");
@@ -233,13 +244,13 @@ describe("Verwaltung: API-Schlüssel", () => {
   });
 
   it("widerruft einen Schlüssel erst nach einer zweiten Bestätigung", async () => {
-    const api = verwaltungApi({ [`DELETE /api/v1/api-schluessel/${SCHLUESSEL_ID}`]: { koerper: schluesselZeile({ status: "widerrufen", widerrufenAm: "2026-11-20T00:00:00.000Z" }) } });
+    const api = verwaltungApi({ [`DELETE /api/v1/api-keys/${SCHLUESSEL_ID}`]: { koerper: schluesselZeile({ status: "widerrufen", widerrufenAm: "2026-11-20T00:00:00.000Z" }) } });
     rendereApp("/verwaltung?bereich=schluessel");
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Schlüssel Berichtsexport widerrufen" }));
-    expect(api.anfragen("DELETE", `/api/v1/api-schluessel/${SCHLUESSEL_ID}`)).toHaveLength(0);
+    expect(api.anfragen("DELETE", `/api/v1/api-keys/${SCHLUESSEL_ID}`)).toHaveLength(0);
     await nutzer.click(screen.getByRole("button", { name: "Schlüssel Berichtsexport endgültig widerrufen" }));
-    await waitFor(() => expect(api.anfragen("DELETE", `/api/v1/api-schluessel/${SCHLUESSEL_ID}`)).toHaveLength(1));
+    await waitFor(() => expect(api.anfragen("DELETE", `/api/v1/api-keys/${SCHLUESSEL_ID}`)).toHaveLength(1));
   });
 });
 
@@ -250,7 +261,7 @@ describe("Verwaltung: Periodensperre", () => {
       [`PUT /api/v1/fonds/${FONDS_ID}/periodensperre`]: () => {
         versuche++;
         return versuche === 2
-          ? { status: 400, koerper: { fehler: { code: "EINGABE_UNGUELTIG", meldung: "x", felder: [{ feld: "grund", code: "grund_erforderlich", meldung: "x" }] } } }
+          ? { status: 400, koerper: { error: { code: "invalid_input", message: "x", fields: [{ field: "grund", code: "reason_required", message: "x" }] } } }
           : { koerper: sperre({ gesperrtBis: "2026-09-30" }) };
       },
     });
@@ -277,7 +288,7 @@ describe("Verwaltung: Periodensperre", () => {
     await nutzer.type(bereich.getByLabelText(/Begründung/), "Korrektur Q1");
     await nutzer.click(bereich.getByRole("button", { name: "Sperre zurücknehmen" }));
     // der Server lehnt (hier gespielt) trotzdem ab: Feldfehler am Feld
-    expect(await bereich.findByText(de.feldfehler.grund_erforderlich)).toBeTruthy();
+    expect(await bereich.findByText(de.feldfehler.reason_required)).toBeTruthy();
     expect(api.anfragen("PUT", `/api/v1/fonds/${FONDS_ID}/periodensperre`)[1]!.koerper).toEqual({ gesperrtBis: "2026-03-31", grund: "Korrektur Q1" });
   });
 });
@@ -304,14 +315,14 @@ describe("Verwaltung: Sprache", () => {
     expect(await screen.findByRole("region", { name: "Roles per fund" })).toBeTruthy();
   });
 
-  it("gliedert die neun Bereiche des Kerns in Zugänge, fachliche Vorgaben und Betrieb und öffnet die bisherigen Adressen", async () => {
+  it("gliedert die zehn Bereiche des Kerns in Zugänge, fachliche Vorgaben und Betrieb und öffnet die bisherigen Adressen", async () => {
     verwaltungApi();
     rendereApp("/verwaltung?tab=sperre");
     const verzeichnis = within(await screen.findByRole("navigation", { name: de.verwaltung.bereiche }));
     const namen = (gruppe: string) => within(verzeichnis.getByRole("list", { name: gruppe })).getAllByRole("button").map((k) => k.textContent);
     expect(namen("Zugänge")).toEqual(["Benutzer", "Rollen und Gruppen", "Rollen je Fonds", "API-Schlüssel"]);
-    expect(namen("Fachliche Vorgaben")).toEqual(["Kennzahlen", "Meldewesen", "Wechselkurse"]);
-    expect(namen("Betrieb")).toEqual(["Periodensperre", "Export und API", "Betrieb"]);
+    expect(namen("Fachliche Vorgaben")).toEqual(["Kennzahlen", "Meldewesen", "Manager-Profil", "Wechselkurse", "Kontakte aus Postfach"]);
+    expect(namen("Betrieb")).toEqual(["Periodensperre", "Export und API", "Betrieb", "Mailversand"]);
     expect(verzeichnis.getByRole("button", { name: "Periodensperre" }).getAttribute("aria-current")).toBe("page");
     expect(await screen.findByRole("region", { name: "Periodensperre" })).toBeTruthy();
   });
@@ -334,11 +345,11 @@ describe("Verwaltung: Export und API", () => {
     expect(doku.getAttribute("rel")).toContain("noopener");
     // Hilfe für Integrationen: Idempotency-Key und Stapel
     expect(screen.getByText(/Idempotency-Key: Schicken Sie/)).toBeTruthy();
-    expect(screen.getByText(/POST \/api\/v1\/stapel: bis zu 100/)).toBeTruthy();
+    expect(screen.getByText(/POST \/api\/v1\/batch: bis zu 100/)).toBeTruthy();
   });
 
   it("zeigt den Export nicht, wenn die Person keine globale Verwaltung hat (Weiterleitung)", async () => {
-    verwaltungApi({ "/api/v1/ich": alsRolle("verwalter") });
+    verwaltungApi({ "/api/v1/me": alsRolle("verwalter") });
     const { router } = rendereApp("/verwaltung?bereich=daten");
     await waitFor(() => expect(router.state.location.pathname).toBe(`/fonds/${FONDS_ID}`));
     expect(screen.queryByRole("link", { name: de.datenuebernahme.export.knopf })).toBeNull();
@@ -346,7 +357,7 @@ describe("Verwaltung: Export und API", () => {
 
   it("zeigt gelöschte Dokumente mit dem Datum, ab dem die Datei entfernt wird, und den Grund, wenn sie bleibt", async () => {
     verwaltungApi({
-      "/api/v1/dokumente/aufbewahrung": {
+      "/api/v1/documents/retention": {
         koerper: {
           aufbewahrungTage: 30,
           endgueltigGeloescht: 2,
@@ -369,12 +380,12 @@ describe("Verwaltung: Export und API", () => {
 
   it("holt die Fassungen früher freigegebener LP-Berichte nach und zeigt Ergebnis und übersprungene Berichte", async () => {
     const api = verwaltungApi({
-      "POST /api/v1/berichte/varianten-nachholen": { koerper: { geprueft: 2, angelegt: [{ berichtId: "b1", varianten: 3 }], uebersprungen: [{ berichtId: "b2", grund: "nicht_reproduzierbar" }] } },
+      "POST /api/v1/reports/backfill-variants": { koerper: { geprueft: 2, angelegt: [{ berichtId: "b1", varianten: 3 }], uebersprungen: [{ berichtId: "b2", grund: "nicht_reproduzierbar" }] } },
     });
     rendereApp("/verwaltung?bereich=daten");
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: de.datenuebernahme.varianten.knopf }));
-    await waitFor(() => expect(api.anfragen("POST", "/api/v1/berichte/varianten-nachholen")).toHaveLength(1));
+    await waitFor(() => expect(api.anfragen("POST", "/api/v1/reports/backfill-variants")).toHaveLength(1));
     expect(await screen.findByText(de.datenuebernahme.varianten.ergebnis(2, 1))).toBeTruthy();
     expect(screen.getByText(de.datenuebernahme.varianten.uebersprungen(de.datenuebernahme.varianten.gruende.nicht_reproduzierbar!, "b2"))).toBeTruthy();
   });
@@ -410,7 +421,7 @@ const betriebStatus = (extra: Record<string, unknown> = {}) => ({
 
 describe("Verwaltung: Betrieb", () => {
   it("zeigt Datenbank, Migrationen, Worker, Rückstände, Ablage und SMTP", async () => {
-    verwaltungApi({ "/api/v1/betrieb/status": { koerper: betriebStatus() } });
+    verwaltungApi({ "/api/v1/operations/status": { koerper: betriebStatus() } });
     rendereApp("/verwaltung?bereich=betrieb");
     const tabelle = within(await screen.findByRole("region", { name: de.verwaltung.betrieb.tabelle }));
     expect(tabelle.getByText("Alle 45 Migrationen angewendet")).toBeTruthy();
@@ -424,7 +435,7 @@ describe("Verwaltung: Betrieb", () => {
 
   it("meldet eine Störung bei falschem Migrationsstand und nicht beschreibbarer Ablage", async () => {
     verwaltungApi({
-      "/api/v1/betrieb/status": { koerper: betriebStatus({ ampel: "fehler", migrationen: { ok: false, bekannt: 45, angewendet: 44, meldung: "fehlt" }, speicher: { beschreibbar: false } }) },
+      "/api/v1/operations/status": { koerper: betriebStatus({ ampel: "fehler", migrationen: { ok: false, bekannt: 45, angewendet: 44, meldung: "fehlt" }, speicher: { beschreibbar: false } }) },
     });
     rendereApp("/verwaltung?bereich=betrieb");
     expect(await screen.findByText(de.verwaltung.betrieb.migrationen.fehler)).toBeTruthy();
@@ -434,7 +445,7 @@ describe("Verwaltung: Betrieb", () => {
 
   it("beschriftet den Bereich auf Englisch", async () => {
     localStorage.setItem("carraway.sprache", "en");
-    verwaltungApi({ "/api/v1/betrieb/status": { koerper: betriebStatus({ ampel: "ok", worker: { status: "ok", herzschlagAlterSekunden: 4, grenzeSekunden: 30 }, smtp: { konfiguriert: true } }) } });
+    verwaltungApi({ "/api/v1/operations/status": { koerper: betriebStatus({ ampel: "ok", worker: { status: "ok", herzschlagAlterSekunden: 4, grenzeSekunden: 30 }, smtp: { konfiguriert: true } }) } });
     rendereApp("/verwaltung?bereich=betrieb");
     const tabelle = within(await screen.findByRole("region", { name: en.verwaltung.betrieb.tabelle }));
     expect(tabelle.getByText("Last heartbeat 4 s ago")).toBeTruthy();
@@ -458,7 +469,7 @@ describe("Verwaltung: Einladung per Mail", () => {
   });
 
   it("mit Mailversand lädt der Dialog ohne Passwort ein und sendet die Sprache der Oberfläche", async () => {
-    const api = verwaltungApi({ "/api/v1/umgebung": MIT_MAIL, "POST /api/v1/benutzer": { status: 201, koerper: { id: "n1", name: "Neue Person", email: "neu@beispiel.example", aktiv: true, globalVerwalter: false, einladung: true } } });
+    const api = verwaltungApi({ "/api/v1/environment": MIT_MAIL, "POST /api/v1/users": { status: 201, koerper: { id: "n1", name: "Neue Person", email: "neu@beispiel.example", aktiv: true, globalVerwalter: false, einladung: true } } });
     rendereApp("/verwaltung");
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Benutzer anlegen" }));
@@ -470,22 +481,22 @@ describe("Verwaltung: Einladung per Mail", () => {
     expect(dialog.getByText(de.verwaltung.einladung.mailHilfe)).toBeTruthy();
     await nutzer.click(dialog.getByRole("button", { name: "Benutzer anlegen" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    expect(api.anfragen("POST", "/api/v1/benutzer")[0]!.koerper).toEqual({ name: "Neue Person", email: "neu@beispiel.example", globalVerwalter: false, sprache: "de" });
+    expect(api.anfragen("POST", "/api/v1/users")[0]!.koerper).toEqual({ name: "Neue Person", email: "neu@beispiel.example", globalAdmin: false, language: "de" });
     expect(screen.getByText(de.verwaltung.einladung.angelegtText("Neue Person"))).toBeTruthy();
   });
 
   it("zeigt offene Einladungen und sendet sie erneut", async () => {
     const api = verwaltungApi({
-      "/api/v1/umgebung": MIT_MAIL,
-      "/api/v1/benutzer": { koerper: { daten: [...benutzer.daten, eingeladen] } },
-      [`POST /api/v1/benutzer/e1/einladung`]: { status: 204, koerper: null },
+      "/api/v1/environment": MIT_MAIL,
+      "/api/v1/users": { koerper: { daten: [...benutzer.daten, eingeladen] } },
+      [`POST /api/v1/users/e1/invitation`]: { status: 204, koerper: null },
     });
     rendereApp("/verwaltung");
     const tabelle = await karteInnen("Benutzer");
     expect(within(tabelle).getByText(de.verwaltung.einladung.offen)).toBeTruthy();
     await userEvent.setup().click(within(tabelle).getByRole("button", { name: de.verwaltung.einladung.erneutFuer("Emil Eingeladen") }));
     expect(await screen.findByText(de.verwaltung.einladung.erneutGesendet("Emil Eingeladen"))).toBeTruthy();
-    expect(api.anfragen("POST", "/api/v1/benutzer/e1/einladung")[0]!.koerper).toEqual({ sprache: "de" });
+    expect(api.anfragen("POST", "/api/v1/users/e1/invitation")[0]!.koerper).toEqual({ language: "de" });
   });
 
   it("Texte der Einladung sind auf Englisch vorhanden", () => {

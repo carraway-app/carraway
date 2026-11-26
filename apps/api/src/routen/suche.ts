@@ -1,10 +1,10 @@
+import { kontaktJson, pruefeKontakt } from "../kontakte/http";
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import { deal, organisation, person, type Db } from "@carraway/db";
 import { aktuellerAkteur, fuerBereich, hatRolleOhneFonds } from "../anmeldung/akteur";
 import { sucheDokumentSeiten } from "./dokumente";
-import { pruefe } from "../pruefung";
 import { hatBereich } from "../rechte/bereiche";
 import { dealSichtbar } from "../rechte/sichtbarkeit";
 import { lese } from "../zeitlimit";
@@ -31,7 +31,7 @@ const trifft = (text: ReturnType<typeof sql>, q: string) => sql`(${text} LIKE ${
 export function sucheRouten(db: Db) {
   return new Hono().get(
     "/",
-    pruefe("query", z.object({ q: z.string().trim().min(2).max(100), limit: z.coerce.number().int().min(1).max(20).default(5) })),
+    pruefeKontakt("query", z.object({ q: z.string().trim().min(2).max(100), limit: z.coerce.number().int().min(1).max(20).default(5) })),
     async (c) => {
       const { q: roh, limit } = c.req.valid("query");
       const q = roh.toLowerCase();
@@ -89,7 +89,8 @@ export function sucheRouten(db: Db) {
         const dokumente = hatBereich(akteur, "dokumente") ? await sucheDokumentSeiten(tx, fuerBereich(akteur, "dokumente"), roh, limit) : [];
         return { organisationen, personen, deals, dokumente };
       });
-      return c.json(
+      return kontaktJson(
+        c,
         {
           q: roh,
           organisationen: ergebnis.organisationen.map((z) => ({ ...z, score: rund(z.score) })),

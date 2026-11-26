@@ -51,14 +51,14 @@ export function zipNamen(daten: Uint8Array): string[] {
   return namen;
 }
 
-const unzulaessig = () => new Fachfehler(415, "DOKUMENTTYP_UNZULAESSIG", "Erlaubt sind PDF, PNG, JPEG, Word (.docx) und Excel (.xlsx); der Dateityp wird am Inhalt erkannt, nicht am Namen.");
-const unsicher = (grund: string) => new Fachfehler(422, "DOKUMENT_UNSICHER", `Die Datei wird nicht angenommen: ${grund}.`);
+const unzulaessig = () => new Fachfehler(415, "document_type_not_allowed", "Allowed are PDF, PNG, JPEG, Word (.docx) and Excel (.xlsx); the file type is detected from the content, not the name.");
+const unsicher = (grund: string) => new Fachfehler(422, "document_unsafe", `The file is not accepted: ${grund}.`);
 
 /** Erkennt den Typ und prüft die Datei; wirft `Fachfehler` (415, 422), wenn sie nicht angenommen wird. */
 export function pruefeDokument(daten: Uint8Array): ErkanntesDokument {
-  if (daten.length === 0) throw new Fachfehler(422, "DATEI_LEER", "Die Datei ist leer.");
+  if (daten.length === 0) throw new Fachfehler(422, "file_empty", "The file is empty.");
   if (beginntMit(daten, [0x25, 0x50, 0x44, 0x46, 0x2d])) {
-    if (istVerschluesselt(daten)) throw new Fachfehler(422, "PDF_VERSCHLUESSELT", "Verschlüsselte oder passwortgeschützte PDF-Dateien werden nicht angenommen. Bitte ohne Passwort speichern und erneut hochladen.");
+    if (istVerschluesselt(daten)) throw new Fachfehler(422, "pdf_encrypted", "Encrypted or password-protected PDF files are not accepted. Please save without a password and upload again.");
     return { art: "pdf", mime: MIME.pdf };
   }
   if (beginntMit(daten, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) return { art: "png", mime: MIME.png };
@@ -68,13 +68,13 @@ export function pruefeDokument(daten: Uint8Array): ErkanntesDokument {
       pruefeZip(daten, { maxEntpackt: MAX_ENTPACKT_OFFICE, maxEintraege: MAX_EINTRAEGE_OFFICE });
     } catch (fehler) {
       if (fehler instanceof DateiFehler) {
-        throw unsicher(fehler.code === "DATEI_ZU_GROSS" ? "sie ist entpackt zu groß oder ungewöhnlich stark gepackt" : "das Archiv ist beschädigt");
+        throw unsicher(fehler.code === "DATEI_ZU_GROSS" ? "it is too large when unpacked or unusually highly compressed" : "the archive is corrupt");
       }
       throw fehler;
     }
     const namen = new Set(zipNamen(daten));
     if (!namen.has("[Content_Types].xml")) throw unzulaessig();
-    if ([...namen].some((n) => /(^|\/)vbaProject\.bin$/i.test(n) || /(^|\/)macrosheets\//i.test(n))) throw unsicher("Dateien mit Makros sind nicht erlaubt");
+    if ([...namen].some((n) => /(^|\/)vbaProject\.bin$/i.test(n) || /(^|\/)macrosheets\//i.test(n))) throw unsicher("files with macros are not allowed");
     if (namen.has("word/document.xml")) return { art: "docx", mime: MIME.docx };
     if (namen.has("xl/workbook.xml")) return { art: "xlsx", mime: MIME.xlsx };
     throw unzulaessig();

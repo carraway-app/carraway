@@ -23,3 +23,8 @@ export * from "./bewertungsszenario.js";
 export * from "./mitarbeiterbeteiligung.js";
 export * from "./pool-shuffle.js";
 export * from "./offene-wandlung.js";
+export * from "./fondskosten.js";
+export * from "./optionsschein.js";
+export * from "./anteilsuebertragung.js";
+export * from "./dachfonds.js";
+export * from "./allokation.js";

@@ -1,3 +1,4 @@
+import { kontaktJson, pruefeEnglisch } from "../kontakte/http";
 import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { Hono, type Context } from "hono";
 import { z } from "zod";
@@ -12,7 +13,6 @@ import { FELD_ZIELE } from "../felder/ziele";
 import { ladeVerknuepfungen } from "../crm/verknuepfungen";
 import { dealFondsFuerAufgabe, pruefeZustaendigerZugriff, sucheZustaendige } from "../crm/zustaendige";
 import { Fachfehler } from "../fehler";
-import { pruefe } from "../pruefung";
 import { dealSichtbar } from "../rechte/sichtbarkeit";
 import { idParam, KEIN_DATENSATZ, protokolliereLesen, schreibe, textEingabe, optionalerText } from "../schreiben";
 import { lese, type Tx } from "../zeitlimit";
@@ -45,7 +45,7 @@ const neuesFeld = z.object({
 
 const aenderungFeld = z
   .object({ name: textEingabe(80).optional(), optionen: z.record(z.string(), z.unknown()).optional(), position: z.number().int().min(0).max(10000).optional() })
-  .refine((w) => Object.values(w).some((x) => x !== undefined), { message: "Mindestens ein Feld muss angegeben werden" });
+  .refine((w) => Object.values(w).some((x) => x !== undefined), { message: "At least one field must be specified" });
 
 async function verlangeFeldRecht(tx: Tx, c: Context, listeId: string | null) {
   if (istGlobal(c)) return;
@@ -53,12 +53,12 @@ async function verlangeFeldRecht(tx: Tx, c: Context, listeId: string | null) {
     const [l] = await tx.select({ besitzerId: liste.besitzerId }).from(liste).where(eq(liste.id, listeId));
     if (l && l.besitzerId === aktuellerAkteur(c).id) return;
   }
-  throw new Fachfehler(403, "FELD_BERECHTIGUNG", listeId ? "Felder einer Liste ändern nur ihre Besitzerin oder ihr Besitzer und globale Verwalter." : "Eigene Felder definieren nur globale Verwalter.");
+  throw new Fachfehler(403, "field_permission", listeId ? "Only the owner of a list and global admins can change its fields." : "Only global admins can define custom fields.");
 }
 
 async function ladeDefinition(tx: Tx, id: string): Promise<FeldDef> {
   const [d] = await tx.select().from(feldDefinition).where(eq(feldDefinition.id, id)).for("update");
-  if (!d) throw new Fachfehler(404, "FELD_NICHT_GEFUNDEN", "Feld nicht gefunden.");
+  if (!d) throw new Fachfehler(404, "field_not_found", "Field not found.");
   return d as FeldDef;
 }
 
@@ -85,7 +85,7 @@ const ansichtEingabe = z.object({
 
 const ansichtAenderung = z
   .object({ name: textEingabe(80).optional(), art: z.enum(ansichtArt.enumValues).optional(), konfig: ansichtKonfigSchema.optional(), geteilt: z.boolean().optional(), standard: z.boolean().optional() })
-  .refine((w) => Object.values(w).some((x) => x !== undefined), { message: "Mindestens ein Feld muss angegeben werden" });
+  .refine((w) => Object.values(w).some((x) => x !== undefined), { message: "At least one field must be specified" });
 
 /** Alle Feldschlüssel einer Konfiguration müssen zum Objekt gehören (sonst bekäme eine Ansicht beim Laden einen Fehler). */
 async function pruefeKonfig(tx: Tx, objekt: Objekt, listeId: string | null, konfig: z.infer<typeof ansichtKonfigSchema>) {
@@ -93,19 +93,19 @@ async function pruefeKonfig(tx: Tx, objekt: Objekt, listeId: string | null, konf
   const felder = new Set(beschrieben.map((f) => f.schluessel));
   const gruppenTyp = beschrieben.find((f) => f.schluessel === konfig.gruppierung)?.typ;
   if (konfig.gruppierung && gruppenTyp && !(GRUPPIERBAR as readonly string[]).includes(gruppenTyp)) {
-    throw new Fachfehler(400, "ABFRAGE_UNGUELTIG", "Die Gruppierung braucht ein Feld vom Typ Auswahl, Mehrfachauswahl, Person im Haus, Verknüpfung oder Kontrollkästchen.", { felder: [{ feld: konfig.gruppierung, code: "not_groupable", meldung: "Feld lässt sich nicht gruppieren" }] });
+    throw new Fachfehler(400, "query_invalid", "Grouping requires a field of type select, multi-select, internal person, link or checkbox.", { felder: [{ feld: konfig.gruppierung, code: "not_groupable", meldung: "Field cannot be grouped" }] });
   }
   const genannt = [...(konfig.spalten.map((s) => s.feld)), ...konfig.sortierung.map((s) => s.feld), ...(konfig.gruppierung ? [konfig.gruppierung] : [])];
   const sammle = (g: NonNullable<z.infer<typeof ansichtKonfigSchema>["filter"]>): string[] => g.elemente.flatMap((e) => ("elemente" in e ? sammle(e as never) : typeof e.feld === "string" ? [e.feld] : []));
   if (konfig.filter) genannt.push(...sammle(konfig.filter));
   const unbekannt = genannt.filter((f) => !felder.has(f));
-  if (unbekannt.length) throw new Fachfehler(400, "ABFRAGE_UNGUELTIG", "Die Ansicht nennt Felder, die es nicht gibt.", { felder: unbekannt.map((f) => ({ feld: f, code: "unknown_field", meldung: "Unbekanntes Feld" })) });
+  if (unbekannt.length) throw new Fachfehler(400, "query_invalid", "The view references fields that do not exist.", { felder: unbekannt.map((f) => ({ feld: f, code: "unknown_field", meldung: "Unknown field" })) });
 }
 
 async function ladeAnsicht(tx: Tx, c: Context, id: string) {
   const akteur = aktuellerAkteur(c);
   const [a] = await tx.select().from(ansicht).where(eq(ansicht.id, id)).for("update");
-  if (!a || (!a.geteilt && a.besitzerId !== akteur.id)) throw new Fachfehler(404, "ANSICHT_NICHT_GEFUNDEN", "Ansicht nicht gefunden.");
+  if (!a || (!a.geteilt && a.besitzerId !== akteur.id)) throw new Fachfehler(404, "view_not_found", "View not found.");
   return a;
 }
 
@@ -113,7 +113,7 @@ const neueListe = z.object({ name: textEingabe(120), beschreibung: optionalerTex
 
 async function ladeListe(tx: Tx, id: string) {
   const [l] = await tx.select().from(liste).where(eq(liste.id, id));
-  if (!l || l.archiviertAm) throw new Fachfehler(404, "LISTE_NICHT_GEFUNDEN", "Liste nicht gefunden.");
+  if (!l || l.archiviertAm) throw new Fachfehler(404, "list_not_found", "List not found.");
   return l;
 }
 
@@ -137,7 +137,7 @@ async function zulaessigeIds(tx: Tx, c: Context, objekt: Objekt, ids: string[], 
 function verlangeListenRecht(c: Context, l: { besitzerId: string | null }) {
   const akteur = aktuellerAkteur(c);
   if (akteur.globalVerwalter || (l.besitzerId !== null && l.besitzerId === akteur.id)) return;
-  throw new Fachfehler(403, "LISTE_BERECHTIGUNG", "Eine Liste ändern nur ihre Besitzerin oder ihr Besitzer und globale Verwalter.");
+  throw new Fachfehler(403, "list_permission", "Only the owner of a list and global admins can change it.");
 }
 
 /** Anzahl der Einträge je Liste, nur Datensätze, die die Person sehen darf (geteilte Listen verraten keine unsichtbaren Deals). */
@@ -167,11 +167,11 @@ const neueAufgabe = z
     personId: z.uuid().optional(),
     dealId: z.uuid().optional(),
   })
-  .refine((w) => w.organisationId || w.personId || w.dealId, { message: "Mindestens einen Bezug angeben (organisationId, personId oder dealId)", path: ["organisationId"] });
+  .refine((w) => w.organisationId || w.personId || w.dealId, { message: "Specify at least one reference (organizationId, personId or dealId)", path: ["organisationId"] });
 
 const aenderungAufgabe = z
   .object({ titel: textEingabe(300).optional(), notiz: optionalerText(5000), faellig: z.iso.date().nullable().optional(), zustaendigId: z.uuid().nullable().optional() })
-  .refine((w) => Object.values(w).some((x) => x !== undefined), { message: "Mindestens ein Feld muss angegeben werden" });
+  .refine((w) => Object.values(w).some((x) => x !== undefined), { message: "At least one field must be specified" });
 
 /** Zuständig kann jede aktive angemeldete Person mit Zugriff sein (bei Deal-Aufgaben mit Rolle am Fonds des Deals), siehe `crm/zustaendige.ts`. */
 async function pruefeZustaendig(tx: Tx, c: Context, id: string | null | undefined, dealId: string | undefined) {
@@ -181,10 +181,10 @@ async function pruefeZustaendig(tx: Tx, c: Context, id: string | null | undefine
 
 async function ladeAufgabe(tx: Tx, c: Context, id: string) {
   const [a] = await tx.select().from(aufgabe).where(eq(aufgabe.id, id)).for("update");
-  if (!a) throw new Fachfehler(404, "AUFGABE_NICHT_GEFUNDEN", "Aufgabe nicht gefunden.");
+  if (!a) throw new Fachfehler(404, "task_not_found", "Task not found.");
   if (a.dealId) {
     const d = await verlangeDealSichtbar(tx, c, a.dealId).catch(() => {
-      throw new Fachfehler(404, "AUFGABE_NICHT_GEFUNDEN", "Aufgabe nicht gefunden.");
+      throw new Fachfehler(404, "task_not_found", "Task not found.");
     });
     verlangeDealSchreibrecht(c, d.fondsId);
   }
@@ -208,53 +208,53 @@ const massenaktion = z.object({
 export function crmRouten(db: Db) {
   return new Hono()
     // Felder und Abfragen ------------------------------------------------------------------------------------------
-    .get("/objekte/:objekt/felder", pruefe("param", objektParam), pruefe("query", z.object({ listeId: z.uuid().optional(), archiviert: z.enum(["0", "1"]).default("0") })), async (c) => {
+    .get("/objects/:object/fields", pruefeEnglisch("param", objektParam), pruefeEnglisch("query", z.object({ listeId: z.uuid().optional(), archiviert: z.enum(["0", "1"]).default("0") })), async (c) => {
       const { objekt } = c.req.valid("param");
       const { listeId, archiviert } = c.req.valid("query");
       const felder = await lese(db, (tx) => beschreibeFelder(tx, objekt, listeId ?? null, archiviert === "1" && istGlobal(c)));
-      return c.json({ daten: felder }, 200);
+      return kontaktJson(c, { daten: felder }, 200);
     })
-    .post("/objekte/:objekt/abfrage", pruefe("param", objektParam), pruefe("json", abfrageSchema), async (c) => {
+    .post("/objects/:object/query", pruefeEnglisch("param", objektParam), pruefeEnglisch("json", abfrageSchema), async (c) => {
       const { objekt } = c.req.valid("param");
       const ergebnis = await lese(db, (tx) => fuehreAbfrageAus(tx, objekt, c.req.valid("json"), kontextFuer(c, objekt)));
-      return c.json(ergebnis, 200);
+      return kontaktJson(c, ergebnis, 200);
     })
     .post(
-      "/objekte/:objekt/board",
-      pruefe("param", objektParam),
-      pruefe("json", abfrageSchema.extend({ gruppe: z.string().min(1).max(64), summe: z.string().min(1).max(64).nullable().optional(), kartenProSpalte: z.number().int().min(1).max(100).default(30) })),
+      "/objects/:object/board",
+      pruefeEnglisch("param", objektParam),
+      pruefeEnglisch("json", abfrageSchema.extend({ gruppe: z.string().min(1).max(64), summe: z.string().min(1).max(64).nullable().optional(), kartenProSpalte: z.number().int().min(1).max(100).default(30) })),
       async (c) => {
         const { objekt } = c.req.valid("param");
         const { gruppe, summe, kartenProSpalte, ...abfrage } = c.req.valid("json");
         const ergebnis = await lese(db, (tx) => fuehreBoardAus(tx, objekt, abfrage, gruppe, summe ?? null, kartenProSpalte, kontextFuer(c, objekt)));
-        return c.json(ergebnis, 200);
+        return kontaktJson(c, ergebnis, 200, gruppe);
       },
     )
     /** Gruppen einer Tabellenansicht: Anzahl und Summen je Wert eines Auswahl-, Mehrfachauswahl- oder Personenfeldes, mit derselben Treffermenge wie die Abfrage. */
-    .post("/objekte/:objekt/gruppen", pruefe("param", objektParam), pruefe("json", abfrageSchema.extend(gruppenSchema.shape)), async (c) => {
+    .post("/objects/:object/groups", pruefeEnglisch("param", objektParam), pruefeEnglisch("json", abfrageSchema.extend(gruppenSchema.shape)), async (c) => {
       const { objekt } = c.req.valid("param");
       const { gruppe, summen, ...abfrage } = c.req.valid("json");
       const ergebnis = await lese(db, (tx) => fuehreGruppierungAus(tx, objekt, abfrage, gruppe, summen, kontextFuer(c, objekt)));
-      return c.json(ergebnis, 200);
+      return kontaktJson(c, ergebnis, 200, gruppe);
     })
-    .post("/objekte/:objekt/export", pruefe("param", objektParam), pruefe("json", abfrageSchema), async (c) => {
+    .post("/objects/:object/export", pruefeEnglisch("param", objektParam), pruefeEnglisch("json", abfrageSchema), async (c) => {
       const { objekt } = c.req.valid("param");
       const eingabe = c.req.valid("json");
       const { felder, zeilen, bezuege } = await lese(db, (tx) => ladeAlleZeilen(tx, objekt, eingabe, kontextFuer(c, objekt)));
       await protokolliereLesen(db, c, "crm_export", KEIN_DATENSATZ, { objekt, zeilen: zeilen.length, spalten: felder.length });
       return c.body(erzeugeCsv(felder, zeilen, bezuege), 200, { "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": `attachment; filename="${objekt}-export.csv"` });
     })
-    .post("/objekte/:objekt/massenaktion", pruefe("param", objektParam), pruefe("json", massenaktion), async (c) => {
+    .post("/objects/:object/bulk-actions", pruefeEnglisch("param", objektParam), pruefeEnglisch("json", massenaktion), async (c) => {
       const { objekt } = c.req.valid("param");
       const { ids, abfrage, aktion } = c.req.valid("json");
-      if (!ids && !abfrage) throw new Fachfehler(400, "MASSENAKTION_UNGUELTIG", "ids oder abfrage angeben.");
+      if (!ids && !abfrage) throw new Fachfehler(400, "bulk_action_invalid", "Specify ids or query.");
       const ergebnis = await schreibe(db, c, async (tx, protokoll) => {
         const kandidaten = ids ?? (await ladeTrefferIds(tx, objekt, abfrage!, kontextFuer(c, objekt))).slice(0, 5000);
-        if (aktion.art === "phase" && objekt !== "deal") throw new Fachfehler(400, "MASSENAKTION_UNGUELTIG", "Phasen gibt es nur bei Deals.");
+        if (aktion.art === "phase" && objekt !== "deal") throw new Fachfehler(400, "bulk_action_invalid", "Stages only exist for deals.");
         if (aktion.art === "liste_hinzufuegen") {
           const l = await ladeListe(tx, aktion.listeId);
           verlangeListenRecht(c, l);
-          if (l.objekt !== objekt) throw new Fachfehler(400, "MASSENAKTION_UNGUELTIG", "Die Liste gehört zu einem anderen Objekt.");
+          if (l.objekt !== objekt) throw new Fachfehler(400, "bulk_action_invalid", "The list belongs to a different object.");
           const gueltig = await zulaessigeIds(tx, c, objekt, kandidaten, true);
           const neu = gueltig.length ? await tx.insert(listeEintrag).values(gueltig.map((datensatzId) => ({ listeId: l.id, datensatzId }))).onConflictDoNothing().returning({ id: listeEintrag.id, datensatzId: listeEintrag.datensatzId }) : [];
           await protokoll.mehrere(neu.map((n) => ({ aktion: "anlegen", tabelle: "liste_eintrag", datensatzId: n.id, nachher: { listeId: l.id, datensatzId: n.datensatzId } })));
@@ -285,44 +285,44 @@ export function crmRouten(db: Db) {
         }
         return { erfolgreich, hinzugefuegt: 0, fehler };
       });
-      return c.json(ergebnis, 200);
+      return kontaktJson(c, ergebnis, 200);
     })
 
     // Datensätze ---------------------------------------------------------------------------------------------------
-    .get("/datensaetze/:objekt/:id", pruefe("param", objektIdParam), async (c) => {
+    .get("/records/:object/:id", pruefeEnglisch("param", objektIdParam), async (c) => {
       const { objekt, id } = c.req.valid("param");
       const ergebnis = await lese(db, async (tx) => {
         const felder = await beschreibeFelder(tx, objekt, null);
         const abfrage = await fuehreAbfrageAus(tx, objekt, { spalten: felder.map((f) => ({ feld: f.schluessel })), limit: 1 }, kontextFuer(c, objekt, [id]));
         const zeile = abfrage.daten[0];
-        if (!zeile) throw new Fachfehler(404, "DATENSATZ_NICHT_GEFUNDEN", "Datensatz nicht gefunden.");
+        if (!zeile) throw new Fachfehler(404, "record_not_found", "Record not found.");
         return { id, werte: zeile, felder, bezuege: abfrage.bezuege };
       });
-      return c.json(ergebnis, 200);
+      return kontaktJson(c, ergebnis, 200);
     })
     .patch(
-      "/datensaetze/:objekt/:id",
-      pruefe("param", objektIdParam),
-      pruefe("json", z.object({ system: z.record(z.string(), z.unknown()).optional(), eigene: z.record(z.string(), z.unknown()).optional() }).refine((w) => w.system || w.eigene, { message: "system oder eigene angeben" })),
+      "/records/:object/:id",
+      pruefeEnglisch("param", objektIdParam),
+      pruefeEnglisch("json", z.object({ system: z.record(z.string(), z.unknown()).optional(), eigene: z.record(z.string(), z.unknown()).optional() }).refine((w) => w.system || w.eigene, { message: "Specify system or customFields" })),
       async (c) => {
         const { objekt, id } = c.req.valid("param");
         const eingabe = c.req.valid("json");
         const nachher = await schreibe(db, c, (tx, protokoll) => aendereDatensatz(tx, protokoll, c, objekt, id, eingabe));
-        return c.json(nachher, 200);
+        return kontaktJson(c, nachher, 200);
       },
     )
-    .get("/datensaetze/:objekt/:id/verknuepfungen", pruefe("param", objektIdParam), async (c) => {
+    .get("/records/:object/:id/links", pruefeEnglisch("param", objektIdParam), async (c) => {
       const { objekt, id } = c.req.valid("param");
       const ergebnis = await lese(db, async (tx) => {
         if (objekt === "deal") await verlangeDealSichtbar(tx, c, id);
         else await ladeZeile(tx, objekt, id, false);
         return ladeVerknuepfungen(tx, c, objekt, id);
       });
-      return c.json(ergebnis, 200);
+      return kontaktJson(c, ergebnis, 200);
     })
 
     /** Kurzkarte für die Vorschau beim Überfahren eines Verweises: nur Name, Unternehmen und Kontaktwege; Deals folgen der Sichtbarkeit des Fonds. */
-    .get("/datensaetze/:objekt/:id/karte", pruefe("param", objektIdParam), async (c) => {
+    .get("/records/:object/:id/card", pruefeEnglisch("param", objektIdParam), async (c) => {
       const { objekt, id } = c.req.valid("param");
       const ergebnis = await lese(db, async (tx) => {
         const firma = async (organisationId: string | null) => {
@@ -344,26 +344,26 @@ export function crmRouten(db: Db) {
         const [kontakt] = f ? await tx.select({ email: organisation.email, telefon: organisation.telefon, linkedin: organisation.linkedin, website: organisation.website }).from(organisation).where(eq(organisation.id, f.id)) : [];
         return { objekt, id, name: z.titel as string, firma: f, art: null, phase: z.phase as string, funktion: null, email: kontakt?.email ?? null, telefon: kontakt?.telefon ?? null, linkedin: kontakt?.linkedin ?? null, website: kontakt?.website ?? null };
       });
-      return c.json(ergebnis, 200);
+      return kontaktJson(c, ergebnis, 200);
     })
 
     // Felddefinitionen ---------------------------------------------------------------------------------------------
-    .post("/felder", pruefe("json", neuesFeld), async (c) => {
+    .post("/fields", pruefeEnglisch("json", neuesFeld), async (c) => {
       const eingabe = c.req.valid("json");
       const neu = await schreibe(db, c, async (tx, protokoll) => {
         await verlangeFeldRecht(tx, c, eingabe.listeId ?? null);
         if (eingabe.listeId) {
           const l = await ladeListe(tx, eingabe.listeId);
-          if (l.objekt !== eingabe.objekt) throw new Fachfehler(400, "ABFRAGE_UNGUELTIG", "Die Liste gehört zu einem anderen Objekt.");
+          if (l.objekt !== eingabe.objekt) throw new Fachfehler(400, "query_invalid", "The list belongs to a different object.");
         }
         const optionen = optionenSchema(eingabe.typ).safeParse(eingabe.optionen ?? {});
-        if (!optionen.success) throw new Fachfehler(400, "EINGABE_UNGUELTIG", "Die Eingabe ist ungültig.", { felder: optionen.error.issues.map((i) => ({ feld: ["optionen", ...i.path].join("."), code: i.code, meldung: i.message })) });
+        if (!optionen.success) throw new Fachfehler(400, "invalid_input", "The input is invalid.", { felder: optionen.error.issues.map((i) => ({ feld: ["optionen", ...i.path].join("."), code: i.code, meldung: i.message })) });
         const schluessel = eingabe.schluessel ?? schluesselAusName(eingabe.name);
         const [vorhanden] = await tx
           .select({ id: feldDefinition.id })
           .from(feldDefinition)
           .where(and(eq(feldDefinition.objekt, eingabe.objekt), eingabe.listeId ? eq(feldDefinition.listeId, eingabe.listeId) : isNull(feldDefinition.listeId), eq(feldDefinition.schluessel, schluessel)));
-        if (vorhanden) throw new Fachfehler(409, "FELD_SCHLUESSEL_VORHANDEN", "Ein Feld mit diesem Schlüssel gibt es schon (auch archivierte zählen).");
+        if (vorhanden) throw new Fachfehler(409, "field_key_exists", "A field with this key already exists (archived fields count too).");
         const [pos] = await tx.select({ n: sql<number>`coalesce(max(${feldDefinition.position}), -1) + 1` }).from(feldDefinition).where(and(eq(feldDefinition.objekt, eingabe.objekt), eingabe.listeId ? eq(feldDefinition.listeId, eingabe.listeId) : isNull(feldDefinition.listeId)));
         const [zeile] = await tx
           .insert(feldDefinition)
@@ -372,9 +372,9 @@ export function crmRouten(db: Db) {
         await protokoll("anlegen", "feld_definition", zeile!.id, null, zeile);
         return zeile!;
       });
-      return c.json(neu, 201);
+      return kontaktJson(c, neu, 201);
     })
-    .patch("/felder/:id", pruefe("param", idParam), pruefe("json", aenderungFeld), async (c) => {
+    .patch("/fields/:id", pruefeEnglisch("param", idParam), pruefeEnglisch("json", aenderungFeld), async (c) => {
       const { id } = c.req.valid("param");
       const eingabe = c.req.valid("json");
       const nachher = await schreibe(db, c, async (tx, protokoll) => {
@@ -385,13 +385,13 @@ export function crmRouten(db: Db) {
         if (eingabe.position !== undefined) set.position = eingabe.position;
         if (eingabe.optionen !== undefined) {
           const optionen = optionenSchema(vorher.typ).safeParse(eingabe.optionen);
-          if (!optionen.success) throw new Fachfehler(400, "EINGABE_UNGUELTIG", "Die Eingabe ist ungültig.", { felder: optionen.error.issues.map((i) => ({ feld: ["optionen", ...i.path].join("."), code: i.code, meldung: i.message })) });
-          if (vorher.typ === "verknuepfung" && optionen.data.ziel !== vorher.optionen.ziel) throw new Fachfehler(409, "FELD_TYP_FEST", "Das Zielobjekt eines Verknüpfungsfeldes lässt sich nicht ändern. Neues Feld anlegen, altes archivieren.");
+          if (!optionen.success) throw new Fachfehler(400, "invalid_input", "The input is invalid.", { felder: optionen.error.issues.map((i) => ({ feld: ["optionen", ...i.path].join("."), code: i.code, meldung: i.message })) });
+          if (vorher.typ === "verknuepfung" && optionen.data.ziel !== vorher.optionen.ziel) throw new Fachfehler(409, "field_type_fixed", "The target object of a link field cannot be changed. Create a new field and archive the old one.");
           if (vorher.typ === "auswahl" || vorher.typ === "mehrfachauswahl") {
             const alt = ((vorher.optionen.optionen as Option[] | undefined) ?? []).map((o) => o.schluessel);
             const neu = new Set(((optionen.data.optionen as Option[]) ?? []).map((o) => o.schluessel));
             const entfernt = alt.filter((k) => !neu.has(k));
-            if (entfernt.length && (await verwendungen(tx, vorher, entfernt)) > 0) throw new Fachfehler(409, "FELD_OPTION_IN_GEBRAUCH", "Eine entfernte Option ist noch in Gebrauch.", { optionen: entfernt });
+            if (entfernt.length && (await verwendungen(tx, vorher, entfernt)) > 0) throw new Fachfehler(409, "field_option_in_use", "A removed option is still in use.", { optionen: entfernt });
           }
           set.optionen = optionen.data;
         }
@@ -399,9 +399,9 @@ export function crmRouten(db: Db) {
         await protokoll("aendern", "feld_definition", id, vorher, zeile);
         return zeile!;
       });
-      return c.json(nachher, 200);
+      return kontaktJson(c, nachher, 200);
     })
-    .post("/felder/:id/archivieren", pruefe("param", idParam), async (c) => {
+    .post("/fields/:id/archive", pruefeEnglisch("param", idParam), async (c) => {
       const { id } = c.req.valid("param");
       const nachher = await schreibe(db, c, async (tx, protokoll) => {
         const vorher = await ladeDefinition(tx, id);
@@ -411,9 +411,9 @@ export function crmRouten(db: Db) {
         await protokoll("archivieren", "feld_definition", id, vorher, zeile);
         return zeile!;
       });
-      return c.json(nachher, 200);
+      return kontaktJson(c, nachher, 200);
     })
-    .post("/felder/:id/wiederherstellen", pruefe("param", idParam), async (c) => {
+    .post("/fields/:id/restore", pruefeEnglisch("param", idParam), async (c) => {
       const { id } = c.req.valid("param");
       const nachher = await schreibe(db, c, async (tx, protokoll) => {
         const vorher = await ladeDefinition(tx, id);
@@ -423,11 +423,11 @@ export function crmRouten(db: Db) {
         await protokoll("wiederherstellen", "feld_definition", id, vorher, zeile);
         return zeile!;
       });
-      return c.json(nachher, 200);
+      return kontaktJson(c, nachher, 200);
     })
 
     // Ansichten ----------------------------------------------------------------------------------------------------
-    .get("/ansichten", pruefe("query", z.object({ objekt: z.enum(OBJEKTE), listeId: z.uuid().optional() })), async (c) => {
+    .get("/views", pruefeEnglisch("query", z.object({ objekt: z.enum(OBJEKTE), listeId: z.uuid().optional() })), async (c) => {
       const { objekt, listeId } = c.req.valid("query");
       const akteur = aktuellerAkteur(c);
       const zeilen = await lese(db, (tx) =>
@@ -437,15 +437,15 @@ export function crmRouten(db: Db) {
           .where(and(eq(ansicht.objekt, objekt), listeId ? eq(ansicht.listeId, listeId) : isNull(ansicht.listeId), or(eq(ansicht.geteilt, true), eq(ansicht.besitzerId, akteur.id))))
           .orderBy(desc(ansicht.standard), asc(ansicht.name), asc(ansicht.id)),
       );
-      return c.json({ daten: zeilen.map((a) => ({ ...a, eigene: a.besitzerId === akteur.id, bearbeitbar: a.besitzerId === akteur.id || akteur.globalVerwalter })) }, 200);
+      return kontaktJson(c, { daten: zeilen.map((a) => ({ ...a, eigene: a.besitzerId === akteur.id, bearbeitbar: a.besitzerId === akteur.id || akteur.globalVerwalter })) }, 200);
     })
-    .post("/ansichten", pruefe("json", ansichtEingabe), async (c) => {
+    .post("/views", pruefeEnglisch("json", ansichtEingabe), async (c) => {
       const eingabe = c.req.valid("json");
       const akteur = aktuellerAkteur(c);
       const neu = await schreibe(db, c, async (tx, protokoll) => {
         if (eingabe.listeId) {
           const l = await ladeListe(tx, eingabe.listeId);
-          if (l.objekt !== eingabe.objekt) throw new Fachfehler(400, "ABFRAGE_UNGUELTIG", "Die Liste gehört zu einem anderen Objekt.");
+          if (l.objekt !== eingabe.objekt) throw new Fachfehler(400, "query_invalid", "The list belongs to a different object.");
         }
         await pruefeKonfig(tx, eingabe.objekt, eingabe.listeId ?? null, eingabe.konfig);
         const [zeile] = await tx
@@ -455,16 +455,16 @@ export function crmRouten(db: Db) {
         await protokoll("anlegen", "ansicht", zeile!.id, null, zeile);
         return zeile!;
       });
-      return c.json(neu, 201);
+      return kontaktJson(c, neu, 201);
     })
-    .patch("/ansichten/:id", pruefe("param", idParam), pruefe("json", ansichtAenderung), async (c) => {
+    .patch("/views/:id", pruefeEnglisch("param", idParam), pruefeEnglisch("json", ansichtAenderung), async (c) => {
       const { id } = c.req.valid("param");
       const { standard, ...eingabe } = c.req.valid("json");
       const akteur = aktuellerAkteur(c);
       const nachher = await schreibe(db, c, async (tx, protokoll) => {
         const vorher = await ladeAnsicht(tx, c, id);
-        if (vorher.besitzerId !== akteur.id && !akteur.globalVerwalter) throw new Fachfehler(403, "ANSICHT_FREMD", "Geteilte Ansichten ändern nur ihre Besitzerin oder ihr Besitzer und globale Verwalter.");
-        if (standard !== undefined && !akteur.globalVerwalter) throw new Fachfehler(403, "ANSICHT_FREMD", "Die Standardansicht legen nur globale Verwalter fest.");
+        if (vorher.besitzerId !== akteur.id && !akteur.globalVerwalter) throw new Fachfehler(403, "view_foreign", "Only the owner of a shared view and global admins can change it.");
+        if (standard !== undefined && !akteur.globalVerwalter) throw new Fachfehler(403, "view_foreign", "Only global admins can set the default view.");
         if (eingabe.konfig) await pruefeKonfig(tx, vorher.objekt, vorher.listeId, eingabe.konfig);
         if (standard === true) {
           await tx.update(ansicht).set({ standard: false }).where(and(eq(ansicht.objekt, vorher.objekt), vorher.listeId ? eq(ansicht.listeId, vorher.listeId) : isNull(ansicht.listeId)));
@@ -478,14 +478,14 @@ export function crmRouten(db: Db) {
         await protokoll("aendern", "ansicht", id, vorher, zeile);
         return zeile!;
       });
-      return c.json(nachher, 200);
+      return kontaktJson(c, nachher, 200);
     })
-    .delete("/ansichten/:id", pruefe("param", idParam), async (c) => {
+    .delete("/views/:id", pruefeEnglisch("param", idParam), async (c) => {
       const { id } = c.req.valid("param");
       const akteur = aktuellerAkteur(c);
       await schreibe(db, c, async (tx, protokoll) => {
         const vorher = await ladeAnsicht(tx, c, id);
-        if (vorher.besitzerId !== akteur.id && !akteur.globalVerwalter) throw new Fachfehler(403, "ANSICHT_FREMD", "Geteilte Ansichten löschen nur ihre Besitzerin oder ihr Besitzer und globale Verwalter.");
+        if (vorher.besitzerId !== akteur.id && !akteur.globalVerwalter) throw new Fachfehler(403, "view_foreign", "Only the owner of a shared view and global admins can delete it.");
         await tx.delete(ansicht).where(eq(ansicht.id, id));
         await protokoll("loeschen", "ansicht", id, vorher, null);
       });
@@ -493,37 +493,37 @@ export function crmRouten(db: Db) {
     })
 
     // Listen -------------------------------------------------------------------------------------------------------
-    .get("/listen", pruefe("query", z.object({ objekt: z.enum(OBJEKTE).optional() })), async (c) => {
+    .get("/lists", pruefeEnglisch("query", z.object({ objekt: z.enum(OBJEKTE).optional() })), async (c) => {
       const { objekt } = c.req.valid("query");
       const zeilen = await lese(db, async (tx) => {
         const rows = await tx.select().from(liste).where(and(isNull(liste.archiviertAm), objekt ? eq(liste.objekt, objekt) : undefined)).orderBy(asc(liste.name), asc(liste.id));
         const nachListe = await zaehleSichtbar(tx, c, rows);
         return rows.map((r) => ({ ...r, eintraege: nachListe.get(r.id) ?? 0 }));
       });
-      return c.json({ daten: zeilen }, 200);
+      return kontaktJson(c, { daten: zeilen }, 200);
     })
-    .post("/listen", pruefe("json", neueListe), async (c) => {
+    .post("/lists", pruefeEnglisch("json", neueListe), async (c) => {
       const eingabe = c.req.valid("json");
       const akteur = aktuellerAkteur(c);
       const neu = await schreibe(db, c, async (tx, protokoll) => {
         const [doppelt] = await tx.select({ id: liste.id }).from(liste).where(and(isNull(liste.archiviertAm), sql`lower(${liste.name}) = lower(${eingabe.name})`));
-        if (doppelt) throw new Fachfehler(409, "LISTE_NAME_VORHANDEN", "Eine Liste mit diesem Namen gibt es schon.");
+        if (doppelt) throw new Fachfehler(409, "list_name_exists", "A list with this name already exists.");
         const [zeile] = await tx.insert(liste).values({ ...eingabe, besitzerId: akteur.technisch ? null : akteur.id }).returning();
         await protokoll("anlegen", "liste", zeile!.id, null, zeile);
         return zeile!;
       });
-      return c.json(neu, 201);
+      return kontaktJson(c, neu, 201);
     })
-    .get("/listen/:id", pruefe("param", idParam), async (c) => {
+    .get("/lists/:id", pruefeEnglisch("param", idParam), async (c) => {
       const { id } = c.req.valid("param");
       const ergebnis = await lese(db, async (tx) => {
         const l = await ladeListe(tx, id);
         const anzahl = await zaehleSichtbar(tx, c, [l]);
         return { ...l, eintraege: anzahl.get(id) ?? 0, felder: await beschreibeFelder(tx, l.objekt, id) };
       });
-      return c.json(ergebnis, 200);
+      return kontaktJson(c, ergebnis, 200);
     })
-    .patch("/listen/:id", pruefe("param", idParam), pruefe("json", z.object({ name: textEingabe(120).optional(), beschreibung: optionalerText(1000) }).refine((w) => w.name !== undefined || w.beschreibung !== undefined, { message: "Mindestens ein Feld muss angegeben werden" })), async (c) => {
+    .patch("/lists/:id", pruefeEnglisch("param", idParam), pruefeEnglisch("json", z.object({ name: textEingabe(120).optional(), beschreibung: optionalerText(1000) }).refine((w) => w.name !== undefined || w.beschreibung !== undefined, { message: "At least one field must be specified" })), async (c) => {
       const { id } = c.req.valid("param");
       const eingabe = c.req.valid("json");
       const nachher = await schreibe(db, c, async (tx, protokoll) => {
@@ -531,15 +531,15 @@ export function crmRouten(db: Db) {
         verlangeListenRecht(c, vorher);
         if (eingabe.name) {
           const [doppelt] = await tx.select({ id: liste.id }).from(liste).where(and(isNull(liste.archiviertAm), sql`lower(${liste.name}) = lower(${eingabe.name})`, sql`${liste.id} <> ${id}`));
-          if (doppelt) throw new Fachfehler(409, "LISTE_NAME_VORHANDEN", "Eine Liste mit diesem Namen gibt es schon.");
+          if (doppelt) throw new Fachfehler(409, "list_name_exists", "A list with this name already exists.");
         }
         const [zeile] = await tx.update(liste).set({ ...(eingabe.name !== undefined ? { name: eingabe.name } : {}), ...(eingabe.beschreibung !== undefined ? { beschreibung: eingabe.beschreibung } : {}) }).where(eq(liste.id, id)).returning();
         await protokoll("aendern", "liste", id, vorher, zeile);
         return zeile!;
       });
-      return c.json(nachher, 200);
+      return kontaktJson(c, nachher, 200);
     })
-    .post("/listen/:id/archivieren", pruefe("param", idParam), async (c) => {
+    .post("/lists/:id/archive", pruefeEnglisch("param", idParam), async (c) => {
       const { id } = c.req.valid("param");
       await schreibe(db, c, async (tx, protokoll) => {
         const vorher = await ladeListe(tx, id);
@@ -549,7 +549,7 @@ export function crmRouten(db: Db) {
       });
       return c.body(null, 204);
     })
-    .post("/listen/:id/eintraege", pruefe("param", idParam), pruefe("json", z.object({ datensatzIds: z.array(z.uuid()).min(1).max(500) })), async (c) => {
+    .post("/lists/:id/entries", pruefeEnglisch("param", idParam), pruefeEnglisch("json", z.object({ datensatzIds: z.array(z.uuid()).min(1).max(500) })), async (c) => {
       const { id } = c.req.valid("param");
       const { datensatzIds } = c.req.valid("json");
       const ergebnis = await schreibe(db, c, async (tx, protokoll) => {
@@ -560,9 +560,9 @@ export function crmRouten(db: Db) {
         await protokoll.mehrere(neu.map((n) => ({ aktion: "anlegen", tabelle: "liste_eintrag", datensatzId: n.id, nachher: { listeId: id, datensatzId: n.datensatzId } })));
         return { hinzugefuegt: neu.length, uebersprungen: datensatzIds.length - neu.length };
       });
-      return c.json(ergebnis, 200);
+      return kontaktJson(c, ergebnis, 200);
     })
-    .post("/listen/:id/eintraege/entfernen", pruefe("param", idParam), pruefe("json", z.object({ datensatzIds: z.array(z.uuid()).min(1).max(500) })), async (c) => {
+    .post("/lists/:id/entries/remove", pruefeEnglisch("param", idParam), pruefeEnglisch("json", z.object({ datensatzIds: z.array(z.uuid()).min(1).max(500) })), async (c) => {
       const { id } = c.req.valid("param");
       const { datensatzIds } = c.req.valid("json");
       const ergebnis = await schreibe(db, c, async (tx, protokoll) => {
@@ -574,16 +574,16 @@ export function crmRouten(db: Db) {
         await protokoll.mehrere(weg.map((w) => ({ aktion: "loeschen", tabelle: "liste_eintrag", datensatzId: w.id, vorher: w })));
         return { entfernt: weg.length };
       });
-      return c.json(ergebnis, 200);
+      return kontaktJson(c, ergebnis, 200);
     })
-    .patch("/listen/:id/eintraege/:datensatzId", pruefe("param", z.object({ id: z.uuid(), datensatzId: z.uuid() })), pruefe("json", z.object({ felder: z.record(z.string(), z.unknown()) })), async (c) => {
+    .patch("/lists/:id/entries/:recordId", pruefeEnglisch("param", z.object({ id: z.uuid(), datensatzId: z.uuid() })), pruefeEnglisch("json", z.object({ felder: z.record(z.string(), z.unknown()) })), async (c) => {
       const { id, datensatzId } = c.req.valid("param");
       const { felder } = c.req.valid("json");
       const nachher = await schreibe(db, c, async (tx, protokoll) => {
         const l = await ladeListe(tx, id);
         verlangeListenRecht(c, l);
         const [vorher] = await tx.select().from(listeEintrag).where(and(eq(listeEintrag.listeId, id), eq(listeEintrag.datensatzId, datensatzId))).for("update");
-        if (!vorher) throw new Fachfehler(404, "DATENSATZ_NICHT_GEFUNDEN", "Der Datensatz steht nicht in dieser Liste.");
+        if (!vorher) throw new Fachfehler(404, "record_not_found", "The record is not in this list.");
         if (l.objekt === "deal") {
           const d = await verlangeDealSichtbar(tx, c, datensatzId);
           verlangeDealSchreibrecht(c, d.fondsId);
@@ -599,19 +599,19 @@ export function crmRouten(db: Db) {
         await protokoll("aendern", "liste_eintrag", vorher.id, vorher, zeile);
         return zeile!;
       });
-      return c.json(nachher, 200);
+      return kontaktJson(c, nachher, 200);
     })
 
     // Aufgaben -----------------------------------------------------------------------------------------------------
     /** Kandidaten für die Zuständigkeit (Auswahl „Person im Haus“): nur Kennung und Name, durchsucht nach Name; mit `dealId` nur, wer den Deal sehen darf. */
-    .get("/zustaendige", pruefe("query", z.object({ q: z.string().trim().max(100).optional(), dealId: z.uuid().optional(), limit: z.coerce.number().int().min(1).max(50).default(25) })), async (c) => {
+    .get("/assignees", pruefeEnglisch("query", z.object({ q: z.string().trim().max(100).optional(), dealId: z.uuid().optional(), limit: z.coerce.number().int().min(1).max(50).default(25) })), async (c) => {
       const { q, dealId, limit } = c.req.valid("query");
       const daten = await lese(db, async (tx) => sucheZustaendige(tx, c, { q, dealFondsId: await dealFondsFuerAufgabe(tx, c, dealId), limit }));
-      return c.json({ daten }, 200);
+      return kontaktJson(c, { daten }, 200);
     })
     .get(
-      "/aufgaben",
-      pruefe("query", z.object({ organisationId: z.uuid().optional(), personId: z.uuid().optional(), dealId: z.uuid().optional(), zustaendig: z.enum(["ich", "alle"]).default("alle"), status: z.enum(["offen", "erledigt", "alle"]).default("offen"), limit: z.coerce.number().int().min(1).max(500).default(200) })),
+      "/tasks",
+      pruefeEnglisch("query", z.object({ organisationId: z.uuid().optional(), personId: z.uuid().optional(), dealId: z.uuid().optional(), zustaendig: z.enum(["ich", "alle"]).default("alle"), status: z.enum(["offen", "erledigt", "alle"]).default("offen"), limit: z.coerce.number().int().min(1).max(500).default(200) })),
       async (c) => {
         const q = c.req.valid("query");
         const akteur = aktuellerAkteur(c);
@@ -648,10 +648,10 @@ export function crmRouten(db: Db) {
             .orderBy(sql`${aufgabe.erledigtAm} IS NOT NULL`, sql`${aufgabe.faellig} ASC NULLS LAST`, desc(aufgabe.erstelltAm), asc(aufgabe.id))
             .limit(q.limit),
         );
-        return c.json({ daten: zeilen }, 200);
+        return kontaktJson(c, { daten: zeilen }, 200);
       },
     )
-    .post("/aufgaben", pruefe("json", neueAufgabe), async (c) => {
+    .post("/tasks", pruefeEnglisch("json", neueAufgabe), async (c) => {
       const { zustaendigId, ...werte } = c.req.valid("json");
       const akteur = aktuellerAkteur(c);
       const neu = await schreibe(db, c, async (tx, protokoll) => {
@@ -667,9 +667,9 @@ export function crmRouten(db: Db) {
         await protokoll("anlegen", "aufgabe", zeile!.id, null, zeile);
         return zeile!;
       });
-      return c.json(neu, 201);
+      return kontaktJson(c, neu, 201);
     })
-    .patch("/aufgaben/:id", pruefe("param", idParam), pruefe("json", aenderungAufgabe), async (c) => {
+    .patch("/tasks/:id", pruefeEnglisch("param", idParam), pruefeEnglisch("json", aenderungAufgabe), async (c) => {
       const { id } = c.req.valid("param");
       const { zustaendigId, ...rest } = c.req.valid("json");
       const nachher = await schreibe(db, c, async (tx, protokoll) => {
@@ -680,9 +680,9 @@ export function crmRouten(db: Db) {
         await protokoll("aendern", "aufgabe", id, vorher, zeile);
         return zeile!;
       });
-      return c.json(nachher, 200);
+      return kontaktJson(c, nachher, 200);
     })
-    .post("/aufgaben/:id/erledigt", pruefe("param", idParam), async (c) => {
+    .post("/tasks/:id/complete", pruefeEnglisch("param", idParam), async (c) => {
       const { id } = c.req.valid("param");
       const nachher = await schreibe(db, c, async (tx, protokoll) => {
         const vorher = await ladeAufgabe(tx, c, id);
@@ -691,9 +691,9 @@ export function crmRouten(db: Db) {
         await protokoll("erledigen", "aufgabe", id, vorher, zeile);
         return zeile!;
       });
-      return c.json(nachher, 200);
+      return kontaktJson(c, nachher, 200);
     })
-    .post("/aufgaben/:id/wieder-oeffnen", pruefe("param", idParam), async (c) => {
+    .post("/tasks/:id/reopen", pruefeEnglisch("param", idParam), async (c) => {
       const { id } = c.req.valid("param");
       const nachher = await schreibe(db, c, async (tx, protokoll) => {
         const vorher = await ladeAufgabe(tx, c, id);
@@ -702,9 +702,9 @@ export function crmRouten(db: Db) {
         await protokoll("aendern", "aufgabe", id, vorher, zeile);
         return zeile!;
       });
-      return c.json(nachher, 200);
+      return kontaktJson(c, nachher, 200);
     })
-    .delete("/aufgaben/:id", pruefe("param", idParam), async (c) => {
+    .delete("/tasks/:id", pruefeEnglisch("param", idParam), async (c) => {
       const { id } = c.req.valid("param");
       await schreibe(db, c, async (tx, protokoll) => {
         const vorher = await ladeAufgabe(tx, c, id);
@@ -715,7 +715,7 @@ export function crmRouten(db: Db) {
     })
 
     // Beschäftigungen und Deal-Kontakte ------------------------------------------------------------------------------
-    .get("/beschaeftigungen", pruefe("query", z.object({ personId: z.uuid().optional(), organisationId: z.uuid().optional() }).refine((w) => w.personId || w.organisationId, { message: "personId oder organisationId angeben" })), async (c) => {
+    .get("/employments", pruefeEnglisch("query", z.object({ personId: z.uuid().optional(), organisationId: z.uuid().optional() }).refine((w) => w.personId || w.organisationId, { message: "Specify personId or organizationId" })), async (c) => {
       const { personId, organisationId } = c.req.valid("query");
       const zeilen = await lese(db, (tx) =>
         tx
@@ -734,14 +734,14 @@ export function crmRouten(db: Db) {
           .where(and(personId ? eq(beschaeftigung.personId, personId) : undefined, organisationId ? eq(beschaeftigung.organisationId, organisationId) : undefined, isNull(person.zusammengefuehrtIn), isNull(organisation.zusammengefuehrtIn)))
           .orderBy(desc(beschaeftigung.haupt), sql`${beschaeftigung.bis} IS NOT NULL`, asc(person.nachname), asc(beschaeftigung.id)),
       );
-      return c.json({ daten: zeilen }, 200);
+      return kontaktJson(c, { daten: zeilen }, 200);
     })
-    .post("/beschaeftigungen", pruefe("json", beschaeftigungEingabe), async (c) => {
+    .post("/employments", pruefeEnglisch("json", beschaeftigungEingabe), async (c) => {
       const eingabe = c.req.valid("json");
       const neu = await schreibe(db, c, async (tx, protokoll) => {
         await ladeZeile(tx, "person", eingabe.personId);
         await ladeZeile(tx, "organisation", eingabe.organisationId, false);
-        if (eingabe.von && eingabe.bis && eingabe.bis < eingabe.von) throw new Fachfehler(400, "EINGABE_UNGUELTIG", "Die Eingabe ist ungültig.", { felder: [{ feld: "bis", code: "too_small", meldung: "Ende liegt vor dem Beginn" }] });
+        if (eingabe.von && eingabe.bis && eingabe.bis < eingabe.von) throw new Fachfehler(400, "invalid_input", "The input is invalid.", { felder: [{ feld: "bis", code: "too_small", meldung: "End is before start" }] });
         const [hatHaupt] = await tx.select({ id: beschaeftigung.id }).from(beschaeftigung).where(and(eq(beschaeftigung.personId, eingabe.personId), eq(beschaeftigung.haupt, true)));
         const haupt = (eingabe.haupt || !hatHaupt) && !eingabe.bis;
         if (haupt) await tx.update(beschaeftigung).set({ haupt: false }).where(and(eq(beschaeftigung.personId, eingabe.personId), eq(beschaeftigung.haupt, true)));
@@ -750,21 +750,21 @@ export function crmRouten(db: Db) {
         await spiegleHauptbeschaeftigung(tx, eingabe.personId);
         return zeile!;
       });
-      return c.json(neu, 201);
+      return kontaktJson(c, neu, 201);
     })
     .patch(
-      "/beschaeftigungen/:id",
-      pruefe("param", idParam),
-      pruefe("json", z.object({ funktion: z.string().trim().min(1).max(200).nullable().optional(), von: z.iso.date().nullable().optional(), bis: z.iso.date().nullable().optional(), haupt: z.boolean().optional() }).refine((w) => Object.values(w).some((x) => x !== undefined), { message: "Mindestens ein Feld muss angegeben werden" })),
+      "/employments/:id",
+      pruefeEnglisch("param", idParam),
+      pruefeEnglisch("json", z.object({ funktion: z.string().trim().min(1).max(200).nullable().optional(), von: z.iso.date().nullable().optional(), bis: z.iso.date().nullable().optional(), haupt: z.boolean().optional() }).refine((w) => Object.values(w).some((x) => x !== undefined), { message: "At least one field must be specified" })),
       async (c) => {
         const { id } = c.req.valid("param");
         const eingabe = c.req.valid("json");
         const nachher = await schreibe(db, c, async (tx, protokoll) => {
           const [vorher] = await tx.select().from(beschaeftigung).where(eq(beschaeftigung.id, id)).for("update");
-          if (!vorher) throw new Fachfehler(404, "BESCHAEFTIGUNG_NICHT_GEFUNDEN", "Beschäftigung nicht gefunden.");
+          if (!vorher) throw new Fachfehler(404, "employment_not_found", "Employment not found.");
           const von = eingabe.von === undefined ? vorher.von : eingabe.von;
           const bis = eingabe.bis === undefined ? vorher.bis : eingabe.bis;
-          if (von && bis && bis < von) throw new Fachfehler(400, "EINGABE_UNGUELTIG", "Die Eingabe ist ungültig.", { felder: [{ feld: "bis", code: "too_small", meldung: "Ende liegt vor dem Beginn" }] });
+          if (von && bis && bis < von) throw new Fachfehler(400, "invalid_input", "The input is invalid.", { felder: [{ feld: "bis", code: "too_small", meldung: "End is before start" }] });
           const haupt = eingabe.haupt ?? vorher.haupt;
           if (haupt && !bis) await tx.update(beschaeftigung).set({ haupt: false }).where(and(eq(beschaeftigung.personId, vorher.personId), eq(beschaeftigung.haupt, true), sql`${beschaeftigung.id} <> ${id}`));
           const [zeile] = await tx
@@ -776,14 +776,14 @@ export function crmRouten(db: Db) {
           await spiegleHauptbeschaeftigung(tx, vorher.personId);
           return zeile!;
         });
-        return c.json(nachher, 200);
+        return kontaktJson(c, nachher, 200);
       },
     )
-    .delete("/beschaeftigungen/:id", pruefe("param", idParam), async (c) => {
+    .delete("/employments/:id", pruefeEnglisch("param", idParam), async (c) => {
       const { id } = c.req.valid("param");
       await schreibe(db, c, async (tx, protokoll) => {
         const [vorher] = await tx.select().from(beschaeftigung).where(eq(beschaeftigung.id, id)).for("update");
-        if (!vorher) throw new Fachfehler(404, "BESCHAEFTIGUNG_NICHT_GEFUNDEN", "Beschäftigung nicht gefunden.");
+        if (!vorher) throw new Fachfehler(404, "employment_not_found", "Employment not found.");
         await tx.delete(beschaeftigung).where(eq(beschaeftigung.id, id));
         await protokoll("loeschen", "beschaeftigung", id, vorher, null);
         if (vorher.haupt) {
@@ -795,7 +795,7 @@ export function crmRouten(db: Db) {
       });
       return c.body(null, 204);
     })
-    .get("/deals/:id/kontakte", pruefe("param", idParam), async (c) => {
+    .get("/deals/:id/contacts", pruefeEnglisch("param", idParam), async (c) => {
       const { id } = c.req.valid("param");
       const zeilen = await lese(db, async (tx) => {
         await verlangeDealSichtbar(tx, c, id);
@@ -806,9 +806,9 @@ export function crmRouten(db: Db) {
           .where(and(eq(dealKontakt.dealId, id), isNull(person.zusammengefuehrtIn)))
           .orderBy(asc(person.nachname), asc(person.vorname), asc(person.id));
       });
-      return c.json({ daten: zeilen }, 200);
+      return kontaktJson(c, { daten: zeilen }, 200);
     })
-    .post("/deals/:id/kontakte", pruefe("param", idParam), pruefe("json", z.object({ personId: z.uuid(), rolle: optionalerText(100) })), async (c) => {
+    .post("/deals/:id/contacts", pruefeEnglisch("param", idParam), pruefeEnglisch("json", z.object({ personId: z.uuid(), rolle: optionalerText(100) })), async (c) => {
       const { id } = c.req.valid("param");
       const { personId, rolle } = c.req.valid("json");
       const neu = await schreibe(db, c, async (tx, protokoll) => {
@@ -819,15 +819,15 @@ export function crmRouten(db: Db) {
         await protokoll("anlegen", "deal_kontakt", id, null, zeile);
         return zeile!;
       });
-      return c.json(neu, 201);
+      return kontaktJson(c, neu, 201);
     })
-    .delete("/deals/:id/kontakte/:personId", pruefe("param", z.object({ id: z.uuid(), personId: z.uuid() })), async (c) => {
+    .delete("/deals/:id/contacts/:personId", pruefeEnglisch("param", z.object({ id: z.uuid(), personId: z.uuid() })), async (c) => {
       const { id, personId } = c.req.valid("param");
       await schreibe(db, c, async (tx, protokoll) => {
         const d = await verlangeDealSichtbar(tx, c, id);
         verlangeDealSchreibrecht(c, d.fondsId);
         const weg = await tx.delete(dealKontakt).where(and(eq(dealKontakt.dealId, id), eq(dealKontakt.personId, personId))).returning();
-        if (weg.length === 0) throw new Fachfehler(404, "DATENSATZ_NICHT_GEFUNDEN", "Der Kontakt gehört nicht zu diesem Deal.");
+        if (weg.length === 0) throw new Fachfehler(404, "record_not_found", "The contact does not belong to this deal.");
         await protokoll("loeschen", "deal_kontakt", id, weg[0], null);
       });
       return c.body(null, 204);

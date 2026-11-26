@@ -10,7 +10,7 @@ const dialog = () => within(screen.getByRole("dialog"));
 
 describe("Prüfung direkt am Feld: Vorgang erfassen", () => {
   it("prüft den Betrag beim Tippen, sendet nichts Ungültiges und liest die deutsche Schreibweise", async () => {
-    const pfad = `POST /api/v1/beteiligungen/${BET_ID}/vorgaenge`;
+    const pfad = `POST /api/v1/investments/${BET_ID}/transactions`;
     const api = spieleApi({ [pfad]: { status: 201, koerper: { vorgang: {}, buchwert: "1062000.00" } } });
     rendereApp(url);
     const nutzer = userEvent.setup();
@@ -36,7 +36,7 @@ describe("Prüfung direkt am Feld: Vorgang erfassen", () => {
     expect(betrag.getAttribute("aria-invalid")).toBeNull();
     await nutzer.click(dialog().getByRole("button", { name: "Vorgang buchen" }));
     await dialog().findByText(/Der Buchwert beträgt jetzt/);
-    expect(api.anfragen("POST", pfad.replace("POST ", ""))[0]!.koerper).toMatchObject({ betrag: "1250.50" });
+    expect(api.anfragen("POST", pfad.replace("POST ", ""))[0]!.koerper).toMatchObject({ amount: "1250.50" });
   });
 
   it("meldet ein leeres Pflichtfeld erst beim Verlassen und ein ungültiges Datum sofort", async () => {

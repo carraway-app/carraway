@@ -102,7 +102,7 @@ function alsZinsdarlehen(k: Zinskontext, bewegungen: Kapitalbewegung[], v: Kondi
   return d;
 }
 
-/** Höchstzahl Zinsperioden je Darlehen und Lauf; mehr meldet die API als 409 `ZU_VIELE_PERIODEN`, der Rechenkern bleibt unverändert. */
+/** Höchstzahl Zinsperioden je Darlehen und Lauf; mehr meldet die API als 409 `too_many_periods`, der Rechenkern bleibt unverändert. */
 export const MAX_PERIODEN_JE_DARLEHEN = 400;
 
 /** Obere Schätzung der Periodenzahl zwischen erster Bewegung und Obergrenze für ein Raster. */
@@ -115,7 +115,7 @@ function geschaetztePerioden(art: string, von: string, bis: string): number {
 }
 
 function zuVieleFehler(beteiligungId: string, perioden: number) {
-  return new Fachfehler(409, "ZU_VIELE_PERIODEN", "Der Zeitraum umfasst zu viele Zinsperioden für einen Lauf.", { beteiligungId, perioden, maximum: MAX_PERIODEN_JE_DARLEHEN });
+  return new Fachfehler(409, "too_many_periods", "The period covers too many interest periods for one run.", { beteiligungId, perioden, maximum: MAX_PERIODEN_JE_DARLEHEN });
 }
 
 export interface Zinsstand {

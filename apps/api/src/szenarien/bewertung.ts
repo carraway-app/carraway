@@ -59,7 +59,7 @@ export interface BewertungsszenarioErgebnis {
   befunde: BewertungsBefund[];
 }
 
-const ungueltig = (meldung: string, zusatz: Record<string, unknown> = {}) => new Fachfehler(422, "SZENARIO_ANNAHMEN_UNGUELTIG", meldung, zusatz);
+const ungueltig = (meldung: string, zusatz: Record<string, unknown> = {}) => new Fachfehler(422, "scenario_assumptions_invalid", meldung, zusatz);
 
 /**
  * Zuletzt bestätigter Ist-Wert einer Kennzahl bis zum Basistag (Wissensstand beachtet); `null`, wenn es keinen gibt oder er keine Zahl ist. `waehrung` ist der Code der
@@ -91,8 +91,8 @@ export async function rechneBewertungsszenario(
 
   for (const [id, a] of Object.entries(annahmen.beteiligungen)) {
     const b = ue.beteiligungen.find((x) => x.id === id);
-    if (!b) throw ungueltig("Ein Bewertungsszenario nennt eine Beteiligung, die es in diesem Fonds zum Basistag nicht gibt.", { feld: `bewertung.beteiligungen.${id}`, beteiligungId: id });
-    if (b.status !== "aktiv") throw ungueltig("Ein Bewertungsszenario ist nur für aktive Beteiligungen möglich.", { feld: `bewertung.beteiligungen.${id}`, beteiligungId: id, status: b.status });
+    if (!b) throw ungueltig("A valuation scenario names an investment that does not exist in this fund on the base date.", { feld: `bewertung.beteiligungen.${id}`, beteiligungId: id });
+    if (b.status !== "aktiv") throw ungueltig("A valuation scenario is only possible for active investments.", { feld: `bewertung.beteiligungen.${id}`, beteiligungId: id, status: b.status });
     if (!b.letzteBewertung) befunde.push({ code: "BEWERTUNG_OHNE_AKTUELLEN_WERT", schwere: "warnung", beteiligungId: id });
 
     const kapital = a.faelle.some((f) => f.methode.art !== "wert") ? await ladeKapital(tx, { fondsId, organisationId: b.organisation.id }, basis) : null;

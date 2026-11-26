@@ -5,8 +5,8 @@ import { BEWEGUNG_FERTIG_ID, BEWEGUNG_OFFEN_ID, FONDS_ID, alsRolle, bewegungenDa
 
 const url = `/fonds?fondsId=${FONDS_ID}&tab=kapital`;
 const freigabePfad = `/api/v1/fonds/${FONDS_ID}/bewegungen/${BEWEGUNG_OFFEN_ID}/mitteilungen/freigeben`;
-const buchungPfad = `/api/v1/fonds/${FONDS_ID}/buchungen`;
-const vorschauPfad = `/api/v1/fonds/${FONDS_ID}/fondsbewegungen/vorschau`;
+const buchungPfad = `/api/v1/funds/${FONDS_ID}/postings`;
+const vorschauPfad = `/api/v1/funds/${FONDS_ID}/fund-movements/preview`;
 const aufteilung = [{ zeichnungId: "zeichnung-1", organisationId: "investor-1", investor: "Investor Am Park", zusage: "50000.00", anteil: "1.0000", betrag: "500.00" }];
 const vorschau = { verteilungsquelle: "berechnet", fondsId: FONDS_ID, art: "abruf", valuta: "2026-09-30", betrag: "500.00", waehrung: "EUR", verteilungsbasis: "zusage", aufteilung };
 const knopf = "Mitteilungen freigeben: Kapitalabruf vom 15.03.2026";
@@ -52,7 +52,7 @@ describe("Kapitalbewegungen und Mitteilungen", () => {
   });
 
   it("Vorgabe der Sprache ist Deutsch; ein Fehler der API steht übersetzt im offenen Dialog", async () => {
-    const api = spieleApi({ [`POST ${freigabePfad}`]: fehler(409, "VIER_AUGEN_VERLETZT") });
+    const api = spieleApi({ [`POST ${freigabePfad}`]: fehler(409, "four_eyes_violated") });
     rendereApp(url);
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: knopf }));
@@ -64,7 +64,7 @@ describe("Kapitalbewegungen und Mitteilungen", () => {
   });
 
   it("ein Betrachter sieht die Liste, aber keine Freigabe, und einen Hinweis zur Rolle", async () => {
-    spieleApi({ "/api/v1/ich": alsRolle("betrachter") });
+    spieleApi({ "/api/v1/me": alsRolle("betrachter") });
     rendereApp(url);
     const abschnitt = within(await screen.findByRole("region", { name: "Kapitalabrufe und Ausschüttungen" }));
     expect(await abschnitt.findByText("Nicht freigegeben")).toBeTruthy();
@@ -73,7 +73,7 @@ describe("Kapitalbewegungen und Mitteilungen", () => {
   });
 
   it("ein Bearbeiter darf nicht freigeben", async () => {
-    spieleApi({ "/api/v1/ich": alsRolle("bearbeiter") });
+    spieleApi({ "/api/v1/me": alsRolle("bearbeiter") });
     rendereApp(url);
     const abschnitt = within(await screen.findByRole("region", { name: "Kapitalabrufe und Ausschüttungen" }));
     expect(await abschnitt.findByText("Nicht freigegeben")).toBeTruthy();
@@ -128,7 +128,7 @@ describe("Kapitalbewegungen und Mitteilungen", () => {
     ["Ausschüttung", "ausschuettung"],
   ])("prüft die Aufteilung und bucht %s direkt im Fonds", async (name, art) => {
     const api = spieleApi({
-      "/api/v1/ich": alsRolle("bearbeiter"),
+      "/api/v1/me": alsRolle("bearbeiter"),
       [vorschauPfad]: { koerper: { ...vorschau, art } },
       [`POST ${buchungPfad}`]: { status: 201, koerper: { typ: "fondsbewegung", bewegung: bewegungenDaten.daten[0] } },
     });
@@ -150,7 +150,7 @@ describe("Kapitalbewegungen und Mitteilungen", () => {
     await nutzer.type(betrag, "500,00");
     await nutzer.click(dialog.getByRole("button", { name: `${name} buchen` }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    expect(api.anfragen("POST", buchungPfad)[0]!.koerper).toMatchObject({ typ: "fondsbewegung", art, betrag: "500.00" });
+    expect(api.anfragen("POST", buchungPfad)[0]!.koerper).toMatchObject({ kind: "fund_posting", type: art === "abruf" ? "capital_call" : "distribution", amount: "500.00" });
     expect(api.anfragen("GET", `/api/v1/fonds/${FONDS_ID}/bewegungen`)).toHaveLength(2);
   });
 
@@ -169,7 +169,7 @@ describe("Kapitalbewegungen und Mitteilungen", () => {
   });
 
   it("zeigt die Überschreitung des Zeichnungskapitals bei der Vorschau", async () => {
-    const api = spieleApi({ [vorschauPfad]: fehler(409, "ABRUF_UEBER_ZEICHNUNGSKAPITAL") });
+    const api = spieleApi({ [vorschauPfad]: fehler(409, "call_exceeds_subscribed_capital") });
     rendereApp(url);
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Kapitalabruf anlegen" }));
@@ -182,7 +182,7 @@ describe("Kapitalbewegungen und Mitteilungen", () => {
 
   it("öffnet die gespeicherte Aufteilung aus einem direkten Link auch für Betrachter", async () => {
     spieleApi({
-      "/api/v1/ich": alsRolle("betrachter"),
+      "/api/v1/me": alsRolle("betrachter"),
       [`/api/v1/fondsbewegungen/${BEWEGUNG_FERTIG_ID}`]: {
         koerper: { ...vorschau, art: "ausschuettung", verteilungsquelle: "mitteilungen", aufteilung: [{ ...aufteilung[0], zeichnungId: null, zusage: null, anteil: null }] },
       },
@@ -246,7 +246,7 @@ it.each([
   const pfad = `/api/v1/fonds/${FONDS_ID}/bewegungen/herkunft`;
   const basis = { bewegungId: BEWEGUNG_OFFEN_ID, organisationId: "investor-1", investor: "Investor Am Park", datum: "2026-03-15" };
   const api = spieleApi({
-    "/api/v1/ich": alsRolle("betrachter"),
+    "/api/v1/me": alsRolle("betrachter"),
     [pfad]: { koerper: {
       waehrung: "EUR",
       abgerufen: [{ ...basis, id: "investor-1", art: "abruf", betrag: "500.00", offen: "100.00", faelligAm: stichtag }],
@@ -269,10 +269,10 @@ it.each([
   await screen.findByRole("heading", { name: art, level: 1 });
   expect(screen.getByText(/Stichtag 31\.03\.2026 · Wissensstand/)).toBeTruthy();
   expect(screen.getByText("Erster Abruf")).toBeTruthy();
-  expect(screen.getByRole("link", { name: "Abrufbeleg.pdf" }).getAttribute("href")).toBe("/api/v1/belege/b1/datei");
+  expect(screen.getByRole("link", { name: "Abrufbeleg.pdf" }).getAttribute("href")).toBe("/api/v1/vouchers/b1/file");
   const mitteilung = new URL(screen.getByRole("link", { name: "Mitteilung.pdf" }).getAttribute("href")!, "http://localhost");
-  expect(mitteilung.searchParams.get("stand")).toBe(stand);
-  expect(mitteilung.searchParams.get("stichtag")).toBe(stichtag);
+  expect(mitteilung.searchParams.get("knowledgeDate")).toBe(stand);
+  expect(mitteilung.searchParams.get("asOf")).toBe(stichtag);
   const query = api.anfragen("GET", pfad).at(-1)!.query;
   expect(Object.fromEntries(query)).toEqual({ stichtag, stand, bewegungId: BEWEGUNG_OFFEN_ID });
   if (kennzahl === "Eingezahlt") {

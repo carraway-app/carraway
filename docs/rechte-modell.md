@@ -25,7 +25,7 @@ Für jede Anfrage einer angemeldeten Person (`rechte/aufloesung.ts`, Sichten `wi
    - Mit Gruppe: die Vereinigung der Bereiche aller Rollen aller ihrer Gruppen.
    - Gruppe ohne Rolle: kein Bereich.
 3. **Daten ohne Fonds** (Kontakte, Deals vor der Zuordnung): Es genügt die Stufe an irgendeinem Fonds oder die höchste Stufe der Gruppen, auch wenn die Gruppe keinen Fonds hat. Die Stufe der Gruppe ohne Fonds zählt nur an Regeln mit `ohneFondsErlaubt` (Bereiche Kontakte, Dealflow und `allgemein`), nie an fondsbezogenen Routen; dort braucht es eine Stufe an einem Fonds.
-4. **Prüfung einer Route:** zuerst der Bereich der Route (`Regel.bereich`), dann die Mindeststufe an den Fonds der Ziele, und zwar die Stufe in genau diesem Bereich (siehe „Bereiche je Fonds“). Fehlt der Bereich, antwortet die API mit 403 `KEINE_BERECHTIGUNG`.
+4. **Prüfung einer Route:** zuerst der Bereich der Route (`Regel.bereich`), dann die Mindeststufe an den Fonds der Ziele, und zwar die Stufe in genau diesem Bereich (siehe „Bereiche je Fonds“). Fehlt der Bereich, antwortet die API mit 403 `forbidden`.
 5. **Eingebettete Daten** eines anderen Bereichs verlangen ihren Bereich (`rechte/sichtbarkeit.ts`). Ohne ihn bleiben sie leer, z. B.:
    - Beteiligungen auf der Seite einer Organisation oder eines Deals (Portfolio)
    - Deals in Kontakten, Suche und Listen (Dealflow)
@@ -61,7 +61,7 @@ Beispiel „Fonds A: Portfolio bearbeiten, Finanzen nur lesen; Fonds B: nur Kont
 
 ## Zahlungseingänge zu Kapitalabrufen
 
-Im Bereich Finanzen liest ein Betrachter die Abrufe, den Kapitalstand und die zugeordneten Zahlungseingänge seines Fonds. Bearbeiter buchen und stornieren Eingänge. Der Fonds der Bewegung bestimmt das erforderliche Recht. Dasselbe Leserecht gilt für Einzelwerte, freigegebene Abrufmitteilungen und Belegdateien in der Kapitalherkunft. Der Server prüft es auch beim direkten Download. Im Portal sehen Investoren die Zahlen ihrer eigenen Zeichnungen.
+Im Bereich Finanzen liest ein Betrachter die Abrufe, den Kapitalstand und die zugeordneten Zahlungseingänge seines Fonds. Ebenso liest er die Kostenbuchungen (Verwaltungsvergütung, Fondskosten) und die Kapitalkonten; Bearbeiter buchen und stornieren Kosten. Bearbeiter buchen und stornieren Eingänge. Der Fonds der Bewegung bestimmt das erforderliche Recht. Dasselbe Leserecht gilt für Einzelwerte, freigegebene Abrufmitteilungen und Belegdateien in der Kapitalherkunft. Der Server prüft es auch beim direkten Download. Im Portal sehen Investoren die Zahlen ihrer eigenen Zeichnungen.
 
 ## Bereiche
 
@@ -83,9 +83,13 @@ Im Bereich Finanzen liest ein Betrachter die Abrufe, den Kapitalstand und die zu
 Zwei Sonderfälle:
 
 - **`allgemein`** braucht keinen Bereich: Fondsliste und Stammdaten eines Fonds (für Auswahllisten, mit Zeichnungskapital), eigene Einstellungen, Werteschlüssel, Namen, Wechselkurse, Felddefinitionen, Status der KI, Förderprogramme und der Zähler der Wiedervorlagen (ohne Kontakte null). Die Suche liefert je Gruppe von Treffern nur Bereiche der Person. Der Stapel führt jede Operation durch dieselbe Rechtsprüfung samt Bereich.
-- **`alle`** braucht jeden Bereich: der Änderungsabruf `/aenderungen`, weil er Datensätze aller Tabellen liefert.
+- **`alle`** braucht jeden Bereich: der Änderungsabruf `/changes`, weil er Datensätze aller Tabellen liefert.
 
 Die Verwaltung (Benutzer, API-Schlüssel, Rollen und Gruppen, Export) bleibt globalen Verwaltern vorbehalten.
+
+**Kontakte aus Postfach und Kalender.** Die Einstellung der Installation (`/kontaktvorschlaege/einstellung`: Modus, eigene Domains, Sperrliste) ändern nur globale Verwalter, wie die übrige Verwaltung. Teilnahme und eigene Sperrliste (`/postfach/kontakte`) sieht und ändert nur die Person selbst, wie ihre Postfachverbindung. Die Vorschlagsliste und Übernehmen, Zusammenführen und Verwerfen (`/kontaktvorschlaege…`) verlangen Bearbeiter im Bereich Kontakte, weil sie Personen und Unternehmen anlegen oder ändern; die Liste zeigt jeder Person nur Vorschläge aus ihrem eigenen, noch verbundenen Postfach oder Kalender, auch globalen Verwaltern. Ein Vorschlag verriete sonst, mit wem eine andere Person schreibt, bevor sie es für das CRM freigibt; Verbindungen sieht ebenfalls nur ihre Besitzerin. Verworfen wird je Person. Die Herkunft eines angelegten Kontakts (aus wessen Postfach, wann) sieht, wer den Kontakt sehen darf.
+
+**KI: Kontakte ergänzen.** Die Einstellung der Installation (`/ki/kontakte/einstellung`) ändern nur globale Verwalter; die Freigabe des eigenen Postfachs (`/ki/kontakte/teilnahme`) nur die Person selbst. Vorschläge lesen Betrachter im Bereich Kontakte, übernehmen, verwerfen und das Auslesen einer Website verlangen Bearbeiter im Bereich Kontakte und einen Menschen (kein API-Schlüssel). Ein Vorschlag schreibt nichts; die Übernahme geht über die Inline-Bearbeitung und überschreibt nie einen von Hand gepflegten Wert.
 
 **Zugänge und Zeichnungen der Investoren (Bereich `fondsverwaltung`).** Die Liste unter `/fonds/:fondsId/investorenzugaenge` (mit den weiteren Closings und dem vereinbarten Ausgleich) sehen Verwalter des Fonds. Schreiben dürfen nur globale Verwalter: Ersterfassung der Zeichnungen und weiteres Closing (`POST …/investorenzugaenge/zeichnungen` und `…/closings`, Entscheidung 509; Storno und Korrektur eines Closings, `POST …/closings/:closingId/storno` und `…/korrektur`, Entscheidung 515; Austritt oder Verringerung einer Zusage, `POST …/investorenzugaenge/zusageaenderungen`, Entscheidung 516). Ein Closing verändert Zusagen, Anteile und Zeichnungskapital des Fonds und verlangt darum dieselbe Stufe wie die Ersterfassung.
 
@@ -97,7 +101,7 @@ Interne Hinweise gehen nur an Personen mit dem passenden Bereich (`hatBereichSql
 
 ## Bereichsübergreifende Schreibwege
 
-Schreibwege, die Daten mehrerer Bereiche berühren, prüfen zusätzlich zur Stufe jeden betroffenen Bereich (`rechte/uebergreifend.ts`, `verlangeBereiche`). Fehlt einer, antwortet die API mit 403 `KEINE_BERECHTIGUNG` und nennt die fehlenden Bereiche (`bereiche`), bevor etwas geschrieben wird.
+Schreibwege, die Daten mehrerer Bereiche berühren, prüfen zusätzlich zur Stufe jeden betroffenen Bereich (`rechte/uebergreifend.ts`, `verlangeBereiche`). Fehlt einer, antwortet die API mit 403 `forbidden` und nennt die fehlenden Bereiche (`bereiche`), bevor etwas geschrieben wird.
 
 | Weg | Route gehört zu | Zusätzlich verlangt |
 |---|---|---|
@@ -125,7 +129,7 @@ Dokumente gehören zum Bereich Dokumente, ihre Ziele oft zu einem anderen. Jedes
 
 Fonds und Organisationen verlangen bewusst keinen zusätzlichen Bereich: weder Kontakte (wie an den Routen der Organisation) noch Portfolio an einem haltenden Fonds noch Fondsverwaltung. Ein Dokument an einem Fonds oder einem Unternehmen ist Ablage zu diesem Datensatz; die Stufe in Dokumente an dem Fonds, der den Datensatz trägt oder hält, schützt es bereits, und die Anzeige nennt nur den Namen des Ziels.
 
-- **Schreiben** (Hochladen, Verknüpfen, Verknüpfung entfernen, Ersetzen, Texterkennung, Löschen, Auslesung starten, verwerfen und bestätigen, Anhang aus dem Postfach übernehmen): Fehlt der Bereich an einem Ziel, antwortet die API mit 403 `KEINE_BERECHTIGUNG`, bevor etwas geschrieben wird.
+- **Schreiben** (Hochladen, Verknüpfen, Verknüpfung entfernen, Ersetzen, Texterkennung, Löschen, Auslesung starten, verwerfen und bestätigen, Anhang aus dem Postfach übernehmen): Fehlt der Bereich an einem Ziel, antwortet die API mit 403 `forbidden`, bevor etwas geschrieben wird.
 - **Lesen:** Ziele ohne Bereich bleiben unsichtbar. Die Anzeige eines Dokuments listet nur die übrigen Verknüpfungen; ein Dokument, dessen Ziele alle unsichtbar sind, gibt es für die Person nicht (404, nicht in Liste, Suche und Dublettenprüfung). Die Kandidaten der Auslesung (`GET /auslesungen/:id`) und die Ziele, an die eine Bestätigung schreiben darf (`zieleDesDokuments`), stammen nur aus sichtbaren Zielen; Beteiligungen nur aus Fonds mit Portfolio.
 - Eine neue Anteilsklasse aus der Auslesung verlangt Bearbeiter im Portfolio an einem haltenden Fonds.
 
@@ -134,7 +138,7 @@ Fonds und Organisationen verlangen bewusst keinen zusätzlichen Bereich: weder K
 - Der Rahmen eines Fonds (Kopf mit Kennzahlen) gehört zum Bereich Portfolio. Wer ihn nicht hat, kommt über die Seitenleiste nicht dorthin; eine direkt aufgerufene Fondsadresse zeigt die Fehlermeldung der API.
 - Globale Verwalter können Mitglied einer Gruppe sein. Das hat keine Wirkung, sie behalten alle Rechte.
 - Bereiche je Fonds: Die Kandidatenliste der Zuständigen und die Namen im Protokoll richten sich nach der Stufe am Fonds über alle Bereiche (`wirksame_fondsrolle`); sie zeigen nur Namen. Der Deal einer Aufgabe verlangt dagegen Dealflow am Fonds des Deals (sonst 404, Schreiben verlangt Bearbeiter im Dealflow), und der zustimmende Beschluss verlangt, dass die erfassende Person Freigeber im Dealflow des Fonds ist.
-- Die Oberfläche blendet Abschnitte nach der Vereinigung der Bereiche aus (`/ich` `bereiche`). Aktionen an einem bestimmten Fonds prüft `darf(stufe, fondsId, bereich)` (`apps/web/src/lib/rechte.ts`) mit der Stufe je Fonds und Bereich aus `bereicheJeFonds` bzw. `stufeOhneFondsJeBereich`: Fonds ohne den Bereich bieten die Aktion nicht an (die API antwortet dort mit 403). Ohne `bereich` gilt die Stufe am Fonds über alle Bereiche.
+- Die Oberfläche blendet Abschnitte nach der Vereinigung der Bereiche aus (`/me`, Feld `areas`). Aktionen an einem bestimmten Fonds prüft `darf(stufe, fondsId, bereich)` (`apps/web/src/lib/rechte.ts`) mit der Stufe je Fonds und Bereich aus `bereicheJeFonds` bzw. `stufeOhneFondsJeBereich`: Fonds ohne den Bereich bieten die Aktion nicht an (die API antwortet dort mit 403). Ohne `bereich` gilt die Stufe am Fonds über alle Bereiche.
 
 ## Verwaltung
 
@@ -144,13 +148,13 @@ Fonds und Organisationen verlangen bewusst keinen zusätzlichen Bereich: weder K
 
 | Methode und Pfad | Zweck |
 |---|---|
-| `GET /rechte` | Stand: Einstellung, Bereiche, Rollen, Gruppen |
-| `PUT /rechte/einstellung` | Fonds offen oder nur zugewiesene Fonds |
-| `POST/PATCH/DELETE /rechte/rollen[/:id]` | Rollen anlegen, ändern, löschen |
-| `POST/PATCH/DELETE /rechte/gruppen[/:id]` | Gruppen anlegen, ändern, löschen; Listen ersetzen den Stand |
-| `GET /benutzer/:id/rechte` | wirksame Rechte einer Person, mit Herkunft je Fonds und Stufe je Fonds und Bereich |
+| `GET /permissions` | Stand: Einstellung, Bereiche, Rollen, Gruppen |
+| `PUT /permissions/settings` | Fonds offen oder nur zugewiesene Fonds |
+| `POST/PATCH/DELETE /permissions/roles[/:id]` | Rollen anlegen, ändern, löschen |
+| `POST/PATCH/DELETE /permissions/groups[/:id]` | Gruppen anlegen, ändern, löschen; Listen ersetzen den Stand |
+| `GET /users/:id/permissions` | wirksame Rechte einer Person, mit Herkunft je Fonds und Stufe je Fonds und Bereich |
 
-Rollen haben `bereichStufen` (Bereich → höchste Stufe), Gruppen `bereicheJeFonds` (Schalter) und `fondsBereiche` (Fonds → Bereiche; nur mit dem Schalter und nur für Fonds aus `fondsIds`, sonst 400 `UNGUELTIGE_ZUORDNUNG`). Schaltet man den Schalter aus, entfällt die Auswahl je Fonds.
+Rollen haben `bereichStufen` (Bereich → höchste Stufe), Gruppen `bereicheJeFonds` (Schalter) und `fondsBereiche` (Fonds → Bereiche; nur mit dem Schalter und nur für Fonds aus `fondsIds`, sonst 400 `assignment_invalid`). Schaltet man den Schalter aus, entfällt die Auswahl je Fonds.
 
 `GET /ich` liefert zusätzlich `bereiche` (`null` = alle, Vereinigung über alle Fonds) und `stufeOhneFonds`, dazu `bereicheJeFonds` (Fonds → Bereich → Stufe) und `stufeOhneFondsJeBereich`; beide `null`, wenn die Person keiner Gruppe angehört (dann gelten `rollen` und `bereiche`). Die Seitenleiste blendet Bereiche ohne Recht aus. Ohne den Bereich Portfolio führt der Start zu den Kontakten.
 

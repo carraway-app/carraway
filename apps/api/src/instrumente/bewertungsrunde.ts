@@ -30,7 +30,7 @@ export async function legeRundeAn(tx: Tx, protokoll: Protokollant, fondsId: stri
     .select({ id: bewertungsrunde.id })
     .from(bewertungsrunde)
     .where(and(eq(bewertungsrunde.fondsId, fondsId), eq(bewertungsrunde.stichtag, stichtag), eq(bewertungsrunde.status, "entwurf")));
-  if (offen) throw new Fachfehler(409, "BEWERTUNGSRUNDE_OFFEN", "Für diesen Stichtag gibt es bereits eine offene Bewertungsrunde.", { bewertungsrundeId: offen.id });
+  if (offen) throw new Fachfehler(409, "valuation_round_open", "There is already an open valuation round for this as-of date.", { bewertungsrundeId: offen.id });
 
   const [runde] = await tx.insert(bewertungsrunde).values({ fondsId, stichtag, vorschlag, erstelltVon: protokoll.akteur }).returning();
   if (!runde) throw new Error("Bewertungsrunde nicht angelegt");
@@ -127,24 +127,24 @@ export async function legeRundeAn(tx: Tx, protokoll: Protokollant, fondsId: stri
 /** Prüft, dass eine Runde für Entwürfe angegeben werden darf: offen, gleicher Fonds, gleicher Stichtag. */
 export async function pruefeRundeFuerEntwurf(tx: Tx, rundeId: string, fondsId: string, stichtag: string) {
   const [runde] = await tx.select().from(bewertungsrunde).where(eq(bewertungsrunde.id, rundeId));
-  if (!runde) throw new Fachfehler(404, "BEWERTUNGSRUNDE_NICHT_GEFUNDEN", "Bewertungsrunde nicht gefunden.");
+  if (!runde) throw new Fachfehler(404, "valuation_round_not_found", "Valuation round not found.");
   if (runde.status !== "entwurf") {
-    throw new Fachfehler(409, "BEWERTUNG_STATUS_UNGUELTIG", `Die Bewertungsrunde hat den Status „${runde.status}“.`, { status: runde.status });
+    throw new Fachfehler(409, "valuation_status_invalid", `The valuation round has the status "${runde.status}".`, { status: runde.status });
   }
   if (runde.fondsId !== fondsId || runde.stichtag !== stichtag) {
-    throw new Fachfehler(409, "BEWERTUNGSRUNDE_PASST_NICHT", "Die Runde gehört zu einem anderen Fonds oder Stichtag.");
+    throw new Fachfehler(409, "valuation_round_mismatch", "The round belongs to a different fund or as-of date.");
   }
 }
 
 export async function sperreRunde(tx: Tx, id: string) {
   const [runde] = await tx.select().from(bewertungsrunde).where(eq(bewertungsrunde.id, id)).for("update");
-  if (!runde) throw new Fachfehler(404, "BEWERTUNGSRUNDE_NICHT_GEFUNDEN", "Bewertungsrunde nicht gefunden.");
+  if (!runde) throw new Fachfehler(404, "valuation_round_not_found", "Valuation round not found.");
   return runde;
 }
 
 function verlangeOffen(runde: typeof bewertungsrunde.$inferSelect) {
   if (runde.status !== "entwurf") {
-    throw new Fachfehler(409, "BEWERTUNG_STATUS_UNGUELTIG", `Die Bewertungsrunde hat den Status „${runde.status}“.`, { status: runde.status });
+    throw new Fachfehler(409, "valuation_status_invalid", `The valuation round has the status "${runde.status}".`, { status: runde.status });
   }
 }
 

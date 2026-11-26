@@ -37,34 +37,34 @@ afterAll(async () => {
   await rm(verzeichnis, { recursive: true, force: true });
 });
 
-describe("GET /betrieb/status", () => {
+describe("GET /operations/status", () => {
   it("verlangt Anmeldung und globale Verwaltung", async () => {
-    expect((await t.request("/betrieb/status", { als: null })).status).toBe(401);
-    expect((await t.request("/betrieb/status", { als: NORMAL })).status).toBe(403);
+    expect((await t.request("/operations/status", { als: null })).status).toBe(401);
+    expect((await t.request("/operations/status", { als: NORMAL })).status).toBe(403);
   });
 
   it("meldet ohne Worker eine Warnung und sonst alles in Ordnung", async () => {
-    const antwort = await t.request("/betrieb/status", { als: ADMIN });
+    const antwort = await t.request("/operations/status", { als: ADMIN });
     expect(antwort.status).toBe(200);
     const k = await json(antwort);
-    expect(k.datenbank).toEqual({ erreichbar: true });
-    expect(k.migrationen).toMatchObject({ ok: true, meldung: null });
-    expect(k.migrationen.angewendet).toBe(k.migrationen.bekannt);
-    expect(k.worker).toMatchObject({ status: "unbekannt", herzschlagAlterSekunden: null, grenzeSekunden: 30 });
-    expect(k.speicher).toEqual({ beschreibbar: true });
-    expect(k.smtp).toEqual({ konfiguriert: false });
+    expect(k.database).toEqual({ reachable: true });
+    expect(k.migrations).toMatchObject({ ok: true, message: null });
+    expect(k.migrations.applied).toBe(k.migrations.known);
+    expect(k.worker).toMatchObject({ status: "unknown", heartbeatAgeSeconds: null, thresholdSeconds: 30 });
+    expect(k.storage).toEqual({ writable: true });
+    expect(k.smtp).toEqual({ configured: false });
     // Angaben der Erweiterungen (z. B. KI-Anbieter) gibt es nur im Build „Voll“; der Kern allein meldet keine.
-    expect(k.erweiterungen).toEqual({});
-    expect(k.rueckstaende.mail).toEqual({ anzahl: 0, aeltesterSekunden: 0 });
-    expect(k.rueckstaende.auslesung).toEqual({ anzahl: 0, aeltesterSekunden: 0 });
-    expect(k.rueckstaende.snapshots).toEqual({ anzahl: 0, aeltesterSekunden: 0 });
-    expect(k.ampel).toBe("warnung");
+    expect(k.extensions).toEqual({});
+    expect(k.backlogs.mail).toEqual({ count: 0, oldestSeconds: 0 });
+    expect(k.backlogs.extraction).toEqual({ count: 0, oldestSeconds: 0 });
+    expect(k.backlogs.snapshots).toEqual({ count: 0, oldestSeconds: 0 });
+    expect(k.status).toBe("warning");
 
     await richteHerzschlagEin(db);
     await schreibeHerzschlag(db, "worker@test", 1);
-    const mitWorker = await json(await t.request("/betrieb/status", { als: ADMIN }));
+    const mitWorker = await json(await t.request("/operations/status", { als: ADMIN }));
     expect(mitWorker.worker.status).toBe("ok");
-    expect(mitWorker.ampel).toBe("ok");
+    expect(mitWorker.status).toBe("ok");
   });
 
   it("zeigt Rückstände mit Anzahl und Alter und warnt bei altem Verzug", async () => {
@@ -74,11 +74,11 @@ describe("GET /betrieb/status", () => {
       ('a@example.org', 'v', 'b', 'system', 'wartend', now() - interval '10 minutes'),
       ('b@example.org', 'v', 'b', 'system', 'wartend', now() + interval '1 hour'),
       ('c@example.org', 'v', 'b', 'system', 'gesendet', now() - interval '1 day')`);
-    const k = await json(await t.request("/betrieb/status", { als: ADMIN }));
+    const k = await json(await t.request("/operations/status", { als: ADMIN }));
     // Fällig ist nur die erste Mail; die zweite wartet auf den nächsten Versuch, die dritte ist gesendet.
-    expect(k.rueckstaende.mail.anzahl).toBe(1);
-    expect(k.rueckstaende.mail.aeltesterSekunden).toBeGreaterThan(590);
-    expect(k.ampel).toBe("warnung");
+    expect(k.backlogs.mail.count).toBe(1);
+    expect(k.backlogs.mail.oldestSeconds).toBeGreaterThan(590);
+    expect(k.status).toBe("warning");
   });
 
   it("meldet eine nicht beschreibbare Ablage als Fehler", async () => {
@@ -88,9 +88,9 @@ describe("GET /betrieb/status", () => {
     try {
       // Als Superuser (CI-Container) bleibt das Verzeichnis beschreibbar; dann gilt nur die Untersuchung der Probe selbst.
       const beschreibbar = await speicherBeschreibbar(new DateiSpeicher(verzeichnis));
-      const k = await json(await t.request("/betrieb/status", { als: ADMIN }));
-      expect(k.speicher.beschreibbar).toBe(beschreibbar);
-      if (!beschreibbar) expect(k.ampel).toBe("fehler");
+      const k = await json(await t.request("/operations/status", { als: ADMIN }));
+      expect(k.storage.writable).toBe(beschreibbar);
+      if (!beschreibbar) expect(k.status).toBe("error");
     } finally {
       await chmod(verzeichnis, 0o755);
     }
@@ -98,7 +98,7 @@ describe("GET /betrieb/status", () => {
   });
 
   it("enthält keine Zugangsdaten und keine Adressen", async () => {
-    const text = await (await t.request("/betrieb/status", { als: ADMIN })).text();
+    const text = await (await t.request("/operations/status", { als: ADMIN })).text();
     expect(text).not.toMatch(/postgres:\/\/|password|passwort|secret/i);
   });
 });

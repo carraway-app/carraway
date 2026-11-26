@@ -12,7 +12,7 @@ import type {
 } from "@carraway/berichte";
 import { quartalsbeginn } from "@carraway/berichte";
 import { aktivitaet, beschluss, deal, fonds, fondsKennzahl, kennzahlDefinition, kennzahlWert, organisation } from "@carraway/db";
-import { buchwert as rechneBuchwert, Decimal, geltendeWerte, kpiAbweichung, verteileAnteilig } from "@carraway/rechenkern";
+import { buchwert as rechneBuchwert, Decimal, geltendeWerte, kapitalkontenMitKosten, kpiAbweichung, xirr, type Zahlungsstrom } from "@carraway/rechenkern";
 import { ladeKapitalstand as ladeVerteilung } from "../instrumente/kapitalstand";
 import { istDarlehensartig } from "../instrumente/zustand";
 import { ladeBeteiligungDetail } from "../kennzahlen/beteiligung";
@@ -66,7 +66,11 @@ export async function ladeFondsberichtDaten(tx: Abfrage, fondsId: string, sticht
 
 export { ladeKapitalstand as ladeVerteilung } from "../instrumente/kapitalstand";
 
-/** Konto eines Investors aus der Verteilung: Summen der Abrufe und Ausschüttungen, offene Zusage, Anteil am NAV (ebenfalls nach größtem Rest). */
+/**
+ * Konto eines Investors aus der Verteilung: Summen der Abrufe und Ausschüttungen, offene Zusage, Verwaltungsvergütung und Fondskosten
+ * (festgeschriebene Anteile), Anteil am NAV (nach größtem Rest, mit Ausgleich abweichend verteilter Kosten, `kapitalkontenMitKosten`)
+ * und der Netto-IRR des Investors (seine Einzahlungen und Ausschüttungen, NAV-Anteil als Endwert am Stichtag).
+ */
 export function kontenAusVerteilung(verteilung: Awaited<ReturnType<typeof ladeVerteilung>>, nav: string | null) {
   const { zeichnungen, gewichte, bewegungen } = verteilung;
 
@@ -74,17 +78,37 @@ export function kontenAusVerteilung(verteilung: Awaited<ReturnType<typeof ladeVe
   for (const b of bewegungen) {
     if (b.art === "ausschuettung") b.teile.forEach((teil, i) => (ausgeschuettet[i] = ausgeschuettet[i]!.plus(teil)));
   }
-  const navTeile = nav !== null && zeichnungen.length ? verteileAnteilig(new Decimal(nav).toFixed(2), gewichte) : [];
-  return zeichnungen.map((z, i) => ({
-    ...z,
-    ...verteilung.jeLp.get(z.organisationId)!,
-    ausgeschuettet: (ausgeschuettet[i] as Decimal).toFixed(2),
-    offeneZusage: new Decimal(z.zusage).minus(verteilung.jeLp.get(z.organisationId)!.abgerufen).toFixed(2),
-    navAnteil: navTeile[i]?.toFixed(2) ?? null,
-  }));
+  const mitKosten = kapitalkontenMitKosten(
+    nav === null || zeichnungen.length === 0 ? null : nav,
+    gewichte.length === zeichnungen.length ? gewichte : zeichnungen.map(() => "0"),
+    zeichnungen.map((z, i) => ({ eingezahlt: verteilung.jeLp.get(z.organisationId)!.eingezahlt, ausgeschuettet: ausgeschuettet[i]! })),
+    verteilung.kosten,
+  );
+  return zeichnungen.map((z, i) => {
+    const k = mitKosten[i]!;
+    const strom: Zahlungsstrom[] = [
+      ...verteilung.eingaenge.filter((e) => e.organisationId === z.organisationId).map((e) => ({ datum: e.valuta, betrag: new Decimal(e.betrag).neg() })),
+      ...bewegungen.filter((b) => b.art === "ausschuettung" && !new Decimal(b.teile[i]!).isZero()).map((b) => ({ datum: b.valuta, betrag: b.teile[i]! })),
+    ];
+    if (k.navAnteil !== null) strom.push({ datum: verteilung.stichtag, betrag: k.navAnteil });
+    const irr = k.navAnteil === null ? null : xirr(strom);
+    return {
+      ...z,
+      ...verteilung.jeLp.get(z.organisationId)!,
+      ausgeschuettet: (ausgeschuettet[i] as Decimal).toFixed(2),
+      offeneZusage: new Decimal(z.zusage).minus(verteilung.jeLp.get(z.organisationId)!.abgerufen).toFixed(2),
+      navAnteil: k.navAnteil,
+      verwaltungsverguetung: k.verwaltungsverguetung,
+      fondskosten: k.fondskosten,
+      kostenausgleich: k.kostenausgleich,
+      ergebnisanteil: k.ergebnisanteil,
+      nettoIrr: irr === null ? null : irr.toString(),
+      fortschreibung: k.schritte,
+    };
+  });
 }
 
-const alsKapitalkonto = (k: ReturnType<typeof kontenAusVerteilung>[number]): Kapitalkonto => ({
+const alsKapitalkonto = (k: ReturnType<typeof kontenAusVerteilung>[number], mitKosten = false): Kapitalkonto => ({
   investor: k.investor,
   zusage: k.zusage,
   anteil: k.anteil,
@@ -95,6 +119,8 @@ const alsKapitalkonto = (k: ReturnType<typeof kontenAusVerteilung>[number]): Kap
   ausgeschuettet: k.ausgeschuettet,
   offeneZusage: k.offeneZusage,
   navAnteil: k.navAnteil,
+  // Nur mit Kostenbuchungen im Fonds: Berichte ohne Kosten bleiben unverändert.
+  ...(mitKosten ? { verwaltungsverguetung: k.verwaltungsverguetung, fondskosten: k.fondskosten } : {}),
 });
 
 /**
@@ -104,7 +130,8 @@ const alsKapitalkonto = (k: ReturnType<typeof kontenAusVerteilung>[number]): Kap
  */
 export async function ladeKapitalkonten(tx: Abfrage, fondsId: string, stichtag: string, stand: string | undefined, nav: string | null): Promise<Kapitalkonto[]> {
   const verteilung = await ladeVerteilung(tx, fondsId, stichtag, stand);
-  return kontenAusVerteilung(verteilung, nav).map(alsKapitalkonto);
+  const mitKosten = verteilung.kosten.length > 0;
+  return kontenAusVerteilung(verteilung, nav).map((k) => alsKapitalkonto(k, mitKosten));
 }
 
 export async function ladeLpBerichtDaten(tx: Abfrage, fondsId: string, stichtag: string, stand: string | undefined, wissensstand: string, ergaenzung: BerichtsErgaenzung = {}): Promise<LpBerichtDaten | null> {
@@ -129,7 +156,8 @@ export async function ladeLpBerichtDatenMitInvestoren(
   if (!basis) return null;
   const verteilung = await ladeVerteilung(tx, fondsId, basis.stichtag, stand);
   const konten = kontenAusVerteilung(verteilung, basis.kennzahlen.nav.wert);
-  const investoren = konten.map((k) => ({ organisationId: k.organisationId, konto: alsKapitalkonto(k) }));
+  const mitKosten = verteilung.kosten.length > 0;
+  const investoren = konten.map((k) => ({ organisationId: k.organisationId, konto: alsKapitalkonto(k, mitKosten) }));
   return { daten: { ...basis, kapitalkonten: investoren.map((i) => i.konto) }, investoren };
 }
 

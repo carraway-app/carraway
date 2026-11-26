@@ -17,10 +17,28 @@ export interface KursEintrag {
   kurs: string;
 }
 
+const KURSDATEI_FEHLER = {
+  empty_file: () => "The file is empty",
+  invalid_header: () => "Expected Date,USD,… (ECB layout) or Date;Base;Quote;Rate",
+  invalid_date: (value: string) => `Invalid date “${value}”`,
+  invalid_rate: (value: string) => `Invalid rate “${value}”`,
+  invalid_rate_for_currency: (value: string) => `Invalid rate for ${value}`,
+  invalid_currency_pair: (value: string) => `Invalid currency pair “${value}”`,
+  conflicting_rates: (value: string) => `The file contains different rates for ${value}`,
+} as const;
+
+export type KursdateiFehlercode = keyof typeof KURSDATEI_FEHLER;
+
 export interface Dateifehler {
   zeile: number;
   meldung: string;
+  code: KursdateiFehlercode;
+  wert: string;
 }
+
+const dateifehler = (zeile: number, code: KursdateiFehlercode, wert = ""): Dateifehler => ({
+  zeile, code, wert, meldung: KURSDATEI_FEHLER[code](wert),
+});
 
 export interface GeleseneKurse {
   format: "ezb" | "lang";
@@ -65,7 +83,7 @@ export function leseKursdatei(inhalt: string): GeleseneKurse {
   const text = inhalt.replace(/^\uFEFF/, "");
   const zeilen = text.split(/\r\n|\n|\r/);
   const ersteNummer = zeilen.findIndex((z) => z.trim() !== "");
-  if (ersteNummer === -1) return { format: "lang", eintraege: [], fehler: [{ zeile: 1, meldung: "Die Datei ist leer" }], zeilen: 0 };
+  if (ersteNummer === -1) return { format: "lang", eintraege: [], fehler: [dateifehler(1, "empty_file")], zeilen: 0 };
   const kopfZeile = zeilen[ersteNummer]!;
   const t = trenner(kopfZeile);
   const kopf = kopfZeile.split(t).map((z) => z.trim().replace(/^"|"$/g, ""));
@@ -77,7 +95,7 @@ export function leseKursdatei(inhalt: string): GeleseneKurse {
     const schluessel = `${e.datum}|${e.basis}|${e.quote}`;
     const vorher = gesehen.get(schluessel);
     if (vorher !== undefined) {
-      if (Number(vorher) !== Number(e.kurs)) fehler.push({ zeile: nr, meldung: `${e.basis}/${e.quote} am ${e.datum} steht mit zwei verschiedenen Kursen in der Datei` });
+      if (Number(vorher) !== Number(e.kurs)) fehler.push(dateifehler(nr, "conflicting_rates", `${e.basis}/${e.quote} (${e.datum})`));
       return;
     }
     gesehen.set(schluessel, e.kurs);
@@ -92,7 +110,7 @@ export function leseKursdatei(inhalt: string): GeleseneKurse {
       const zellen = zeilen[i]!.split(t).map((z) => z.trim().replace(/^"|"$/g, ""));
       const tag = datum(zellen[0] ?? "");
       if (!tag) {
-        fehler.push({ zeile: i + 1, meldung: `Ungültiges Datum „${zellen[0] ?? ""}“` });
+        fehler.push(dateifehler(i + 1, "invalid_date", zellen[0]));
         continue;
       }
       for (let c = 1; c < kopf.length; c++) {
@@ -100,8 +118,8 @@ export function leseKursdatei(inhalt: string): GeleseneKurse {
         const wert = zellen[c] ?? "";
         if (code === "" || wert === "" || wert.toUpperCase() === "N/A") continue;
         const k = kurs(wert, t === ";");
-        if (!k) fehler.push({ zeile: i + 1, meldung: `Ungültiger Kurs „${wert}“ für ${code}` });
-        else if (code === "EUR") fehler.push({ zeile: i + 1, meldung: "EUR kann nicht gegen EUR stehen" });
+        if (!k) fehler.push(dateifehler(i + 1, "invalid_rate_for_currency", `${code} (${wert})`));
+        else if (code === "EUR") fehler.push(dateifehler(i + 1, "invalid_currency_pair", "EUR/EUR"));
         else aufnehmen(i + 1, { datum: tag, basis: "EUR", quote: code, kurs: k });
       }
     }
@@ -117,7 +135,7 @@ export function leseKursdatei(inhalt: string): GeleseneKurse {
     return {
       format: "lang",
       eintraege: [],
-      fehler: [{ zeile: ersteNummer + 1, meldung: "Kopfzeile nicht erkannt: erwartet wird entweder „Date,USD,…“ (EZB-Aufbau) oder „Datum;Basis;Quote;Kurs“" }],
+      fehler: [dateifehler(ersteNummer + 1, "invalid_header")],
       zeilen: 0,
     };
   }
@@ -129,9 +147,9 @@ export function leseKursdatei(inhalt: string): GeleseneKurse {
     const basis = (zellen[spalte.basis] ?? "").toUpperCase();
     const quote = (zellen[spalte.quote] ?? "").toUpperCase();
     const k = kurs(zellen[spalte.kurs] ?? "", t === ";");
-    if (!tag) fehler.push({ zeile: i + 1, meldung: `Ungültiges Datum „${zellen[spalte.datum] ?? ""}“` });
-    else if (!CODE.test(basis) || !CODE.test(quote) || basis === quote) fehler.push({ zeile: i + 1, meldung: `Ungültiges Währungspaar „${basis}/${quote}“` });
-    else if (!k) fehler.push({ zeile: i + 1, meldung: `Ungültiger Kurs „${zellen[spalte.kurs] ?? ""}“` });
+    if (!tag) fehler.push(dateifehler(i + 1, "invalid_date", zellen[spalte.datum]));
+    else if (!CODE.test(basis) || !CODE.test(quote) || basis === quote) fehler.push(dateifehler(i + 1, "invalid_currency_pair", `${basis}/${quote}`));
+    else if (!k) fehler.push(dateifehler(i + 1, "invalid_rate", zellen[spalte.kurs]));
     else aufnehmen(i + 1, { datum: tag, basis, quote, kurs: k });
   }
   return { format: "lang", eintraege, fehler, zeilen: daten };

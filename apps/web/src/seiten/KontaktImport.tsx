@@ -129,7 +129,7 @@ export function KontaktImportSeite() {
     },
   ];
 
-  const unguelt = vorschau.error instanceof ApiFehler && vorschau.error.code === "IMPORT_UNGUELTIG" ? vorschau.error : null;
+  const unguelt = vorschau.error instanceof ApiFehler && vorschau.error.code === "import_invalid" ? vorschau.error : null;
 
   return (
     <div className="app-seite">

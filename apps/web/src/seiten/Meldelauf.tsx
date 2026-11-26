@@ -204,7 +204,7 @@ function Stufen({ lauf, person }: { lauf: MeldeLauf; person: Namen }) {
   function ausfuehren(ergebnis: "ok" | "zurueck") {
     setLokal(null);
     if (ergebnis === "zurueck" && kommentar.trim() === "") {
-      setLokal(t.feldfehler.kommentar_erforderlich ?? t.feldfehler.unbekannt);
+      setLokal(t.feldfehler.comment_required ?? t.feldfehler.unbekannt);
       return;
     }
     aktion.mutate({ stufe: name, ergebnis, ...(kommentar.trim() ? { kommentar: kommentar.trim() } : {}) }, { onSuccess: () => setKommentar("") });

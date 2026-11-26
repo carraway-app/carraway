@@ -1,5 +1,5 @@
-import { and, eq, inArray, sql } from "drizzle-orm";
-import { beteiligung, dokument, finanzierungsrunde, fonds, instrument, wandlung, wertQuelle } from "@carraway/db";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { beteiligung, dokument, finanzierungsrunde, fonds, instrument, vorgang, wandlung, wertQuelle } from "@carraway/db";
 import { Decimal, schaetzeOffeneWandlung, type MassgeblichePreisregel, type OffeneWandlungGrund, type OffeneWandlungParameter } from "@carraway/rechenkern";
 import { sichtbareFonds, type Akteur } from "../anmeldung/akteur";
 import { dokumentSichtbar } from "../dokumente/ziele";
@@ -22,12 +22,17 @@ import type { Kapital } from "./wasserfall";
  * zum Stichtag, die Bezugsgröße der Bewertungsobergrenze die voll verwässerte Anteilszahl vor der Wandlung (ausgegeben plus Pool). Zinsen wandeln
  * mit: das Feld am Instrument, ohne Angabe die Annahme „ja“ (`zinsenWandelnAngenommen`).
  * Jede Schätzung rechnet für sich auf derselben Bezugsgröße (gegenseitige Verwässerung der Wandlungen bleibt außen vor). Wirft nicht.
+ *
+ * SAFE (Issue 149): genauso, nur ohne Zinsen. „Zinsen wandeln“ ist bei einem SAFE immer nein (keine Annahme, kein Hinweis `ohne_zinsen`); das Kapital
+ * sind die Auszahlungen auf das SAFE-Instrument.
  */
 
 export type OffeneWandlungStatus = "geschaetzt" | "offen";
 
 export interface OffeneWandlung {
   instrumentId: string;
+  /** `wandeldarlehen` oder `safe`. */
+  art: "wandeldarlehen" | "safe";
   bezeichnung: string;
   beteiligungId: string;
   fonds: { id: string; name: string };
@@ -81,14 +86,14 @@ export async function ladeOffeneWandlungen(tx: Tx, akteur: Akteur, k: Kapital, f
   const sichtbar = sichtbareFonds(akteur, "betrachter", "portfolio");
   if (sichtbar !== "alle" && sichtbar.length === 0) return leer;
   const kandidaten = await tx
-    .select({ id: instrument.id, bezeichnung: instrument.bezeichnung, status: instrument.status, abschlag: instrument.wandlungsabschlag, obergrenze: instrument.bewertungsobergrenze, zinsenWandeln: instrument.zinsenWandeln, beteiligungId: beteiligung.id, fondsId: fonds.id, fondsName: fonds.name })
+    .select({ id: instrument.id, art: instrument.art, bezeichnung: instrument.bezeichnung, status: instrument.status, abschlag: instrument.wandlungsabschlag, obergrenze: instrument.bewertungsobergrenze, zinsenWandeln: instrument.zinsenWandeln, beteiligungId: beteiligung.id, fondsId: fonds.id, fondsName: fonds.name })
     .from(instrument)
     .innerJoin(beteiligung, eq(beteiligung.id, instrument.beteiligungId))
     .innerJoin(fonds, eq(fonds.id, beteiligung.fondsId))
     .where(
       and(
         eq(beteiligung.organisationId, k.organisation.id),
-        eq(instrument.art, "wandeldarlehen"),
+        inArray(instrument.art, ["wandeldarlehen", "safe"]),
         inArray(instrument.status, ["aktiv", "gewandelt"]),
         sichtbar === "alle" ? undefined : inArray(beteiligung.fondsId, sichtbar),
       ),
@@ -106,7 +111,10 @@ export async function ladeOffeneWandlungen(tx: Tx, akteur: Akteur, k: Kapital, f
   const offen = kandidaten.filter((x) => !erledigt.has(x.id) && !(x.status === "gewandelt" && !wandlungen.some((w) => w.quelle === x.id)));
   if (offen.length === 0) return leer;
 
-  const kontexte = new Map((await ladeZinskontexte(tx, { instrumentIds: offen.map((x) => x.id) })).map((c) => [c.instrument.id, c]));
+  const kontexte = new Map((await ladeZinskontexte(tx, { instrumentIds: offen.filter((x) => x.art === "wandeldarlehen").map((x) => x.id) })).map((c) => [c.instrument.id, c]));
+  // Ein SAFE ist nicht darlehensartig und hat keinen Zinskontext: seine Vorgänge kommen direkt.
+  const safeIds = offen.filter((x) => x.art === "safe").map((x) => x.id);
+  const safeVorgaenge = safeIds.length ? await tx.select().from(vorgang).where(inArray(vorgang.instrumentId, safeIds)).orderBy(asc(vorgang.valuta), asc(vorgang.erfasstAm), asc(vorgang.id)) : [];
   const beteiligungIds = [...new Set(offen.map((x) => x.beteiligungId))];
   const quellen = await tx
     .select({ objektId: wertQuelle.objektId, feld: wertQuelle.feld, wert: wertQuelle.wert })
@@ -127,7 +135,13 @@ export async function ladeOffeneWandlungen(tx: Tx, akteur: Akteur, k: Kapital, f
     let bewegungen: ReturnType<typeof berechneZustand>["bewegungen"] = [];
     let bedingungen: Parameters<typeof schaetzeOffeneWandlung>[0]["bedingungen"];
     let zinsenAb: string | undefined;
-    if (kontext) {
+    if (x.art === "safe") {
+      try {
+        bewegungen = berechneZustand(safeVorgaenge.filter((v) => v.instrumentId === x.id && v.valuta <= stichtag)).bewegungen;
+      } catch {
+        bewegungen = [];
+      }
+    } else if (kontext) {
       try {
         bewegungen = berechneZustand(kontext.vorgaenge.filter((v) => v.valuta <= stichtag)).bewegungen;
       } catch {
@@ -165,7 +179,8 @@ export async function ladeOffeneWandlungen(tx: Tx, akteur: Akteur, k: Kapital, f
       }
     }
     if (rueckfall && (jeBeteiligung.get(x.beteiligungId) ?? 0) > 1) mehrdeutig = true;
-    const zinsenWandeln = x.zinsenWandeln ?? true;
+    const safe = x.art === "safe";
+    const zinsenWandeln = safe ? false : (x.zinsenWandeln ?? true);
     const e = schaetzeOffeneWandlung({
       bewegungen,
       stichtag,
@@ -180,6 +195,7 @@ export async function ladeOffeneWandlungen(tx: Tx, akteur: Akteur, k: Kapital, f
     const geschaetzt = e.status === "geschaetzt" && !mehrdeutig;
     return {
       instrumentId: x.id,
+      art: safe ? "safe" : "wandeldarlehen",
       bezeichnung: x.bezeichnung,
       beteiligungId: x.beteiligungId,
       fonds: { id: x.fondsId, name: x.fondsName },
@@ -189,7 +205,7 @@ export async function ladeOffeneWandlungen(tx: Tx, akteur: Akteur, k: Kapital, f
       fehlend: mehrdeutig ? [] : e.fehlend,
       hinweise: e.hinweise,
       zinsenWandeln,
-      zinsenWandelnAngenommen: x.zinsenWandeln === null,
+      zinsenWandelnAngenommen: !safe && x.zinsenWandeln === null,
       kapital: e.kapital.toFixed(2),
       zinsen: e.zinsen.toFixed(2),
       betrag: e.betrag.toFixed(2),

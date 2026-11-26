@@ -51,10 +51,10 @@ export const csvDatei = (inhalt: Buffer | string, name = "susa.csv") => new File
 /** Lädt eine Saldenliste hoch (multipart). */
 export function ladeSusaHoch(t: TestApp, fondsId: string, datei: File, von: string, bis: string, als?: Testperson) {
   const formular = new FormData();
-  formular.set("datei", datei);
-  formular.set("zeitraumVon", von);
-  formular.set("zeitraumBis", bis);
-  return t.request(`/fonds/${fondsId}/saldenlaeufe`, { method: "POST", body: formular, ...(als ? { als } : {}) });
+  formular.set("file", datei);
+  formular.set("periodFrom", von);
+  formular.set("periodTo", bis);
+  return t.request(`/funds/${fondsId}/balance-runs`, { method: "POST", body: formular, ...(als ? { als } : {}) });
 }
 
 /** Geprüfte Zeilen mit der regulären Statusänderung übernehmen (einschließlich Zuordnung der Bilanzgruppen). */

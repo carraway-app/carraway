@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { getRouteApi, Link } from "@tanstack/react-router";
 import { Fakten, Hinweis, Seitenkopf, formatDatum, type FaktEintrag } from "@carraway/ui";
-import { kapitalHerkunft } from "../api/kapitalbewegungen";
+import { kapitalHerkunft, mitteilungDateiUrl } from "../api/kapitalbewegungen";
 import { belegDateiUrl } from "../api/buchhaltung";
 import { useSprache, useT } from "../i18n";
 import { kapitalTexte } from "../i18n/kapitalbewegung";
@@ -49,11 +49,10 @@ export function KapitalQuelle() {
     <Link to={route.id} params={{ ...params, positionId: position.gegenbuchungId }} search={{ stichtag, stand }}>
       {position.art === "storno" ? k.storniert : k.quelleArt.storno}
     </Link> });
-  const schnitt = new URLSearchParams({ stichtag, stand });
   for (const m of data.nachweise?.mitteilungen ?? []) {
     if (position.organisationId && position.organisationId !== m.organisationId) continue;
     fakten.push({ id: m.id, label: t.bewertungen.freigegebenVon(person(m.von) ?? "", formatZeitpunkt(m.am, sprache)),
-      wert: <a download href={`/api/v1/fonds/${fondsId}/bewegungen/mitteilungen/${m.id}/datei?${schnitt}`}>{m.datei}</a> });
+      wert: <a download href={mitteilungDateiUrl(fondsId, m.id, stichtag, stand)}>{m.datei}</a> });
   }
   for (const b of data.nachweise?.belege ?? []) {
     fakten.push({ id: b.id, label: t.buchhaltung.beleg.freigegebenLabel + " · " + formatZeitpunkt(b.am, sprache),

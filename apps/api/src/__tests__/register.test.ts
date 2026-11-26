@@ -72,7 +72,7 @@ describe("Registerstand und Historie", () => {
   it("verknüpft einen Registerauszug als Dokument und lehnt ein unbekanntes ab", async () => {
     const fehl = await post(`/organisationen/${ID.orgA}/register/eintraege`, eintrag({ dokumentId: "00000000-0000-4000-8000-0000000000d9" }), bearbeiter);
     expect(fehl.status).toBe(404);
-    expect((await json(fehl)).fehler.code).toBe("DOKUMENT_NICHT_GEFUNDEN");
+    expect((await json(fehl)).error.code).toBe("document_not_found");
     const [d] = await db
       .insert(s.dokument)
       .values({ sha256: "a".repeat(64), dateiname: "auszug.pdf", mime: "application/pdf", groesse: 10, gespeichertUnter: "test/auszug", hochgeladenVon: "test" })
@@ -80,7 +80,7 @@ describe("Registerstand und Historie", () => {
     // Ein Dokument ohne Verknüpfung zu dieser Organisation darf nicht am Eintrag hängen (sonst ließe sich der Dateiname lesen).
     const fremdes = await post(`/organisationen/${ID.orgA}/register/eintraege`, eintrag({ dokumentId: d!.id }), bearbeiter);
     expect(fremdes.status).toBe(409);
-    expect((await json(fremdes)).fehler.code).toBe("ZIEL_NICHT_AM_DOKUMENT");
+    expect((await json(fremdes)).error.code).toBe("target_not_on_document");
     await db.insert(s.dokumentVerknuepfung).values({ dokumentId: d!.id, zielTyp: "organisation", zielId: ID.orgB });
     expect((await post(`/organisationen/${ID.orgA}/register/eintraege`, eintrag({ dokumentId: d!.id }), bearbeiter)).status).toBe(409);
     await db.insert(s.dokumentVerknuepfung).values({ dokumentId: d!.id, zielTyp: "organisation", zielId: ID.orgA });
@@ -124,7 +124,7 @@ describe("Abgleich und Übernahme", () => {
     expect((z[0]!.vorher as { name: string }).name).toBe("Alpha Beispiel");
     const nochmal = await post(`/organisationen/${ID.orgA}/register/uebernehmen`, { felder: ["firma"] }, bearbeiter);
     expect(nochmal.status).toBe(409);
-    expect((await json(nochmal)).fehler.code).toBe("REGISTER_KEIN_UNTERSCHIED");
+    expect((await json(nochmal)).error.code).toBe("register_no_difference");
   });
 
   it("übernimmt die Geschäftsführung: legt Personen und Rollen an, beendet fehlende Rollen", async () => {
@@ -159,7 +159,7 @@ describe("Abgleich und Übernahme", () => {
     expect((await post(`/organisationen/${ID.orgA}/register/uebernehmen`, { felder: ["firma"] }, betrachter)).status).toBe(403);
     const ohne = await post(`/organisationen/${ID.orgB}/register/uebernehmen`, { felder: ["firma"] }, bearbeiter);
     expect(ohne.status).toBe(404);
-    expect((await json(ohne)).fehler.code).toBe("REGISTER_EINTRAG_FEHLT");
+    expect((await json(ohne)).error.code).toBe("register_entry_missing");
   });
 });
 
@@ -204,7 +204,7 @@ describe("Anbieter, Beobachtung und Meldungen", () => {
   it("ohne Anbieter antworten Suche und Abruf mit 409", async () => {
     const r = await keinAnbieter.get("/register/suche?firma=Alpha", bearbeiter);
     expect(r.status).toBe(409);
-    expect((await json(r)).fehler.code).toBe("REGISTER_ANBIETER_FEHLT");
+    expect((await json(r)).error.code).toBe("register_provider_missing");
     expect((await keinAnbieter.post(`/organisationen/${ID.orgA}/register/abruf`, {}, bearbeiter)).status).toBe(409);
     expect((await json(await keinAnbieter.get("/register/status", betrachter))).anbieterEingerichtet).toBe(false);
   });
@@ -215,7 +215,7 @@ describe("Anbieter, Beobachtung und Meldungen", () => {
     expect(such.daten).toHaveLength(1);
     const ohneRef = await post(`/organisationen/${ID.orgA}/register/abruf`, {}, bearbeiter);
     expect(ohneRef.status).toBe(409);
-    expect((await json(ohneRef)).fehler.code).toBe("REGISTER_REFERENZ_FEHLT");
+    expect((await json(ohneRef)).error.code).toBe("register_reference_missing");
     const ok = await post(`/organisationen/${ID.orgA}/register/abruf`, { gericht: "Amtsgericht Beispielstadt", registerart: "HRB", nummer: "HRB 99001" }, bearbeiter);
     expect(ok.status).toBe(200);
     const k = await json(ok);
@@ -348,8 +348,8 @@ describe("Import aus einer Datei", () => {
     const r = await post("/register/import", { format: "csv", inhalt: schlecht }, bearbeiter);
     expect(r.status).toBe(422);
     const k = await json(r);
-    expect(k.fehler.code).toBe("REGISTER_IMPORT_UNGUELTIG");
-    expect(k.fehler.zeilen.map((z: { zeile: number; feld: string }) => `${z.zeile}:${z.feld}`).sort()).toEqual(["3:organisationName", "4:registerart", "4:standDatum"]);
+    expect(k.error.code).toBe("register_import_invalid");
+    expect(k.error.zeilen.map((z: { zeile: number; feld: string }) => `${z.zeile}:${z.feld}`).sort()).toEqual(["3:organisationName", "4:registerart", "4:standDatum"]);
     expect(await db.select().from(s.registereintrag)).toHaveLength(0);
     const kaputt = await post("/register/import", { format: "json", inhalt: "{" }, bearbeiter);
     expect(kaputt.status).toBe(422);

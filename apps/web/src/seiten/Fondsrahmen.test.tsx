@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { FONDS_ID, rendereApp, spieleApi } from "../test/hilfen";
 
-const uebersichtsAnfragen = (fetch: ReturnType<typeof spieleApi>) => fetch.mock.calls.map(([u]) => String(u)).filter((u) => new URL(u).pathname === `/api/v1/fonds/${FONDS_ID}/uebersicht`);
+const uebersichtsAnfragen = (fetch: ReturnType<typeof spieleApi>) => fetch.mock.calls.map(([u]) => String(u)).filter((u) => new URL(u).pathname === `/api/v1/funds/${FONDS_ID}/overview`);
 
 describe("Fondsrahmen", () => {
   it.each(["kennzahlen", "szenarien", "reserven", "zinsen", "bewertungsrunde"])("zeigt auf %s Fondsname und Kennzahlen über dem Inhaltsverzeichnis", async (bereich) => {
@@ -40,7 +40,7 @@ describe("Fondsrahmen", () => {
     await waitFor(() => expect(document.querySelector(".cw-kennzahlen")).not.toBeNull());
     const anfragen = uebersichtsAnfragen(fetch);
     expect(anfragen.length).toBeGreaterThan(0);
-    expect(anfragen.every((u) => !u.includes("stichtag"))).toBe(true);
+    expect(anfragen.every((u) => !u.includes("asOf"))).toBe(true);
   });
 
   it("lässt die Kennzahlen unverändert, wenn die Zinsen einen eigenen Stichtag und Wissensstand tragen", async () => {
@@ -49,9 +49,9 @@ describe("Fondsrahmen", () => {
     await screen.findByRole("table");
     const anfragen = uebersichtsAnfragen(fetch);
     expect(anfragen.length).toBeGreaterThan(0);
-    expect(anfragen.every((u) => !u.includes("stichtag"))).toBe(true);
-    const zinsen = fetch.mock.calls.map(([u]) => new URL(String(u))).filter((u) => u.pathname === `/api/v1/fonds/${FONDS_ID}/zinsen`);
-    expect(zinsen[0]!.searchParams.get("stichtag")).toBe("2026-06-30");
+    expect(anfragen.every((u) => !u.includes("asOf"))).toBe(true);
+    const zinsen = fetch.mock.calls.map(([u]) => new URL(String(u))).filter((u) => u.pathname === `/api/v1/funds/${FONDS_ID}/interest`);
+    expect(zinsen[0]!.searchParams.get("asOf")).toBe("2026-06-30");
   });
 
   it("fragt die Übersicht beim Wechsel zwischen den Bereichen nicht erneut ab", async () => {

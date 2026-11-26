@@ -20,9 +20,9 @@ beforeEach(async () => {
   await grundbestand(db);
   await db.insert(s.organisation).values({ id: KAEUFER, name: "Käufer Beispiel", art: "unternehmen" });
   // Buchwert 400.000: 500.000 investiert, 100.000 wertberichtigt; Bewertung 450.000
-  await post(`/beteiligungen/${b}/vorgaenge`, { art: "zusage", valuta: "2025-01-01", betrag: "1000000" });
-  await post(`/beteiligungen/${b}/vorgaenge`, { art: "auszahlung", valuta: "2025-02-01", betrag: "500000" });
-  await post(`/beteiligungen/${b}/vorgaenge`, { art: "wertberichtigung", valuta: "2025-12-31", betrag: "100000" });
+  await post(`/investments/${b}/transactions`, { type: "commitment", valueDate: "2025-01-01", amount: "1000000" });
+  await post(`/investments/${b}/transactions`, { type: "disbursement", valueDate: "2025-02-01", amount: "500000" });
+  await post(`/investments/${b}/transactions`, { type: "impairment", valueDate: "2025-12-31", amount: "100000" });
   await db.insert(s.bewertung).values({ beteiligungId: b, stichtag: "2025-12-31", wert: "450000.00", methode: "letzte_runde", status: "freigegeben" as const });
   await leereAuftraege(db);
 });
@@ -77,7 +77,7 @@ describe("POST /beteiligungen/:id/verkauf", () => {
     // nach dem Exit ist kein weiterer Verkauf möglich
     const nochmal = await verkaufen(voll);
     expect(nochmal.status).toBe(409);
-    expect((await json(nochmal)).fehler.code).toBe("BETEILIGUNG_NICHT_AKTIV");
+    expect((await json(nochmal)).error.code).toBe("investment_not_active");
   });
 
   it("Treuhandbetrag wird bei Freigabe als Rückfluss gebucht, nur einmal", async () => {
@@ -88,7 +88,7 @@ describe("POST /beteiligungen/:id/verkauf", () => {
     expect(await summe(b, "rueckfluss")).toBe(590000);
     const nochmal = await post(`/forderungen/${d.forderung.id}/erfuellt`, {});
     expect(nochmal.status).toBe(409);
-    expect((await json(nochmal)).fehler.code).toBe("FORDERUNG_ERFUELLT");
+    expect((await json(nochmal)).error.code).toBe("receivable_settled");
     expect((await post(`/forderungen/00000000-0000-4000-8000-0000000000ee/erfuellt`, {})).status).toBe(404);
   });
 
@@ -109,7 +109,7 @@ describe("POST /beteiligungen/:id/verkauf", () => {
   it("Kaufpreisanpassung ohne Verkauf wird abgelehnt", async () => {
     const antwort = await post(`/beteiligungen/${ID.darlehen}/kaufpreisanpassung`, { datum: "2027-01-31", betrag: "100", grund: "Test" });
     expect(antwort.status).toBe(409);
-    expect((await json(antwort)).fehler.code).toBe("KEIN_VERKAUF");
+    expect((await json(antwort)).error.code).toBe("no_sale");
   });
 
   it("Teilverkauf lässt die Beteiligung aktiv, halbiert die Bewertung, der zweite Verkauf rechnet mit dem Rest", async () => {
@@ -138,14 +138,14 @@ describe("POST /beteiligungen/:id/verkauf", () => {
   it("lehnt unmögliche Aufteilungen, Doppelbeteiligung, ungültige Eingaben und fremde Zustände ab, ohne etwas zu schreiben", async () => {
     const zuViel = await verkaufen({ ...voll, kaufpreis: "100000", kosten: "0", treuhand: { betrag: "60000", freigabeAm: "2027-01-01" }, verkaeuferdarlehen: { ...voll.verkaeuferdarlehen, betrag: "50000" } });
     expect(zuViel.status).toBe(409);
-    expect((await json(zuViel)).fehler.code).toBe("VERKAUF_UNGUELTIG");
+    expect((await json(zuViel)).error.code).toBe("sale_invalid");
 
     // Der Fonds hält gegenüber dem Schuldner schon ein Darlehen: das Verkäuferdarlehen kommt nicht noch einmal dazu.
     const [vorhanden] = await db.insert(s.beteiligung).values({ fondsId: ID.fonds, organisationId: KAEUFER, instrument: "darlehen", erstinvestment: "2025-01-01" }).returning();
     await legeHauptinstrumentAn(db, vorhanden!);
     const doppelt = await verkaufen(voll);
     expect(doppelt.status).toBe(409);
-    expect((await json(doppelt)).fehler.code).toBe("BETEILIGUNG_VORHANDEN");
+    expect((await json(doppelt)).error.code).toBe("investment_exists");
     // anderer Schuldner löst es; hat der Fonds an ihm schon eine Beteiligung (hier das Wandeldarlehen), kommt das Darlehen als weiteres Instrument dazu
     const ok = await verkaufen({ ...voll, verkaeuferdarlehen: { ...voll.verkaeuferdarlehen, schuldnerOrganisationId: ID.orgC } });
     expect(ok.status).toBe(201);
@@ -158,10 +158,10 @@ describe("POST /beteiligungen/:id/verkauf", () => {
   it("schützt Verkaufsdatum und Fälligkeit des Verkäuferdarlehens", async () => {
     const fern = await verkaufen({ datum: "9999-12-31", kaufpreis: "1", anteilVerkauft: 1 });
     expect(fern.status).toBe(400);
-    expect((await json(fern)).fehler.felder[0]).toMatchObject({ feld: "datum", code: "stichtag_ausserhalb" });
+    expect((await json(fern)).error.fields[0]).toMatchObject({ field: "datum", code: "as_of_out_of_range" });
     const fernFaellig = await verkaufen({ ...voll, verkaeuferdarlehen: { ...voll.verkaeuferdarlehen, faelligAm: "9999-12-31" } });
     expect(fernFaellig.status).toBe(400);
-    expect((await json(fernFaellig)).fehler.felder[0]).toMatchObject({ feld: "verkaeuferdarlehen.faelligAm", code: "datum_ausserhalb" });
+    expect((await json(fernFaellig)).error.fields[0]).toMatchObject({ field: "verkaeuferdarlehen.faelligAm", code: "date_out_of_range" });
     expect(await anzahl(db, "verkauf")).toBe(0);
   });
 
@@ -195,7 +195,7 @@ describe("POST /beteiligungen/:id/insolvenz", () => {
     expect(await auftraege(db)).toBe(1);
     const nochmal = await post(`/beteiligungen/${b}/insolvenz`, { datum: "2026-03-16" });
     expect(nochmal.status).toBe(409);
-    expect((await json(nochmal)).fehler.code).toBe("BETEILIGUNG_NICHT_AKTIV");
+    expect((await json(nochmal)).error.code).toBe("investment_not_active");
   });
 
   it("ohne Wertberichtigung bleibt der Buchwert, eine vorhandene Bewertung am Tag wird auf null gesetzt", async () => {

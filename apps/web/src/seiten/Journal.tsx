@@ -3,7 +3,7 @@ import { useInfiniteQuery, useQuery, useSuspenseQuery } from "@tanstack/react-qu
 import { getRouteApi, Link } from "@tanstack/react-router";
 import { observeElementRect, useVirtualizer } from "@tanstack/react-virtual";
 import { Auswahl, Button, ButtonLink, DotsThreeIcon, Feld, Hinweis, Leer, Menue, Seitenkopf, Seitenpanel, Status, Tabelle, formatBetrag, formatDatum, type MenueEintrag, type TabelleSpalte } from "@carraway/ui";
-import { fondsListe, fondsUebersicht, instrumentdaten, journal, type JournalFilter, type JournalZeile } from "../api/abfragen";
+import { fondsListe, fondsUebersicht, instrumentdaten, journal, journalExportUrl, type JournalFilter, type JournalZeile } from "../api/abfragen";
 import { belegvorlagen } from "../api/buchhaltung";
 import { heuteIso } from "../api/datum";
 import { useBuchungAnlegen, type NeueBuchung } from "../api/mutationen";
@@ -32,14 +32,6 @@ const FENSTERHOEHE = 560;
 const JOURNAL_SPALTEN = ["valuta", "erfasst", "typ", "unternehmen", "instrument", "betrag", "kasse", "storno", "herkunft", "aktion"] as const;
 const JOURNAL_SPALTEN_SCHMAL = ["valuta", "typ", "betrag", "unternehmen", "instrument", "erfasst", "kasse", "storno", "herkunft", "aktion"] as const;
 const JOURNAL_SCHMAL = "(max-width: 40rem)";
-
-/** Abfrageparameter des Exports: dieselben Filter wie die Liste, dazu Format und Sprache der Kopfzeilen. */
-function exportUrl(fondsId: string, f: JournalFilter, format: "csv" | "xlsx", sprache: string): string {
-  const q = new URLSearchParams({ format, sprache });
-  for (const [k, v] of Object.entries({ von: f.von, bis: f.bis, typ: f.typ, beteiligungId: f.beteiligungId, stand: f.stand })) if (v) q.set(k, v);
-  if (f.bewertungen) q.set("bewertungen", "1");
-  return `/api/v1/fonds/${fondsId}/journal?${q.toString()}`;
-}
 
 /**
  * Journal eines Fonds: alle Buchungen in zeitlicher Folge (neueste zuerst) mit Filtern in der URL, virtualisierter Tabelle, Summen über den
@@ -237,10 +229,10 @@ function JournalInhalt({ fondsId }: { fondsId: string }) {
         <div className="app-journal-buchungen__kopf">
           <h2 ref={listenKopf} id="journal-buchungen" className="cw-t-untertitel" tabIndex={-1}>{j.buchungen}</h2>
           {!zeitraumUngueltig ? <div className="app-aktionen" role="group" aria-label={j.export.beschriftung}>
-            <ButtonLink href={exportUrl(fondsId, filter, "csv", sprache)} download variante="sekundaer" groesse="s">
+            <ButtonLink href={journalExportUrl(fondsId, filter, "csv", sprache)} download variante="sekundaer" groesse="s">
               {j.export.csv}
             </ButtonLink>
-            <ButtonLink href={exportUrl(fondsId, filter, "xlsx", sprache)} download variante="sekundaer" groesse="s">
+            <ButtonLink href={journalExportUrl(fondsId, filter, "xlsx", sprache)} download variante="sekundaer" groesse="s">
               {j.export.xlsx}
             </ButtonLink>
           </div> : null}

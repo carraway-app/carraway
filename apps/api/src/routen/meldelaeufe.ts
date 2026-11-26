@@ -9,11 +9,15 @@ import { verlangeAnderenAkteur } from "../instrumente/bewertung";
 import { aktiveFreigaben, befundeAus, bisherigeBearbeiter, dateiSchluessel, erzeugeDatei, ladeProtokoll, ladeWerte, schnappschussVon, sperreLauf } from "../melde/lauf";
 import { sendeBerichtFreigegeben } from "../mail/benachrichtigung";
 import { geaendertSeitBedingung, geaendertSeitEingabe } from "../geaendert";
-import { pruefe } from "../pruefung";
 import { fondsSichtbar } from "../rechte/sichtbarkeit";
 import { idParam, protokolliereLesen, schreibe, textEingabe } from "../schreiben";
 import { lese, type Tx } from "../zeitlimit";
 import { legeLaufAn } from "../melde/anlegen";
+import { berichtPruefung } from "../berichte-pruefung";
+import { berichtAnApi } from "../berichte-vertrag";
+
+const pruefeApi = berichtPruefung("reporting");
+const anApi = <T>(wert: T) => berichtAnApi("reporting", wert);
 
 /**
  * Förder- und Meldeberichte, Teil 2 (Etappe 15): Meldeläufe. Ein Lauf rechnet beim Anlegen alle Werte zu einem festen Wissensstand und hält sie mit
@@ -42,7 +46,7 @@ const stufeEingabe = z.object({ stufe: textEingabe(100), ergebnis: z.enum(["ok",
 const herkunftAbfrage = z.object({ schluessel: z.string().min(1).max(300) });
 const dateiAbfrage = z.object({ art: z.enum(["meldung", "pruefansicht"]).default("meldung") });
 
-const nichtGefunden = () => new Fachfehler(404, "MELDELAUF_NICHT_GEFUNDEN", "Meldelauf nicht gefunden.");
+const nichtGefunden = () => new Fachfehler(404, "reporting_run_not_found", "Reporting run not found.");
 
 function listenzeile(l: MeldeLauf) {
   const meta = (l.definition as { meta: { bezeichnungDe: string; bezeichnungEn: string; herausgeber: string } }).meta;
@@ -78,7 +82,7 @@ function manuelleFelder(inhalt: ReturnType<typeof schnappschussVon>["inhalt"]): 
   return aus;
 }
 
-const fehlerhaft = (feld: string, code: string, meldung: string) => new Fachfehler(400, "EINGABE_UNGUELTIG", "Die Eingabe ist ungültig.", { felder: [{ feld, code, meldung }] });
+const fehlerhaft = (feld: string, code: string, meldung: string) => new Fachfehler(400, "invalid_input", "The input is invalid.", { felder: [{ feld, code, meldung }] });
 
 export function meldelaufRouten(db: Db, speicher: Speicher = erstelleStandardSpeicher()) {
   return new Hono()
@@ -87,13 +91,13 @@ export function meldelaufRouten(db: Db, speicher: Speicher = erstelleStandardSpe
      * Fonds aktiviert sein. Gibt es für Fonds, Definition und Zeitraum schon einen Lauf, ist der neue die nächste Fassung; Eingaben von Hand der letzten Fassung
      * werden übernommen.
      */
-    .post("/", pruefe("json", neuerLauf), async (c) => {
+    .post("/", pruefeApi("json", neuerLauf), async (c) => {
       const e = c.req.valid("json");
       const neu = await schreibe(db, c, (tx, protokoll) => legeLaufAn(tx, protokoll, e));
       const detail = await lese(db, (tx) => ladeDetail(tx, neu));
-      return c.json(detail, 201);
+      return c.json(anApi(detail), 201);
     })
-    .get("/", pruefe("query", listenAbfrage), async (c) => {
+    .get("/", pruefeApi("query", listenAbfrage), async (c) => {
       const { fondsId, definition, status, geaendertSeit } = c.req.valid("query");
       const daten = await lese(db, async (tx) => {
         const zeilen = await tx
@@ -103,40 +107,40 @@ export function meldelaufRouten(db: Db, speicher: Speicher = erstelleStandardSpe
           .orderBy(desc(meldeLauf.periodeEnde), desc(meldeLauf.erstelltAm), asc(meldeLauf.id));
         return zeilen.map(listenzeile);
       });
-      return c.json({ daten }, 200);
+      return c.json(anApi({ daten }), 200);
     })
-    .get("/:id", pruefe("param", idParam), async (c) => {
+    .get("/:id", pruefeApi("param", idParam), async (c) => {
       const { id } = c.req.valid("param");
       const detail = await lese(db, async (tx) => {
         const [l] = await tx.select().from(meldeLauf).where(eq(meldeLauf.id, id));
         return l ? ladeDetail(tx, l) : null;
       });
-      if (!detail) return fehlerAntwort(c, 404, "MELDELAUF_NICHT_GEFUNDEN", "Meldelauf nicht gefunden.");
-      return c.json(detail, 200);
+      if (!detail) return fehlerAntwort(c, 404, "reporting_run_not_found", "Reporting run not found.");
+      return c.json(anApi(detail), 200);
     })
     /** Befunde der Prüfregeln auf den gespeicherten Werten (Fehler blockieren die Freigabe, Warnungen brauchen einen Kommentar). */
-    .get("/:id/befunde", pruefe("param", idParam), async (c) => {
+    .get("/:id/findings", pruefeApi("param", idParam), async (c) => {
       const { id } = c.req.valid("param");
       const daten = await lese(db, async (tx) => {
         const [l] = await tx.select().from(meldeLauf).where(eq(meldeLauf.id, id));
         if (!l) return null;
         return befundeAus(schnappschussVon(l).inhalt, await ladeWerte(tx, id), l.befundKommentare);
       });
-      if (!daten) return fehlerAntwort(c, 404, "MELDELAUF_NICHT_GEFUNDEN", "Meldelauf nicht gefunden.");
-      return c.json({ daten }, 200);
+      if (!daten) return fehlerAntwort(c, 404, "reporting_run_not_found", "Reporting run not found.");
+      return c.json(anApi({ daten }), 200);
     })
     /**
      * Herkunft eines Wertes: Rechenschritte, angewendete Filter und die Datensätze, aus denen er stammt (Beteiligungen, Vorgänge, Kennzahlenwerte,
      * Fondsbewegungen). Der Schlüssel steht in der Abfrage, weil Zeilenschlüssel von Gruppen beliebigen Text enthalten können.
      */
-    .get("/:id/herkunft", pruefe("param", idParam, { query: herkunftAbfrage }), pruefe("query", herkunftAbfrage), async (c) => {
+    .get("/:id/provenance", pruefeApi("param", idParam, { query: herkunftAbfrage }), pruefeApi("query", herkunftAbfrage), async (c) => {
       const { id } = c.req.valid("param");
       const { schluessel } = c.req.valid("query");
       const daten = await lese(db, async (tx) => {
         const [l] = await tx.select({ id: meldeLauf.id }).from(meldeLauf).where(eq(meldeLauf.id, id));
         if (!l) throw nichtGefunden();
         const [w] = await tx.select().from(meldeWert).where(and(eq(meldeWert.laufId, id), eq(meldeWert.schluessel, schluessel)));
-        if (!w || w.art === "zeile") throw new Fachfehler(404, "MELDEWERT_NICHT_GEFUNDEN", "Wert nicht gefunden.", { schluessel });
+        if (!w || w.art === "zeile") throw new Fachfehler(404, "reporting_value_not_found", "Value not found.", { schluessel });
         type H = { schritte: unknown[]; filter: unknown[]; beteiligungen: string[]; vorgaenge: string[]; kennzahlWerte: string[]; bewegungen: string[]; operanden?: unknown[] };
         const h = (w.herkunft ?? { schritte: [], filter: [], beteiligungen: [], vorgaenge: [], kennzahlWerte: [], bewegungen: [] }) as H;
         const MAX = 500;
@@ -161,58 +165,58 @@ export function meldelaufRouten(db: Db, speicher: Speicher = erstelleStandardSpe
           bewegungen: bw,
         };
       });
-      return c.json(daten, 200);
+      return c.json(anApi(daten), 200);
     })
     /** Eingabe von Hand für ein Feld mit Quelle `manuell`, nur im Entwurf; geprüft gegen das Format des Feldes (Zahlen nur als Dezimalzahl, Ja/Nein nur `ja`/`nein`). `wert: null` leert das Feld. */
-    .put("/:id/eingaben", pruefe("param", idParam), pruefe("json", eingabeKoerper), async (c) => {
+    .put("/:id/inputs", pruefeApi("param", idParam), pruefeApi("json", eingabeKoerper), async (c) => {
       const { id } = c.req.valid("param");
       const e = c.req.valid("json");
       const nachher = await schreibe(db, c, async (tx, protokoll) => {
         const l = await sperreLauf(tx, id);
-        if (l.status !== "entwurf") throw new Fachfehler(409, "MELDELAUF_STATUS_UNGUELTIG", "Eingaben lassen sich nur im Entwurf ändern.", { status: l.status });
+        if (l.status !== "entwurf") throw new Fachfehler(409, "reporting_run_status_invalid", "Inputs can only be changed in draft.", { status: l.status });
         const felder = manuelleFelder(schnappschussVon(l).inhalt);
         const feld = felder.get(e.schluessel);
         if (!feld) {
           const [vorhanden] = await tx.select({ manuell: meldeWert.manuell }).from(meldeWert).where(and(eq(meldeWert.laufId, id), eq(meldeWert.schluessel, e.schluessel)));
-          if (vorhanden) throw new Fachfehler(409, "MELDEFELD_NICHT_MANUELL", "Dieses Feld wird berechnet und lässt sich nicht von Hand ändern.", { schluessel: e.schluessel });
-          throw new Fachfehler(404, "MELDEFELD_NICHT_GEFUNDEN", "Das Feld gibt es in der Definition nicht.", { schluessel: e.schluessel });
+          if (vorhanden) throw new Fachfehler(409, "reporting_field_not_manual", "This field is calculated and cannot be changed manually.", { schluessel: e.schluessel });
+          throw new Fachfehler(404, "reporting_field_not_found", "The field does not exist in the definition.", { schluessel: e.schluessel });
         }
         const wert = e.wert === null ? null : e.wert.trim();
         if (wert !== null) {
           const code = pruefeManuellenWert(feld.format, wert);
-          if (code) throw new Fachfehler(400, "MELDEWERT_UNGUELTIG", "Der Wert passt nicht zum Format des Feldes.", { schluessel: e.schluessel, format: feld.format, grund: code });
+          if (code) throw new Fachfehler(400, "reporting_value_invalid", "The value does not match the format of the field.", { schluessel: e.schluessel, format: feld.format, grund: code });
         }
         const [vorher] = await tx.select().from(meldeWert).where(and(eq(meldeWert.laufId, id), eq(meldeWert.schluessel, e.schluessel)));
-        if (!vorher) throw new Fachfehler(404, "MELDEFELD_NICHT_GEFUNDEN", "Das Feld gibt es im Lauf nicht.", { schluessel: e.schluessel });
+        if (!vorher) throw new Fachfehler(404, "reporting_field_not_found", "The field does not exist in the run.", { schluessel: e.schluessel });
         const herkunft = { schritte: wert === null ? [{ zeichen: "=", bezeichnung: "Kein Wert vorhanden (k. A.)", wert: "" }] : [{ zeichen: "=", bezeichnung: "Eingabe von Hand", wert }], filter: [], beteiligungen: [], vorgaenge: [], kennzahlWerte: [], bewegungen: [] };
         const [neu] = await tx.update(meldeWert).set({ wert, herkunft, geaendertVon: protokoll.akteur, geaendertAm: new Date() }).where(eq(meldeWert.id, vorher.id)).returning();
         await protokoll("eingabe", "melde_wert", vorher.id, { ...vorher, fondsId: l.fondsId }, { ...neu, fondsId: l.fondsId });
         return { schluessel: neu!.schluessel, wert: neu!.wert, geaendertVon: neu!.geaendertVon, geaendertAm: neu!.geaendertAm };
       });
-      return c.json(nachher, 200);
+      return c.json(anApi(nachher), 200);
     })
     /** Kommentar zu einer Warnung (Pflicht für die Freigabe), nur solange der Lauf nicht freigegeben ist. */
-    .put("/:id/befunde/:regelId/kommentar", pruefe("param", kommentarParam), pruefe("json", kommentarKoerper), async (c) => {
+    .put("/:id/findings/:ruleId/comment", pruefeApi("param", kommentarParam), pruefeApi("json", kommentarKoerper), async (c) => {
       const { id, regelId } = c.req.valid("param");
       const { text } = c.req.valid("json");
       const ergebnis = await schreibe(db, c, async (tx, protokoll) => {
         const l = await sperreLauf(tx, id);
-        if (l.status === "freigegeben") throw new Fachfehler(409, "MELDELAUF_STATUS_UNGUELTIG", "Der Lauf ist bereits freigegeben.", { status: l.status });
+        if (l.status === "freigegeben") throw new Fachfehler(409, "reporting_run_status_invalid", "The run is already approved.", { status: l.status });
         const befund = befundeAus(schnappschussVon(l).inhalt, await ladeWerte(tx, id), l.befundKommentare).find((b) => b.regelId === regelId && b.schwere === "warnung");
-        if (!befund) throw new Fachfehler(404, "MELDEBEFUND_NICHT_GEFUNDEN", "Zu dieser Regel gibt es keine offene Warnung.", { regelId });
+        if (!befund) throw new Fachfehler(404, "reporting_finding_not_found", "There is no open warning for this rule.", { regelId });
         const kommentar = { text, von: protokoll.akteur, am: new Date().toISOString() };
         const neu = { ...(l.befundKommentare as Record<string, unknown>), [regelId]: kommentar };
         await tx.update(meldeLauf).set({ befundKommentare: neu }).where(eq(meldeLauf.id, id));
         await protokoll("befund_kommentieren", "melde_lauf", id, { fondsId: l.fondsId, regelId, kommentar: (l.befundKommentare as Record<string, unknown>)[regelId] ?? null }, { fondsId: l.fondsId, regelId, kommentar });
         return { regelId, ...kommentar };
       });
-      return c.json(ergebnis, 200);
+      return c.json(anApi(ergebnis), 200);
     })
     /**
      * Datei des Laufs: `art=meldung` (Format der Definition) oder `pruefansicht` (PDF). Freigegeben: genau die gespeicherten Bytes (SHA-256 geprüft),
      * sonst frisch aus den gespeicherten Werten mit Entwurfskennzeichnung. Jeder Abruf steht im Protokoll (`gelesen`).
      */
-    .get("/:id/datei", pruefe("param", idParam, { query: dateiAbfrage }), pruefe("query", dateiAbfrage), async (c) => {
+    .get("/:id/file", pruefeApi("param", idParam, { query: dateiAbfrage }), pruefeApi("query", dateiAbfrage), async (c) => {
       const { id } = c.req.valid("param");
       const { art } = c.req.valid("query");
       const ergebnis = await lese(db, async (tx) => {
@@ -220,42 +224,42 @@ export function meldelaufRouten(db: Db, speicher: Speicher = erstelleStandardSpe
         if (!l) return null;
         if (l.status === "freigegeben") {
           const [d] = await tx.select().from(meldeDatei).where(and(eq(meldeDatei.laufId, id), eq(meldeDatei.art, art)));
-          if (!d) throw new Fachfehler(404, "MELDELAUF_NICHT_GEFUNDEN", "Die Datei gibt es nicht.");
+          if (!d) throw new Fachfehler(404, "reporting_run_not_found", "The file does not exist.");
           const bytes = await speicher.lese(d.schluessel);
-          if (sha256(bytes) !== d.sha256) throw new Fachfehler(500, "DATEI_BESCHAEDIGT", "Die gespeicherte Datei stimmt nicht mehr mit ihrem Hash überein.");
+          if (sha256(bytes) !== d.sha256) throw new Fachfehler(500, "file_corrupt", "The stored file no longer matches its hash.");
           return { bytes, typ: erzeugteTypen[d.format]!, name: d.name, hash: d.sha256, fondsId: l.fondsId };
         }
         const d = await erzeugeDatei(tx, l, art, true);
         return { bytes: d.bytes, typ: d.typ, name: d.name, hash: null, fondsId: l.fondsId };
       });
-      if (!ergebnis) return fehlerAntwort(c, 404, "MELDELAUF_NICHT_GEFUNDEN", "Meldelauf nicht gefunden.");
+      if (!ergebnis) return fehlerAntwort(c, 404, "reporting_run_not_found", "Reporting run not found.");
       await protokolliereLesen(db, c, "melde_lauf", id, { meldelauf: "datei", art, freigegeben: ergebnis.hash !== null, dateiName: ergebnis.name, sha256: ergebnis.hash, fondsId: ergebnis.fondsId });
       return c.body(Buffer.from(ergebnis.bytes), 200, {
         "Content-Type": ergebnis.typ,
         "Content-Disposition": `attachment; filename="${ergebnis.name}"`,
         "Cache-Control": "no-store",
-        ...(ergebnis.hash ? { "X-Datei-Sha256": ergebnis.hash } : {}),
+        ...(ergebnis.hash ? { "X-File-Sha256": ergebnis.hash } : {}),
       });
     })
     /**
      * Freigabestufe: `ok` (die nächste Stufe, andere Person als Ersteller, Bearbeiter und gültige Freigaben) oder `zurueck` (die zuletzt erteilte Freigabe entfällt,
      * mit Kommentar). Die letzte Stufe prüft die Befunde, erzeugt die Dateien aus den gespeicherten Werten und speichert sie unveränderlich.
      */
-    .post("/:id/stufe", pruefe("param", idParam), pruefe("json", stufeEingabe), async (c) => {
+    .post("/:id/stage", pruefeApi("param", idParam), pruefeApi("json", stufeEingabe), async (c) => {
       const { id } = c.req.valid("param");
       const e = c.req.valid("json");
       const nachher = await schreibe(db, c, async (tx, protokoll) => {
         const vorher = await sperreLauf(tx, id);
-        if (vorher.status === "freigegeben") throw new Fachfehler(409, "MELDELAUF_STATUS_UNGUELTIG", "Der Lauf ist bereits freigegeben.", { status: vorher.status });
+        if (vorher.status === "freigegeben") throw new Fachfehler(409, "reporting_run_status_invalid", "The run is already approved.", { status: vorher.status });
         const stufen = vorher.freigabestufen as string[];
         const log = await ladeProtokoll(tx, id);
         const aktiv = aktiveFreigaben(log);
         const index = aktiv.length;
-        if (e.stufe !== stufen[index]) throw new Fachfehler(409, "MELDELAUF_STUFE_FALSCH", "Das ist nicht die nächste Stufe.", { erwartet: stufen[index] ?? null, stufe: e.stufe });
+        if (e.stufe !== stufen[index]) throw new Fachfehler(409, "reporting_run_stage_wrong", "This is not the next stage.", { erwartet: stufen[index] ?? null, stufe: e.stufe });
         const stand = (neu: Record<string, unknown>) => ({ ...neu, fondsId: vorher.fondsId });
 
         if (e.ergebnis === "zurueck") {
-          if (!e.kommentar?.trim()) throw fehlerhaft("kommentar", "kommentar_erforderlich", "Für die Rückgabe ist ein Kommentar erforderlich");
+          if (!e.kommentar?.trim()) throw fehlerhaft("kommentar", "comment_required", "A comment is required for returning");
           const neueAnzahl = Math.max(0, index - 1);
           await tx.insert(meldeFreigabe).values({ laufId: id, stufeIndex: index, stufe: e.stufe, ergebnis: "zurueck", kommentar: e.kommentar, akteur: protokoll.akteur });
           const [neu] = await tx.update(meldeLauf).set({ naechsteStufe: neueAnzahl, status: neueAnzahl === 0 ? "entwurf" : "geprueft" }).where(eq(meldeLauf.id, id)).returning();
@@ -264,8 +268,8 @@ export function meldelaufRouten(db: Db, speicher: Speicher = erstelleStandardSpe
         }
 
         verlangeAnderenAkteur(vorher.erstelltVon, protokoll.akteur);
-        if ((await bisherigeBearbeiter(tx, id)).has(protokoll.akteur)) throw new Fachfehler(409, "VIER_AUGEN_VERLETZT", "Wer eine Eingabe gemacht oder eine Warnung kommentiert hat, darf den Lauf nicht freigeben.");
-        if (aktiv.includes(protokoll.akteur)) throw new Fachfehler(409, "VIER_AUGEN_VERLETZT", "Jede Stufe verlangt einen anderen Akteur als die bereits erteilten Freigaben.");
+        if ((await bisherigeBearbeiter(tx, id)).has(protokoll.akteur)) throw new Fachfehler(409, "four_eyes_violated", "Anyone who made an input or commented on a warning may not approve the run.");
+        if (aktiv.includes(protokoll.akteur)) throw new Fachfehler(409, "four_eyes_violated", "Each stage requires a different actor than the approvals already given.");
         const letzte = index === stufen.length - 1;
         if (!letzte) {
           await tx.insert(meldeFreigabe).values({ laufId: id, stufeIndex: index, stufe: e.stufe, ergebnis: "ok", kommentar: e.kommentar ?? null, akteur: protokoll.akteur });
@@ -277,9 +281,9 @@ export function meldelaufRouten(db: Db, speicher: Speicher = erstelleStandardSpe
         // Letzte Stufe: keine offenen Fehler, jede Warnung kommentiert; Dateien aus den gespeicherten Werten, unveränderlich speichern
         const befunde = befundeAus(schnappschussVon(vorher).inhalt, await ladeWerte(tx, id), vorher.befundKommentare);
         const fehler = befunde.filter((b) => b.schwere === "fehler");
-        if (fehler.length) throw new Fachfehler(409, "MELDELAUF_FEHLER_OFFEN", "Der Lauf hat offene Fehler und lässt sich nicht freigeben.", { befunde: fehler.map((b) => ({ regelId: b.regelId, code: b.code, refs: b.refs, params: b.params })) });
+        if (fehler.length) throw new Fachfehler(409, "reporting_run_errors_open", "The run has open errors and cannot be approved.", { befunde: fehler.map((b) => ({ regelId: b.regelId, code: b.code, refs: b.refs, params: b.params })) });
         const ohneKommentar = befunde.filter((b) => b.schwere === "warnung" && !b.kommentar);
-        if (ohneKommentar.length) throw new Fachfehler(409, "MELDELAUF_WARNUNG_OHNE_KOMMENTAR", "Jede Warnung braucht vor der Freigabe einen Kommentar.", { befunde: ohneKommentar.map((b) => ({ regelId: b.regelId, code: b.code, refs: b.refs, params: b.params })) });
+        if (ohneKommentar.length) throw new Fachfehler(409, "reporting_run_warning_without_comment", "Each warning needs a comment before approval.", { befunde: ohneKommentar.map((b) => ({ regelId: b.regelId, code: b.code, refs: b.refs, params: b.params })) });
         const arten: ("meldung" | "pruefansicht")[] = vorher.format === "pdf" ? ["meldung"] : ["meldung", "pruefansicht"];
         for (const art of arten) {
           const d = await erzeugeDatei(tx, vorher, art, false);
@@ -298,7 +302,7 @@ export function meldelaufRouten(db: Db, speicher: Speicher = erstelleStandardSpe
         return neu!;
       });
       const detail = await lese(db, (tx) => ladeDetail(tx, nachher));
-      return c.json(detail, 200);
+      return c.json(anApi(detail), 200);
     });
 }
 

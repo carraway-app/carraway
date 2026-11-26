@@ -6,9 +6,9 @@ const ICH_FRISCHE = 30_000;
 /** Die Umgebung ändert sich bis zum Neustart des Servers nicht. */
 const UMGEBUNG_FRISCHE = 5 * 60_000;
 
-const ladeIch = () => auspacken(api.api.v1.ich.$get());
-const ladeUmgebung = () => auspacken(api.api.v1.umgebung.$get());
-const ladeNamen = async (ids: string[]) => (await auspacken(api.api.v1.benutzer.namen.$get({ query: { ids: ids.join(",") } }))).daten;
+const ladeIch = async () => (await import("./abbildung-ich")).ich(await auspacken(api.api.v1.me.$get()));
+const ladeUmgebung = async () => (await import("./abbildung-umgebung")).umgebung(await auspacken(api.api.v1.environment.$get()));
+const ladeNamen = async (ids: string[]) => (await auspacken(api.api.v1.users.names.$get({ query: { ids: ids.join(",") } }))).data;
 
 export type Ich = Awaited<ReturnType<typeof ladeIch>>;
 export type Umgebung = Awaited<ReturnType<typeof ladeUmgebung>>;

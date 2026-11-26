@@ -3,6 +3,7 @@ import { sql } from "drizzle-orm";
 import type { Db } from "@carraway/db";
 import { berechneFondsUebersicht, bewertungsAenderung, juengsterEingang, standardStichtag, type FondsUebersicht } from "./fonds";
 import { schreibe } from "../schreiben";
+import { zielfondsEingang } from "./zielfonds";
 import { lese, type Tx } from "../zeitlimit";
 
 /**
@@ -43,7 +44,8 @@ export async function speicherFenster(tx: Pick<Tx, "execute">, fondsId: string):
   const { rows } = await tx.execute<{ erster: string | null }>(sql`
     SELECT least(
       (SELECT min(valuta) FROM fonds_bewegung WHERE fonds_id = ${fondsId}),
-      (SELECT min(v.valuta) FROM vorgang v JOIN beteiligung b ON b.id = v.beteiligung_id WHERE b.fonds_id = ${fondsId})
+      (SELECT min(v.valuta) FROM vorgang v JOIN beteiligung b ON b.id = v.beteiligung_id WHERE b.fonds_id = ${fondsId}),
+      (SELECT min(w.valuta) FROM zielfonds_bewegung w JOIN zielfonds_beteiligung z ON z.id = w.beteiligung_id WHERE z.fonds_id = ${fondsId})
     )::text AS erster`);
   const erster = rows[0]?.erster ?? null;
   return { von: erster === null ? null : quartalsendeAmOderNach(erster), bis };
@@ -74,7 +76,8 @@ export async function ladeSnapshot(tx: Abfrage, fondsId: string, stichtag: strin
         (SELECT max(z.erfasst_am) FROM lp_zahlung z JOIN fonds_bewegung fb ON fb.id = z.bewegung_id WHERE fb.fonds_id = s.fonds_id),
         (SELECT max(m) FROM (SELECT (SELECT max(erfasst_am) FROM vorgang WHERE beteiligung_id = b.id) AS m FROM beteiligung b WHERE b.fonds_id = s.fonds_id) x),
         (SELECT max(m) FROM (SELECT ${sql.raw(bewertungsAenderung("b.id"))} AS m FROM beteiligung b WHERE b.fonds_id = s.fonds_id) y),
-        (SELECT max(i.erstellt_am) FROM instrument i JOIN beteiligung b ON b.id = i.beteiligung_id WHERE b.fonds_id = s.fonds_id)
+        (SELECT max(i.erstellt_am) FROM instrument i JOIN beteiligung b ON b.id = i.beteiligung_id WHERE b.fonds_id = s.fonds_id),
+        ${zielfondsEingang(sql`s.fonds_id`)}
       ) AS t
     ) e
     WHERE s.fonds_id = ${fondsId} AND s.stichtag = ${stichtag}::date AND s.daten ? 'portfoliowert'

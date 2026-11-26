@@ -49,7 +49,7 @@ Stand und fragt vorher nach (`--ja` überspringt die Frage). Die Migration beim 
 
 Danach prüfen:
 
-1. `curl -s http://127.0.0.1:8787/api/v1/gesundheit` und Verwaltung → Betrieb: Datenbank erreichbar, Migrationen angewendet,
+1. `curl -s http://127.0.0.1:8787/api/v1/health` und Verwaltung → Betrieb: Datenbank erreichbar, Migrationen angewendet,
    Dateiablage beschreibbar, Worker meldet sich (der Herzschlag kommt nach wenigen Sekunden).
 2. Eine Anmeldung mit zweitem Faktor.
 3. Dateien gegen die Datenbank: jede Zeile mit einer Datei muss ihre Datei haben, und der SHA-256 muss passen.
@@ -101,7 +101,7 @@ Migrationen laufen nur **vorwärts**. Der Ablauf:
    Seit der Trennung in Kern und Erweiterungen (`docs/open-core.md`) baut der Stack den Kern. Stacks im Hosting durch Rehlytics mit
    Erweiterungen ziehen das Image „Voll“ aus der privaten Registry (`CARRAWAY_IMAGE`). Vorher in der `.env` umbenennen:
    `CARRAWAY_UMGEBUNG` → `CARRAWAY_UMGEBUNG`, `CARRAWAY_IMAGE` → `CARRAWAY_IMAGE`.
-3. Kontrolle: `docker compose ps`, `curl -s http://127.0.0.1:8787/api/v1/gesundheit`, Verwaltung → Betrieb.
+3. Kontrolle: `docker compose ps`, `curl -s http://127.0.0.1:8787/api/v1/health`, Verwaltung → Betrieb.
 
 **Schutz gegen falsche Stände.** API und Worker prüfen beim Start, ob die Datenbank genau die Migrationen hat, die der Code kennt. Sonst
 beenden sie sich mit einer Fehlerzeile (`api startet nicht: Migrationsstand passt nicht zum Code` bzw. `worker …`) und nennen den Grund:
@@ -156,7 +156,7 @@ lädt hoch und wartet auf den erkannten Text):
 - Ergebnis: Quelle `ocr`, mittlere Sicherheit 95, Text „Rechnung 4711 vom 3. Maerz 2026 Gesamtbetrag 1234 Euro netto Zahlbar
   innerhalb von 14 Tagen“ vollständig erkannt, Treffer in der Dokumentsuche.
 - Speicher des Worker-Containers nach der Erkennung: unter 100 MiB (Obergrenze 3 GiB, siehe `WORKER_SPEICHER`).
-- `/api/v1/gesundheit`: Datenbank erreichbar, Worker meldet sich nach 2 s.
+- `/api/v1/health`: Datenbank erreichbar, Worker meldet sich nach 2 s.
 
 ## Probe mit Docker Compose: geprüfter Lauf
 
@@ -185,7 +185,7 @@ Ergebnis des Laufs (Docker 29, arm64, Postgres 18):
 | Wiederherstellung | 8 s einschließlich Neustart von API und Worker |
 | Zeilenzahl und Prüfsumme je Tabelle, Spalten, Trigger, Migrationen | identisch (114 Tabellen) |
 | SHA-256 aller 31 Dateien | identisch; `ops:dateien-pruefen` meldet je Art „stimmt überein“ (Dokumente 3, die übrigen sechs Arten je 1) |
-| Anwendung nach der Wiederherstellung | `/gesundheit` ok, `/betrieb/status` Gesamtampel „ok“ (50 von 50 Migrationen, Worker-Herzschlag, Ablage beschreibbar), Anmeldung mit zweitem Faktor, Texterkennung eines neuen Scans läuft |
+| Anwendung nach der Wiederherstellung | `/health` ok, `/operations/status` Gesamtampel „ok“ (50 von 50 Migrationen, Worker-Herzschlag, Ablage beschreibbar), Anmeldung mit zweitem Faktor, Texterkennung eines neuen Scans läuft |
 
 Was die Wirklichkeit gezeigt hat: Die Skripte liefen ohne Änderung. Zu ergänzen war, dass `SPEICHER_VERZEICHNIS` für `ops:dateien-pruefen`
 auf Docker Desktop (macOS, Windows) kein Einhängepunkt des Volumes ist; dort die Dateiablage vorher auskopieren:

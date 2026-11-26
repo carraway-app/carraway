@@ -1,3 +1,5 @@
+import { pruefeFonds } from "../fonds-pruefung";
+import { fondsAnApi } from "../fonds-vertrag";
 import { randomUUID } from "node:crypto";
 import { and, asc, eq, inArray, sql, lte } from "drizzle-orm";
 import { Hono } from "hono";
@@ -14,12 +16,11 @@ import { Fachfehler } from "../fehler";
 import { verlangeMail } from "../mail/auftraege";
 import { sendeLpHinweis } from "../mail/benachrichtigung";
 import { verlangeAnderenAkteur } from "../instrumente/bewertung";
-import { pruefe } from "../pruefung";
 import { ladeFonds, protokolliereLesen, schreibe } from "../schreiben";
 import { lese } from "../zeitlimit";
 
 /**
- * Kapitalabrufe und Ausschüttungen eines Fonds und die Mitteilungen an die Investoren (Etappe 12). Mount unter `/fonds`.
+ * Kapitalabrufe und Ausschüttungen eines Fonds und die Mitteilungen an die Investoren (Etappe 12). Mount unter `/funds`.
  * Die Freigabe erzeugt je Investor eine PDF-Mitteilung mit dem auf den Cent verteilten Anteil (dieselbe Verteilung wie im LP-Bericht),
  * speichert sie unveränderlich (SHA-256) und macht sie im Portal sichtbar. Vier-Augen: eine andere Person als die, die die Bewegung
  * erfasst hat (aus dem Änderungsprotokoll, wo bekannt: Datenübernahmen und Demo-Daten tragen `system` oder die Person des Imports).
@@ -43,7 +44,7 @@ const NAME: Record<"abruf" | "ausschuettung", Record<Sprache, string>> = {
 
 export function bewegungRouten(db: Db, speicher: Speicher = erstelleStandardSpeicher()) {
   return new Hono()
-    .get("/:id/bewegungen/kapitalstand", pruefe("param", fondsParam), pruefe("query", z.object({ stichtag: z.iso.date(), stand: z.iso.datetime({ offset: true }).optional() })), async (c) => {
+    .get("/:id/movements/capital-position", pruefeFonds("param", fondsParam), pruefeFonds("query", z.object({ stichtag: z.iso.date(), stand: z.iso.datetime({ offset: true }).optional() })), async (c) => {
       const { id } = c.req.valid("param");
       const { stichtag, stand } = c.req.valid("query");
       const daten = await lese(db, async (tx) => {
@@ -54,9 +55,9 @@ export function bewegungRouten(db: Db, speicher: Speicher = erstelleStandardSpei
           organisationId: z.organisationId, investor: z.investor, ...kapital.jeLp.get(z.organisationId)!,
         })) };
       });
-      return c.json(daten);
+      return c.json(fondsAnApi(daten));
     })
-    .get("/:id/bewegungen/herkunft", pruefe("param", fondsParam), pruefe("query", schnittAbfrage.extend({ bewegungId: z.uuid().optional() })), async (c) => {
+    .get("/:id/movements/sources", pruefeFonds("param", fondsParam), pruefeFonds("query", schnittAbfrage.extend({ bewegungId: z.uuid().optional() })), async (c) => {
       const { id } = c.req.valid("param");
       const { stichtag, stand, bewegungId } = c.req.valid("query");
       const daten = await lese(db, async (tx) => {
@@ -65,23 +66,23 @@ export function bewegungRouten(db: Db, speicher: Speicher = erstelleStandardSpei
         const nachweise = bewegungId ? await ladeAbrufNachweise(tx, id, bewegungId, stichtag, stand) : null;
         return { ...positionen, nachweise, waehrung: fonds.waehrung };
       });
-      return c.json(daten);
+      return c.json(fondsAnApi(daten));
     })
-    .get("/:id/bewegungen/mitteilungen/:mitteilungId/datei", pruefe("param", fondsParam.extend({ mitteilungId: z.uuid() })), pruefe("query", schnittAbfrage), async (c) => {
+    .get("/:id/movements/notices/:noticeId/file", pruefeFonds("param", fondsParam.extend({ mitteilungId: z.uuid() })), pruefeFonds("query", schnittAbfrage), async (c) => {
       const { id, mitteilungId } = c.req.valid("param");
       const { stichtag, stand } = c.req.valid("query");
       const [m] = await lese(db, (tx) => tx.select().from(fondsMitteilung).where(and(
         eq(fondsMitteilung.id, mitteilungId), eq(fondsMitteilung.fondsId, id), lte(fondsMitteilung.valuta, stichtag),
         sql`${fondsMitteilung.freigegebenAm} <= ${stand}::timestamptz`,
       )));
-      if (!m) throw new Fachfehler(404, "MITTEILUNG_NICHT_GEFUNDEN", "Mitteilung nicht gefunden.");
+      if (!m) throw new Fachfehler(404, "notice_not_found", "Notice not found.");
       const bytes = await speicher.lese(m.dateiSchluessel);
-      if (sha256(bytes) !== m.dateiSha256) throw new Fachfehler(500, "DATEI_BESCHAEDIGT", "Die gespeicherte Datei stimmt nicht mit ihrem Hash überein.");
+      if (sha256(bytes) !== m.dateiSha256) throw new Fachfehler(500, "file_corrupt", "The stored file does not match its hash.");
       await protokolliereLesen(db, c, "fonds_mitteilung", mitteilungId, { dateiName: m.dateiName, sha256: m.dateiSha256 });
-      return c.body(Buffer.from(bytes), 200, { "Content-Type": "application/pdf", "Content-Disposition": dispositionKopf("attachment", m.dateiName), "Cache-Control": "no-store", "X-Datei-Sha256": m.dateiSha256 });
+      return c.body(Buffer.from(bytes), 200, { "Content-Type": "application/pdf", "Content-Disposition": dispositionKopf("attachment", m.dateiName), "Cache-Control": "no-store", "X-File-Sha256": m.dateiSha256 });
     })
     /** Kapitalbewegungen des Fonds, neueste zuerst, mit dem Stand der Mitteilungen. */
-    .get("/:id/bewegungen", pruefe("param", fondsParam), async (c) => {
+    .get("/:id/movements", pruefeFonds("param", fondsParam), async (c) => {
       const { id } = c.req.valid("param");
       const daten = await lese(db, async (tx) => {
         await ladeFonds(tx, id);
@@ -104,13 +105,13 @@ export function bewegungRouten(db: Db, speicher: Speicher = erstelleStandardSpei
           }))
           .reverse();
       });
-      return c.json({ daten }, 200);
+      return c.json(fondsAnApi({ daten }), 200);
     })
     /**
      * Gibt die Mitteilungen einer Bewegung frei: je Investor eine PDF (Fonds, Investor, Betragsanteil, Fälligkeit, Verwendungszweck als
-     * Platzhalter, Stand bis dahin), gespeichert und im Portal sichtbar. Einmal je Bewegung (409 `MITTEILUNGEN_VORHANDEN`); nicht für stornierte Bewegungen und Stornos (409 `BEWEGUNG_STORNIERT`).
+     * Platzhalter, Stand bis dahin), gespeichert und im Portal sichtbar. Einmal je Bewegung (409 `notices_exist`); nicht für stornierte Bewegungen und Stornos (409 `movement_reversed`).
      */
-    .post("/:id/bewegungen/:bewegungId/mitteilungen/freigeben", pruefe("param", bewegungParam), pruefe("json", freigabeEingabe), async (c) => {
+    .post("/:id/movements/:movementId/notices/approve", pruefeFonds("param", bewegungParam), pruefeFonds("json", freigabeEingabe), async (c) => {
       const { id, bewegungId } = c.req.valid("param");
       const { sprache, perMail } = c.req.valid("json");
       const ergebnis = await schreibe(db, c, async (tx, protokoll) => {
@@ -118,7 +119,7 @@ export function bewegungRouten(db: Db, speicher: Speicher = erstelleStandardSpei
         if (perMail) verlangeMail(c.get("mail"));
         const [bewegung] = await tx.select().from(fondsBewegung).where(eq(fondsBewegung.id, bewegungId)).for("update");
         // Die Rolle prüft die Tabelle am Fonds des Pfads; die Bewegung muss zu genau diesem Fonds gehören.
-        if (!bewegung || bewegung.fondsId !== id) throw new Fachfehler(404, "BEWEGUNG_NICHT_GEFUNDEN", "Kapitalbewegung nicht gefunden.");
+        if (!bewegung || bewegung.fondsId !== id) throw new Fachfehler(404, "movement_not_found", "Capital movement not found.");
         const [erfasst] = await tx
           .select({ akteur: aenderung.akteur })
           .from(aenderung)
@@ -129,13 +130,13 @@ export function bewegungRouten(db: Db, speicher: Speicher = erstelleStandardSpei
         // Ein Storno und sein Original sind aus allen Konten heraus (Etappe 4b); dafür gibt es keine neue Mitteilung. Bereits freigegebene bleiben bestehen.
         const [stornoZeile] = await tx.select({ id: fondsBewegung.id }).from(fondsBewegung).where(eq(fondsBewegung.storniertBewegungId, bewegungId)).limit(1);
         if (bewegung.storniertBewegungId !== null || stornoZeile) {
-          throw new Fachfehler(409, "BEWEGUNG_STORNIERT", "Zu einer stornierten Kapitalbewegung (oder zu ihrem Storno) gibt es keine Mitteilungen.");
+          throw new Fachfehler(409, "movement_reversed", "There are no notices for a reversed capital movement (or for its reversal).");
         }
         const [vorhanden] = await tx.select({ id: fondsMitteilung.id }).from(fondsMitteilung).where(eq(fondsMitteilung.bewegungId, bewegungId)).limit(1);
-        if (vorhanden) throw new Fachfehler(409, "MITTEILUNGEN_VORHANDEN", "Die Mitteilungen zu dieser Bewegung sind schon freigegeben.");
+        if (vorhanden) throw new Fachfehler(409, "notices_exist", "The notices for this movement are already approved.");
 
         const verteilung = await ladeVerteilung(tx, id, bewegung.valuta, undefined);
-        if (verteilung.zeichnungen.length === 0) throw new Fachfehler(409, "KEINE_ZEICHNUNGEN", "Der Fonds hat keine Zeichnungen; es gibt keine Investoren, die eine Mitteilung bekommen.");
+        if (verteilung.zeichnungen.length === 0) throw new Fachfehler(409, "no_subscriptions", "The fund has no subscriptions; there are no investors to receive a notice.");
         const stelle = verteilung.bewegungen.findIndex((b) => b.id === bewegungId);
         if (stelle < 0) throw new Error("Bewegung fehlt in der Verteilung");
         const bisDahin = verteilung.bewegungen.slice(0, stelle + 1);
@@ -193,6 +194,6 @@ export function bewegungRouten(db: Db, speicher: Speicher = erstelleStandardSpei
           : 0;
         return { ergebnisse, mails };
       });
-      return c.json({ bewegungId, anzahl: ergebnis.ergebnisse.length, mitteilungen: ergebnis.ergebnisse, mailAuftraege: ergebnis.mails }, 201);
+      return c.json(fondsAnApi({ bewegungId, anzahl: ergebnis.ergebnisse.length, mitteilungen: ergebnis.ergebnisse, mailAuftraege: ergebnis.mails }), 201);
     });
 }

@@ -5,10 +5,10 @@ import { authFehler, fehler, FONDS_ID, ichDaten, rendereApp, spieleApi, umgebung
 import { de } from "../i18n/de";
 import { en } from "../i18n/en";
 
-const nichtAngemeldet = fehler(401, "NICHT_ANGEMELDET");
-const ICH = "/api/v1/ich";
+const nichtAngemeldet = fehler(401, "not_authenticated");
+const ICH = "/api/v1/me";
 
-/** `/ich` antwortet erst nach der Anmeldung (die Sitzung ist im Test nur ein Schalter). */
+/** `/me` antwortet erst nach der Anmeldung (die Sitzung ist im Test nur ein Schalter). */
 function mitSitzung(angemeldet = false) {
   const zustand = { angemeldet };
   return { zustand, ich: () => (zustand.angemeldet ? { koerper: ichDaten } : nichtAngemeldet) };
@@ -16,7 +16,8 @@ function mitSitzung(angemeldet = false) {
 
 async function fuelleZugang(nutzer: ReturnType<typeof userEvent.setup>, passwort = "Demo-Passwort-123", email = "vera@beispiel.example") {
   await nutzer.type(await screen.findByLabelText(/E-Mail-Adresse|Email address/), email);
-  await nutzer.type(screen.getByLabelText(/Passwort|Password/), passwort);
+  await nutzer.click(screen.getByRole("button", { name: /^(Weiter|Next)$/ }));
+  await nutzer.type(await screen.findByLabelText(/^(Passwort|Password)$/), passwort);
   await nutzer.click(screen.getByRole("button", { name: /^(Anmelden|Sign in)$/ }));
 }
 
@@ -57,10 +58,15 @@ describe("Anmeldung", () => {
     expect(await screen.findByRole("heading", { name: "Code eingeben" })).toBeTruthy();
     await nutzer.click(screen.getByRole("button", { name: "Wiederherstellungscode verwenden" }));
     expect(screen.getByRole("heading", { name: "Wiederherstellungscode eingeben" })).toBeTruthy();
+    expect(screen.getByLabelText("Wiederherstellungscode")).toBeTruthy();
     await nutzer.click(screen.getByRole("button", { name: "Stattdessen den Code der App verwenden" }));
-    await nutzer.type(screen.getByLabelText("Code"), " 123456 ");
-    await nutzer.click(screen.getByRole("button", { name: "Bestätigen" }));
+    expect(screen.getByRole("group", { name: "Code aus der Authenticator-App" })).toBeTruthy();
+    // Sechs Einzelfelder; der Knopf bleibt zusätzlich, ist aber erst mit vollständigem Code aktiv.
+    expect((screen.getByRole("button", { name: "Bestätigen" }) as HTMLButtonElement).disabled).toBe(true);
+    // Das sechste Feld schickt automatisch ab.
+    await nutzer.keyboard("123456");
     await waitFor(() => expect(router.state.location.pathname).toBe(`/fonds/${FONDS_ID}`));
+    expect(api.anfragen("POST", "/api/v1/auth/two-factor/verify-totp")).toHaveLength(1);
     const verify = api.anfragen("POST", "/api/v1/auth/two-factor/verify-totp")[0]!;
     expect(verify.koerper).toEqual({ code: "123456" });
     expect(JSON.stringify(verify.koerper)).not.toContain("trustDevice");
@@ -76,12 +82,12 @@ describe("Anmeldung", () => {
     localStorage.setItem("carraway.sprache", "en");
     spieleApi({
       [ICH]: nichtAngemeldet,
-      "POST /api/v1/auth/sign-in/email": { status: 429, koerper: { fehler: { code: "ZU_VIELE_VERSUCHE", meldung: "x" } }, kopf: { "Retry-After": "900" } },
+      "POST /api/v1/auth/sign-in/email": { status: 429, koerper: { error: { code: "too_many_attempts", message: "x" } }, kopf: { "Retry-After": "900" } },
     });
     rendereApp("/anmelden");
     await fuelleZugang(userEvent.setup(), "falsch", "a@b.example");
     const text = (await screen.findByRole("alert")).textContent ?? "";
-    expect(text).toContain(en.fehler.ZU_VIELE_VERSUCHE);
+    expect(text).toContain(en.fehler.too_many_attempts);
     expect(text).toContain("15 minutes");
   });
 
@@ -129,7 +135,7 @@ describe("Anmeldung", () => {
 
   it("zeigt das Umgebungsband für demo und test, nicht für echt", async () => {
     for (const [umgebung, text] of [["demo", "Demobestand"], ["test", "Testbestand"], ["echt", null]] as const) {
-      spieleApi({ "/api/v1/umgebung": { koerper: { ...umgebungDaten, umgebung } } });
+      spieleApi({ "/api/v1/environment": { koerper: { ...umgebungDaten, umgebung } } });
       const { unmount } = rendereApp("/dealflow");
       await screen.findByRole("heading", { name: /Dealflow/i });
       if (text) expect(screen.getByText(text)).toBeTruthy();
@@ -139,17 +145,111 @@ describe("Anmeldung", () => {
   });
 
   it("zeigt die pseudonymisierte Kopie im selben Band, auch im Echtbestand und auf der Anmeldeseite", async () => {
-    spieleApi({ "/api/v1/umgebung": { koerper: { ...umgebungDaten, pseudonymisiert: true } } });
+    spieleApi({ "/api/v1/environment": { koerper: { ...umgebungDaten, pseudonymisiert: true } } });
     const { unmount } = rendereApp("/dealflow");
     await screen.findByRole("heading", { name: /Dealflow/i });
     const band = screen.getByText("Pseudonymisierte Kopie").closest(".app-umgebung");
     expect(band?.getAttribute("role")).toBe("status");
     expect(band?.textContent).not.toContain("Demobestand");
     unmount();
-    spieleApi({ "/api/v1/umgebung": { koerper: { ...umgebungDaten, umgebung: "demo", pseudonymisiert: true } }, "/api/v1/ich": { status: 401, koerper: { fehler: { code: "NICHT_ANGEMELDET", meldung: "x" } } } });
+    spieleApi({ "/api/v1/environment": { koerper: { ...umgebungDaten, umgebung: "demo", pseudonymisiert: true } }, "/api/v1/me": { status: 401, koerper: { error: { code: "not_authenticated", message: "x" } } } });
     rendereApp("/anmelden");
     expect(await screen.findByText("Pseudonymisierte Kopie")).toBeTruthy();
     expect(screen.getByText("Demobestand")).toBeTruthy();
+  });
+});
+
+describe("Anmeldung in Schritten", () => {
+  it("Schritt 1: Zeichen, Titel ohne Untertext, nur E-Mail und Weiter, kein Anbieter-Knopf, keine Anfrage an den Server", async () => {
+    const api = spieleApi({ [ICH]: nichtAngemeldet });
+    const { container } = rendereApp("/anmelden");
+    const nutzer = userEvent.setup();
+    await nutzer.type(await screen.findByLabelText("E-Mail-Adresse"), "  jemand@beispiel.example ");
+    const karte = container.querySelector(".app-auth__karte")!;
+    expect(karte.querySelector(".cw-logo")?.getAttribute("aria-label")).toBe("Carraway");
+    expect(screen.getByRole("heading", { name: "Anmelden" })).toBeTruthy();
+    expect(karte.querySelector("p")).toBeNull();
+    expect(screen.queryByLabelText("Passwort")).toBeNull();
+    const vorher = api.anfragen("POST", "/api/v1/auth/sign-in/email").length;
+    await nutzer.keyboard("{Enter}");
+    expect(await screen.findByLabelText("Passwort")).toBeTruthy();
+    // Zwischen Adresse und Passwort geht nichts an den Server, schon gar keine Prüfung des Kontos.
+    expect(api.anfragen("POST", "/api/v1/auth/sign-in/email")).toHaveLength(vorher);
+    expect(api.aufrufe.filter((a) => a.methode === "POST")).toHaveLength(0);
+  });
+
+  it("lehnt eine ungültig geformte Adresse mit einer Feldmeldung ab und bleibt im ersten Schritt", async () => {
+    spieleApi({ [ICH]: nichtAngemeldet });
+    rendereApp("/anmelden");
+    const nutzer = userEvent.setup();
+    await nutzer.type(await screen.findByLabelText("E-Mail-Adresse"), "keine-adresse");
+    await nutzer.click(screen.getByRole("button", { name: "Weiter" }));
+    expect(screen.getByText(de.anmeldung.emailUngueltig)).toBeTruthy();
+    expect(screen.queryByLabelText("Passwort")).toBeNull();
+    await nutzer.type(screen.getByLabelText("E-Mail-Adresse"), "@beispiel.example");
+    expect(screen.queryByText(de.anmeldung.emailUngueltig)).toBeNull();
+  });
+
+  it("Schritt 2: Adresse nur lesbar mit Ändern, Benutzername für Passwortmanager, Zurück behält die Adresse", async () => {
+    spieleApi({ [ICH]: nichtAngemeldet });
+    const { container } = rendereApp("/anmelden");
+    const nutzer = userEvent.setup();
+    await nutzer.type(await screen.findByLabelText("E-Mail-Adresse"), "vera@beispiel.example");
+    await nutzer.click(screen.getByRole("button", { name: "Weiter" }));
+    await screen.findByLabelText("Passwort");
+    expect(screen.getByText("vera@beispiel.example")).toBeTruthy();
+    const benutzername = container.querySelector<HTMLInputElement>("input[autocomplete='username']")!;
+    expect(benutzername.value).toBe("vera@beispiel.example");
+    expect(container.querySelector("input[autocomplete='current-password']")).toBeTruthy();
+    expect(document.activeElement).toBe(screen.getByLabelText("Passwort"));
+    await nutzer.click(screen.getByRole("button", { name: "Ändern" }));
+    expect((await screen.findByLabelText("E-Mail-Adresse") as HTMLInputElement).value).toBe("vera@beispiel.example");
+  });
+
+  it("bekannte und unbekannte Adresse verhalten sich bis zum Passwort gleich und liefern danach dieselbe Meldung", async () => {
+    const meldungen: string[] = [];
+    for (const email of ["bekannt@beispiel.example", "unbekannt@beispiel.example"]) {
+      const api = spieleApi({ [ICH]: nichtAngemeldet, "POST /api/v1/auth/sign-in/email": authFehler(401, "INVALID_EMAIL_OR_PASSWORD") });
+      const { unmount } = rendereApp("/anmelden");
+      const nutzer = userEvent.setup();
+      await nutzer.type(await screen.findByLabelText("E-Mail-Adresse"), email);
+      await nutzer.click(screen.getByRole("button", { name: "Weiter" }));
+      await screen.findByLabelText("Passwort");
+      expect(api.anfragen("POST", "/api/v1/auth/sign-in/email")).toHaveLength(0);
+      await nutzer.type(screen.getByLabelText("Passwort"), "Falsches-Passwort-1");
+      await nutzer.click(screen.getByRole("button", { name: "Anmelden" }));
+      meldungen.push((await screen.findByRole("alert")).textContent ?? "");
+      unmount();
+    }
+    expect(meldungen[0]).toBe(meldungen[1]);
+    expect(meldungen[0]).toContain(de.fehler.INVALID_EMAIL_OR_PASSWORD);
+  });
+
+  it("zeigt „Passwort vergessen?“ im Passwortschritt, nicht im ersten Schritt", async () => {
+    spieleApi({ [ICH]: nichtAngemeldet, "/api/v1/environment": { koerper: { ...umgebungDaten, anmeldung: { ...umgebungDaten.anmeldung, passwortZuruecksetzen: true } } } });
+    rendereApp("/anmelden");
+    const nutzer = userEvent.setup();
+    await nutzer.type(await screen.findByLabelText("E-Mail-Adresse"), "vera@beispiel.example");
+    expect(screen.queryByRole("link", { name: de.anmeldung.passwortVergessen })).toBeNull();
+    await nutzer.click(screen.getByRole("button", { name: "Weiter" }));
+    expect(await screen.findByRole("link", { name: de.anmeldung.passwortVergessen })).toBeTruthy();
+  });
+
+  it("Schritt 3: falscher Code leert die sechs Felder, setzt den Fokus ins erste und zeigt die allgemeine Meldung", async () => {
+    spieleApi({
+      [ICH]: nichtAngemeldet,
+      "POST /api/v1/auth/sign-in/email": { koerper: { twoFactorRedirect: true } },
+      "POST /api/v1/auth/two-factor/verify-totp": authFehler(401, "INVALID_CODE"),
+    });
+    rendereApp("/anmelden");
+    const nutzer = userEvent.setup();
+    await fuelleZugang(nutzer);
+    await screen.findByRole("group", { name: "Code aus der Authenticator-App" });
+    expect(screen.getAllByLabelText(/^Ziffer \d von 6$/)).toHaveLength(6);
+    await nutzer.keyboard("111111");
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    await waitFor(() => expect(screen.getByLabelText("Ziffer 1 von 6")).toBe(document.activeElement));
+    for (const f of screen.getAllByLabelText(/^Ziffer \d von 6$/)) expect((f as HTMLInputElement).value).toBe("");
   });
 });
 
@@ -205,7 +305,7 @@ describe("Sperren nach der Anmeldung", () => {
     // Die Codes liegen nicht im Cache.
     expect(JSON.stringify(queryClient.getQueryCache().getAll().map((q) => q.state.data))).not.toContain("aaaa-1111");
     const aktivieren = screen.getByRole("button", { name: "Aktivieren" });
-    await nutzer.type(screen.getByLabelText("Code aus der App"), "123456");
+    await nutzer.type(screen.getByLabelText("Ziffer 1 von 6"), "123456");
     expect((aktivieren as HTMLButtonElement).disabled).toBe(true);
     await nutzer.click(screen.getByRole("checkbox"));
     await nutzer.click(aktivieren);
@@ -214,13 +314,13 @@ describe("Sperren nach der Anmeldung", () => {
     expect(screen.queryByText("aaaa-1111")).toBeNull();
   });
 
-  it("führt bei 403 ZWEI_FAKTOR_FEHLT mitten in der Arbeit zur Einrichtung", async () => {
+  it("führt bei 403 two_factor_required mitten in der Arbeit zur Einrichtung", async () => {
     const zustand = { gesperrt: false };
     spieleApi({
       [ICH]: () => ({ koerper: { ...ichDaten, zweiFaktorErforderlich: zustand.gesperrt } }),
       "POST /api/v1/crm/objekte/deal/board": () => {
         zustand.gesperrt = true;
-        return fehler(403, "ZWEI_FAKTOR_FEHLT");
+        return fehler(403, "two_factor_required");
       },
     });
     const { router } = rendereApp("/kontakte");
@@ -232,7 +332,7 @@ describe("Sperren nach der Anmeldung", () => {
 
 describe("Einrichtung", () => {
   it("richtet die erste Person ein und führt zur Anmeldung; ist die Installation fertig, kommt die Meldung", async () => {
-    const api = spieleApi({ [ICH]: nichtAngemeldet, "POST /api/v1/einrichtung": { status: 201, koerper: { id: "x" } } });
+    const api = spieleApi({ [ICH]: nichtAngemeldet, "POST /api/v1/setup": { status: 201, koerper: { id: "x" } } });
     const { router, unmount } = rendereApp("/einrichtung");
     const nutzer = userEvent.setup();
     const ausfuellen = async () => {
@@ -244,40 +344,46 @@ describe("Einrichtung", () => {
     };
     await ausfuellen();
     await waitFor(() => expect(router.state.location.pathname).toBe("/anmelden"));
-    expect(api.anfragen("POST", "/api/v1/einrichtung")[0]!.koerper).toEqual({ name: "Erste Person", email: "erste@beispiel.example", passwort: "Ein-ganz-neues-Passwort-1" });
+    expect(api.anfragen("POST", "/api/v1/setup")[0]!.koerper).toEqual({ name: "Erste Person", email: "erste@beispiel.example", password: "Ein-ganz-neues-Passwort-1" }); // gitleaks:allow
     expect(await screen.findByText(de.anmeldung.eingerichtet)).toBeTruthy();
     unmount();
 
-    spieleApi({ [ICH]: nichtAngemeldet, "POST /api/v1/einrichtung": fehler(403, "REGISTRIERUNG_GESCHLOSSEN") });
+    spieleApi({ [ICH]: nichtAngemeldet, "POST /api/v1/setup": fehler(403, "registration_closed") });
     rendereApp("/einrichtung");
     await ausfuellen();
-    expect((await screen.findByRole("alert")).textContent).toContain(de.fehler.REGISTRIERUNG_GESCHLOSSEN);
+    expect((await screen.findByRole("alert")).textContent).toContain(de.fehler.registration_closed);
   });
 });
 
 describe("Passwort zurücksetzen und Einladung", () => {
-  const MIT_MAIL = { "/api/v1/umgebung": { koerper: { ...umgebungDaten, anmeldung: { ...umgebungDaten.anmeldung, passwortZuruecksetzen: true } } } };
+  const MIT_MAIL = { "/api/v1/environment": { koerper: { ...umgebungDaten, anmeldung: { ...umgebungDaten.anmeldung, passwortZuruecksetzen: true } } } };
 
   it("verlinkt „Passwort vergessen?“ nur, wenn der Mailversand eingerichtet ist", async () => {
     spieleApi({ [ICH]: nichtAngemeldet });
     const { unmount } = rendereApp("/anmelden");
-    await screen.findByRole("heading", { name: "Anmelden" });
+    const nutzer0 = userEvent.setup();
+    await nutzer0.type(await screen.findByLabelText("E-Mail-Adresse"), "vera@beispiel.example");
+    await nutzer0.click(screen.getByRole("button", { name: "Weiter" }));
+    await screen.findByLabelText("Passwort");
     expect(screen.queryByRole("link", { name: de.anmeldung.passwortVergessen })).toBeNull();
     unmount();
 
     spieleApi({ [ICH]: nichtAngemeldet, ...MIT_MAIL });
     rendereApp("/anmelden");
+    const nutzer = userEvent.setup();
+    await nutzer.type(await screen.findByLabelText("E-Mail-Adresse"), "vera@beispiel.example");
+    await nutzer.click(screen.getByRole("button", { name: "Weiter" }));
     expect(await screen.findByRole("link", { name: de.anmeldung.passwortVergessen })).toBeTruthy();
   });
 
   it("die Anfrage zeigt immer dieselbe Bestätigung und sendet die Sprache der Oberfläche", async () => {
-    const api = spieleApi({ [ICH]: nichtAngemeldet, ...MIT_MAIL, "POST /api/v1/passwort/vergessen": { koerper: { ok: true } } });
+    const api = spieleApi({ [ICH]: nichtAngemeldet, ...MIT_MAIL, "POST /api/v1/password/forgot": { koerper: { ok: true } } });
     rendereApp("/passwort-vergessen");
     const nutzer = userEvent.setup();
     await nutzer.type(await screen.findByLabelText("E-Mail-Adresse"), " person@beispiel.example ");
     await nutzer.click(screen.getByRole("button", { name: de.anmeldung.vergessen.senden }));
     expect(await screen.findByText(de.anmeldung.vergessen.gesendetText)).toBeTruthy();
-    expect(api.anfragen("POST", "/api/v1/passwort/vergessen")[0]!.koerper).toEqual({ email: "person@beispiel.example", sprache: "de" });
+    expect(api.anfragen("POST", "/api/v1/password/forgot")[0]!.koerper).toEqual({ email: "person@beispiel.example", language: "de" });
   });
 
   it("ohne Mailversand erklärt die Seite, wer das Passwort vergibt, und bietet kein Formular an", async () => {

@@ -57,7 +57,7 @@ describe("Rollen", () => {
 
     const doppelt = await post("/kontaktrollen", { personId: pid, organisationId: ID.orgA, rolle: "gruender", von: "2020-01-01" });
     expect(doppelt.status).toBe(409);
-    expect((await json(doppelt)).fehler.code).toBe("ROLLE_VORHANDEN");
+    expect((await json(doppelt)).error.code).toBe("role_exists");
     const falsch = await post("/kontaktrollen", { personId: pid, organisationId: ID.orgA, rolle: "sonstige", von: "2024-05-01", bis: "2024-01-01" });
     expect(falsch.status).toBe(400);
     expect((await post("/kontaktrollen", { personId: pid, organisationId: ID.orgA, rolle: "unbekannt" })).status).toBe(400);
@@ -106,7 +106,7 @@ describe("Beziehungen", () => {
 
     const doppelt = await post("/organisationsbeziehungen", { vonOrganisationId: ID.orgA, zuOrganisationId: ID.orgB, art: "co_investor" });
     expect(doppelt.status).toBe(409);
-    expect((await json(doppelt)).fehler.code).toBe("BEZIEHUNG_VORHANDEN");
+    expect((await json(doppelt)).error.code).toBe("relationship_exists");
     expect((await post("/organisationsbeziehungen", { vonOrganisationId: ID.orgA, zuOrganisationId: ID.orgA, art: "berater" })).status).toBe(400);
     expect((await post("/organisationsbeziehungen", { vonOrganisationId: ID.orgA, art: "berater" })).status).toBe(400);
     expect((await post("/organisationsbeziehungen", { vonOrganisationId: ID.orgA, zuOrganisationId: ID.orgB, fondsId: F1, art: "berater" })).status).toBe(400);
@@ -145,12 +145,12 @@ describe("Dubletten bei Personen", () => {
     expect((await json(await get("/personen/dubletten?vorname=Zacharias&nachname=Unbekannt"))).daten).toEqual([]);
   });
 
-  it("Anlegen einer ähnlichen Person verlangt Bestätigung (409 DUBLETTE_MOEGLICH mit Kandidaten)", async () => {
+  it("Anlegen einer ähnlichen Person verlangt Bestätigung (409 possible_duplicate mit Kandidaten)", async () => {
     await neuePerson("Eva", "Musterfrau", { email: "eva@beispiel.example" });
     const erst = await post("/personen", { vorname: "Eva", nachname: "Musterfrau" });
     expect(erst.status).toBe(409);
-    const fehler = (await json(erst)).fehler;
-    expect(fehler.code).toBe("DUBLETTE_MOEGLICH");
+    const fehler = (await json(erst)).error;
+    expect(fehler.code).toBe("possible_duplicate");
     expect(fehler.kandidaten).toHaveLength(1);
     expect(await anzahl(db, "person")).toBe(1);
     const gleicheMail = await post("/personen", { vorname: "Anders", nachname: "Heissend", email: "EVA@beispiel.example" });
@@ -264,7 +264,7 @@ describe("Organisationen zusammenführen", () => {
       await post(`/organisationen/${quelle}/zusammenfuehren`, { quelleId: dritte }),
     ]) {
       expect(antw.status).toBe(409);
-      expect((await json(antw)).fehler.code).toBe("BEREITS_ZUSAMMENGEFUEHRT");
+      expect((await json(antw)).error.code).toBe("already_merged");
     }
 
     // Protokoll: Zusammenführung an beiden Datensätzen, jede verschobene Zeile einzeln, entfallene mit altem Stand
@@ -291,7 +291,7 @@ describe("Organisationen zusammenführen", () => {
     await db.insert(s.beteiligung).values({ fondsId: F1, organisationId: mitB, instrument: "darlehen", erstinvestment: "2025-02-01" });
     const abgelehnt = await senden("POST", `/organisationen/${mitA}/zusammenfuehren`, { quelleId: mitB }, bearbeiter);
     expect(abgelehnt.status).toBe(403);
-    expect((await json(abgelehnt)).fehler.code).toBe("KEINE_BERECHTIGUNG");
+    expect((await json(abgelehnt)).error.code).toBe("forbidden");
     expect(await anzahl(db, "beteiligung", `organisation_id = '${mitB}'`)).toBe(1);
     const vorschau = await json(await senden("POST", `/organisationen/${mitA}/zusammenfuehren/vorschau`, { quelleId: mitB }, bearbeiter));
     expect(vorschau).toMatchObject({ freigabeNoetig: true, darfAusfuehren: false });
@@ -306,11 +306,11 @@ describe("Organisationen zusammenführen", () => {
     const mitA = await neueOrg("Schluessel A");
     const mitB = await neueOrg("Schluessel B");
     await db.insert(s.beteiligung).values({ fondsId: F1, organisationId: mitB, instrument: "darlehen", erstinvestment: "2025-02-01" });
-    const schluessel = await json(await post("/api-schluessel", { name: "Importjob", scopes: [{ fondsId: F1, recht: "schreiben" }] }, STANDARD));
-    const antwort = await t.app.request(`/api/v1/organisationen/${mitA}/zusammenfuehren`, {
+    const schluessel = await json(await post("/api-keys", { name: "Importjob", scopes: [{ fundId: F1, permission: "write" }] }, STANDARD));
+    const antwort = await t.app.request(`/api/v1/organizations/${mitA}/merge`, {
       method: "POST",
-      headers: { authorization: `Bearer ${schluessel.schluessel}`, "content-type": "application/json" },
-      body: JSON.stringify({ quelleId: mitB }),
+      headers: { authorization: `Bearer ${schluessel.key}`, "content-type": "application/json" },
+      body: JSON.stringify({ sourceId: mitB }),
     });
     expect(antwort.status).toBe(403);
     expect(await anzahl(db, "organisation", "zusammengefuehrt_in IS NOT NULL")).toBe(0);
@@ -329,8 +329,8 @@ describe("Organisationen zusammenführen", () => {
     await bestuecke(b, "B");
     const antwort = await post(`/organisationen/${a}/zusammenfuehren`, { quelleId: b });
     expect(antwort.status).toBe(409);
-    const fehler = (await json(antwort)).fehler;
-    expect(fehler.code).toBe("BETEILIGUNGEN_UEBERSCHNEIDEN");
+    const fehler = (await json(antwort)).error;
+    expect(fehler.code).toBe("investments_overlap");
     expect(fehler.ueberschneidungen).toEqual([{ fondsId: F1, instrument: "darlehen" }]);
     expect(await anzahl(db, "beteiligung", `organisation_id = '${b}'`)).toBe(1);
     expect(await anzahl(db, "organisation", "zusammengefuehrt_in IS NOT NULL")).toBe(0);
@@ -371,7 +371,7 @@ describe("Organisationen zusammenführen", () => {
     expect(JSON.stringify(await json(abgelehnt))).not.toContain(F2);
     // Betrachter an Fonds 2 mit Freigeber an beiden Fonds, die Überschneidung ist sichtbar: 409 mit Angabe
     const sicht = await json(await senden("POST", `/organisationen/${a}/zusammenfuehren`, { quelleId: b }, beideFonds));
-    expect(sicht.fehler).toMatchObject({ code: "BETEILIGUNGEN_UEBERSCHNEIDEN", ueberschneidungen: [{ fondsId: F2, instrument: "darlehen" }], ueberschneidungVerdeckt: false });
+    expect(sicht.error).toMatchObject({ code: "investments_overlap", ueberschneidungen: [{ fondsId: F2, instrument: "darlehen" }], ueberschneidungVerdeckt: false });
   });
 
   it("verlangt Bearbeiter an den Fonds aller betroffenen Deals und Aktivitäten, auch ohne Beteiligungen; 403 ohne Sicht, nichts ändert sich", async () => {
@@ -420,7 +420,7 @@ describe("Organisationen zusammenführen", () => {
   it("weist ungültige Eingaben ab: mit sich selbst, unbekannt, ohne Quelle", async () => {
     const a = await neueOrg("Nur A");
     expect((await post(`/organisationen/${a}/zusammenfuehren`, { quelleId: a })).status).toBe(400);
-    expect((await json(await post(`/organisationen/${a}/zusammenfuehren`, { quelleId: a }))).fehler.code).toBe("ZUSAMMENFUEHREN_UNGUELTIG");
+    expect((await json(await post(`/organisationen/${a}/zusammenfuehren`, { quelleId: a }))).error.code).toBe("merge_invalid");
     expect((await post(`/organisationen/${a}/zusammenfuehren`, { quelleId: randomUUID() })).status).toBe(404);
     expect((await post(`/organisationen/${randomUUID()}/zusammenfuehren`, { quelleId: a })).status).toBe(404);
     expect((await post(`/organisationen/${a}/zusammenfuehren`, {})).status).toBe(400);
@@ -443,7 +443,7 @@ describe("Personen zusammenführen", () => {
     ]);
 
     const vorschau = await json(await post(`/personen/${ziel}/zusammenfuehren/vorschau`, { quelleId: quelle }));
-    expect(vorschau.verschiebt).toEqual({ aktivitaeten: 2, rollen: 2 });
+    expect(vorschau.verschiebt).toEqual({ aktivitaeten: 2, rollen: 2, mandate: 0 });
     expect(Object.fromEntries(vorschau.felder.map((f: { feld: string; vorschlag: string }) => [f.feld, f.vorschlag]))).toMatchObject({ email: "quelle", funktion: "ziel", nachname: "ziel" });
 
     const antwort = await post(`/personen/${ziel}/zusammenfuehren`, { quelleId: quelle, felder: { nachname: "quelle", organisationId: "quelle" } });
@@ -460,7 +460,7 @@ describe("Personen zusammenführen", () => {
     expect((await json(await get("/personen/dubletten?vorname=Eva&nachname=Muster-Frau"))).daten.map((d: { id: string }) => d.id)).not.toContain(quelle);
     const zweiter = await post(`/personen/${ziel}/zusammenfuehren`, { quelleId: quelle });
     expect(zweiter.status).toBe(409);
-    expect((await json(zweiter)).fehler.code).toBe("BEREITS_ZUSAMMENGEFUEHRT");
+    expect((await json(zweiter)).error.code).toBe("already_merged");
     expect((await protokollZeilen(db, "person")).map((z) => z.aktion)).toEqual(expect.arrayContaining(["zusammenfuehren", "zusammengefuehrt"]));
     expect(await protokollZeilen(db, "aktivitaet", "zusammenfuehren_verschieben")).toHaveLength(2);
     expect(await protokollZeilen(db, "kontaktrolle", "zusammenfuehren_entfallen")).toHaveLength(1);

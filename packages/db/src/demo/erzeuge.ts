@@ -37,10 +37,13 @@ import {
   slug,
 } from "./namen";
 import { erzeugeBuchhaltung, type DemoBuchhaltung } from "./buchhaltung";
+import { erzeugeFondskosten, type DemoFondskosten } from "./fondskosten";
 import { erzeugeCrm, type DemoCrm } from "./crm";
 import type { schema } from "../index";
 import { erzeugeLpZahlungen } from "./lp-zahlungen";
+import { erzeugeMandate, type DemoMandat } from "./mandate";
 import { richteModellAus } from "./modell";
+import { bucheExits, EXIT_ERLOES_BEMERKUNG, type DemoVerkauf } from "./verkauf";
 import { erzeugeVehikel, vehikelFuer, type DemoVehikel } from "./vehikel";
 import { erzeugeRegisterUndSzenarien } from "./register";
 import { demoTexte, type DemoSprache, type DemoTexte } from "./texte";
@@ -82,11 +85,17 @@ export type Demodaten = {
   vorgaenge: MitId<NeuerVorgang>[];
   /** Wandlungen von Wandeldarlehen in Anteile (Quelle und Ziel sind Instrumente derselben Beteiligung), Buchungen wie in der API. */
   wandlungen: MitId<typeof schema.wandlung.$inferInsert>[];
+  /** Ausübungen von Optionsscheinen (Beispiel ohne Ausübung: bleibt leer, damit keine Zahlung die Kennzahlen ändert). */
+  optionsscheinAusuebungen: MitId<typeof schema.optionsscheinAusuebung.$inferInsert>[];
+  /** Anteilsübertragungen zwischen Gesellschaftern (Secondary), Beispiel zwischen Dritten ohne Geldfluss des Fonds. */
+  anteilsuebertragungen: MitId<typeof schema.anteilsuebertragung.$inferInsert>[];
   /** Ausdrückliche Zuordnung von Vorgängen zu Runden (Wandlungsbuchungen auf dem Darlehen gehören zur Zielrunde); alle anderen folgen der Runde ihres Instruments. */
   vorgangRunden: { vorgangId: string; rundeId: string }[];
   /** Vorgänge, die bewusst keiner Runde zugeordnet bleiben (Beispiel für „Keiner Runde zugeordnet“). */
   vorgangOhneRunde: string[];
   bewertungen: MitId<NeueBewertung>[];
+  /** Verkäufe der Exits mit Eigenkapital (wie `POST /beteiligungen/:id/verkauf`): voller Buchwertabgang, Barzufluss als Rückfluss, Bewertung null (`verkauf.ts`). */
+  verkaeufe: DemoVerkauf[];
   darlehenKonditionen: MitId<NeueDarlehenKondition>[];
   jahresueberschuesse: MitId<NeuerJahresueberschuss>[];
   /** Auswahl der Unternehmenskennzahlen je Fonds (Etappe 11). */
@@ -103,7 +112,10 @@ export type Demodaten = {
   registerEreignisse: MitId<typeof schema.registerEreignis.$inferInsert>[];
   reserven: (typeof schema.reserve.$inferInsert)[];
   szenarien: MitId<typeof schema.szenario.$inferInsert>[];
+  /** Gremienmandate der Fonds je Beteiligung (Issue #156, `mandate.ts`). */
+  gremienmandate: DemoMandat[];
 } & DemoBuchhaltung &
+  DemoFondskosten &
   DemoCrm;
 
 export type DemoOptionen = {
@@ -205,9 +217,12 @@ export function erzeugeDemodaten(optionen: DemoOptionen = {}): Demodaten {
     tranchen: [],
     vorgaenge: [],
     wandlungen: [],
+    optionsscheinAusuebungen: [],
+    anteilsuebertragungen: [],
     vorgangRunden: [],
     vorgangOhneRunde: [],
     bewertungen: [],
+    verkaeufe: [],
     darlehenKonditionen: [],
     jahresueberschuesse: [],
     fondsKennzahlen: [],
@@ -222,6 +237,8 @@ export function erzeugeDemodaten(optionen: DemoOptionen = {}): Demodaten {
     buchungsregeln: [],
     saldenlaeufe: [],
     salden: [],
+    fondsKosten: [],
+    fondsKostenAnteile: [],
     esgWerte: [],
     fondsOffenlegungen: [],
     kontaktrollen: [],
@@ -229,6 +246,7 @@ export function erzeugeDemodaten(optionen: DemoOptionen = {}): Demodaten {
     registerEreignisse: [],
     reserven: [],
     szenarien: [],
+    gremienmandate: [],
     feldDefinitionen: [],
     beschaeftigungen: [],
     dealKontakte: [],
@@ -469,7 +487,8 @@ export function erzeugeDemodaten(optionen: DemoOptionen = {}): Demodaten {
       // Ein Darlehen kommt mit Zinsen und Aufschlag zurück, nicht mit dem Vielfachen einer Beteiligung.
       const darlehen = s.instrument === "darlehen" || s.instrument === "wandeldarlehen";
       const rueck = rundeCent(investiertGesamt * (darlehen ? 1.05 + ((faktor - 1.2) / 2.8) * 0.25 : faktor), 10_000);
-      vorgangAnlegen(bId, "rueckfluss", ende, rueck, "Verkaufserlös");
+      // Der Erlös wird nach dem Portfolio-Modell zu Verkauf oder Rückzahlung (`bucheExits`): Tilgung der Einlage bei Darlehen, Rest als Rückfluss.
+      vorgangAnlegen(bId, "rueckfluss", ende, rueck, EXIT_ERLOES_BEMERKUNG);
       rueckfluesse.push({ fondsIndex: s.fondsIndex, valuta: ende, cent: rueck });
     }
     if (zinsSet.has(index)) {
@@ -746,6 +765,9 @@ export function erzeugeDemodaten(optionen: DemoOptionen = {}): Demodaten {
   // Portfolio-Modell: Instrumente je Runde, Brückenrunden, Wandlungen, Tranchen und Zinsen (eigener Zufallsstrom, Versatz 300).
   richteModellAus(d, { seed: optionen.seed ?? 1, mengenStart, tx });
 
+  // Exits wie in der Anwendung (Verkauf, bei Darlehen Rückzahlung): ohne Zufallsziehungen, abgeleitete Ids.
+  bucheExits(d, tx);
+
   erzeugeLpZahlungen(d);
 
   // Kennzahlen der Unternehmen: ebenfalls eigener Zufallsstrom.
@@ -753,12 +775,18 @@ export function erzeugeDemodaten(optionen: DemoOptionen = {}): Demodaten {
 
   // Buchhaltung (Etappe 14): Kontenrahmen, Regeln und je Fonds eine Saldenliste des letzten Quartals, aus den Daten abgeleitet.
   Object.assign(d, erzeugeBuchhaltung(d, optionen.seed ?? 1));
+  // Verwaltungsvergütung und Fondskosten (Issue #157): aus den Verwaltungskosten der Saldenliste, ohne Zufallsziehungen.
+  Object.assign(d, erzeugeFondskosten(d, optionen.sprache));
   // ESG und SFDR (Etappe 16): eigener Zufallsstrom mit Versatz 40 (10, 20 und 30 gehören Anteilsklassen, Kennzahlen und Buchhaltung).
   erzeugeEsg(d, erzeugeRng(((optionen.seed ?? 1) * 2654435761 + 40) >>> 0), tx);
   // Registerdaten, Reserven und Szenarien (Etappe 18): ebenfalls eigener Zufallsstrom.
   erzeugeRegisterUndSzenarien(d, ((optionen.seed ?? 1) * 2654435761 + 180) >>> 0, tx);
   // CRM (Etappe 20): eigene Felder, Beschäftigungen, Listen und Aufgaben; eigener Zufallsstrom mit Versatz 200.
   Object.assign(d, erzeugeCrm(d, optionen.seed ?? 1, optionen.sprache));
+  // Gremienmandate (Issue #156): ohne Zufallsziehungen, abgeleitete Ids; die erfundenen Vertreter der Fonds stehen hinten in den Personen.
+  const gremien = erzeugeMandate(d);
+  d.personen.push(...gremien.personen);
+  d.gremienmandate = gremien.mandate;
 
   return d;
 }

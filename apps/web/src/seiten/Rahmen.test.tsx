@@ -13,8 +13,8 @@ describe("Rahmen: Seitenleiste", () => {
     rendereApp(url);
     const nav = await screen.findByRole("navigation", { name: "Hauptnavigation" });
     for (const gruppe of ["Dealflow & CRM", "Finanzen", "Daten"]) expect(within(nav).getByRole("button", { name: gruppe })).toBeTruthy();
-    expect(within(nav).getAllByRole("link").slice(0, 2).map((link) => link.textContent)).toEqual(["Fonds", "Portfolio"]);
-    for (const eintrag of ["Fonds", "Portfolio", "Dealflow", "Kontakte", "Journal", "Zinsen", "Belege", "Buchhaltung", "Meldungen", "Berichte", "Register", "Datenübernahme"]) {
+    expect(within(nav).getAllByRole("link").slice(0, 3).map((link) => link.textContent)).toEqual(["Fonds", "Dashboard", "Portfolio"]);
+    for (const eintrag of ["Fonds", "Dashboard", "Portfolio", "Dealflow", "Kontakte", "Journal", "Zinsen", "Belege", "Buchhaltung", "Meldungen", "Berichte", "Register", "Datenübernahme"]) {
       const link = within(nav).getByRole("link", { name: eintrag });
       expect(link.querySelector("svg[data-glyph]")).not.toBeNull();
     }
@@ -80,7 +80,7 @@ describe("Rahmen: Seitenleiste", () => {
     const zweiter = { ...fondsDaten.daten[0]!, id: "22222222-2222-4222-8222-222222222222", name: "Beispielfonds II" };
     spieleApi({
       "/api/v1/fonds": { koerper: { daten: [...fondsDaten.daten, zweiter] } },
-      "/api/v1/beschlussvorlagen": { koerper: { daten: [], platzhalter: [] } },
+      "/api/v1/resolution-templates": { koerper: { daten: [], platzhalter: [] } },
     });
     const { router } = rendereApp(`${pfad}?fondsId=${FONDS_ID}`);
     const auswahl = await screen.findByRole<HTMLSelectElement>("combobox", { name: "Fonds" });
@@ -166,7 +166,7 @@ describe("Rahmen: Seitenleiste", () => {
 });
 
 describe("Rahmen: Konto unten links", () => {
-  it("öffnet nach oben ein Menü mit Sprache, Einstellungen, API-Hilfe und Abmelden; Verwaltung nur für globale Verwalter", async () => {
+  it("öffnet nach oben ein Menü mit Sprache, Einstellungen und Abmelden; Verwaltung nur für globale Verwalter, kein Eintrag für Mailversand und API-Hilfe mehr", async () => {
     spieleApi();
     const nutzer = userEvent.setup();
     rendereApp(url);
@@ -180,9 +180,9 @@ describe("Rahmen: Konto unten links", () => {
     expect(within(menue).getByRole("menuitemradio", { name: "English" }).getAttribute("aria-checked")).toBe("false");
     expect(within(menue).getByRole("menuitem", { name: "Einstellungen" }).getAttribute("href")).toBe("/einstellungen/postfach");
     expect(within(menue).getByRole("menuitem", { name: "Verwaltung" }).getAttribute("href")).toBe("/verwaltung");
-    const api = within(menue).getByRole("menuitem", { name: "API-Hilfe" });
-    expect(api.getAttribute("href")).toBe("/api/v1/docs");
-    expect(api.getAttribute("target")).toBe("_blank");
+    expect(within(menue).queryByRole("menuitem", { name: "API-Hilfe" })).toBeNull();
+    expect(within(menue).queryByRole("menuitem", { name: "Mailversand" })).toBeNull();
+    expect(within(menue).getAllByRole("menuitem").map((e) => e.textContent)).toEqual(["Einstellungen", "Verwaltung", "Abmelden"]);
     expect(within(menue).getByRole("menuitem", { name: "Abmelden" })).toBeTruthy();
     expect(menue.textContent).toContain("Version 0.1");
   });
@@ -198,7 +198,7 @@ describe("Rahmen: Konto unten links", () => {
   });
 
   it("führt über das Menü zu den Einstellungen und schließt mit Escape", async () => {
-    spieleApi({ "/api/v1/ich": alsRolle("bearbeiter") });
+    spieleApi({ "/api/v1/me": alsRolle("bearbeiter") });
     const nutzer = userEvent.setup();
     const { router } = rendereApp(url);
     await nutzer.click(await screen.findByRole("button", { name: /Kontomenü/ }));
@@ -233,7 +233,7 @@ describe("Rahmen: Kopfzeile", () => {
 
   it("auf englisch: Pfad und Gruppen übersetzt", async () => {
     localStorage.setItem("carraway.sprache", "en");
-    spieleApi({ "/api/v1/ich": { koerper: { ...ichDaten } } });
+    spieleApi({ "/api/v1/me": { koerper: { ...ichDaten } } });
     rendereApp("/zinslaeufe");
     const pfad = await screen.findByRole("navigation", { name: "Path" });
     expect(within(pfad).getAllByRole("listitem").map((e) => e.textContent)).toEqual(["Finance", "Interest"]);
@@ -254,7 +254,7 @@ describe("Rahmen: Reiterleiste des Fonds", () => {
     // Gliederung: Gruppenköpfe mit ihren Einträgen
     const gruppen = within(leiste).getAllByRole("list").map((liste) => [liste.getAttribute("aria-labelledby") ? document.getElementById(liste.getAttribute("aria-labelledby")!)?.textContent : null, within(liste).getAllByRole("button").map((k) => k.textContent)]);
     expect(gruppen).toEqual([
-      ["Bestand", ["Übersicht", "Kennzahlen", "Zinsen"]],
+      ["Bestand", ["Übersicht", "Kennzahlen", "Zinsen", "Zielfonds"]],
       ["Planung", ["Szenarien", "Reserven"]],
       ["Bewertung", ["Bewertungsrunde"]],
     ]);

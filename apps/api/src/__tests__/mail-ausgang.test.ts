@@ -119,7 +119,7 @@ describe("Ausgangskorb und Versand", () => {
     expect(alles).not.toContain("extern/abfrage");
     expect(alles).not.toMatch(/inhalt|html|betreff/i);
     // Auch die Änderungsabfrage und der Vollexport führen den Korb nicht.
-    expect(await (await get("/aenderungen?limit=1000", verwalter)).text()).not.toContain("mail_auftrag");
+    expect(await (await get("/changes?limit=1000", verwalter)).text()).not.toContain("mail_auftrag");
     // Sprache der Anfrage bestimmt die Sprache der Mail.
     expect((await auftraege())[0]!.sprache).toBe("en");
   });
@@ -128,16 +128,16 @@ describe("Ausgangskorb und Versand", () => {
     for (const personId of [PERSON_OHNE, PERSON_B, "00000000-0000-4000-8000-0000000000ff"]) {
       const { antwort, daten } = await neueAbfrageMitMail({ empfaengerPersonId: personId });
       expect(antwort.status).toBe(400);
-      expect(daten.fehler.code).toBe("MAIL_EMPFAENGER_UNGUELTIG");
+      expect(daten.error.code).toBe("mail_recipient_invalid");
     }
     expect(Number((await db.execute(sql`SELECT count(*)::int AS n FROM kennzahl_abfrage`)).rows[0]!.n)).toBe(0);
     expect(await auftraege()).toHaveLength(0);
   });
 
-  it("ohne eingerichteten Versand: 409 MAIL_NICHT_EINGERICHTET, und die Anfrage wird nicht angelegt", async () => {
+  it("ohne eingerichteten Versand: 409 mail_not_configured, und die Anfrage wird nicht angelegt", async () => {
     const antwort = await senden(ohneMail, "POST")(`/beteiligungen/${ID.eigen}/kennzahlen/abfragen`, { ...Q3, faelligAm: faellig(), schluessel: ["umsatz"], empfaengerPersonId: PERSON_A }, bearbeiter);
     expect(antwort.status).toBe(409);
-    expect((await json(antwort)).fehler.code).toBe("MAIL_NICHT_EINGERICHTET");
+    expect((await json(antwort)).error.code).toBe("mail_not_configured");
     expect(Number((await db.execute(sql`SELECT count(*)::int AS n FROM kennzahl_abfrage`)).rows[0]!.n)).toBe(0);
     // Ohne Mail geht die Anfrage wie bisher, der Link bleibt zum Kopieren.
     const ohne = await senden(ohneMail, "POST")(`/beteiligungen/${ID.eigen}/kennzahlen/abfragen`, { ...Q3, faelligAm: faellig(), schluessel: ["umsatz"] }, bearbeiter);
@@ -295,7 +295,7 @@ describe("Mitteilung im Portal per Mail", () => {
     await db.execute(sql`TRUNCATE TABLE fonds_mitteilung`);
     const antwort = await senden(ohneMail, "POST")(`/fonds/${FONDS}/bewegungen/${BEWEGUNG}/mitteilungen/freigeben`, { sprache: "de", perMail: true }, freigeber);
     expect(antwort.status).toBe(409);
-    expect((await json(antwort)).fehler.code).toBe("MAIL_NICHT_EINGERICHTET");
+    expect((await json(antwort)).error.code).toBe("mail_not_configured");
     expect(Number((await db.execute(sql`SELECT count(*)::int AS n FROM fonds_mitteilung`)).rows[0]!.n)).toBe(0);
   });
 
@@ -336,7 +336,7 @@ describe("Verwaltung und Einstellungen", () => {
     const status = await geheim.request("/mail/status", { als: verwalter });
     expect(status.status).toBe(200);
     const text = await status.text();
-    expect(JSON.parse(text)).toMatchObject({ konfiguriert: true, host: "smtp.example.org", port: 25, tls: "keine", absender: "carraway@example.org", mitAnmeldung: true, schluesselVorhanden: true, ausgangskorb: { wartend: 0, fehlgeschlagen: 0 } });
+    expect(JSON.parse(text)).toMatchObject({ configured: true, host: "smtp.example.org", port: 25, tls: "none", sender: "carraway@example.org", useAuthentication: true, keyConfigured: true, outbox: { pending: 0, failed: 0 } });
     expect(text).not.toContain("robot-passwort");
     expect(text).not.toContain("robot-benutzer");
     expect(await (await ohneMail.request("/mail/status", { als: verwalter })).json()).toMatchObject({ konfiguriert: false });
@@ -366,14 +366,14 @@ describe("Verwaltung und Einstellungen", () => {
   });
 
   it("Einstellungen: Standard, ändern, nur die eigenen; ungültige Sprache und leere Änderung sind Eingabefehler", async () => {
-    expect(await json(await get("/einstellungen", bearbeiter))).toEqual({ sprache: "de", mailBerichtFreigegeben: false, mailRegisterEreignis: false, mailVerfuegbar: true });
-    const geaendert = await put("/einstellungen", { sprache: "en", mailBerichtFreigegeben: true }, bearbeiter);
-    expect(await json(geaendert)).toMatchObject({ sprache: "en", mailBerichtFreigegeben: true });
-    expect(await json(await get("/einstellungen", betrachter))).toMatchObject({ sprache: "de", mailBerichtFreigegeben: false });
-    expect((await put("/einstellungen", { sprache: "fr" }, bearbeiter)).status).toBe(400);
-    expect((await put("/einstellungen", {}, bearbeiter)).status).toBe(400);
-    expect((await put("/einstellungen", { fremd: true }, bearbeiter)).status).toBe(400);
-    expect(await json(await senden(ohneMail, "GET")("/einstellungen", undefined, bearbeiter))).toMatchObject({ mailVerfuegbar: false });
+    expect(await json(await get("/settings", bearbeiter))).toEqual({ language: "de", mailOnReportApproved: false, mailOnRegisterEvent: false, mailAvailable: true });
+    const geaendert = await put("/settings", { language: "en", mailOnReportApproved: true }, bearbeiter);
+    expect(await json(geaendert)).toMatchObject({ language: "en", mailOnReportApproved: true });
+    expect(await json(await get("/settings", betrachter))).toMatchObject({ language: "de", mailOnReportApproved: false });
+    expect((await put("/settings", { language: "fr" }, bearbeiter)).status).toBe(400);
+    expect((await put("/settings", {}, bearbeiter)).status).toBe(400);
+    expect((await put("/settings", { fremd: true }, bearbeiter)).status).toBe(400);
+    expect(await json(await senden(ohneMail, "GET")("/settings", undefined, bearbeiter))).toMatchObject({ mailAvailable: false });
   });
 });
 
@@ -408,11 +408,11 @@ describe("Berichtsfreigabe: interne Hinweise mit Opt-in", () => {
       await db.update(s.benutzer).set({ email: kaputt.email }).where(eq(s.benutzer.id, kaputtId));
     });
     const autor = person("mail-autor", { globalVerwalter: true });
-    const roh = await post("/berichte", { art: "fondsbericht", fondsId }, autor);
+    const roh = await post("/reports", { art: "fondsbericht", fondsId }, autor);
     expect(roh.status).toBe(201);
     const bericht = await json(roh);
     let letzte: Response | undefined;
-    for (const [i, name] of STUFEN.entries()) letzte = await post(`/berichte/${bericht.id}/stufe`, { stufe: name, ergebnis: "ok" }, person(`mail-st${i}`, { globalVerwalter: true }));
+    for (const [i, name] of STUFEN.entries()) letzte = await post(`/reports/${bericht.id}/stage`, { stufe: name, ergebnis: "ok" }, person(`mail-st${i}`, { globalVerwalter: true }));
     expect(letzte!.status).toBe(200);
     const mailer = new FakeMailer();
     await verarbeite(mailer);
@@ -420,9 +420,9 @@ describe("Berichtsfreigabe: interne Hinweise mit Opt-in", () => {
     expect(mailer.gesendet[0]!.betreff).toBe("Report released: Fund report");
     expect(mailer.gesendet[0]!.text).toContain(`${TESTORIGIN}/berichte/${bericht.id}`);
     // Ohne Mailversand bleibt die Freigabe wie sie war (ohne Fehler).
-    const bericht2 = await json(await post("/berichte", { art: "fondsbericht", fondsId }, autor));
+    const bericht2 = await json(await post("/reports", { art: "fondsbericht", fondsId }, autor));
     let letzte2: Response | undefined;
-    for (const [i, name] of STUFEN.entries()) letzte2 = await senden(ohneMail, "POST")(`/berichte/${bericht2.id}/stufe`, { stufe: name, ergebnis: "ok" }, person(`mail-st${i + 3}`, { globalVerwalter: true }));
+    for (const [i, name] of STUFEN.entries()) letzte2 = await senden(ohneMail, "POST")(`/reports/${bericht2.id}/stage`, { stufe: name, ergebnis: "ok" }, person(`mail-st${i + 3}`, { globalVerwalter: true }));
     expect(letzte2!.status).toBe(200);
   });
 });

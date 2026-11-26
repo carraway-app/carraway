@@ -84,6 +84,8 @@ export const AUSWAHL = {
     a("wandeldarlehen", "Wandeldarlehen", "convertible loan"),
     a("venture_debt", "Venture Debt", "venture debt"),
     a("gesellschafterdarlehen", "Gesellschafterdarlehen", "shareholder loan"),
+    a("safe", "SAFE", "SAFE"),
+    a("optionsschein", "Optionsschein", "warrant"),
   ],
   beteiligungStatus: [a("aktiv", "aktiv", "active"), a("exit", "Exit", "exit"), a("insolvent", "insolvent", "insolvent"), a("abgeschrieben", "abgeschrieben", "written off")],
   vorgangArt: [
@@ -160,6 +162,10 @@ export const SPALTEN: Record<Blatt, readonly Spalte[]> = {
     s("instrument", "instrument", "enum", true, "Art des Instruments dieser Zeile. Hat der Fonds am Unternehmen mehrere Instrumente, steht für jedes eine Zeile (eigener Schlüssel, gleicher Fonds und gleiche Organisation); die Beteiligung selbst gibt es nur einmal je Fonds und Unternehmen.", "Type of the instrument in this row. If the fund holds several instruments in the company, enter one row per instrument (own key, same fund and organisation); the holding itself exists once per fund and company.", AUSWAHL.instrument),
     s("bezeichnung", "label", "text", false, "Bezeichnung des Instruments, z. B. „Wandeldarlehen 2024“; Vorgabe ist die Art. Nötig, wenn dieselbe Art mehrfach vorkommt.", "Label of the instrument, e.g. “Convertible loan 2024”; defaults to the type. Needed if the same type occurs more than once."),
     s("erstinvestment", "first_investment", "datum", true, "Datum des Erstinvestments (JJJJ-MM-TT oder TT.MM.JJJJ).", "Date of the first investment (YYYY-MM-DD or DD.MM.YYYY)."),
+    s("optionsschein_anzahl", "warrant_count", "ganzzahl", false, "Nur bei Optionsscheinen (Pflicht): Zahl der Anteile, die sich beziehen lassen, größer als null.", "Warrants only (required): number of shares that can be subscribed, greater than zero."),
+    s("ausuebungspreis", "exercise_price", "preis", false, "Nur bei Optionsscheinen (Pflicht): Ausübungspreis je Anteil, höchstens vier Nachkommastellen.", "Warrants only (required): exercise price per share, at most four decimals."),
+    s("ausgabe_am", "issued_on", "datum", false, "Nur bei Optionsscheinen (Pflicht): Tag der Ausgabe.", "Warrants only (required): date of issue."),
+    s("laufzeit_bis", "term_until", "datum", false, "Nur bei Optionsscheinen: letzter Tag der Ausübung; ohne Angabe unbefristet.", "Warrants only: last day of exercise; unlimited if empty."),
     s("status", "status", "enum", false, "Stand der Beteiligung, Standard aktiv.", "State of the holding, default active.", AUSWAHL.beteiligungStatus),
   ],
   finanzierungsrunden: [

@@ -196,7 +196,7 @@ describe("Beteiligung: Reiter Kennzahlen", () => {
   });
 
   it("Betrachter: lesen ja, Wert erfassen, Bestätigen und Ändern nein", async () => {
-    spieleApi({ ...kennzahlenAntworten, "/api/v1/ich": alsRolle("betrachter") });
+    spieleApi({ ...kennzahlenAntworten, "/api/v1/me": alsRolle("betrachter") });
     rendereApp(`/beteiligungen/${BET_ID}?ansicht=kennzahlen`);
     await screen.findByRole("region", { name: "Offene Kennzahlenwerte" });
     expect(screen.queryByRole("button", { name: "Wert erfassen" })).toBeNull();
@@ -204,7 +204,7 @@ describe("Beteiligung: Reiter Kennzahlen", () => {
   });
 });
 
-const alsRoleAntwort = () => ({ "/api/v1/ich": alsRolle("bearbeiter") });
+const alsRoleAntwort = () => ({ "/api/v1/me": alsRolle("bearbeiter") });
 
 const abfrageZeile = (id: string, extra: Record<string, unknown> = {}) => ({
   id,
@@ -348,7 +348,7 @@ describe("Fonds: Kennzahlen-Abfragen", () => {
   it("Verwalter des Fonds ändert die Auswahl, Bearbeiter sieht sie nur", async () => {
     const api = spieleApi({
       ...kennzahlenAntworten,
-      ...{ "/api/v1/ich": alsRolle("verwalter") },
+      ...{ "/api/v1/me": alsRolle("verwalter") },
       [uebersichtPfad]: { koerper: uebersichtDaten(null) },
       [listePfad]: { koerper: { daten: [] } },
       [`PUT /api/v1/fonds/${FONDS_ID}/kennzahlen/auswahl`]: { koerper: { schluessel: ["umsatz", "ebitda"] } },
@@ -366,7 +366,7 @@ describe("Fonds: Kennzahlen-Abfragen", () => {
   });
 
   it("Bearbeiter sieht die Auswahl nur und kann sie nicht speichern", async () => {
-    spieleApi({ ...kennzahlenAntworten, "/api/v1/ich": alsRolle("bearbeiter"), [uebersichtPfad]: { koerper: uebersichtDaten(null) }, [listePfad]: { koerper: { daten: [] } } });
+    spieleApi({ ...kennzahlenAntworten, "/api/v1/me": alsRolle("bearbeiter"), [uebersichtPfad]: { koerper: uebersichtDaten(null) }, [listePfad]: { koerper: { daten: [] } } });
     rendereApp(`${seite}?tab=auswahl`);
     await screen.findByRole("group", { name: "Kennzahlen auswählen" });
     expect(screen.getByText("Die Auswahl ändern Verwalter des Fonds.")).toBeTruthy();
@@ -415,7 +415,7 @@ describe("Verwaltung: Kennzahlenkatalog", () => {
   it("Fehler der API erscheinen übersetzt im Dialog", async () => {
     spieleApi({
       ...kennzahlenAntworten,
-      "POST /api/v1/kennzahlen/katalog": { status: 409, koerper: { fehler: { code: "KENNZAHL_VORHANDEN", meldung: "x" } } },
+      "POST /api/v1/kennzahlen/katalog": { status: 409, koerper: { error: { code: "metric_exists", message: "x" } } },
     });
     rendereApp("/verwaltung?bereich=kennzahlen");
     const nutzer = userEvent.setup();

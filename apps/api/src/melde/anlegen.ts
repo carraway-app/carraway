@@ -24,7 +24,7 @@ export interface NeuerLaufEingabe {
 /** Wissensstand „jetzt“, eine Millisekunde aufgerundet (Zeitstempel der Datenbank haben Mikrosekunden). */
 const jetzt = () => new Date(Date.now() + 1);
 
-const fehlerhaft = (feld: string, code: string, meldung: string) => new Fachfehler(400, "EINGABE_UNGUELTIG", "Die Eingabe ist ungültig.", { felder: [{ feld, code, meldung }] });
+const fehlerhaft = (feld: string, code: string, meldung: string) => new Fachfehler(400, "invalid_input", "The input is invalid.", { felder: [{ feld, code, meldung }] });
 
 async function versionOderNull(tx: Tx, schluessel: string, version: number) {
   const [d] = await tx.select().from(meldeDefinition).where(and(eq(meldeDefinition.schluessel, schluessel), eq(meldeDefinition.version, version)));
@@ -37,24 +37,24 @@ async function versionOderNull(tx: Tx, schluessel: string, version: number) {
  */
 export async function legeLaufAn(tx: Tx, protokoll: Protokollant, e: NeuerLaufEingabe): Promise<MeldeLauf> {
   const [f] = await tx.select().from(fonds).where(eq(fonds.id, e.fondsId));
-  if (!f) throw new Fachfehler(404, "FONDS_NICHT_GEFUNDEN", "Fonds nicht gefunden.");
+  if (!f) throw new Fachfehler(404, "fund_not_found", "Fund not found.");
   const [aktiv] = await tx.select().from(meldeAktivierung).where(and(eq(meldeAktivierung.fondsId, e.fondsId), eq(meldeAktivierung.schluessel, e.definition)));
-  if (!aktiv) throw new Fachfehler(409, "MELDEDEFINITION_NICHT_AKTIVIERT", "Die Meldedefinition ist für diesen Fonds nicht aktiviert.", { schluessel: e.definition });
+  if (!aktiv) throw new Fachfehler(409, "reporting_definition_not_activated", "The reporting definition is not activated for this fund.", { schluessel: e.definition });
 
   // Rhythmus kennt die Definition; der Zeitraum hängt von ihm ab. Die Version wird zum Ende des Zeitraums bestimmt, deshalb zuerst eine Version des Schlüssels lesen.
   const { rows: rhythmusZeile } = await tx.execute<{ rhythmus: Rhythmus }>(sql`SELECT rhythmus FROM melde_definition WHERE schluessel = ${e.definition} ORDER BY version DESC LIMIT 1`);
   const rhythmus = rhythmusZeile[0]?.rhythmus;
-  if (!rhythmus) throw new Fachfehler(404, "MELDEDEFINITION_NICHT_GEFUNDEN", "Meldedefinition nicht gefunden.", { schluessel: e.definition });
+  if (!rhythmus) throw new Fachfehler(404, "reporting_definition_not_found", "Reporting definition not found.", { schluessel: e.definition });
   const periode = meldeZeitraum(rhythmus, { jahr: e.jahr, nummer: e.nummer, stichtag: e.stichtag });
-  if (!periode) throw new Fachfehler(400, "MELDEZEITRAUM_UNGUELTIG", "Der Zeitraum passt nicht zum Rhythmus der Definition.", { rhythmus });
+  if (!periode) throw new Fachfehler(400, "reporting_period_invalid", "The period does not match the frequency of the definition.", { rhythmus });
 
   const gewaehlt = e.version ? await versionOderNull(tx, e.definition, e.version) : await geltendeVersion(tx, e.definition, periode.ende);
-  if (!gewaehlt) throw new Fachfehler(409, "MELDEDEFINITION_NICHT_GUELTIG", "Für diesen Zeitraum gibt es keine gültige Version der Definition.", { schluessel: e.definition, ende: periode.ende });
-  if (gewaehlt.format === "xml") throw new Fachfehler(409, "MELDEFORMAT_NICHT_UNTERSTUETZT", "Für das Format xml gibt es noch keine Erzeugung.", { format: "xml" });
+  if (!gewaehlt) throw new Fachfehler(409, "reporting_definition_not_valid", "There is no valid version of the definition for this period.", { schluessel: e.definition, ende: periode.ende });
+  if (gewaehlt.format === "xml") throw new Fachfehler(409, "reporting_format_not_supported", "Generation for the xml format is not available yet.", { format: "xml" });
   const inhalt = ladeDefinition(gewaehlt.definition);
 
   const standVorgabe = e.stand ? new Date(e.stand) : null;
-  if (standVorgabe && standVorgabe.getTime() > Date.now()) throw fehlerhaft("stand", "stand_in_zukunft", "Der Wissensstand darf nicht in der Zukunft liegen");
+  if (standVorgabe && standVorgabe.getTime() > Date.now()) throw fehlerhaft("stand", "knowledge_date_in_future", "The knowledge date must not be in the future");
   const stand = standVorgabe ?? jetzt();
 
   const [programm] = aktiv.foerderprogrammId ? await tx.select().from(foerderprogramm).where(eq(foerderprogramm.id, aktiv.foerderprogrammId)) : [];

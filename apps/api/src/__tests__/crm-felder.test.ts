@@ -81,7 +81,7 @@ describe("Feldwerte je Typ", () => {
     ]) {
       const antwort = await patch(`/datensaetze/organisation/${id}`, { eigene });
       expect(antwort.status, JSON.stringify(eigene)).toBe(400);
-      expect((await json(antwort)).fehler.code).toBe("FELDWERT_UNGUELTIG");
+      expect((await json(antwort)).error.code).toBe("field_value_invalid");
     }
   });
 
@@ -115,7 +115,7 @@ describe("Feldwerte je Typ", () => {
     expect((await patch(`/felder/${ids.zahl}`, { name: "Beschäftigte" })).status).toBe(200);
     const zuruecksetzen = await patch(`/felder/${ids.wahl}`, { optionen: { optionen: [{ schluessel: "heiss", label: "Heiß", farbe: "rose" }] } });
     expect(zuruecksetzen.status).toBe(409);
-    expect((await json(zuruecksetzen)).fehler.code).toBe("FELD_OPTION_IN_GEBRAUCH");
+    expect((await json(zuruecksetzen)).error.code).toBe("field_option_in_use");
     const erweitert = await patch(`/felder/${ids.wahl}`, { optionen: { optionen: [{ schluessel: "heiss", label: "Heiß", farbe: "rose" }, { schluessel: "kalt", label: "Kalt", farbe: "blau" }, { schluessel: "warm", label: "Warm", farbe: "sand" }] } });
     expect(erweitert.status).toBe(200);
     expect((await json(erweitert)).version).toBe(2);

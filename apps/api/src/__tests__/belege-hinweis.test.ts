@@ -49,11 +49,11 @@ const anfrage = (app: typeof mitMail, methode: string, pfad: string, als: Testpe
   app.request(pfad, { method: methode, als, headers: { "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
 
 async function belegBisZurLetztenStufe(app: typeof mitMail): Promise<{ id: string; letzte: () => Promise<Response> }> {
-  await post(`/beteiligungen/${ID.darlehen}/vorgaenge`, { art: "zusage", valuta: "2026-01-01", betrag: "200000" });
-  const vorgang = await json(await post(`/beteiligungen/${ID.darlehen}/vorgaenge`, { art: "auszahlung", valuta: "2026-03-31", betrag: "100000" }));
-  const beleg = await json(await anfrage(app, "POST", "/belege", erst, { sprache: "de", art: "auszahlung", bezugArt: "vorgang", bezugId: vorgang.vorgang.id }));
-  expect((await anfrage(app, "POST", `/belege/${beleg.id}/stufe`, pruefer, { stufe: "Prüfung", ergebnis: "ok" })).status).toBe(200);
-  return { id: beleg.id, letzte: () => anfrage(app, "POST", `/belege/${beleg.id}/stufe`, freigeber, { stufe: "Freigabe", ergebnis: "ok" }) };
+  await post(`/investments/${ID.darlehen}/transactions`, { type: "commitment", valueDate: "2026-01-01", amount: "200000" });
+  const vorgang = await json(await post(`/investments/${ID.darlehen}/transactions`, { type: "disbursement", valueDate: "2026-03-31", amount: "100000" }));
+  const beleg = await json(await anfrage(app, "POST", "/vouchers", erst, { language: "de", type: "disbursement", referenceType: "transaction", referenceId: vorgang.transaction.id }));
+  expect((await anfrage(app, "POST", `/vouchers/${beleg.id}/stage`, pruefer, { stage: "review", result: "ok" })).status).toBe(200);
+  return { id: beleg.id, letzte: () => anfrage(app, "POST", `/vouchers/${beleg.id}/stage`, freigeber, { stage: "approval", result: "ok" }) };
 }
 
 beforeEach(async () => {
@@ -85,7 +85,7 @@ describe("Belegfreigabe: interne Hinweise mit Opt-in", () => {
     expect(await versende()).toHaveLength(0);
     const antwort = await letzte();
     expect(antwort.status).toBe(200);
-    expect((await json(antwort)).status).toBe("freigegeben");
+    expect((await json(antwort)).status).toBe("approved");
     const gesendet = await versende();
     expect(gesendet.map((m) => m.an)).toEqual([optIn.email]);
     expect(gesendet[0]!.betreff).toBe("Voucher released: Voucher");
@@ -155,7 +155,7 @@ describe("Belegfreigabe: interne Hinweise mit Opt-in", () => {
     const b = await belegBisZurLetztenStufe(ohneMail);
     const antwort = await b.letzte();
     expect(antwort.status).toBe(200);
-    expect((await json(antwort)).status).toBe("freigegeben");
+    expect((await json(antwort)).status).toBe("approved");
     expect(await db.select().from(s.mailAuftrag)).toHaveLength(0);
   });
 });

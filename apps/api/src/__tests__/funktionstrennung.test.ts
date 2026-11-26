@@ -45,7 +45,7 @@ describe("Zustimmender Beschluss braucht einen Freigeber (Funktionstrennung)", (
     const dealId = await neuerDeal();
     const zu = await beschluss(bearbeiter, dealId, "zugestimmt");
     expect(zu.status).toBe(403);
-    expect((await json(zu)).fehler.code).toBe("KEINE_BERECHTIGUNG");
+    expect((await json(zu)).error.code).toBe("forbidden");
     expect((await beschluss(bearbeiter, dealId, "abgelehnt")).status).toBe(201);
     expect((await beschluss(bearbeiter, dealId, "vertagt")).status).toBe(201);
     expect(Number((await db.execute(sql`SELECT count(*)::int AS n FROM beschluss WHERE ergebnis = 'zugestimmt'`)).rows[0]!.n)).toBe(0);
@@ -62,67 +62,67 @@ describe("Zustimmender Beschluss braucht einen Freigeber (Funktionstrennung)", (
     expect(zeile!.erfasstVon).toBe(await idVon(db, freigeber));
   });
 
-  it("API-Schlüssel mit Schreibrecht dürfen nicht zustimmen (TECHNISCHER_BENUTZER), aber ablehnen", async () => {
-    const schluessel = await json(await anfrage("POST", "/api-schluessel", STANDARD, { name: "Importjob", scopes: [{ fondsId: F1, recht: "schreiben" }] }));
+  it("API-Schlüssel mit Schreibrecht dürfen nicht zustimmen (technical_user), aber ablehnen", async () => {
+    const schluessel = await json(await anfrage("POST", "/api-keys", STANDARD, { name: "Importjob", scopes: [{ fundId: F1, permission: "write" }] }));
     const dealId = await neuerDeal();
     const mit = (ergebnis: string) =>
-      t.app.request(`/api/v1/deals/${dealId}/beschluesse`, {
+      t.app.request(`/api/v1/deals/${dealId}/resolutions`, {
         method: "POST",
-        headers: { authorization: `Bearer ${schluessel.schluessel}`, "content-type": "application/json" },
-        body: JSON.stringify({ gremium: "IA", datum: "2026-03-01", ergebnis }),
+        headers: { authorization: `Bearer ${schluessel.key}`, "content-type": "application/json" },
+        body: JSON.stringify({ committee: "IA", date: "2026-03-01", outcome: ergebnis === "zugestimmt" ? "approved" : "rejected" }),
       });
     const zu = await mit("zugestimmt");
     expect(zu.status).toBe(403);
-    expect((await json(zu)).fehler.code).toBe("TECHNISCHER_BENUTZER");
+    expect((await json(zu)).error.code).toBe("technical_user");
     expect((await mit("abgelehnt")).status).toBe(201);
     expect((await db.select().from(s.beschluss))[0]!.erfasstVon).toBeNull();
   });
 
-  it("Vier-Augen: Wer zugestimmt hat, überführt den Deal nicht selbst ins Portfolio (409 VIER_AUGEN_VERLETZT); eine andere Person kann es", async () => {
+  it("Vier-Augen: Wer zugestimmt hat, überführt den Deal nicht selbst ins Portfolio (409 four_eyes_violated); eine andere Person kann es", async () => {
     const a = p("freigeber-a", { rollen: { [F1]: "freigeber" } });
     const b = p("freigeber-b", { rollen: { [F1]: "freigeber" } });
     const dealId = await neuerDeal();
     expect((await beschluss(a, dealId, "zugestimmt")).status).toBe(201);
     const selbst = await uebergang(a, dealId);
     expect(selbst.status).toBe(409);
-    expect((await json(selbst)).fehler.code).toBe("VIER_AUGEN_VERLETZT");
+    expect((await json(selbst)).error.code).toBe("four_eyes_violated");
     expect(Number((await db.execute(sql`SELECT count(*)::int AS n FROM beteiligung WHERE deal_id = ${dealId}`)).rows[0]!.n)).toBe(0);
     expect((await uebergang(b, dealId)).status).toBe(201);
   });
 
-  it("Der Bearbeiter kann ohne Freigeber nichts ins Portfolio bringen: ohne zustimmenden Beschluss 409 BESCHLUSS_FEHLT", async () => {
+  it("Der Bearbeiter kann ohne Freigeber nichts ins Portfolio bringen: ohne zustimmenden Beschluss 409 resolution_missing", async () => {
     const bearbeiter = p("bearbeiter", { rollen: { [F1]: "verwalter" } });
     const dealId = await neuerDeal();
-    expect((await json(await uebergang(bearbeiter, dealId))).fehler.code).toBe("BESCHLUSS_FEHLT");
+    expect((await json(await uebergang(bearbeiter, dealId))).error.code).toBe("resolution_missing");
   });
 });
 
 describe("Die Zustimmung gilt für den Fonds, in den überführt wird", () => {
-  const codeVon = async (antwort: Response) => (await json(antwort)).fehler.code;
+  const codeVon = async (antwort: Response) => (await json(antwort)).error.code;
   const zustimmen = (als: Testperson, dealId: string, fondsId?: string, datum = "2026-03-01") =>
     anfrage("POST", `/deals/${dealId}/beschluesse`, als, { gremium: "Investitionsausschuss", datum, ergebnis: "zugestimmt", ...(fondsId ? { fondsId } : {}) });
   const nach = (als: Testperson, dealId: string, fondsId: string) =>
     anfrage("POST", `/deals/${dealId}/beteiligung`, als, { fondsId, instrument: "offene_beteiligung", erstinvestment: "2026-03-15" });
   const anzahlBeteiligungen = async (dealId: string) => Number((await db.execute(sql`SELECT count(*)::int AS n FROM beteiligung WHERE deal_id = ${dealId}`)).rows[0]!.n);
 
-  it("Angriff: Freigeber von Fonds A stimmt bei einem Deal ohne Fonds zu, die Überführung in Fonds B scheitert (409 BESCHLUSS_FONDS_ABWEICHEND)", async () => {
+  it("Angriff: Freigeber von Fonds A stimmt bei einem Deal ohne Fonds zu, die Überführung in Fonds B scheitert (409 resolution_fund_mismatch)", async () => {
     const a = p("freigeber-a", { rollen: { [F1]: "freigeber" } });
     const b = p("verwalter-b", { rollen: { [F1]: "bearbeiter", [F2]: "verwalter" } });
     const dealId = await neuerDeal(null);
     expect((await zustimmen(a, dealId, F1)).status).toBe(201);
     const falsch = await nach(b, dealId, F2);
     expect(falsch.status).toBe(409);
-    expect(await codeVon(falsch)).toBe("BESCHLUSS_FONDS_ABWEICHEND");
+    expect(await codeVon(falsch)).toBe("resolution_fund_mismatch");
     expect(await anzahlBeteiligungen(dealId)).toBe(0);
     expect((await nach(b, dealId, F1)).status).toBe(201); // der Fonds, für den zugestimmt wurde
   });
 
-  it("Deal ohne Fonds: fondsId ist Pflicht (400 FONDS_ERFORDERLICH); Freigeber braucht es genau an diesem Fonds (403)", async () => {
+  it("Deal ohne Fonds: fondsId ist Pflicht (400 fund_required); Freigeber braucht es genau an diesem Fonds (403)", async () => {
     const a = p("freigeber-a", { rollen: { [F1]: "freigeber" } });
     const dealId = await neuerDeal(null);
     const ohne = await zustimmen(a, dealId);
     expect(ohne.status).toBe(400);
-    expect(await codeVon(ohne)).toBe("FONDS_ERFORDERLICH");
+    expect(await codeVon(ohne)).toBe("fund_required");
     expect((await zustimmen(a, dealId, F2)).status).toBe(403);
     expect(Number((await db.execute(sql`SELECT count(*)::int AS n FROM beschluss`)).rows[0]!.n)).toBe(0);
     const ok = await zustimmen(a, dealId, F1);
@@ -135,15 +135,15 @@ describe("Die Zustimmung gilt für den Fonds, in den überführt wird", () => {
     const dealId = await neuerDeal(F1);
     const abweichend = await zustimmen(a, dealId, F2);
     expect(abweichend.status).toBe(409);
-    expect(await codeVon(abweichend)).toBe("BESCHLUSS_FONDS_ABWEICHEND");
+    expect(await codeVon(abweichend)).toBe("resolution_fund_mismatch");
     expect((await json(await zustimmen(a, dealId))).fondsId).toBe(F1);
     expect((await zustimmen(a, dealId, F1, "2026-03-02")).status).toBe(201);
     const ablehnung = await anfrage("POST", `/deals/${dealId}/beschluesse`, a, { gremium: "IA", datum: "2026-03-03", ergebnis: "abgelehnt", fondsId: F1 });
     expect(ablehnung.status).toBe(400);
-    expect(await codeVon(ablehnung)).toBe("FONDS_NUR_BEI_ZUSTIMMUNG");
+    expect(await codeVon(ablehnung)).toBe("fund_only_with_approval");
   });
 
-  it("der Deal wechselt nach der Zustimmung den Fonds nicht (409 DEAL_FONDS_GESPERRT); gleicher Fonds und andere Felder gehen, nach einer Ablehnung wieder", async () => {
+  it("der Deal wechselt nach der Zustimmung den Fonds nicht (409 deal_fund_locked); gleicher Fonds und andere Felder gehen, nach einer Ablehnung wieder", async () => {
     const a = p("freigeber-a", { rollen: { [F1]: "freigeber" } });
     const dealId = await neuerDeal(F1);
     expect((await anfrage("PATCH", `/deals/${dealId}`, STANDARD, { fondsId: F2 })).status).toBe(200); // noch ohne Beschluss
@@ -152,7 +152,7 @@ describe("Die Zustimmung gilt für den Fonds, in den überführt wird", () => {
     for (const koerper of [{ fondsId: F2 }, { fondsId: null }]) {
       const antwort = await anfrage("PATCH", `/deals/${dealId}`, STANDARD, koerper);
       expect(antwort.status).toBe(409);
-      expect(await codeVon(antwort)).toBe("DEAL_FONDS_GESPERRT");
+      expect(await codeVon(antwort)).toBe("deal_fund_locked");
     }
     expect((await anfrage("PATCH", `/deals/${dealId}`, STANDARD, { fondsId: F1, titel: "Neu betitelt" })).status).toBe(200);
     expect((await anfrage("PATCH", `/deals/${dealId}`, STANDARD, { quelle: "Messe" })).status).toBe(200);
@@ -168,10 +168,10 @@ describe("Die Zustimmung gilt für den Fonds, in den überführt wird", () => {
     expect((await zustimmen(a, dealId)).status).toBe(201);
     const idA = await idVon(db, a);
     await db.execute(sql`UPDATE fondsrolle SET rolle = 'bearbeiter' WHERE benutzer_id = ${idA}`);
-    expect(await codeVon(await nach(b, dealId, F1))).toBe("BESCHLUSS_FONDS_ABWEICHEND");
+    expect(await codeVon(await nach(b, dealId, F1))).toBe("resolution_fund_mismatch");
     await db.execute(sql`UPDATE fondsrolle SET rolle = 'freigeber' WHERE benutzer_id = ${idA}`);
     await db.execute(sql`UPDATE benutzer SET aktiv = false WHERE id = ${idA}`);
-    expect(await codeVon(await nach(b, dealId, F1))).toBe("BESCHLUSS_FONDS_ABWEICHEND");
+    expect(await codeVon(await nach(b, dealId, F1))).toBe("resolution_fund_mismatch");
     await db.execute(sql`UPDATE benutzer SET aktiv = true WHERE id = ${idA}`);
     expect(await anzahlBeteiligungen(dealId)).toBe(0);
     expect((await nach(b, dealId, F1)).status).toBe(201);
@@ -181,7 +181,7 @@ describe("Die Zustimmung gilt für den Fonds, in den überführt wird", () => {
     const b = p("freigeber-b", { rollen: { [F1]: "freigeber" } });
     const dealId = await neuerDeal(F1);
     await db.insert(s.beschluss).values({ dealId, gremium: "IA", datum: "2026-03-01", ergebnis: "zugestimmt" });
-    expect(await codeVon(await nach(b, dealId, F1))).toBe("BESCHLUSS_FONDS_ABWEICHEND");
+    expect(await codeVon(await nach(b, dealId, F1))).toBe("resolution_fund_mismatch");
   });
 });
 
@@ -206,13 +206,13 @@ describe("Gerät merken ist abgeschaltet", () => {
 });
 
 describe("Letzter globaler Verwalter", () => {
-  it("der einzige aktive Verwalter kann weder gesperrt noch entmachtet werden (409 LETZTER_VERWALTER)", async () => {
-    await anfrage("GET", "/ich", STANDARD); // legt STANDARD an
+  it("der einzige aktive Verwalter kann weder gesperrt noch entmachtet werden (409 last_admin)", async () => {
+    await anfrage("GET", "/me", STANDARD); // legt STANDARD an
     const id = await idVon(db, STANDARD);
-    for (const koerper of [{ aktiv: false }, { globalVerwalter: false }]) {
-      const antwort = await anfrage("PATCH", `/benutzer/${id}`, STANDARD, koerper);
+    for (const koerper of [{ active: false }, { globalAdmin: false }]) {
+      const antwort = await anfrage("PATCH", `/users/${id}`, STANDARD, koerper);
       expect(antwort.status).toBe(409);
-      expect((await json(antwort)).fehler.code).toBe("LETZTER_VERWALTER");
+      expect((await json(antwort)).error.code).toBe("last_admin");
     }
     expect((await db.select().from(s.benutzer).where(sql`${s.benutzer.id} = ${id}`))[0]).toMatchObject({ aktiv: true, globalVerwalter: true });
   });
@@ -221,11 +221,11 @@ describe("Letzter globaler Verwalter", () => {
     const a = p("verwalter-a", { globalVerwalter: true });
     const b = p("verwalter-b", { globalVerwalter: true });
     // Die Anmeldungen laufen vorab, damit beide Anfragen gleichzeitig am Handler ankommen.
-    await anfrage("GET", "/ich", a);
-    await anfrage("GET", "/ich", b);
+    await anfrage("GET", "/me", a);
+    await anfrage("GET", "/me", b);
     await db.execute(sql`UPDATE benutzer SET global_verwalter = false WHERE global_verwalter AND email NOT LIKE '%@fts.example'`); // STANDARD aus der Anmeldung oben
     const [idA, idB] = [await idVon(db, a), await idVon(db, b)];
-    const [r1, r2] = await Promise.all([anfrage("PATCH", `/benutzer/${idB}`, a, { globalVerwalter: false }), anfrage("PATCH", `/benutzer/${idA}`, b, { globalVerwalter: false })]);
+    const [r1, r2] = await Promise.all([anfrage("PATCH", `/users/${idB}`, a, { globalAdmin: false }), anfrage("PATCH", `/users/${idA}`, b, { globalAdmin: false })]);
     const status = [r1.status, r2.status].sort();
     expect(status[0]).toBe(200);
     expect([403, 409]).toContain(status[1]);
@@ -235,9 +235,9 @@ describe("Letzter globaler Verwalter", () => {
   it("mit einem zweiten Verwalter darf einer entmachtet werden; technische Benutzer zählen nicht als Verwalter", async () => {
     const a = p("verwalter-a", { globalVerwalter: true });
     const b = p("verwalter-b", { globalVerwalter: true });
-    await anfrage("GET", "/ich", b);
+    await anfrage("GET", "/me", b);
     const idB = await idVon(db, b);
-    expect((await anfrage("PATCH", `/benutzer/${idB}`, a, { aktiv: false })).status).toBe(200);
+    expect((await anfrage("PATCH", `/users/${idB}`, a, { active: false })).status).toBe(200);
   });
 });
 
@@ -251,18 +251,18 @@ describe("Startpasswort", () => {
     t.app.request(`/api/v1${pfad}`, { method: methode, headers: jsonKopf(cookie), ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
 
   it("von Verwaltern angelegte Benutzer sehen nur /ich und die Anmeldung, bis sie das Passwort ändern", async () => {
-    const angelegt = await anfrage("POST", "/benutzer", STANDARD, { name: "Neu Person", email: "neu@fts.example", passwort: "Startpasswort-123" });
+    const angelegt = await anfrage("POST", "/users", STANDARD, { name: "Neu Person", email: "neu@fts.example", password: "Startpasswort-123" });
     expect(angelegt.status).toBe(201);
     const [roh] = await db.select().from(s.benutzer).where(sql`${s.benutzer.email} = 'neu@fts.example'`);
     expect(roh!.passwortAendern).toBe(true);
     await db.insert(s.fondsrolle).values({ benutzerId: roh!.id, fondsId: F1, rolle: "betrachter" });
 
     const cookie = await anmelden("neu@fts.example", "Startpasswort-123");
-    expect(await json(await mitCookie(cookie, "GET", "/ich"))).toMatchObject({ passwortAendern: true });
-    for (const [methode, pfad] of [["GET", "/fonds"], ["GET", "/benutzer/namen?ids=" + roh!.id], ["GET", "/deals"], ["POST", "/deals"]] as const) {
+    expect(await json(await mitCookie(cookie, "GET", "/me"))).toMatchObject({ passwordChangeRequired: true });
+    for (const [methode, pfad] of [["GET", "/funds"], ["GET", "/users/names?ids=" + roh!.id], ["GET", "/deals"], ["POST", "/deals"]] as const) {
       const antwort = await mitCookie(cookie, methode, pfad, methode === "POST" ? {} : undefined);
       expect(antwort.status, pfad).toBe(403);
-      expect((await json(antwort)).fehler.code).toBe("PASSWORT_AENDERN");
+      expect((await json(antwort)).error.code).toBe("password_change_required");
     }
     // Die Einrichtung des zweiten Faktors läuft über /auth/* und bleibt offen.
     expect((await mitCookie(cookie, "POST", "/auth/two-factor/enable", { password: "Startpasswort-123" })).status).toBe(200);
@@ -270,26 +270,26 @@ describe("Startpasswort", () => {
     // Dasselbe Passwort ist keine Änderung.
     const gleich = await mitCookie(cookie, "POST", "/auth/change-password", { currentPassword: "Startpasswort-123", newPassword: "Startpasswort-123" });
     expect(gleich.status).toBe(400);
-    expect((await json(gleich)).code).toBe("PASSWORT_UNVERAENDERT");
-    expect((await json(await mitCookie(cookie, "GET", "/ich"))).passwortAendern).toBe(true);
+    expect((await json(gleich)).code).toBe("password_unchanged");
+    expect((await json(await mitCookie(cookie, "GET", "/me"))).passwordChangeRequired).toBe(true);
 
     const geaendert = await mitCookie(cookie, "POST", "/auth/change-password", { currentPassword: "Startpasswort-123", newPassword: "Neues-Passwort-456" }); // gitleaks:allow
     expect(geaendert.status).toBe(200);
-    expect(await json(await mitCookie(cookie, "GET", "/ich"))).toMatchObject({ passwortAendern: false });
+    expect(await json(await mitCookie(cookie, "GET", "/me"))).toMatchObject({ passwordChangeRequired: false });
     // Jetzt gilt wieder die übliche Prüfung (hier: zweiter Faktor fehlt noch).
-    expect((await json(await mitCookie(cookie, "GET", "/fonds"))).fehler.code).toBe("ZWEI_FAKTOR_FEHLT");
+    expect((await json(await mitCookie(cookie, "GET", "/funds"))).error.code).toBe("two_factor_required");
   });
 
   it("die Liste der Benutzer zeigt das Kennzeichen; Personen aus der Einrichtung und Test-Personen haben es nicht", async () => {
-    await anfrage("POST", "/benutzer", STANDARD, { name: "Neu Person", email: "neu@fts.example", passwort: "Startpasswort-123" });
-    const liste = (await json(await anfrage("GET", "/benutzer", STANDARD))).daten as { email: string; passwortAendern: boolean }[];
-    expect(liste.find((x) => x.email === "neu@fts.example")?.passwortAendern).toBe(true);
-    expect(liste.find((x) => x.email === STANDARD.email)?.passwortAendern).toBe(false);
+    await anfrage("POST", "/users", STANDARD, { name: "Neu Person", email: "neu@fts.example", password: "Startpasswort-123" });
+    const liste = (await json(await anfrage("GET", "/users", STANDARD))).data as { email: string; passwordChangeRequired: boolean }[];
+    expect(liste.find((x) => x.email === "neu@fts.example")?.passwordChangeRequired).toBe(true);
+    expect(liste.find((x) => x.email === STANDARD.email)?.passwordChangeRequired).toBe(false);
   });
 
   it("meldeAn: Test-Personen mit passwortAendern = false arbeiten ungehindert", async () => {
     const cookie = await meldeAn(t.app, (await legePersonAn(db, p("normal", { rollen: { [F1]: "betrachter" } })), p("normal", { rollen: { [F1]: "betrachter" } })));
-    expect((await mitCookie(cookie, "GET", "/fonds")).status).toBe(200);
+    expect((await mitCookie(cookie, "GET", "/funds")).status).toBe(200);
   });
 });
 
@@ -299,49 +299,49 @@ describe("Anzeigenamen", () => {
     const p2 = p("kollege", { rollen: { [F1]: "bearbeiter" } });
     const p3 = p("anderer-fonds", { rollen: { [F2]: "bearbeiter" } });
     const g = p("admin", { globalVerwalter: true });
-    for (const x of [v1, p2, p3, g]) await anfrage("GET", "/ich", x === g ? g : STANDARD);
+    for (const x of [v1, p2, p3, g]) await anfrage("GET", "/me", x === g ? g : STANDARD);
     for (const x of [v1, p2, p3]) await legePersonAn(db, x);
     const ids = { v1: await idVon(db, v1), p2: await idVon(db, p2), p3: await idVon(db, p3), g: await idVon(db, g) };
-    const schluessel = await json(await anfrage("POST", "/api-schluessel", STANDARD, { name: "Importjob", scopes: [{ fondsId: F1, recht: "lesen" }] }));
-    const alle = [ids.v1, ids.p2, ids.p3, ids.g, schluessel.benutzerId, "00000000-0000-4000-8000-00000000dead"];
+    const schluessel = await json(await anfrage("POST", "/api-keys", STANDARD, { name: "Importjob", scopes: [{ fundId: F1, permission: "read" }] }));
+    const alle = [ids.v1, ids.p2, ids.p3, ids.g, schluessel.userId, "00000000-0000-4000-8000-00000000dead"];
 
-    const antwort = await anfrage("GET", `/benutzer/namen?ids=${alle.join(",")}`, v1);
+    const antwort = await anfrage("GET", `/users/names?ids=${alle.join(",")}`, v1);
     expect(antwort.status).toBe(200);
-    const daten = (await json(antwort)).daten as { id: string; name: string }[];
+    const daten = (await json(antwort)).data as { id: string; name: string }[];
     expect(daten.sort((a, b) => a.id.localeCompare(b.id))).toEqual(
       [
         { id: ids.v1, name: v1.name },
         { id: ids.p2, name: p2.name },
         { id: ids.g, name: g.name },
-        { id: schluessel.benutzerId, name: "Importjob" },
+        { id: schluessel.userId, name: "Importjob" },
       ].sort((a, b) => a.id.localeCompare(b.id)),
     );
     expect(JSON.stringify(daten)).not.toContain("@"); // nur id und name
 
     // Globale Verwalter sehen alle (auch den unbekannten nicht).
-    const admin = (await json(await anfrage("GET", `/benutzer/namen?ids=${alle.join(",")}`, STANDARD))).daten as unknown[];
+    const admin = (await json(await anfrage("GET", `/users/names?ids=${alle.join(",")}`, STANDARD))).data as unknown[];
     expect(admin).toHaveLength(5);
   });
 
   it("Eingabe: 1 bis 100 gültige IDs; ohne Rolle 403", async () => {
     const v1 = p("viewer", { rollen: { [F1]: "betrachter" } });
     const ids = Array.from({ length: 101 }, (_, i) => `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`);
-    expect((await anfrage("GET", `/benutzer/namen?ids=${ids.slice(0, 100).join(",")}`, v1)).status).toBe(200);
-    expect((await anfrage("GET", `/benutzer/namen?ids=${ids.join(",")}`, v1)).status).toBe(400);
-    expect((await anfrage("GET", "/benutzer/namen?ids=kein-uuid", v1)).status).toBe(400);
-    expect((await anfrage("GET", "/benutzer/namen", v1)).status).toBe(400);
-    expect((await anfrage("GET", `/benutzer/namen?ids=${ids[0]}`, null)).status).toBe(401);
-    expect((await anfrage("GET", `/benutzer/namen?ids=${ids[0]}`, p("ohne-rolle"))).status).toBe(403);
+    expect((await anfrage("GET", `/users/names?ids=${ids.slice(0, 100).join(",")}`, v1)).status).toBe(200);
+    expect((await anfrage("GET", `/users/names?ids=${ids.join(",")}`, v1)).status).toBe(400);
+    expect((await anfrage("GET", "/users/names?ids=kein-uuid", v1)).status).toBe(400);
+    expect((await anfrage("GET", "/users/names", v1)).status).toBe(400);
+    expect((await anfrage("GET", `/users/names?ids=${ids[0]}`, null)).status).toBe(401);
+    expect((await anfrage("GET", `/users/names?ids=${ids[0]}`, p("ohne-rolle"))).status).toBe(403);
   });
 
   it("Fonds-Verwalter (nicht nur globale) listen die Personen mit Rolle an ihrem Fonds samt Namen, aber nur am eigenen Fonds", async () => {
     const fv = p("fondsverwalter", { rollen: { [F1]: "verwalter" } });
     const kollege = p("kollege", { rollen: { [F1]: "betrachter" } });
     await legePersonAn(db, kollege);
-    const antwort = await anfrage("GET", `/fonds/${F1}/rollen`, fv);
+    const antwort = await anfrage("GET", `/fonds/${F1}/roles`, fv);
     expect(antwort.status).toBe(200);
-    const daten = (await json(antwort)).daten as { benutzerId: string; name: string; rolle: string }[];
-    expect(daten.map((d) => [d.name, d.rolle]).sort()).toEqual([[fv.name, "verwalter"], [kollege.name, "betrachter"]].sort());
-    expect((await anfrage("GET", `/fonds/${F2}/rollen`, fv)).status).toBe(403);
+    const daten = (await json(antwort)).data as { userId: string; name: string; role: string }[];
+    expect(daten.map((d) => [d.name, d.role]).sort()).toEqual([[fv.name, "admin"], [kollege.name, "viewer"]].sort());
+    expect((await anfrage("GET", `/fonds/${F2}/roles`, fv)).status).toBe(403);
   });
 });

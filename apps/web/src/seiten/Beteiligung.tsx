@@ -39,6 +39,7 @@ import { formatZeitpunkt } from "../lib/zeit";
 // Die Bereiche Instrumente und Zinsen laden erst, wenn jemand sie öffnet.
 const InstrumenteAbschnitt = lazy(() => import("../komponenten/InstrumenteAbschnitt").then((m) => ({ default: m.InstrumenteAbschnitt })));
 const ZinsenAbschnitt = lazy(() => import("../komponenten/ZinsenAbschnitt").then((m) => ({ default: m.ZinsenAbschnitt })));
+const MandateAbschnitt = lazy(() => import("../komponenten/MandateAbschnitt").then((m) => ({ default: m.MandateAbschnitt })));
 
 const route = getRouteApi("/beteiligungen/$id");
 
@@ -112,7 +113,7 @@ export function BeteiligungSeite() {
   const titelInSicht = (name: KennzahlName) => (ws && sicht !== "fonds" && betragName(name) ? t.waehrung.kennzahlIn(b[name], betragDerSicht({ fonds: "0", lokal: "0", vergleich: "0" }, sicht, ws.waehrungen).waehrung) : b[name]);
   const sichtWaehrung = ws ? betragDerSicht({ fonds: "0", lokal: "0", vergleich: "0" }, sicht, ws.waehrungen).waehrung : null;
   const sichtKurse = ws && sichtWaehrung ? ws.bewertungKurse.filter((x) => x.nach === sichtWaehrung) : [];
-  const sichtLuecken = ws && sichtWaehrung ? ws.luecken.filter((x) => x.nach === sichtWaehrung) : [];
+  const sichtLuecken = ws && sicht === "haus" ? ws.hausLuecken : ws && sichtWaehrung ? ws.luecken.filter((x) => x.nach === sichtWaehrung) : [];
   const sichtVorgaenge = new Map((ws?.vorgaenge ?? []).map((v) => [v.id, v]));
 
   // Der Verlauf endet am Stichtag: spätere Bewertungen gehören nicht zum Stand, den die Seite zeigt.
@@ -338,6 +339,7 @@ export function BeteiligungSeite() {
     { gruppe: "wert", id: "verlauf", tab: "bewertung", unter: "verlauf", label: t.tabs.bewertungsverlauf, inhalt: () => <Bewertungsverlauf reihe={verlauf} /> },
     { gruppe: "wert", id: "waehrung", tab: "bewertung", unter: "waehrung", label: t.tabs.waehrung, inhalt: () => <WaehrungsAbschnitt beteiligungId={d.beteiligung.id} fondsId={d.fonds.id} stichtag={d.stichtag} stand={stand} vergleich={suche.vergleich} lesend={lesend} /> },
     { gruppe: "unternehmen", id: "werte", tab: "kennzahlen", unter: "werte", label: t.tabs.kennzahlen, inhalt: () => <KennzahlenTab beteiligungId={d.beteiligung.id} fondsId={d.fonds.id} lesend={lesend} /> },
+    { gruppe: "unternehmen", id: "gremien", tab: "gremien", label: t.tabs.gremien, inhalt: () => <MandateAbschnitt beteiligungId={d.beteiligung.id} schreiben={!lesend && schreiben} /> },
     // Einträge der Erweiterungen (z. B. ESG), in ihrer Gruppe hinter denen des Kerns.
     ...alleErweiterungen("beteiligungReiter").map((r) => ({
       gruppe: r.gruppe,

@@ -12,9 +12,9 @@ export function setzeSitzungsHandler(neu: ((ereignis: SitzungsEreignis) => void)
 
 export function ereignisZuFehler(fehler: unknown): SitzungsEreignis | null {
   if (!(fehler instanceof ApiFehler)) return null;
-  if (fehler.status === 401 && fehler.code === "NICHT_ANGEMELDET") return "abgemeldet";
-  if (fehler.status === 403 && fehler.code === "PASSWORT_AENDERN") return "passwort";
-  if (fehler.status === 403 && fehler.code === "ZWEI_FAKTOR_FEHLT") return "zweiFaktor";
+  if (fehler.status === 401 && fehler.code === "not_authenticated") return "abgemeldet";
+  if (fehler.status === 403 && fehler.code === "password_change_required") return "passwort";
+  if (fehler.status === 403 && fehler.code === "two_factor_required") return "zweiFaktor";
   return null;
 }
 

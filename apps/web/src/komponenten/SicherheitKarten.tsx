@@ -95,7 +95,7 @@ function PasswortKarte({ daten }: { daten: Sicherheit }) {
       const antwort = await passwortAendern({ aktuell: werte.aktuell, neu: werte.neu, andereSitzungenBeenden: andere });
       setWerte({ aktuell: "", neu: "", wiederholt: "" });
       setVersucht(false);
-      setFertig(antwort.andereSitzungenBeendet);
+      setFertig(antwort.otherSessionsEnded);
       await sicherheitEntwerten(qc);
     });
   }

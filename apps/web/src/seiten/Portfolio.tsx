@@ -69,7 +69,7 @@ export function PortfolioSeite() {
   function wertInSicht(id: string, art: "investiert" | "bewertung") {
     const zeile = waehrungszeilen.get(id);
     if (!ws || !zeile) return null;
-    return betragDerSicht(zeile[art], sicht, { fonds: ws.waehrungen.fonds, lokal: zeile.lokalWaehrung, vergleich: ws.waehrungen.vergleich });
+    return betragDerSicht(zeile[art], sicht, { fonds: ws.waehrungen.fonds, lokal: zeile.lokalWaehrung, vergleich: ws.waehrungen.vergleich, haus: ws.waehrungen.haus });
   }
 
   function sortWert(zeile: Zeile, schluessel: string) {
@@ -170,7 +170,7 @@ export function PortfolioSeite() {
               suche={suche}
               waehrungen={{ fonds: fondsWaehrung, lokal: fondsWaehrung, vergleich: suche.vergleich ?? null }}
               onAendern={aendereSicht}
-              luecken={!ws ? [] : sicht === "vergleich" ? ws.luecken.filter((l) => l.nach === ws.waehrungen.vergleich) : sicht === "lokal" ? ws.luecken.filter((l) => l.nach !== ws.waehrungen.vergleich) : []}
+              luecken={!ws ? [] : sicht === "vergleich" ? ws.luecken.filter((l) => l.nach === ws.waehrungen.vergleich) : sicht === "haus" ? ws.hausLuecken : sicht === "lokal" ? ws.luecken.filter((l) => l.nach !== ws.waehrungen.vergleich) : []}
               kurse={ws && sicht === "vergleich" ? ws.zeilen.flatMap((z) => z.bewertungKurse).filter((x, i, a) => x.nach === ws.waehrungen.vergleich && a.findIndex((y) => y.tag === x.tag && y.nach === x.nach && y.kurs === x.kurs) === i) : []}
               tabellenWaehrung={sichtWaehrung}
               mitStand={Boolean(stand)}

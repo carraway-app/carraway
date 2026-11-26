@@ -6,18 +6,17 @@ import { useT } from "../i18n";
 /** Kopfzeile: Zahl der fälligen und überfälligen Wiedervorlagen der angemeldeten Person, als Link zur Liste. */
 export function WiedervorlagenZaehler() {
   const t = useT();
-  const abfrage = useQuery(wiedervorlagenAnzahl());
-  const z = abfrage.data;
+  const { data: z } = useQuery(wiedervorlagenAnzahl);
   return (
     <Link
       to="/wiedervorlagen"
       search={{ zustaendig: "ich" }}
       className="app-zaehler"
-      aria-label={z ? t.wiedervorlagenSeite.zaehlerName(z.gesamt, z.ueberfaellig) : t.wiedervorlagenSeite.zaehlerText}
+      aria-label={z ? t.wiedervorlagenSeite.zaehlerName(z.total, z.overdue) : t.wiedervorlagenSeite.zaehlerText}
     >
       <span className="app-kopf__text">{t.wiedervorlagenSeite.zaehlerText}</span>{" "}
-      <span className={z && z.ueberfaellig > 0 ? "app-zaehler__zahl app-zaehler__zahl--ueberfaellig" : "app-zaehler__zahl"}>
-        {z ? z.gesamt : t.gemeinsam.keinWert}
+      <span className={(z?.overdue ?? 0) > 0 ? "app-zaehler__zahl app-zaehler__zahl--ueberfaellig" : "app-zaehler__zahl"}>
+        {z?.total ?? t.gemeinsam.keinWert}
       </span>
     </Link>
   );

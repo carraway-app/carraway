@@ -30,7 +30,7 @@ export async function sendeKennzahlLink(
     .innerJoin(organisation, eq(organisation.id, beteiligung.organisationId))
     .innerJoin(person, and(eq(person.organisationId, beteiligung.organisationId), eq(person.id, e.personId), isNull(person.zusammengefuehrtIn)))
     .where(eq(beteiligung.id, e.beteiligungId));
-  if (!z?.email) throw new Fachfehler(400, "MAIL_EMPFAENGER_UNGUELTIG", "Die Person gehört nicht zum Unternehmen oder hat keine Mailadresse.");
+  if (!z?.email) throw new Fachfehler(400, "mail_recipient_invalid", "The person does not belong to the company or has no email address.");
   const link = `${kontext.appBasis}${e.linkPfad}`;
   const bezug = { art: "kennzahl_abfrage", id: e.abfrageId };
   // ESG-Fragebogen (`kennzahl_abfrage.art = esg`) hat eine eigene Vorlage; das Berichtsjahr ist das Jahr des Zeitraums.

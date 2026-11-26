@@ -1,5 +1,5 @@
 import { eq, inArray, sql } from "drizzle-orm";
-import { aktivitaet, beteiligung, deal, finanzierungsrunde, organisation, organisationsbeziehung, person, rundenposition, vehikel } from "@carraway/db";
+import { aktivitaet, beteiligung, deal, finanzierungsrunde, gremienmandat, organisation, organisationsbeziehung, person, rundenposition, vehikel } from "@carraway/db";
 import { hatRolle, sichtbareFonds, type Akteur } from "../anmeldung/akteur";
 import { Fachfehler, bereitsZusammengefuehrtFehler } from "../fehler";
 import type { Bereich } from "../rechte/bereiche";
@@ -85,7 +85,7 @@ export interface PersonenVorschau {
   felder: FeldVergleich[];
   /** Bearbeiter an allen Fonds der Deals, an denen Aktivitäten der Personen hängen (ohne Namen der Fonds). */
   darfAusfuehren: boolean;
-  verschiebt: { aktivitaeten: number; rollen: number };
+  verschiebt: { aktivitaeten: number; rollen: number; mandate: number };
   /** Hängen Deal-Kontakte oder Aktivitäten an Deals, fehlt der Bereich Dealflow: die Person darf nicht zusammenführen. */
   bereichFehlt: Bereich[];
 }
@@ -102,7 +102,7 @@ async function sperreBeide<T extends { id: string; zusammengefuehrtIn: string | 
   quelleId: string,
   nichtGefunden: Fachfehler,
 ): Promise<{ ziel: T; quelle: T }> {
-  if (zielId === quelleId) throw new Fachfehler(400, "ZUSAMMENFUEHREN_UNGUELTIG", "Ein Datensatz lässt sich nicht mit sich selbst zusammenführen.");
+  if (zielId === quelleId) throw new Fachfehler(400, "merge_invalid", "A record cannot be merged with itself.");
   const zeilen = await ladeSperre([zielId, quelleId].sort());
   const ziel = zeilen.find((z) => z.id === zielId);
   const quelle = zeilen.find((z) => z.id === quelleId);
@@ -120,7 +120,7 @@ const sperreOrganisationen = (tx: Tx, zielId: string, quelleId: string, sperren:
     },
     zielId,
     quelleId,
-    new Fachfehler(404, "ORGANISATION_NICHT_GEFUNDEN", "Organisation nicht gefunden."),
+    new Fachfehler(404, "organization_not_found", "Organization not found."),
   );
 
 const sperrePersonen = (tx: Tx, zielId: string, quelleId: string, sperren: boolean) =>
@@ -131,7 +131,7 @@ const sperrePersonen = (tx: Tx, zielId: string, quelleId: string, sperren: boole
     },
     zielId,
     quelleId,
-    new Fachfehler(404, "PERSON_NICHT_GEFUNDEN", "Person nicht gefunden."),
+    new Fachfehler(404, "person_not_found", "Person not found."),
   );
 
 /** Fonds der Deals, die ein Zusammenführen berührt: Deals der Organisationen und Deals, an denen Aktivitäten der Datensätze hängen. */
@@ -145,6 +145,19 @@ async function dealFonds(tx: Tx, spalte: "organisation_id" | "person_id", ids: s
   );
   return rows.map((r) => r.fonds_id);
 }
+
+/** Fonds der Beteiligungen, an denen Gremienmandate der Personen hängen (Issue #156). */
+async function mandatFonds(tx: Tx, ids: string[]): Promise<string[]> {
+  const zeilen = await tx
+    .selectDistinct({ fondsId: beteiligung.fondsId })
+    .from(gremienmandat)
+    .innerJoin(beteiligung, eq(beteiligung.id, gremienmandat.beteiligungId))
+    .where(inArray(gremienmandat.personId, ids));
+  return zeilen.map((z) => z.fondsId).sort();
+}
+
+/** Mandate ziehen nur um, wenn die Person an jedem ihrer Fonds Bearbeiter mit Bereich Portfolio ist (auch an Fonds ohne Sicht nicht). */
+const darfMandate = (akteur: Akteur, fonds: string[]) => fonds.every((f) => hatRolle(akteur, f, "bearbeiter", "portfolio"));
 
 /** Bearbeiter an jedem Fonds, dessen Deals umziehen; ohne Rolle an einem davon (auch ohne Sicht) ist Zusammenführen verboten. */
 const darfDeals = (akteur: Akteur, fonds: string[]) => fonds.every((f) => hatRolle(akteur, f, "bearbeiter", "dealflow"));
@@ -234,15 +247,25 @@ export async function vorschauPersonen(tx: Tx, akteur: Akteur, zielId: string, q
   const { ziel, quelle } = await sperrePersonen(tx, zielId, quelleId, false);
   const bereichFehlt = fehlendeBereiche(akteur, ["dealflow"]);
   const dealsFehlen = bereichFehlt.length > 0 && (await beruehrtDeals(tx, quelleId));
+  const mandatFonds_ = await mandatFonds(tx, [zielId, quelleId]);
+  const sicht = sichtbareFonds(akteur, "betrachter", "portfolio");
+  const quellMandate = await tx
+    .select({ fondsId: beteiligung.fondsId })
+    .from(gremienmandat)
+    .innerJoin(beteiligung, eq(beteiligung.id, gremienmandat.beteiligungId))
+    .where(eq(gremienmandat.personId, quelleId));
+  const sichtbareMandate = quellMandate.filter((m) => sicht === "alle" || sicht.includes(m.fondsId)).length;
   return {
     ziel,
     quelle,
     felder: vergleiche(PERSON_FELDER, ziel, quelle),
     bereichFehlt: dealsFehlen ? bereichFehlt : [],
-    darfAusfuehren: !dealsFehlen && darfDeals(akteur, await dealFonds(tx, "person_id", [zielId, quelleId])),
+    darfAusfuehren: !dealsFehlen && darfDeals(akteur, await dealFonds(tx, "person_id", [zielId, quelleId])) && darfMandate(akteur, mandatFonds_),
     verschiebt: {
       aktivitaeten: await zaehle(tx, sql`SELECT count(*)::int AS n FROM aktivitaet WHERE person_id = ${quelleId}`),
       rollen: await zaehle(tx, sql`SELECT count(*)::int AS n FROM kontaktrolle WHERE person_id = ${quelleId}`),
+      // Nur Mandate in Fonds, die die Person sehen darf; Fonds ohne Sicht bleiben verborgen.
+      mandate: sichtbareMandate,
     },
   };
 }
@@ -277,7 +300,7 @@ async function zieheVehikelUm(tx: Tx, protokoll: Protokollant, quelleId: string,
       JOIN vehikel v ON v.id = q.vehikel_id
       WHERE (q.vehikel_id, z.vehikel_id) IN (${sql.join(paare.map((p) => sql`(${p.quelle}::uuid, ${p.ziel}::uuid)`), sql`, `)})`);
     if (kollisionen.rows.length > 0) {
-      throw new Fachfehler(409, "VEHIKEL_POSITION_KOLLIDIERT", "Gleichnamige Vehikel halten in derselben Runde je eine Position. Eine Runde hat je Vehikel höchstens eine Position; die Positionen vorher zusammenlegen.", {
+      throw new Fachfehler(409, "vehicle_position_conflict", "Vehicles with the same name each hold a position in the same round. A round has at most one position per vehicle; combine the positions first.", {
         kollisionen: kollisionen.rows.map((r) => ({ rundeId: r.runde_id, vehikel: r.vehikel })),
       });
     }
@@ -344,20 +367,20 @@ export async function fuehreOrganisationenZusammen(
       + (SELECT count(*) FROM fonds_mitteilung WHERE organisation_id = ${quelleId})
       + (SELECT count(*) FROM bericht_variante WHERE organisation_id = ${quelleId}))::int AS n`);
   if ((portal[0]?.n ?? 0) > 0) {
-    throw new Fachfehler(409, "INVESTOR_ZUGANG_VORHANDEN", "Die Organisation hat Zeichnungen, Mitteilungen oder Zugänge des LP-Portals und lässt sich nicht als Quelle zusammenführen.");
+    throw new Fachfehler(409, "investor_access_exists", "The organization has subscriptions, notices or LP portal access and cannot be merged as the source.");
   }
   const lage = await beteiligungsLage(tx, akteur, zielId, quelleId);
   // Mit Beteiligungen ist die Zusammenführung eine Entscheidung über Fondsbestände: Freigeber an jedem betroffenen Fonds.
-  if (!lage.darfAusfuehren) throw new Fachfehler(403, "KEINE_BERECHTIGUNG", "Zusammenführen verlangt Bearbeiter an allen Fonds der betroffenen Deals und Freigeber an allen Fonds mit Beteiligungen.");
+  if (!lage.darfAusfuehren) throw new Fachfehler(403, "forbidden", "Merging requires the editor role for all funds of the affected deals and the approver role for all funds with investments.");
   if (lage.ueberschneidungen.length > 0) {
-    throw new Fachfehler(409, "BETEILIGUNGEN_UEBERSCHNEIDEN", "Beide Organisationen werden vom selben Fonds gehalten.", {
+    throw new Fachfehler(409, "investments_overlap", "Both organizations are held by the same fund.", {
       ueberschneidungen: lage.sichtbareUeberschneidungen,
       ueberschneidungVerdeckt: lage.ueberschneidungVerdeckt,
     });
   }
 
   const werte = gewaehlteWerte(vergleiche(ORGANISATION_FELDER, ziel, quelle), wahl);
-  if (leer(werte.name) || leer(werte.art)) throw new Fachfehler(400, "ZUSAMMENFUEHREN_UNGUELTIG", "Name und Art dürfen nicht leer sein.");
+  if (leer(werte.name) || leer(werte.art)) throw new Fachfehler(400, "merge_invalid", "Name and type must not be empty.");
 
   const bewegt: OrganisationsErgebnis["verschoben"] = { personen: 0, deals: 0, aktivitaeten: 0, beteiligungen: 0, rollen: 0, beziehungen: 0, runden: 0, rundenpositionen: 0 };
   const umziehen = async (tabelle: string, ziele: typeof person | typeof deal | typeof aktivitaet | typeof beteiligung | typeof finanzierungsrunde) => {
@@ -433,18 +456,24 @@ export async function fuehrePersonenZusammen(tx: Tx, protokoll: Protokollant, ak
   // Deal-Kontakte und Aktivitäten an Deals ziehen um: ohne den Bereich Dealflow nur, wenn keine Deals berührt sind.
   if (await beruehrtDeals(tx, quelleId)) verlangeBereiche(akteur, ["dealflow"]);
   if (!darfDeals(akteur, await dealFonds(tx, "person_id", [zielId, quelleId]))) {
-    throw new Fachfehler(403, "KEINE_BERECHTIGUNG", "Aktivitäten der Personen hängen an Deals von Fonds, an denen die Rolle Bearbeiter fehlt.");
+    throw new Fachfehler(403, "forbidden", "Activities of the persons are linked to deals of funds for which the editor role is missing.");
+  }
+  if (!darfMandate(akteur, await mandatFonds(tx, [zielId, quelleId]))) {
+    throw new Fachfehler(403, "forbidden", "Board mandates of the persons belong to investments of funds for which the editor role in the portfolio area is missing.");
   }
   const werte = gewaehlteWerte(vergleiche(PERSON_FELDER, ziel, quelle), wahl);
-  if (leer(werte.vorname) || leer(werte.nachname)) throw new Fachfehler(400, "ZUSAMMENFUEHREN_UNGUELTIG", "Vor- und Nachname dürfen nicht leer sein.");
+  if (leer(werte.vorname) || leer(werte.nachname)) throw new Fachfehler(400, "merge_invalid", "First and last name must not be empty.");
   if (werte.organisationId) {
     const [org] = await tx.select({ id: organisation.id, weg: organisation.zusammengefuehrtIn }).from(organisation).where(eq(organisation.id, werte.organisationId));
-    if (!org || org.weg) throw new Fachfehler(400, "ZUSAMMENFUEHREN_UNGUELTIG", "Die gewählte Organisation gibt es nicht mehr.");
+    if (!org || org.weg) throw new Fachfehler(400, "merge_invalid", "The selected organization no longer exists.");
   }
 
   const akt = await tx.update(aktivitaet).set({ personId: zielId }).where(eq(aktivitaet.personId, quelleId)).returning({ id: aktivitaet.id });
   await protokoll.mehrere(verschoben("aktivitaet", akt, "personId", quelleId, zielId));
   const rollen = await bereinigeRollen(tx, protokoll, "person_id", quelleId, zielId);
+  // Gremienmandate (Issue #156) ziehen mit um; doppelte Mandate bleiben sichtbar und lassen sich danach von Hand löschen.
+  const mandate = await tx.update(gremienmandat).set({ personId: zielId }).where(eq(gremienmandat.personId, quelleId)).returning({ id: gremienmandat.id });
+  await protokoll.mehrere(verschoben("gremienmandat", mandate, "personId", quelleId, zielId));
   await tx.execute(sql`UPDATE import_zuordnung SET datensatz_id = ${zielId} WHERE objekt = 'person' AND datensatz_id = ${quelleId}`);
 
   const [nachherZiel] = await tx
@@ -455,7 +484,7 @@ export async function fuehrePersonenZusammen(tx: Tx, protokoll: Protokollant, ak
   const [nachherQuelle] = await tx.update(person).set({ zusammengefuehrtIn: zielId, zusammengefuehrtAm: new Date() }).where(eq(person.id, quelleId)).returning();
   const crm = await ziehCrmUm(tx, "person", zielId, quelleId);
   await setzeHauptunternehmen(tx, zielId, nachherZiel!.organisationId, nachherZiel!.funktion);
-  const bewegt = { aktivitaeten: akt.length, rollen };
+  const bewegt = { aktivitaeten: akt.length, rollen, mandate: mandate.length };
   await protokoll("zusammenfuehren", "person", zielId, ziel, { ...nachherZiel, zusammengefuehrtAus: quelleId, verschoben: { ...bewegt, ...crm } });
   await protokoll("zusammengefuehrt", "person", quelleId, quelle, nachherQuelle);
   return { person: nachherZiel!, quelleId, verschoben: bewegt };

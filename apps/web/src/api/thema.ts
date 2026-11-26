@@ -1,10 +1,11 @@
 import { useEffect, useRef } from "react";
 import { queryOptions, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { aktuellesThema, setzeThema, useThema, type Thema } from "@carraway/ui";
+import { themaAnApi, themaVonApi } from "./abbildung";
 import { api, auspacken } from "./client";
 
-/** Das Thema je Person liegt beim Server (`/thema`); der Browser merkt es zusätzlich für den ersten Anstrich (siehe `packages/ui/src/thema.ts`). */
-const ladeThema = () => auspacken(api.api.v1.thema.$get());
+/** Das Thema je Person liegt beim Server (`/theme`); der Browser merkt es zusätzlich für den ersten Anstrich (siehe `packages/ui/src/thema.ts`). */
+const ladeThema = async () => themaVonApi((await auspacken(api.api.v1.theme.$get())).theme);
 
 export const themaAbfrage = () => queryOptions({ queryKey: ["thema"] as const, queryFn: ladeThema, staleTime: Infinity });
 
@@ -27,7 +28,7 @@ export function useThemaWahl(): { thema: Thema; waehle: (thema: Thema) => void }
   const [thema, setze] = useThema();
   const qc = useQueryClient();
   const speichern = useMutation({
-    mutationFn: (neu: Thema) => auspacken(api.api.v1.thema.$patch({ json: { thema: neu } })),
+    mutationFn: async (neu: Thema) => themaVonApi((await auspacken(api.api.v1.theme.$patch({ json: { theme: themaAnApi(neu) } }))).theme),
     onSuccess: (antwort) => qc.setQueryData(themaAbfrage().queryKey, antwort),
   });
   return {

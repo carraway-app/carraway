@@ -49,8 +49,8 @@ const freigegeben = (stichtag: string, wert = "100000.00") =>
 
 const gesperrt = async (antwort: Response, bis: string) => {
   expect(antwort.status).toBe(409);
-  const { fehler } = await json(antwort);
-  expect(fehler.code).toBe("PERIODE_GESPERRT");
+  const { error: fehler } = await json(antwort);
+  expect(fehler.code).toBe("period_locked");
   expect(fehler.gesperrtBis).toBe(bis);
 };
 const sperre = async (bis: string) => expect((await put(`/fonds/${F1}/periodensperre`, { gesperrtBis: bis, grund: "Quartalsabschluss" }, verwalter)).status).toBe(200);
@@ -72,7 +72,7 @@ describe("Rechte der Bewertungen, Runden, Berichte und Vorlagen", () => {
     const runde = await post(`/fonds/${F1}/bewertungsrunde`, { stichtag: "2025-12-31", vorschlag: "fortschreiben" }, bearbeiter);
     expect(runde.status).toBe(201);
     const rundeId = (await json(runde)).runde.id as string;
-    const bericht = await post("/berichte", { art: "lp_bericht", fondsId: F1, stichtag: "2025-12-31" }, bearbeiter);
+    const bericht = await post("/reports", { art: "lp_bericht", fondsId: F1, stichtag: "2025-12-31" }, bearbeiter);
     expect(bericht.status).toBe(201);
     const berichtId = (await json(bericht)).id as string;
 
@@ -87,21 +87,21 @@ describe("Rechte der Bewertungen, Runden, Berichte und Vorlagen", () => {
       ["GET", `/bewertungsrunden/${rundeId}`, undefined, 1],
       ["POST", `/beteiligungen/${E}/verkauf/vorschau`, {}, 2],
       ["POST", `/verkaeufe/${randomUUID()}/storno`, { grund: "Test" }, 2],
-      ["POST", "/berichte", { art: "lp_bericht", fondsId: F1, stichtag: "2025-12-31" }, 2],
-      ["GET", `/berichte?fondsId=${F1}`, undefined, 1],
-      ["GET", `/berichte/${berichtId}`, undefined, 1],
-      ["GET", `/berichte/${berichtId}/datei`, undefined, 1],
-      ["GET", `/berichte/${berichtId}/kontrolle`, undefined, 1],
-      ["POST", `/berichte/${berichtId}/berichtigung`, { grund: "Rundung berichtigt" }, 2],
-      ["PUT", `/berichte/${berichtId}/abschnitte/vorwort`, { textDe: "Text" }, 2],
-      ["GET", `/fonds/${F1}/berichtsvorlagen`, undefined, 1],
-      ["GET", `/fonds/${F1}/freigabestufen`, undefined, 1],
-      ["PUT", `/fonds/${F1}/berichtsvorlagen/fondsbericht`, {}, 4],
-      ["PUT", `/fonds/${F1}/freigabestufen`, { stufen: STUFEN }, 4],
+      ["POST", "/reports", { art: "lp_bericht", fondsId: F1, stichtag: "2025-12-31" }, 2],
+      ["GET", `/reports?fondsId=${F1}`, undefined, 1],
+      ["GET", `/reports/${berichtId}`, undefined, 1],
+      ["GET", `/reports/${berichtId}/file`, undefined, 1],
+      ["GET", `/reports/${berichtId}/checks`, undefined, 1],
+      ["POST", `/reports/${berichtId}/correction`, { grund: "Rundung berichtigt" }, 2],
+      ["PUT", `/reports/${berichtId}/sections/foreword`, { textDe: "Text" }, 2],
+      ["GET", `/funds/${F1}/report-templates`, undefined, 1],
+      ["GET", `/funds/${F1}/approval-stages`, undefined, 1],
+      ["PUT", `/funds/${F1}/report-templates/fund_report`, {}, 4],
+      ["PUT", `/funds/${F1}/approval-stages`, { stages: STUFEN }, 4],
       // Freigaben zuletzt: Wer sie ausführen darf, ändert den Zustand der Daten.
       ["POST", `/bewertungen/${draft}/verwerfen`, undefined, 3],
       ["POST", `/bewertungsrunden/${rundeId}/verwerfen`, undefined, 3],
-      ["POST", `/berichte/${berichtId}/stufe`, { stufe: STUFEN[0], ergebnis: "ok" }, 3],
+      ["POST", `/reports/${berichtId}/stage`, { stufe: STUFEN[0], ergebnis: "ok" }, 3],
       ["POST", `/bewertungen/${draft}/freigeben`, undefined, 3],
       ["POST", `/bewertungsrunden/${rundeId}/freigeben`, undefined, 3],
     ];
@@ -116,7 +116,7 @@ describe("Rechte der Bewertungen, Runden, Berichte und Vorlagen", () => {
         const antwort = await anfrage(methode, pfad, p, body);
         if (rang < mindest) {
           expect(antwort.status, `${methode} ${pfad} als ${p.name}`).toBe(403);
-          expect((await json(antwort)).fehler.code).toBe("KEINE_BERECHTIGUNG");
+          expect((await json(antwort)).error.code).toBe("forbidden");
         } else {
           expect(antwort.status, `${methode} ${pfad} als ${p.name}`).not.toBe(403);
         }
@@ -127,55 +127,57 @@ describe("Rechte der Bewertungen, Runden, Berichte und Vorlagen", () => {
   });
 
   it("Berichte: Liste und Zugriff nur für sichtbare Fonds; Anlegen über beteiligungId prüft den Fonds der Beteiligung", async () => {
-    const f1 = await json(await post("/berichte", { art: "lp_bericht", fondsId: F1, stichtag: "2025-12-31" }, freigeber));
-    const liste = await json(await get("/berichte", nurFonds2));
+    const f1 = await json(await post("/reports", { art: "lp_bericht", fondsId: F1, stichtag: "2025-12-31" }, freigeber));
+    const liste = await json(await get("/reports", nurFonds2));
     expect(liste.daten.map((x: { id: string }) => x.id)).not.toContain(f1.id);
-    expect((await json(await get("/berichte", freigeber))).daten.map((x: { id: string }) => x.id)).toContain(f1.id);
-    expect((await get(`/berichte/${f1.id}`, nurFonds2)).status).toBe(403);
-    expect((await get(`/berichte/${f1.id}/datei`, nurFonds2)).status).toBe(403);
-    expect((await post("/berichte", { art: "quartalsbericht", beteiligungId: E, stichtag: "2025-12-31" }, nurFonds2)).status).toBe(403);
-    expect((await post("/berichte", { art: "lp_bericht", fondsId: F1 }, nurFonds2)).status).toBe(403);
+    expect((await json(await get("/reports", freigeber))).daten.map((x: { id: string }) => x.id)).toContain(f1.id);
+    expect((await get(`/reports/${f1.id}`, nurFonds2)).status).toBe(403);
+    expect((await get(`/reports/${f1.id}/file`, nurFonds2)).status).toBe(403);
+    expect((await post("/reports", { art: "quartalsbericht", beteiligungId: E, stichtag: "2025-12-31" }, nurFonds2)).status).toBe(403);
+    expect((await post("/reports", { art: "lp_bericht", fondsId: F1 }, nurFonds2)).status).toBe(403);
   });
 
   it("Freigaben (Bewertung, Runde, Berichtsstufe) lehnt ein API-Schlüssel ab; Entwürfe anlegen darf er mit Schreibrecht", async () => {
-    const neu = await json(await post("/api-schluessel", { name: "Import", scopes: [{ fondsId: F1, recht: "schreiben" }] }));
+    const neu = await json(await post("/api-keys", { name: "Import", scopes: [{ fundId: F1, permission: "write" }] }));
     const mit = (methode: string, pfad: string, body?: unknown) =>
       t.app.request(`/api/v1${pfad}`, {
         method: methode,
-        headers: { authorization: `Bearer ${neu.schluessel}`, ...(body === undefined ? {} : { "content-type": "application/json" }) },
+        headers: { authorization: `Bearer ${neu.key}`, ...(body === undefined ? {} : { "content-type": "application/json" }) },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       });
     await freigegeben("2025-03-31");
-    const angelegt = await mit("POST", `/beteiligungen/${E}/bewertungen`, { stichtag: "2025-06-30", wert: "1.00", methode: "letzte_runde", begruendung: "Import" });
+    const angelegt = await mit("POST", `/investments/${E}/valuations`, { asOf: "2025-06-30", value: "1.00", method: "last_round", justification: "Import" });
     expect(angelegt.status).toBe(201);
-    const id = (await json(angelegt)).bewertung.id as string;
-    const runde = await json(await mit("POST", `/fonds/${F1}/bewertungsrunde`, { stichtag: "2025-12-31", vorschlag: "fortschreiben" }));
-    const bericht = await json(await mit("POST", "/berichte", { art: "lp_bericht", fondsId: F1, stichtag: "2025-12-31" }));
+    const id = (await json(angelegt)).valuation.id as string;
+    const rundenEntwurf = await mit("POST", `/funds/${F1}/valuation-rounds`, { asOf: "2025-12-31", proposal: "carry_forward" });
+    expect(rundenEntwurf.status).toBe(201);
+    const runde = await json(rundenEntwurf);
+    const bericht = await json(await mit("POST", "/reports", { art: "lp_bericht", fondsId: F1, stichtag: "2025-12-31" }));
     for (const [pfad, body] of [
-      [`/bewertungen/${id}/freigeben`, undefined],
-      [`/bewertungen/${id}/verwerfen`, undefined],
-      [`/bewertungsrunden/${runde.runde.id}/freigeben`, undefined],
-      [`/bewertungsrunden/${runde.runde.id}/verwerfen`, undefined],
-      [`/berichte/${bericht.id}/stufe`, { stufe: STUFEN[0], ergebnis: "ok" }],
+      [`/valuations/${id}/approve`, undefined],
+      [`/valuations/${id}/discard`, undefined],
+      [`/valuation-rounds/${runde.round.id}/approve`, undefined],
+      [`/valuation-rounds/${runde.round.id}/discard`, undefined],
+      [`/reports/${bericht.id}/stage`, { stufe: STUFEN[0], ergebnis: "ok" }],
     ] as const) {
       const antwort = await mit("POST", pfad, body);
       expect(antwort.status, pfad).toBe(403);
-      expect((await json(antwort)).fehler.code, pfad).toBe("TECHNISCHER_BENUTZER");
+      expect((await json(antwort)).error.code, pfad).toBe("technical_user");
     }
-    const lesen = await mit("GET", `/bewertungen/${id}`);
+    const lesen = await mit("GET", `/valuations/${id}`);
     expect(lesen.status).toBe(200);
   });
 
   it("der Download der Datei (Entwurf wie freigegeben) schreibt eine Zeile `gelesen` ins Protokoll", async () => {
-    const b = await json(await post("/berichte", { art: "lp_bericht", fondsId: F1, stichtag: "2025-12-31" }, bearbeiter));
+    const b = await json(await post("/reports", { art: "lp_bericht", fondsId: F1, stichtag: "2025-12-31" }, bearbeiter));
     expect(await protokollZeilen(db, "bericht", "gelesen")).toHaveLength(0);
-    expect((await get(`/berichte/${b.id}/datei`, betrachter)).status).toBe(200);
+    expect((await get(`/reports/${b.id}/file`, betrachter)).status).toBe(200);
     const zeilen = await protokollZeilen(db, "bericht", "gelesen");
     expect(zeilen).toHaveLength(1);
     expect(zeilen[0]).toMatchObject({ akteur: await idVon(db, betrachter), datensatz_id: b.id, vorher: null });
     expect(zeilen[0]!.nachher).toMatchObject({ bericht: "datei", freigegeben: false });
     // Kein Lese-Protokoll, wenn die Berechtigung fehlt
-    expect((await get(`/berichte/${b.id}/datei`, nurFonds2)).status).toBe(403);
+    expect((await get(`/reports/${b.id}/file`, nurFonds2)).status).toBe(403);
     expect(await protokollZeilen(db, "bericht", "gelesen")).toHaveLength(1);
   });
 });
@@ -185,14 +187,14 @@ describe("Vier-Augen auf angemeldeten Personen", () => {
     const id = await entwurfId("2025-06-30", freigeber);
     const selbst = await post(`/bewertungen/${id}/freigeben`, undefined, freigeber);
     expect(selbst.status).toBe(409);
-    expect((await json(selbst)).fehler.code).toBe("VIER_AUGEN_VERLETZT");
+    expect((await json(selbst)).error.code).toBe("four_eyes_violated");
     const ok = await post(`/bewertungen/${id}/freigeben`, undefined, freigeber2);
     expect(ok.status).toBe(200);
     expect(await json(ok)).toMatchObject({ status: "freigegeben", erstelltVon: await idVon(db, freigeber), freigegebenVon: await idVon(db, freigeber2) });
 
     // Ein Verkauf legt seine Bewertung selbst an und gibt sie sofort frei (`system:ereignis`).
-    await post(`/beteiligungen/${ID.darlehen}/vorgaenge`, { art: "zusage", valuta: "2025-01-01", betrag: "100000" }, bearbeiter);
-    await post(`/beteiligungen/${ID.darlehen}/vorgaenge`, { art: "auszahlung", valuta: "2025-02-01", betrag: "100000" }, bearbeiter);
+    await post(`/investments/${ID.darlehen}/transactions`, { type: "commitment", valueDate: "2025-01-01", amount: "100000" }, bearbeiter);
+    await post(`/investments/${ID.darlehen}/transactions`, { type: "disbursement", valueDate: "2025-02-01", amount: "100000" }, bearbeiter);
     expect((await post(`/beteiligungen/${ID.darlehen}/insolvenz`, { datum: "2025-09-30" }, bearbeiter)).status).toBe(200);
     const [ereignis] = await db.select().from(s.bewertung).where(eq(s.bewertung.beteiligungId, ID.darlehen));
     expect(ereignis).toMatchObject({ status: "freigegeben", freigegebenVon: "system:ereignis", erstelltVon: await idVon(db, bearbeiter) });
@@ -203,7 +205,7 @@ describe("Vier-Augen auf angemeldeten Personen", () => {
     const runde = await json(await post(`/fonds/${F1}/bewertungsrunde`, { stichtag: "2025-12-31", vorschlag: "fortschreiben" }, freigeber));
     const nein = await post(`/bewertungsrunden/${runde.runde.id}/freigeben`, undefined, freigeber);
     expect(nein.status).toBe(409);
-    expect((await json(nein)).fehler.code).toBe("VIER_AUGEN_VERLETZT");
+    expect((await json(nein)).error.code).toBe("four_eyes_violated");
     const ja = await post(`/bewertungsrunden/${runde.runde.id}/freigeben`, undefined, freigeber2);
     expect(ja.status).toBe(200);
     expect(await json(ja)).toMatchObject({ freigegeben: 1 });
@@ -218,33 +220,33 @@ describe("Vier-Augen auf angemeldeten Personen", () => {
     const dritte = person("freigeber5-e5", { rollen: { [F1]: "freigeber" } });
     await legePersonAn(db, unbeteiligt);
     await legePersonAn(db, dritte);
-    const b = await json(await post("/berichte", { art: "lp_bericht", fondsId: F1, stichtag: "2025-12-31" }, ersteller));
-    expect((await put(`/berichte/${b.id}/abschnitte/vorwort`, { textDe: "Erster Text" }, alt)).status).toBe(200);
-    expect((await put(`/berichte/${b.id}/abschnitte/vorwort`, { textDe: "Überschriebener Text" }, neu)).status).toBe(200);
+    const b = await json(await post("/reports", { art: "lp_bericht", fondsId: F1, stichtag: "2025-12-31" }, ersteller));
+    expect((await put(`/reports/${b.id}/sections/foreword`, { textDe: "Erster Text" }, alt)).status).toBe(200);
+    expect((await put(`/reports/${b.id}/sections/foreword`, { textDe: "Überschriebener Text" }, neu)).status).toBe(200);
     // Der Abschnitt nennt nur noch den letzten Bearbeiter; der Verlauf steht im Änderungsprotokoll.
-    const detail = await json(await get(`/berichte/${b.id}`));
+    const detail = await json(await get(`/reports/${b.id}`));
     expect(detail.abschnitte[0].geaendertVon).toBe(await idVon(db, neu));
     expect((await protokollZeilen(db, "bericht_abschnitt")).map((z) => z.akteur)).toEqual([await idVon(db, alt), await idVon(db, neu)]);
 
     for (const p of [ersteller, alt, neu]) {
-      const antwort = await post(`/berichte/${b.id}/stufe`, { stufe: STUFEN[0], ergebnis: "ok" }, p);
+      const antwort = await post(`/reports/${b.id}/stage`, { stufe: STUFEN[0], ergebnis: "ok" }, p);
       expect(antwort.status, p.name).toBe(409);
-      expect((await json(antwort)).fehler.code, p.name).toBe("VIER_AUGEN_VERLETZT");
+      expect((await json(antwort)).error.code, p.name).toBe("four_eyes_violated");
     }
-    expect((await post(`/berichte/${b.id}/stufe`, { stufe: STUFEN[0], ergebnis: "ok" }, unbeteiligt)).status).toBe(200);
+    expect((await post(`/reports/${b.id}/stage`, { stufe: STUFEN[0], ergebnis: "ok" }, unbeteiligt)).status).toBe(200);
     // Auch auf der zweiten Stufe: weder Ersteller noch ein früherer Bearbeiter, noch wer die erste Stufe erteilt hat.
     for (const p of [ersteller, alt, neu, unbeteiligt]) {
-      expect((await post(`/berichte/${b.id}/stufe`, { stufe: STUFEN[1], ergebnis: "ok" }, p)).status, p.name).toBe(409);
+      expect((await post(`/reports/${b.id}/stage`, { stufe: STUFEN[1], ergebnis: "ok" }, p)).status, p.name).toBe(409);
     }
-    expect((await post(`/berichte/${b.id}/stufe`, { stufe: STUFEN[1], ergebnis: "ok" }, dritte)).status).toBe(200);
+    expect((await post(`/reports/${b.id}/stage`, { stufe: STUFEN[1], ergebnis: "ok" }, dritte)).status).toBe(200);
   });
 
   it("Bericht: eine Rückgabe (`zurueck`) braucht dagegen keine fremde Person, wohl aber einen Kommentar", async () => {
-    const b = await json(await post("/berichte", { art: "lp_bericht", fondsId: F1, stichtag: "2025-12-31" }, freigeber));
-    expect((await post(`/berichte/${b.id}/stufe`, { stufe: STUFEN[0], ergebnis: "ok" }, freigeber2)).status).toBe(200);
-    const ohne = await post(`/berichte/${b.id}/stufe`, { stufe: STUFEN[1], ergebnis: "zurueck" }, freigeber3);
+    const b = await json(await post("/reports", { art: "lp_bericht", fondsId: F1, stichtag: "2025-12-31" }, freigeber));
+    expect((await post(`/reports/${b.id}/stage`, { stufe: STUFEN[0], ergebnis: "ok" }, freigeber2)).status).toBe(200);
+    const ohne = await post(`/reports/${b.id}/stage`, { stufe: STUFEN[1], ergebnis: "zurueck" }, freigeber3);
     expect(ohne.status).toBe(400);
-    const mit = await post(`/berichte/${b.id}/stufe`, { stufe: STUFEN[1], ergebnis: "zurueck", kommentar: "Zahlen prüfen" }, freigeber3);
+    const mit = await post(`/reports/${b.id}/stage`, { stufe: STUFEN[1], ergebnis: "zurueck", kommentar: "Zahlen prüfen" }, freigeber3);
     expect(mit.status).toBe(200);
     expect(await json(mit)).toMatchObject({ status: "entwurf", naechsteStufe: 0 });
   });
@@ -310,7 +312,7 @@ describe("Periodensperre bei Bewertungen, Runden und Verkaufs-Storno", () => {
     expect(sperrdatumAus(new Error("anders"))).toBeNull();
   });
 
-  it("die Antwort auf den Trigger-Fehler hat 409 PERIODE_GESPERRT mit gesperrtBis wie die API-Prüfung", async () => {
+  it("die Antwort auf den Trigger-Fehler hat 409 period_locked mit gesperrtBis wie die API-Prüfung", async () => {
     const r1 = await freigegeben("2025-03-31");
     await sperre("2025-06-30");
     const app = new Hono().onError(behandleFehler).get("/probe", async () => {
@@ -322,8 +324,8 @@ describe("Periodensperre bei Bewertungen, Runden und Verkaufs-Storno", () => {
   });
 
   it("Storno eines Verkaufs mit Datum in gesperrter Periode ist 409; außerhalb der Sperre gelingt es", async () => {
-    await post(`/beteiligungen/${E}/vorgaenge`, { art: "zusage", valuta: "2025-01-01", betrag: "1000000" }, bearbeiter);
-    await post(`/beteiligungen/${E}/vorgaenge`, { art: "auszahlung", valuta: "2025-02-01", betrag: "500000" }, bearbeiter);
+    await post(`/investments/${E}/transactions`, { type: "commitment", valueDate: "2025-01-01", amount: "1000000" }, bearbeiter);
+    await post(`/investments/${E}/transactions`, { type: "disbursement", valueDate: "2025-02-01", amount: "500000" }, bearbeiter);
     const alt = await json(await post(`/beteiligungen/${E}/verkauf`, { datum: "2025-05-31", kaufpreis: "700000", anteilVerkauft: 1 }, bearbeiter));
     expect(alt.verkauf.id).toBeTruthy();
     // Der Verkauf gehört zu Fonds Eins: wer nur an Fonds Zwei Freigeber ist, darf ihn nicht stornieren (Auflösung über den Verkauf).

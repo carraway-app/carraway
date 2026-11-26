@@ -31,9 +31,9 @@ export function PersonDialog({ organisationId, person, onSchliessen }: { organis
   const f = t.personForm;
   const titel = person ? f.titelBearbeiten : f.titelNeu;
 
-  // 409 DUBLETTE_MOEGLICH: ähnliche Personen zeigen, neu anlegen nur nach ausdrücklicher Bestätigung.
+  // 409 possible_duplicate: ähnliche Personen zeigen, neu anlegen nur nach ausdrücklicher Bestätigung.
   const kandidaten =
-    anlegen.error instanceof ApiFehler && anlegen.error.code === "DUBLETTE_MOEGLICH" && Array.isArray(anlegen.error.zusatz.kandidaten)
+    anlegen.error instanceof ApiFehler && anlegen.error.code === "possible_duplicate" && Array.isArray(anlegen.error.zusatz.kandidaten)
       ? (anlegen.error.zusatz.kandidaten as { id: string; vorname: string; nachname: string; email: string | null; grund: "email" | "name" }[])
       : null;
 

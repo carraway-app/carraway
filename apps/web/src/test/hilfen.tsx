@@ -1,8 +1,15 @@
+import { berichtAnApi, berichtBereich, berichtVonApi } from "@carraway/api/berichte-vertrag";
+import { fondsEnumVonApi } from "@carraway/api/fonds-vertrag";
+import { fondsFixtureAnApi, fondsFixturePfad, fondsFixtureVonApi } from "@carraway/api/__tests__/fonds-fixtures";
+import { portfolioFixtureAnApi, portfolioFixturePfad, portfolioFixtureVonApi } from "@carraway/api/__tests__/portfolio-fixtures";
+import { kontaktFixtureJson, kontaktFixtureUrl } from "@carraway/api/__tests__/kontakt-fixtures";
 import { render, screen } from "@testing-library/react";
 import { createMemoryHistory } from "@tanstack/react-router";
 import { vi } from "vitest";
 import type { Arbeitsdeal } from "../api/dealflow";
 import { istGruppe, type Gruppe } from "../api/crm";
+import type { BereichName } from "../api/abbildung";
+import { bereichAnApi, stufeAnApi } from "../api/abbildung-verwaltung";
 import { Anwendung } from "../anwendung";
 import { erstelleQueryClient, erstelleRouter } from "../router";
 
@@ -499,7 +506,7 @@ export const abgrenzungDaten = {
       schritte: [{ zeichen: "=", bezeichnung: "Abgrenzung (auf Cent, kaufmännisch)", wert: "15200.5" }],
       fehler: null,
     },
-    { beteiligungId: "b9", organisation: "Delta Optik", instrument: "darlehen", fehler: "Berechnung nicht möglich: Jahresüberschuss 2025 fehlt", fehlerCode: "BERECHNUNG_FEHLGESCHLAGEN", fehlerParams: { beteiligungId: "b9", grund: "Jahresüberschuss 2025 fehlt" } },
+    { beteiligungId: "b9", organisation: "Delta Optik", instrument: "darlehen", fehler: "Berechnung nicht möglich: Jahresüberschuss 2025 fehlt", fehlerCode: "calculation_failed", fehlerParams: { beteiligungId: "b9", grund: "Jahresüberschuss 2025 fehlt" } },
   ],
   summe: { offen: "12000.00", gesamt: "27200.50" },
 };
@@ -611,10 +618,35 @@ export const bewegungenDaten = {
   ],
 };
 /** Eine angemeldete Person ohne globale Verwaltung, mit den genannten Rollen am Standardfonds. */
+/** `/me` in der englischen Form der Schnittstelle (die Fixtures der Tests nennen die Begriffe der Oberfläche). */
+export const ichAlsApi = (i: typeof ichDaten & { investor?: boolean }) => ({
+  id: i.id,
+  name: i.name,
+  email: i.email,
+  technicalUser: i.technisch,
+  globalAdmin: i.globalVerwalter,
+  twoFactorEnabled: i.zweiFaktorAktiv,
+  passwordChangeRequired: i.passwortAendern,
+  twoFactorSetupRequired: i.zweiFaktorErforderlich,
+  roles: i.rollen.map((r) => ({ fundId: r.fondsId, role: stufeAnApi(r.rolle) })),
+  areas: i.bereiche == null ? null : i.bereiche.map((b) => bereichAnApi(b as BereichName)),
+  levelWithoutFund: i.stufeOhneFonds == null ? null : stufeAnApi(i.stufeOhneFonds),
+  areaLevelsPerFund:
+    i.bereicheJeFonds == null ? null : Object.fromEntries(Object.entries(i.bereicheJeFonds).map(([f, w]) => [f, Object.fromEntries(Object.entries(w).map(([b, s]) => [bereichAnApi(b as BereichName), stufeAnApi(s!)]))])),
+  levelWithoutFundPerArea: i.stufeOhneFondsJeBereich == null ? null : Object.fromEntries(Object.entries(i.stufeOhneFondsJeBereich).map(([b, s]) => [bereichAnApi(b as BereichName), stufeAnApi(s!)])),
+  investor: i.investor ?? false,
+});
 export const alsRolle = (rolle: "betrachter" | "bearbeiter" | "freigeber" | "verwalter", extra: Partial<typeof ichDaten> = {}) => ({
-  koerper: { ...ichDaten, globalVerwalter: false, rollen: [{ fondsId: FONDS_ID, rolle }], ...extra },
+  koerper: ichAlsApi({ ...ichDaten, globalVerwalter: false, rollen: [{ fondsId: FONDS_ID, rolle }], ...extra }),
 });
 export const umgebungDaten = { umgebung: "echt" as "demo" | "test" | "echt", einrichtungOffen: false, pseudonymisiert: false, anmeldung: { zweiFaktorPflicht: true, registrierungOffen: false, anbieter: [] as ("microsoft" | "google")[], passwortZuruecksetzen: false } };
+/** `/environment` in der englischen Form der Schnittstelle. */
+export const umgebungAlsApi = (u: typeof umgebungDaten) => ({
+  environment: u.umgebung === "echt" ? ("production" as const) : u.umgebung,
+  pseudonymized: u.pseudonymisiert,
+  setupOpen: u.einrichtungOffen,
+  signIn: { twoFactorRequired: u.anmeldung.zweiFaktorPflicht, registrationOpen: u.anmeldung.registrierungOffen, providers: u.anmeldung.anbieter, passwordResetAvailable: u.anmeldung.passwortZuruecksetzen },
+});
 
 // Etappe 5: Bewertungen, Runden, Berichte, Vorlagen ---------------------------------------------------------------------
 
@@ -769,7 +801,7 @@ export const vorlagenDaten = {
     { art: "exitliste", angepasst: false, konfiguration: { einheit: "EUR", abschnitte: ["liste"], kennzahlen: [], spalten: SPALTEN_EXIT }, erlaubt: erlaubt(["liste"], [], SPALTEN_EXIT) },
   ],
 };
-export const stufenDaten = { stufen: ["Investmentmanager", "Teamleitung", "Geschäftsführung"] };
+export const stufenDaten = { stages: ["Investmentmanager", "Teamleitung", "Geschäftsführung"] };
 
 // Etappe 10: Anteilsklassen, Kapitaltabelle, Exit-Wasserfall -------------------------------------------------------------------
 
@@ -1193,9 +1225,9 @@ export const crmStandardAntworten: Antworten = {
 
 export function spieleApi(abweichend: Antworten = {}) {
   const standard: Antworten = {
-    "/api/v1/ich": { koerper: ichDaten },
-    "/api/v1/umgebung": { koerper: umgebungDaten },
-    "/api/v1/thema": { koerper: { thema: "system" } },
+    "/api/v1/me": { koerper: ichAlsApi(ichDaten) },
+    "/api/v1/environment": { koerper: umgebungAlsApi(umgebungDaten) },
+    "/api/v1/theme": { koerper: { theme: "system" } },
     "/api/v1/fonds": { koerper: fondsDaten },
     [`/api/v1/fonds/${FONDS_ID}`]: { koerper: fondsDaten.daten[0] },
     [`/api/v1/fonds/${FONDS_ID}/uebersicht`]: { koerper: uebersichtDaten },
@@ -1220,13 +1252,13 @@ export function spieleApi(abweichend: Antworten = {}) {
     [`/api/v1/fonds/${FONDS_ID}/bewegungen/kapitalstand`]: { koerper: { quellenstand: "2026-10-01T10:11:12.345678Z", fonds: { abgerufen: "500.00", eingezahlt: "400.00", offen: "100.00", ueberfaellig: "0.00", ungeklaert: "0.00" }, konten: [] } },
     [`/api/v1/fonds/${FONDS_ID}/bewegungen`]: { koerper: bewegungenDaten },
     [`/api/v1/fonds/${FONDS_ID}/abgrenzung`]: { koerper: { ...abgrenzungDaten, darlehen: [], summe: { offen: "0.00", gesamt: "0.00" } } },
-    "/api/v1/benutzer/namen": { koerper: namenDaten },
+    "/api/v1/users/names": { koerper: namenDaten },
     [`/api/v1/fonds/${FONDS_ID}/kennzahlen/auswahl`]: { koerper: { daten: [] } },
-    [`/api/v1/fonds/${FONDS_ID}/buchungsregeln`]: { koerper: { daten: [] } },
-    "/api/v1/dokumente": { koerper: { daten: [] } },
-    [`/api/v1/beteiligungen/${BET_ID}/buchhaltungsschluessel`]: { koerper: { beteiligungId: BET_ID, projektnummer: null, vertragsnummer: null, partnernummer: null, buchungskreis: null, foerderprogramm: null, foerderprogrammBezeichnung: null, geaendertVon: null, geaendertAm: null, organisationId: ORG_A, sitzland: null, region: null } },
-    "/api/v1/foerderprogramme": { koerper: { daten: [{ id: "00000000-0000-4000-8000-0000000000e1", schluessel: "demo_wachstum", bezeichnung: "Beispielprogramm Wachstum", erstelltVon: "demo", erstelltAm: "2026-01-01T00:00:00.000Z" }] } },
-    "/api/v1/ki/status": { koerper: { aktiv: false, anbieter: "aus", region: null, modell: null } },
+    [`/api/v1/funds/${FONDS_ID}/posting-rules`]: { koerper: { data: [] } },
+    "/api/v1/documents": { koerper: { daten: [] } },
+    [`/api/v1/investments/${BET_ID}/accounting-keys`]: { koerper: { investmentId: BET_ID, projectNumber: null, contractNumber: null, partnerNumber: null, companyCode: null, fundingProgram: null, fundingProgramLabel: null, updatedBy: null, updatedAt: null, organizationId: ORG_A, countryOfDomicile: null, region: null } },
+    "/api/v1/funding-programs": { koerper: { daten: [{ id: "00000000-0000-4000-8000-0000000000e1", schluessel: "demo_wachstum", bezeichnung: "Beispielprogramm Wachstum", erstelltVon: "demo", erstelltAm: "2026-01-01T00:00:00.000Z" }] } },
+    "/api/v1/ai/status": { koerper: { aktiv: false, anbieter: "aus", region: null, modell: null } },
     ...crmStandardAntworten,
     [`/api/v1/beteiligungen/${BET_ID}/bewertungen`]: { koerper: bewertungenDaten },
     [`/api/v1/beteiligungen/${BET_ID}/kapitaltabelle`]: { koerper: kapitalDaten },
@@ -1235,47 +1267,185 @@ export function spieleApi(abweichend: Antworten = {}) {
     [`/api/v1/organisationen/${ORG_A}/anteilsklassen`]: { koerper: anteilsklassenDaten },
     [`/api/v1/organisationen/${ORG_A}/mitarbeiterpools`]: { koerper: mitarbeiterpoolDaten },
     [`/api/v1/organisationen/${ORG_A}/finanzierungsrunden`]: { koerper: { daten: [] } },
+    [`/api/v1/organisationen/${ORG_A}/share-transfers`]: { koerper: { data: [] } },
     [`/api/v1/organisationen/${ORG_A}/rundentransaktionen`]: { koerper: { organisationId: ORG_A, runden: [], ohneRunde: [] } },
     [`/api/v1/fonds/${FONDS_ID}/bewertungsrunden`]: { koerper: rundenListeDaten },
     [`/api/v1/bewertungsrunden/${RUNDE_ID}`]: { koerper: rundeDetailDaten },
-    "/api/v1/berichte": { koerper: berichtListeDaten },
-    [`/api/v1/berichte/${BERICHT_ID}`]: { koerper: berichtDetailDaten },
-    [`/api/v1/berichte/${BERICHT_ID}/kontrolle`]: { koerper: berichtKontrolleGruen },
-    [`/api/v1/fonds/${FONDS_ID}/berichtsvorlagen`]: { koerper: vorlagenDaten },
-    [`/api/v1/fonds/${FONDS_ID}/freigabestufen`]: { koerper: stufenDaten },
+    "/api/v1/reports": { koerper: berichtListeDaten },
+    [`/api/v1/reports/${BERICHT_ID}`]: { koerper: berichtDetailDaten },
+    [`/api/v1/reports/${BERICHT_ID}/checks`]: { koerper: berichtKontrolleGruen },
+    [`/api/v1/funds/${FONDS_ID}/report-templates`]: { koerper: vorlagenDaten },
+    [`/api/v1/funds/${FONDS_ID}/approval-stages`]: { koerper: stufenDaten },
     "/api/v1/zinslaeufe": { koerper: zinslaufListeDaten },
     [`/api/v1/zinslaeufe/${ZL_ID}`]: { koerper: zinslaufDaten },
     [`/api/v1/zinslaeufe/${ZL_ID}/kontrolle`]: { koerper: kontrolleDaten },
   };
-  const antworten = { ...standard, ...abweichend };
+  const fixturePfad = (pfad: string) => {
+    if (berichtBereich(pfad) || kontaktFixtureUrl(pfad, true)) return pfad;
+    const fonds = fondsFixturePfad(pfad);
+    if (fonds.fonds) return fonds.pfad;
+    return kontaktFixtureUrl(pfad, false)?.pfad ?? fondsFixturePfad(portfolioFixturePfad(pfad).pfad).pfad;
+  };
+  const antworten = Object.fromEntries(Object.entries({ ...standard, ...abweichend }).map(([k, v]) => {
+    const match = k.match(/^([A-Z]+ )?(.*)$/)!;
+    return [(match[1] ?? "") + fixturePfad(match[2]!), v];
+  }));
   const aufrufe: Anfrage[] = [];
   const mock = vi.fn(async (eingabe: RequestInfo | URL, init?: RequestInit) => {
     const anfrage = new Request(eingabe instanceof URL ? eingabe.href : eingabe, init);
     const url = new URL(anfrage.url);
     const formular = init?.body instanceof FormData ? init.body : undefined;
     const text = formular ? "" : await anfrage.clone().text();
-    const aufruf: Anfrage = { methode: anfrage.method, pfad: url.pathname, query: url.searchParams, koerper: text ? JSON.parse(text) : undefined, ...(formular ? { formular } : {}), credentials: anfrage.credentials };
+    const bereich = berichtBereich(url.pathname);
+    const fixture = bereich ? undefined : kontaktFixtureUrl(url.pathname + url.search, false);
+    const { format } = portfolioFixturePfad(url.pathname, true);
+    const roh: unknown = text ? JSON.parse(text) : undefined;
+    const fonds = !bereich && fondsFixturePfad(url.pathname).fonds;
+    const koerper = bereich ? berichtVonApi(bereich, roh) : fonds ? fondsFixtureVonApi(roh) : fixture ? kontaktFixtureJson(roh, false, fixture.crm) : portfolioFixtureVonApi(roh, format);
+    const query = bereich ? new URLSearchParams(berichtVonApi(bereich, Object.fromEntries(url.searchParams))) : fonds ? new URLSearchParams(fondsFixtureVonApi(Object.fromEntries(url.searchParams)) as Record<string, string>) : fixture?.query ?? (format === "portfolio"
+      ? new URLSearchParams(portfolioFixtureVonApi(Object.fromEntries(url.searchParams), format) as Record<string, string>)
+      : url.searchParams);
+    if (fonds && query.has("typ")) query.set("typ", query.get("typ")!.split(",").map(fondsEnumVonApi).join(","));
+    const aufruf: Anfrage = { methode: anfrage.method, pfad: fonds ? url.pathname : fixture?.pfad ?? url.pathname, query, koerper, ...(formular ? { formular } : {}), credentials: anfrage.credentials };
     aufrufe.push(aufruf);
-    const treffer = antworten[`${anfrage.method} ${url.pathname}`] ?? antworten[url.pathname];
-    if (!treffer) return Response.json({ fehler: { code: "NICHT_GEFUNDEN", meldung: "weg" } }, { status: 404 });
+    const treffer = antworten[`${anfrage.method} ${aufruf.pfad}`] ?? antworten[aufruf.pfad];
+    if (!treffer) return Response.json({ error: { code: "not_found", message: "weg" } }, { status: 404 });
     const antwort = typeof treffer === "function" ? await treffer(aufruf) : treffer;
     // 204 hat keinen Körper.
     if (antwort.status === 204) return new Response(null, { status: 204 });
-    return Response.json(antwort.koerper, { status: antwort.status ?? 200, ...(antwort.kopf ? { headers: antwort.kopf } : {}) });
+    const gruppe = (aufruf.koerper as { gruppe?: string } | undefined)?.gruppe;
+    const koerperApi = bereich ? berichtAnApi(bereich, antwort.koerper) : fonds ? fondsFixtureAnApi(antwort.koerper) : fixture
+      ? kontaktFixtureJson(antwort.koerper, true, fixture.crm, gruppe)
+      : portfolioFixtureAnApi((antwort.status ?? 200) < 400 ? alsApiAntwort(anfrage.method, url.pathname, antwort.koerper) : antwort.koerper, format);
+    return Response.json(koerperApi, { status: antwort.status ?? 200, ...(antwort.kopf ? { headers: antwort.kopf } : {}) });
   });
   vi.stubGlobal("fetch", mock);
   return Object.assign(mock, {
     aufrufe,
     /** Alle Anfragen mit dieser Methode und diesem Pfad. */
-    anfragen: (methode: string, pfad: string) => aufrufe.filter((a) => a.methode === methode && a.pfad === pfad),
+    anfragen: (methode: string, pfad: string) => aufrufe.filter((a) => a.methode === methode && a.pfad === fixturePfad(pfad)),
   });
 }
 
+// Antworten in der englischen Form der Schnittstelle ----------------------------------------------------------------------
+// Die Fixtures der Tests nennen die Begriffe der Oberfläche (`rollen`, `aktiv` …), wie die Seiten sie verwenden; die Schnittstelle antwortet
+// englisch (Issue 184). `alsApiAntwort` übersetzt die Körper der betroffenen Routen beim Ausliefern, Fixtures, die schon englisch sind, bleiben
+// unverändert. Anfragen zeichnen die Tests dagegen so auf, wie die Oberfläche sie sendet (englisch).
+
+type Roh = Record<string, unknown>;
+const stufeApi = (r: unknown) => stufeAnApi(r as "betrachter");
+const mitDaten = (k: Roh, f: (z: Roh) => Roh) => (Array.isArray(k.daten) ? { data: (k.daten as Roh[]).map(f) } : k);
+const benutzerApi = (b: Roh) =>
+  "active" in b
+    ? b
+    : {
+        id: b.id,
+        name: b.name,
+        email: b.email,
+        active: b.aktiv,
+        technicalUser: b.technisch,
+        globalAdmin: b.globalVerwalter,
+        twoFactorEnabled: b.zweiFaktorAktiv,
+        passwordChangeRequired: b.passwortAendern,
+        invitationPending: b.einladungOffen,
+        roles: ((b.rollen ?? []) as Roh[]).map((r) => ({ fundId: r.fondsId, role: stufeApi(r.rolle) })),
+        groupIds: b.gruppen ?? [],
+      };
+const schluesselApi = (z: Roh) =>
+  "expiresAt" in z
+    ? z
+    : {
+        id: z.id,
+        name: z.name,
+        userId: z.benutzerId,
+        preview: z.vorschau,
+        scopes: ((z.scopes ?? []) as Roh[]).map((x) => ({ fundId: x.fondsId, permission: x.recht === "lesen" ? "read" : "write" })),
+        fundIds: z.fondsIds,
+        expiresAt: z.ablauf,
+        createdAt: z.erstelltAm,
+        lastUsedAt: z.zuletztGenutzt,
+        revokedAt: z.widerrufenAm,
+        status: ({ aktiv: "active", abgelaufen: "expired", widerrufen: "revoked" } as Record<string, string>)[z.status as string] ?? z.status,
+        ...(z.schluessel === undefined ? {} : { key: z.schluessel }),
+      };
+const rueckstandApi = (r: unknown) => (r === null || r === undefined ? r : { count: (r as Roh).anzahl, oldestSeconds: (r as Roh).aeltesterSekunden });
+
+function alsApiAntwort(methode: string, pfad: string, k: unknown): unknown {
+  if (Array.isArray(k) && pfad === "/api/v1/account/sessions") {
+    return (k as Roh[]).map((x) => ("current" in x ? x : { id: x.id, current: x.aktuell, createdAt: x.erstelltAm, lastActiveAt: x.zuletztAktivAm, expiresAt: x.laeuftAbAm, ip: x.ip, device: x.geraet }));
+  }
+  if (k === null || typeof k !== "object" || Array.isArray(k)) return k;
+  const o = k as Roh;
+  const p = pfad.replace("/api/v1", "");
+  if (p === "/me" && !("roles" in o)) return ichAlsApi(o as never);
+  if (p === "/environment" && !("environment" in o)) return umgebungAlsApi(o as never);
+  if (p === "/theme" && "thema" in o) return { theme: ({ system: "system", hell: "light", dunkel: "dark" } as Record<string, string>)[o.thema as string] };
+  if (p === "/users/names") return mitDaten(o, (z) => z);
+  if (p === "/users" && methode === "GET") return mitDaten(o, benutzerApi);
+  if (/^\/users(\/[^/]+)?$/.test(p) && methode !== "GET" && "aktiv" in o)
+    return { id: o.id, name: o.name, email: o.email, active: o.aktiv, globalAdmin: o.globalVerwalter, ...("einladung" in o ? { invited: o.einladung } : {}) };
+  if (/^\/funds\/[^/]+\/roles$/.test(p)) return mitDaten(o, (z) => ("userId" in z ? z : { userId: z.benutzerId, name: z.name, email: z.email, active: z.aktiv, role: stufeApi(z.rolle) }));
+  if (/^\/funds\/[^/]+\/roles\/[^/]+$/.test(p) && "rolle" in o) return { userId: o.benutzerId, fundId: o.fondsId, role: stufeApi(o.rolle) };
+  if (p === "/api-keys" && methode === "GET") return mitDaten(o, schluesselApi);
+  if (/^\/api-keys(\/[^/]+)?$/.test(p) && "ablauf" in o) return schluesselApi(o);
+  if (p === "/value-keys" && methode === "GET") return mitDaten(o, schluesselApi);
+  if (/^\/value-keys(\/[^/]+)?$/.test(p) && "ablauf" in o) return schluesselApi(o);
+  if (p === "/account/security" && "passwortVorhanden" in o)
+    return { passwordSet: o.passwortVorhanden, passwordChangedAt: o.passwortGeaendertAm, providers: o.anbieter, twoFactorEnabled: o.zweiFaktorAktiv, twoFactorRequired: o.zweiFaktorPflicht, recoveryCodesRemaining: o.codesUebrig, sessionCount: o.sitzungenAnzahl };
+  if (p === "/account/password" && "andereSitzungenBeendet" in o) return { ok: true, otherSessionsEnded: o.andereSitzungenBeendet };
+  if (p === "/account/two-factor/restart" && "backupCodes" in o) return { totpUri: o.totpURI, recoveryCodes: o.backupCodes, expiresInSeconds: o.ablaufSekunden };
+  if (p === "/account/recovery-codes" && "backupCodes" in o) return { recoveryCodes: o.backupCodes };
+  if (p === "/operations/status" && "ampel" in o) {
+    const b = o as { ampel: string; erzeugtAm: string; datenbank: Roh; migrationen: Roh; worker: Roh; rueckstaende: Roh; speicher: Roh; smtp: Roh; erweiterungen: Roh };
+    return {
+      status: ({ ok: "ok", warnung: "warning", fehler: "error" } as Record<string, string>)[b.ampel],
+      generatedAt: b.erzeugtAm,
+      database: { reachable: b.datenbank.erreichbar },
+      migrations: { ok: b.migrationen.ok, known: b.migrationen.bekannt, applied: b.migrationen.angewendet, message: b.migrationen.meldung },
+      worker: { status: ({ ok: "ok", ausgefallen: "down", unbekannt: "unknown" } as Record<string, string>)[b.worker.status as string], heartbeatAgeSeconds: b.worker.herzschlagAlterSekunden, thresholdSeconds: b.worker.grenzeSekunden },
+      backlogs: { snapshots: rueckstandApi(b.rueckstaende.snapshots), mail: rueckstandApi(b.rueckstaende.mail), extraction: rueckstandApi(b.rueckstaende.auslesung), register: rueckstandApi(b.rueckstaende.register), warningSeconds: b.rueckstaende.warnungSekunden },
+      storage: { writable: b.speicher.beschreibbar },
+      smtp: { configured: b.smtp.konfiguriert },
+      extensions: Object.fromEntries(Object.entries(b.erweiterungen ?? {}).map(([n, w]) => [n, "anbieter" in (w as Roh) ? { provider: (w as Roh).anbieter } : w])),
+    };
+  }
+  if (p === "/settings" && "sprache" in o) return { language: o.sprache, mailOnReportApproved: o.mailBerichtFreigegeben, mailOnRegisterEvent: o.mailRegisterEreignis, mailAvailable: o.mailVerfuegbar };
+  if (p === "/settings/calendar-link" && "aktiv" in o) return { active: o.aktiv, createdAt: o.erstelltAm, lastAccessAt: o.letzterZugriffAm };
+  if (p === "/settings/calendar-link" && "pfad" in o) return { token: o.token, path: o.pfad, url: o.url };
+  if (p === "/permissions" && "fondsOffen" in o) {
+    const r = o as { fondsOffen: boolean; bereiche: string[]; rollen: Roh[]; gruppen: Roh[] };
+    const b = (l: unknown) => ((l ?? []) as string[]).map((x) => bereichAnApi(x as BereichName));
+    const jeBereich = (w: unknown) => Object.fromEntries(Object.entries((w ?? {}) as Record<string, string>).map(([k2, v]) => [bereichAnApi(k2 as BereichName), stufeApi(v)]));
+    return {
+      fundsOpen: r.fondsOffen,
+      areas: b(r.bereiche),
+      roles: r.rollen.map((x) => ({ id: x.id, name: x.name, description: x.beschreibung, areas: b(x.bereiche), areaLevels: jeBereich(x.bereichStufen), createdAt: x.erstelltAm })),
+      groups: r.gruppen.map((g) => ({
+        id: g.id,
+        name: g.name,
+        description: g.beschreibung,
+        level: stufeApi(g.stufe),
+        fundsRestricted: g.fondsBeschraenkt,
+        areasPerFund: g.bereicheJeFonds,
+        fundIds: g.fondsIds,
+        fundAreas: Object.fromEntries(Object.entries((g.fondsBereiche ?? {}) as Record<string, string[]>).map(([f, l]) => [f, b(l)])),
+        roleIds: g.rollenIds,
+        memberIds: g.mitglieder,
+        createdAt: g.erstelltAm,
+      })),
+    };
+  }
+  return k;
+}
+
 /** Fehlerantwort der API im einheitlichen Format. */
-export const fehler = (status: number, code: string, zusatz: Record<string, unknown> = {}): Antwort => ({
-  status,
-  koerper: { fehler: { code, meldung: code, ...zusatz } },
-});
+export const fehler = (status: number, code: string, zusatz: Record<string, unknown> = {}): Antwort => {
+  // Feldfehler schreiben die Tests wie die Oberfläche (`{ feld, code, meldung }`); die API schickt sie als `fields: [{ field, code, message }]`.
+  const { felder, ...rest } = zusatz as { felder?: unknown };
+  const feldfehler = Array.isArray(felder) && felder.length > 0 && felder.every((f) => typeof (f as { feld?: unknown })?.feld === "string");
+  const fields = feldfehler ? (felder as { feld: string; code: string; meldung?: string }[]).map((f) => ({ field: f.feld, code: f.code, message: f.meldung ?? "" })) : undefined;
+  return { status, koerper: { error: { code, message: code, ...(fields ? { fields } : felder !== undefined ? { felder } : {}), ...rest } } };
+};
 
 /** Fehlerantwort von Better Auth (`/auth/*`): `{ code, message }` auf oberster Ebene. */
 export const authFehler = (status: number, code: string): Antwort => ({ status, koerper: { code, message: code } });

@@ -28,19 +28,19 @@ export const istDarlehensartig = (instrument: string) => (DARLEHENSARTIG as read
 /** Lädt die Beteiligung und sperrt die Zeile bis zum Ende der Transaktion (serialisiert alle Schreibwege je Beteiligung). */
 export async function sperreBeteiligung(tx: Tx, id: string): Promise<BeteiligungZeile> {
   const [zeile] = await tx.select().from(beteiligung).where(eq(beteiligung.id, id)).for("update");
-  if (!zeile) throw new Fachfehler(404, "BETEILIGUNG_NICHT_GEFUNDEN", "Beteiligung nicht gefunden.");
+  if (!zeile) throw new Fachfehler(404, "investment_not_found", "Investment not found.");
   return zeile;
 }
 
 export function verlangeAktiv(b: BeteiligungZeile) {
-  if (b.status !== "aktiv") throw new Fachfehler(409, "BETEILIGUNG_NICHT_AKTIV", "Die Beteiligung ist nicht aktiv.", { status: b.status });
+  if (b.status !== "aktiv") throw new Fachfehler(409, "investment_not_active", "The investment is not active.", { status: b.status });
 }
 
 /** `art` ist die Art des Instruments (bei der Beteiligung ohne weitere Angabe: ihr Hauptinstrument). */
 export function verlangeDarlehensartig(b: { instrument: string } | string) {
   const art = typeof b === "string" ? b : b.instrument;
   if (!istDarlehensartig(art)) {
-    throw new Fachfehler(409, "INSTRUMENT_PASST_NICHT", "Das Instrument erlaubt diesen Vorgang nicht.", { instrument: art });
+    throw new Fachfehler(409, "instrument_mismatch", "The instrument does not allow this transaction.", { instrument: art });
   }
 }
 
@@ -124,23 +124,23 @@ export function buchwertVon(z: Zustand) {
 export const offenesKapital = (z: Zustand) => z.investiert.plus(z.kapitalisiert).minus(z.tilgungen);
 
 /** Übersetzt einen Rechenkern-Fehler (reiner `Error`) in einen Fachfehler, der die Beteiligung nennt. */
-export function alsFachfehler<T>(beteiligungId: string, fn: () => T, code: "KAPITALVERLAUF_UNGUELTIG" | "BERECHNUNG_FEHLGESCHLAGEN" = "BERECHNUNG_FEHLGESCHLAGEN"): T {
+export function alsFachfehler<T>(beteiligungId: string, fn: () => T, code: "capital_history_invalid" | "calculation_failed" = "calculation_failed"): T {
   try {
     return fn();
   } catch (fehler) {
     if (fehler instanceof Fachfehler) throw fehler;
     const grund = fehler instanceof Error ? fehler.message : String(fehler);
-    throw new Fachfehler(409, code, `Berechnung nicht möglich: ${grund}`, { beteiligungId, grund });
+    throw new Fachfehler(409, code, `Calculation not possible: ${grund}`, { beteiligungId, grund });
   }
 }
 
 export function pruefeKapitalverlauf(beteiligungId: string, z: Zustand) {
-  alsFachfehler(beteiligungId, () => kapitalverlauf(z.bewegungen), "KAPITALVERLAUF_UNGUELTIG");
+  alsFachfehler(beteiligungId, () => kapitalverlauf(z.bewegungen), "capital_history_invalid");
 }
 
 export function pruefeAuszahlungGegenZusage(z: Zustand) {
   if (z.investiert.greaterThan(z.zusage)) {
-    throw new Fachfehler(409, "AUSZAHLUNG_UEBER_ZUSAGE", "Die Auszahlungen würden die Zusage übersteigen.", {
+    throw new Fachfehler(409, "disbursement_exceeds_commitment", "The disbursements would exceed the commitment.", {
       zusage: z.zusage.toFixed(2),
       investiert: z.investiert.toFixed(2),
     });
@@ -150,10 +150,10 @@ export function pruefeAuszahlungGegenZusage(z: Zustand) {
 export function pruefeWertberichtigung(z: Zustand) {
   const buch = buchwertVon(z).wert;
   if (buch.isNegative()) {
-    throw new Fachfehler(409, "BUCHWERT_NEGATIV", "Der Buchwert würde unter null fallen.", { buchwert: buch.toFixed(2) });
+    throw new Fachfehler(409, "book_value_negative", "The book value would fall below zero.", { buchwert: buch.toFixed(2) });
   }
   if (z.wertberichtigungen.isNegative()) {
-    throw new Fachfehler(409, "AUFLOESUNG_UEBER_BERICHTIGUNG", "Die Auflösung übersteigt die bisherigen Wertberichtigungen.", {
+    throw new Fachfehler(409, "release_exceeds_adjustment", "The release exceeds the previous impairments.", {
       wertberichtigungen: z.wertberichtigungen.plus(0).toFixed(2),
     });
   }
@@ -181,20 +181,20 @@ export function pruefeInstrumentInvarianten(beteiligungId: string, art: string, 
   pruefeAuszahlungGegenZusage(danach);
   if (istDarlehensartig(art)) pruefeKapitalverlauf(beteiligungId, danach);
   const buch = buchwertVon(gesamt).wert;
-  if (buch.isNegative()) throw new Fachfehler(409, "BUCHWERT_NEGATIV", "Der Buchwert würde unter null fallen.", { buchwert: buch.toFixed(2) });
+  if (buch.isNegative()) throw new Fachfehler(409, "book_value_negative", "The book value would fall below zero.", { buchwert: buch.toFixed(2) });
   if (danach.wertberichtigungen.isNegative()) {
-    throw new Fachfehler(409, "AUFLOESUNG_UEBER_BERICHTIGUNG", "Die Auflösung übersteigt die bisherigen Wertberichtigungen.", { wertberichtigungen: danach.wertberichtigungen.plus(0).toFixed(2) });
+    throw new Fachfehler(409, "release_exceeds_adjustment", "The release exceeds the previous impairments.", { wertberichtigungen: danach.wertberichtigungen.plus(0).toFixed(2) });
   }
 }
 
 /**
- * Periodensperre (Etappe 8): die Valuta liegt am oder vor dem Sperrdatum des Fonds → 409 `PERIODE_GESPERRT`.
+ * Periodensperre (Etappe 8): die Valuta liegt am oder vor dem Sperrdatum des Fonds → 409 `period_locked`.
  * Jeder Buchungsweg ruft das vor dem Schreiben auf; zusätzlich greift der Trigger in der Datenbank (Migration 0012),
  * falls ein Weg die Prüfung vergisst oder direkt in die Datenbank geschrieben wird.
  */
 export async function pruefePeriodensperre(tx: Tx, fondsId: string, valuta: string): Promise<void> {
   const [sperre] = await tx.select({ bis: periodensperre.gesperrtBis }).from(periodensperre).where(eq(periodensperre.fondsId, fondsId));
   if (sperre && valuta <= sperre.bis) {
-    throw new Fachfehler(409, "PERIODE_GESPERRT", `Die Periode ist bis ${sperre.bis} gesperrt; die Valuta ${valuta} ist nicht buchbar.`, { gesperrtBis: sperre.bis, valuta });
+    throw new Fachfehler(409, "period_locked", `The period is locked until ${sperre.bis}; the value date ${valuta} cannot be booked.`, { gesperrtBis: sperre.bis, valuta });
   }
 }

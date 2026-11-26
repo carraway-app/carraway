@@ -27,16 +27,16 @@ export async function pruefeStichtag(tx: Tx, fondsId: string, stichtag: string, 
   const zuSpaet = stichtag > obergrenze;
   const zuFrueh = untergrenze !== null && stichtag < untergrenze;
   if (zuSpaet || zuFrueh) {
-    throw new Fachfehler(400, "EINGABE_UNGUELTIG", "Die Eingabe ist ungültig.", {
+    throw new Fachfehler(400, "invalid_input", "The input is invalid.", {
       felder: [
         {
           feld,
-          code: "stichtag_ausserhalb",
+          code: "as_of_out_of_range",
           meldung: zuSpaet
             ? optionen.nichtNachHeute
-              ? `Das Datum darf nicht nach heute liegen (${obergrenze})`
-              : `Der Stichtag darf höchstens ${MAX_TAGE_IN_DIE_ZUKUNFT} Tage nach heute liegen (bis ${obergrenze})`
-            : `Der Stichtag liegt vor dem ersten Vorgang oder der ersten Fondsbewegung des Fonds (${untergrenze})`,
+              ? `The date must not be after today (${obergrenze})`
+              : `The as-of date may be at most ${MAX_TAGE_IN_DIE_ZUKUNFT} days after today (until ${obergrenze})`
+            : `The as-of date is before the first transaction or the first fund movement of the fund (${untergrenze})`,
         },
       ],
     });
@@ -54,8 +54,8 @@ export function pruefeDatumsfenster(feld: string, datum: string, fenster: { von?
   const von = fenster.von ?? "1900-01-01";
   const bis = fenster.bis ?? plusTage(heute(), FENSTER_JAHRE * 366);
   if (datum < von || datum > bis) {
-    throw new Fachfehler(400, "EINGABE_UNGUELTIG", "Die Eingabe ist ungültig.", {
-      felder: [{ feld, code: "datum_ausserhalb", meldung: `Das Datum muss zwischen ${von} und ${bis} liegen` }],
+    throw new Fachfehler(400, "invalid_input", "The input is invalid.", {
+      felder: [{ feld, code: "date_out_of_range", meldung: `The date must be between ${von} and ${bis}` }],
     });
   }
 }

@@ -37,12 +37,12 @@ export interface VorbereitetesDokument {
 
 /** Prüft, schreibt die Datei in die Ablage und zieht den Text. Wirft `Fachfehler` bei unzulässigen Dateien; legt noch nichts in der Datenbank an. */
 export async function bereiteVor(speicher: Speicher, bytes: Uint8Array, roherName: string): Promise<VorbereitetesDokument> {
-  if (bytes.length > MAX_DOKUMENT) throw new Fachfehler(413, "DOKUMENT_ZU_GROSS", `Das Dokument ist größer als ${MAX_DOKUMENT / 1024 / 1024} MB.`);
+  if (bytes.length > MAX_DOKUMENT) throw new Fachfehler(413, "document_too_large", `The document is larger than ${MAX_DOKUMENT / 1024 / 1024} MB.`);
   const erkannt = pruefeDokument(bytes);
   // Office-Dateien liest der Worker aus (`nachverarbeitung.ts`), nie die Anfrage; Bilder bleiben ohne Auszug.
   const auszug = erkannt.art === "pdf" ? await extrahiereSeiten(bytes) : null;
   if (auszug?.status === "fehler" && auszug.grund === "verschluesselt") {
-    throw new Fachfehler(422, "PDF_VERSCHLUESSELT", "Verschlüsselte oder passwortgeschützte PDF-Dateien werden nicht angenommen. Bitte ohne Passwort speichern und erneut hochladen.");
+    throw new Fachfehler(422, "pdf_encrypted", "Encrypted or password-protected PDF files are not accepted. Please save without a password and upload again.");
   }
   const hash = sha256(bytes);
   await speicher.schreibe(dokumentSchluessel(hash), bytes);

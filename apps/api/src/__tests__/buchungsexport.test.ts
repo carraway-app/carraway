@@ -39,8 +39,8 @@ const KONDITION = { gueltigAb: "2025-01-01", satzFix: "0.06", methode: "30E/360"
 /** Zwei Darlehen (je 100.000 am 01.01.2025, 6 %): ein Zinslauf zum 01.01.2026 ergibt zwei Zinsbuchungen zu je 6.000,00. */
 async function zinslaufGebucht(stichtag = "2026-01-01"): Promise<string> {
   for (const b of [ID.darlehen, ID.wandel]) {
-    await post(`/beteiligungen/${b}/vorgaenge`, { art: "zusage", valuta: "2025-01-01", betrag: "200000" });
-    await post(`/beteiligungen/${b}/vorgaenge`, { art: "auszahlung", valuta: "2025-01-01", betrag: "100000" });
+    await post(`/investments/${b}/transactions`, { type: "commitment", valueDate: "2025-01-01", amount: "200000" });
+    await post(`/investments/${b}/transactions`, { type: "disbursement", valueDate: "2025-01-01", amount: "100000" });
     await post(`/beteiligungen/${b}/konditionen`, KONDITION);
   }
   const lauf = await json(await post("/zinslaeufe", { fondsId: F1, stichtag }, "rechner"));
@@ -55,8 +55,8 @@ const regeln = () =>
     { fondsId: F1, quelle: "zins", konto: "1200", gegenkonto: "4200", richtung: "S", buSchluessel: null, buchungstext: "Zins {organisation} {valuta}", geaendertVon: "test" },
     { fondsId: F1, quelle: "auszahlung", konto: "0150", gegenkonto: "1200", richtung: "S", buSchluessel: null, buchungstext: "Auszahlung {organisation}", geaendertVon: "test" },
   ]);
-const exportieren = (als: Testperson, body: object) => anfrage("POST", `/fonds/${F1}/buchungsexport`, als, body);
-const vorschau = (als: Testperson, body: object) => anfrage("POST", `/fonds/${F1}/buchungsexport/vorschau`, als, body);
+const exportieren = (als: Testperson, body: object) => anfrage("POST", `/funds/${F1}/posting-exports`, als, body);
+const vorschau = (als: Testperson, body: object) => anfrage("POST", `/funds/${F1}/posting-exports/preview`, als, body);
 const dekodiere = (bytes: Uint8Array) => new TextDecoder("windows-1252").decode(bytes);
 
 beforeEach(async () => {
@@ -75,15 +75,15 @@ afterAll(async () => {
 describe("Vorschau", () => {
   it("zeigt Konten, Belegfeld und Buchungstext je Vorgang und schreibt nichts", async () => {
     const lauf = await zinslaufGebucht();
-    const v = await json(await vorschau(bearbeiter, { zinslaufId: lauf }));
-    expect(v).toMatchObject({ datumVon: "2026-01-01", datumBis: "2026-01-01", wirtschaftsjahrBeginn: "2026-01-01", sachkontenlaenge: 4, anzahl: 2, probleme: [] });
-    expect(v.zeilen).toHaveLength(2);
-    expect(v.zeilen[0]).toMatchObject({ art: "zins", betrag: "6000.00", konto: "1200", gegenkonto: "4200", richtung: "S", mitBeleg: false, bereitsExportiert: false });
-    expect(v.zeilen[0].belegfeld).toMatch(/^FND-[0-9A-F]{8}$/);
-    expect(v.zeilen.map((z: { buchungstext: string }) => z.buchungstext).sort()).toEqual(["Zins Beta Beispiel 2026-01-01", "Zins Gamma Beispiel 2026-01-01"]);
-    expect(v.ohneBeleg).toHaveLength(2);
+    const v = await json(await vorschau(bearbeiter, { interestRunId: lauf }));
+    expect(v).toMatchObject({ dateFrom: "2026-01-01", dateTo: "2026-01-01", fiscalYearStart: "2026-01-01", accountNumberLength: 4, count: 2, issues: [] });
+    expect(v.rows).toHaveLength(2);
+    expect(v.rows[0]).toMatchObject({ type: "interest", amount: "6000.00", account: "1200", contraAccount: "4200", direction: "debit", hasVoucher: false, alreadyExported: false });
+    expect(v.rows[0].voucherField).toMatch(/^FND-[0-9A-F]{8}$/);
+    expect(v.rows.map((z: { postingText: string }) => z.postingText).sort()).toEqual(["Zins Beta Beispiel 2026-01-01", "Zins Gamma Beispiel 2026-01-01"]);
+    expect(v.withoutVoucher).toHaveLength(2);
     expect(await db.select().from(s.buchungsexport)).toHaveLength(0);
-    expect((await vorschau(betrachter, { zinslaufId: lauf })).status).toBe(403);
+    expect((await vorschau(betrachter, { interestRunId: lauf })).status).toBe(403);
   });
 });
 
@@ -92,14 +92,14 @@ describe("Export", () => {
     const lauf = await zinslaufGebucht();
     // freigegebener Beleg zum Zinslauf: sein Belegnummer steht im Belegfeld
     await db.insert(s.beleg).values({ fondsId: F1, art: "zinsbuchung", bezugArt: "zinslauf", bezugId: lauf, sprache: "de", status: "freigegeben", vorlage: {}, daten: {}, belegnummer: "B-000042", belegnummerLfd: 42, erstelltVon: "x" });
-    const antwort = await exportieren(bearbeiter, { zinslaufId: lauf });
+    const antwort = await exportieren(bearbeiter, { interestRunId: lauf });
     expect(antwort.status).toBe(201);
     const x = await json(antwort);
-    expect(x).toMatchObject({ anzahl: 2, summe: "12000.00", wiederholung: false, formatVersion: "EXTF 700 / Buchungsstapel 13", ohneBeleg: [] });
-    const datei = await anfrage("GET", `/buchungsexporte/${x.id}/datei`, bearbeiter);
+    expect(x).toMatchObject({ count: 2, sum: "12000.00", repeat: false, formatVersion: "EXTF 700 / Buchungsstapel 13", withoutVoucher: [] });
+    const datei = await anfrage("GET", `/posting-exports/${x.id}/file`, bearbeiter);
     expect(datei.status).toBe(200);
     expect(datei.headers.get("content-type")).toBe("text/csv; charset=windows-1252");
-    expect(datei.headers.get("x-datei-sha256")).toBe(x.dateiSha256);
+    expect(datei.headers.get("x-file-sha256")).toBe(x.fileSha256);
     const bytes = new Uint8Array(await datei.arrayBuffer());
     const zeilen = dekodiere(bytes).split("\r\n");
     expect(zeilen.at(-1)).toBe("");
@@ -133,39 +133,39 @@ describe("Export", () => {
     expect(speicher.dateien.size).toBe(1);
     expect((await protokollZeilen(db, "buchungsexport", "exportieren")).length).toBe(1);
     expect((await protokollZeilen(db, "buchungsexport", "gelesen")).length).toBe(1);
-    const liste = await json(await anfrage("GET", `/fonds/${F1}/buchungsexporte`, betrachter));
-    expect(liste.daten).toHaveLength(1);
-    expect(liste.daten[0]).toMatchObject({ id: x.id, anzahl: 2, summe: "12000.00" });
-    expect((await anfrage("GET", `/buchungsexporte/${x.id}/datei`, betrachter)).status).toBe(403);
-    expect((await anfrage("GET", `/buchungsexporte/${x.id}/datei`, fremd)).status).toBe(403);
+    const liste = await json(await anfrage("GET", `/funds/${F1}/posting-exports`, betrachter));
+    expect(liste.data).toHaveLength(1);
+    expect(liste.data[0]).toMatchObject({ id: x.id, count: 2, sum: "12000.00" });
+    expect((await anfrage("GET", `/posting-exports/${x.id}/file`, betrachter)).status).toBe(403);
+    expect((await anfrage("GET", `/posting-exports/${x.id}/file`, fremd)).status).toBe(403);
     speicher.dateien.set([...speicher.dateien.keys()][0]!, Uint8Array.from([1]));
-    expect((await anfrage("GET", `/buchungsexporte/${x.id}/datei`, bearbeiter)).status).toBe(500);
+    expect((await anfrage("GET", `/posting-exports/${x.id}/file`, bearbeiter)).status).toBe(500);
   });
 
   it("kein doppelter Export: ein zweiter Lauf verlangt die ausdrückliche Wiederholung mit Grund; die Markierung geht auf den neuen Lauf über", async () => {
     const lauf = await zinslaufGebucht();
-    const erster = await json(await exportieren(bearbeiter, { zinslaufId: lauf }));
-    const zweiter = await exportieren(bearbeiter, { zinslaufId: lauf });
+    const erster = await json(await exportieren(bearbeiter, { interestRunId: lauf }));
+    const zweiter = await exportieren(bearbeiter, { interestRunId: lauf });
     expect(zweiter.status).toBe(409);
-    expect(await json(zweiter)).toMatchObject({ fehler: { code: "BUCHUNGSEXPORT_BEREITS_EXPORTIERT", vorgangIds: expect.any(Array) } });
-    expect((await vorschau(bearbeiter, { zinslaufId: lauf })).status).toBe(409);
-    expect((await exportieren(bearbeiter, { zinslaufId: lauf, wiederholung: true })).status).toBe(400); // Grund fehlt
-    const nochmal = await exportieren(bearbeiter, { zinslaufId: lauf, wiederholung: true, grund: "Konten im Programm korrigiert" });
+    expect(await json(zweiter)).toMatchObject({ error: { code: "posting_export_already_exported", transactionIds: expect.any(Array) } });
+    expect((await vorschau(bearbeiter, { interestRunId: lauf })).status).toBe(409);
+    expect((await exportieren(bearbeiter, { interestRunId: lauf, repeat: true })).status).toBe(400); // Grund fehlt
+    const nochmal = await exportieren(bearbeiter, { interestRunId: lauf, repeat: true, reason: "Konten im Programm korrigiert" });
     expect(nochmal.status).toBe(201);
     const neu = await json(nochmal);
-    expect(neu).toMatchObject({ wiederholung: true, grund: "Konten im Programm korrigiert" });
+    expect(neu).toMatchObject({ repeat: true, reason: "Konten im Programm korrigiert" });
     const aktiv = await db.select().from(s.buchungsexportPosition).where(eq(s.buchungsexportPosition.aktiv, true));
     expect(aktiv).toHaveLength(2);
     expect(new Set(aktiv.map((a) => a.exportId))).toEqual(new Set([neu.id]));
     expect(await db.select().from(s.buchungsexportPosition)).toHaveLength(4);
     expect((await db.select().from(s.buchungsexport)).map((e) => e.id).sort()).toEqual([erster.id, neu.id].sort());
     // Vorschau mit Wiederholung kennzeichnet bereits Exportiertes
-    expect((await json(await vorschau(bearbeiter, { zinslaufId: lauf, wiederholung: true }))).zeilen.every((z: { bereitsExportiert: boolean }) => z.bereitsExportiert)).toBe(true);
+    expect((await json(await vorschau(bearbeiter, { interestRunId: lauf, repeat: true }))).rows.every((z: { alreadyExported: boolean }) => z.alreadyExported)).toBe(true);
   });
 
   it("zwei gleichzeitige Exporte desselben Zinslaufs: genau einer gelingt", async () => {
     const lauf = await zinslaufGebucht();
-    const antworten = await Promise.all([exportieren(bearbeiter, { zinslaufId: lauf }), exportieren(bearbeiter, { zinslaufId: lauf })]);
+    const antworten = await Promise.all([exportieren(bearbeiter, { interestRunId: lauf }), exportieren(bearbeiter, { interestRunId: lauf })]);
     expect(antworten.map((a) => a.status).sort()).toEqual([201, 409]);
     expect(await db.select().from(s.buchungsexportPosition)).toHaveLength(2);
     // die Datenbank sperrt eine zweite aktive Markierung auch am Export vorbei
@@ -175,77 +175,77 @@ describe("Export", () => {
   });
 
   it("ausgewählte Vorgänge: Storno vertauscht das Soll-Haben-Kennzeichen, fehlende Kontenzuordnung und fremde Fonds werden abgelehnt", async () => {
-    const v = await json(await post(`/beteiligungen/${ID.darlehen}/vorgaenge`, { art: "zusage", valuta: "2025-01-01", betrag: "200000" }));
-    const a = await json(await post(`/beteiligungen/${ID.darlehen}/vorgaenge`, { art: "auszahlung", valuta: "2025-03-31", betrag: "12345.67" }));
-    const storno = await json(await post(`/vorgaenge/${a.vorgang.id}/storno`, { grund: "Betrag falsch erfasst", valuta: "2025-04-10" }));
-    expect(v.vorgang.id).toBeTruthy();
-    const antwort = await exportieren(bearbeiter, { vorgangIds: [a.vorgang.id, storno.storno.id] });
+    const v = await json(await post(`/investments/${ID.darlehen}/transactions`, { type: "commitment", valueDate: "2025-01-01", amount: "200000" }));
+    const a = await json(await post(`/investments/${ID.darlehen}/transactions`, { type: "disbursement", valueDate: "2025-03-31", amount: "12345.67" }));
+    const storno = await json(await post(`/transactions/${a.transaction.id}/reverse`, { reason: "Betrag falsch erfasst", valueDate: "2025-04-10" }));
+    expect(v.transaction.id).toBeTruthy();
+    const antwort = await exportieren(bearbeiter, { transactionIds: [a.transaction.id, storno.reversal.id] });
     expect(antwort.status).toBe(201);
     const x = await json(antwort);
-    expect(x.summe).toBe("0.00");
-    const zeilen = dekodiere(new Uint8Array(await (await anfrage("GET", `/buchungsexporte/${x.id}/datei`, bearbeiter)).arrayBuffer())).split("\r\n");
+    expect(x.sum).toBe("0.00");
+    const zeilen = dekodiere(new Uint8Array(await (await anfrage("GET", `/posting-exports/${x.id}/file`, bearbeiter)).arrayBuffer())).split("\r\n");
     const f = zeilen.slice(2, 4).map((z) => z.split(";"));
     expect(f.map((z) => [z[0], z[1]])).toEqual([["12345,67", '"S"'], ["12345,67", '"H"']]);
     // Rückfluss ohne Kontenzuordnung
-    const r = await json(await post(`/beteiligungen/${ID.darlehen}/vorgaenge`, { art: "rueckfluss", valuta: "2025-04-30", betrag: "10" }));
-    const fehlt = await exportieren(bearbeiter, { vorgangIds: [r.vorgang.id] });
+    const r = await json(await post(`/investments/${ID.darlehen}/transactions`, { type: "return_flow", valueDate: "2025-04-30", amount: "10" }));
+    const fehlt = await exportieren(bearbeiter, { transactionIds: [r.transaction.id] });
     expect(fehlt.status).toBe(409);
-    expect(await json(fehlt)).toMatchObject({ fehler: { code: "BUCHUNGSREGEL_FEHLT", arten: ["rueckfluss"] } });
+    expect(await json(fehlt)).toMatchObject({ error: { code: "posting_rule_missing", types: ["return_flow"] } });
     // Vorgang eines anderen Fonds
     const [bet] = await db.insert(s.beteiligung).values({ fondsId: F2, organisationId: ID.orgA, instrument: "darlehen", erstinvestment: "2025-01-01" }).returning();
     const [fremderVorgang] = await vorgaengeEinfuegen(db, { beteiligungId: bet!.id, art: "auszahlung", valuta: "2025-05-01", betrag: "5.00" });
-    const fremdAntwort = await exportieren(bearbeiter, { vorgangIds: [fremderVorgang!.id] });
-    const fehlendAntwort = await exportieren(bearbeiter, { vorgangIds: ["00000000-0000-4000-8000-0000000000aa"] });
+    const fremdAntwort = await exportieren(bearbeiter, { transactionIds: [fremderVorgang!.id] });
+    const fehlendAntwort = await exportieren(bearbeiter, { transactionIds: ["00000000-0000-4000-8000-0000000000aa"] });
     expect(fremdAntwort.status).toBe(404);
     expect(await json(fremdAntwort)).toEqual(await json(fehlendAntwort)); // fremd und nicht vorhanden sind nicht zu unterscheiden
-    expect((await json(await exportieren(bearbeiter, {}))).fehler.code).toBe("BUCHUNGSEXPORT_LEER");
+    expect((await json(await exportieren(bearbeiter, {}))).error.code).toBe("posting_export_empty");
   });
 
   it("nur gebuchte Zinsläufe; Konfiguration nötig; Probleme (Zeitraum über zwölf Monate, Kontolänge, Zeichen) verhindern die Datei", async () => {
     // nicht gebucht
     for (const b of [ID.darlehen]) {
-      await post(`/beteiligungen/${b}/vorgaenge`, { art: "zusage", valuta: "2025-01-01", betrag: "200000" });
-      await post(`/beteiligungen/${b}/vorgaenge`, { art: "auszahlung", valuta: "2025-01-01", betrag: "100000" });
+      await post(`/investments/${b}/transactions`, { type: "commitment", valueDate: "2025-01-01", amount: "200000" });
+      await post(`/investments/${b}/transactions`, { type: "disbursement", valueDate: "2025-01-01", amount: "100000" });
       await post(`/beteiligungen/${b}/konditionen`, KONDITION);
     }
     const offen = await json(await post("/zinslaeufe", { fondsId: F1, stichtag: "2027-01-01" }, "rechner"));
-    const roh = await exportieren(bearbeiter, { zinslaufId: offen.id });
+    const roh = await exportieren(bearbeiter, { interestRunId: offen.id });
     expect(roh.status).toBe(409);
-    expect((await json(roh)).fehler.code).toBe("ZINSLAUF_STATUS_UNGUELTIG");
+    expect((await json(roh)).error.code).toBe("interest_run_status_invalid");
     await post(`/zinslaeufe/${offen.id}/pruefen`, {}, "a");
     await post(`/zinslaeufe/${offen.id}/freigeben`, {});
     await post(`/zinslaeufe/${offen.id}/buchen`, {}, "c");
     // zwei Zinsperioden von 01.01.2026 bis 01.01.2027: das Belegdatum TTMM wäre mehrdeutig
-    const zuGross = await exportieren(bearbeiter, { zinslaufId: offen.id });
+    const zuGross = await exportieren(bearbeiter, { interestRunId: offen.id });
     expect(zuGross.status).toBe(409);
-    expect((await json(zuGross)).fehler).toMatchObject({ code: "BUCHUNGSEXPORT_PROBLEME", probleme: [{ code: "EXPORT_ZEITRAUM_ZU_GROSS" }] });
+    expect((await json(zuGross)).error).toMatchObject({ code: "posting_export_issues", issues: [{ code: "period_too_long" }] });
     const zins = await db.select().from(s.vorgang).where(eq(s.vorgang.art, "zins"));
     const einzeln = zins.sort((x, y) => x.valuta.localeCompare(y.valuta))[0]!;
     // falsche Kontolänge
     await db.update(s.buchungsregel).set({ konto: "12000" }).where(eq(s.buchungsregel.quelle, "zins"));
-    expect((await json(await exportieren(bearbeiter, { vorgangIds: [einzeln.id] }))).fehler.probleme[0]).toMatchObject({ code: "EXPORT_KONTO_LAENGE", params: { konto: "12000", erwartet: 4 } });
+    expect((await json(await exportieren(bearbeiter, { transactionIds: [einzeln.id] }))).error.issues[0]).toMatchObject({ code: "invalid_account_length", params: { account: "12000", expected: 4 } });
     await db.update(s.buchungsregel).set({ konto: "1200" }).where(eq(s.buchungsregel.quelle, "zins"));
     // Zeichen außerhalb von Windows-1252
     await db.update(s.organisation).set({ name: "Beta 日本 GmbH" }).where(eq(s.organisation.id, ID.orgB));
-    expect((await json(await exportieren(bearbeiter, { vorgangIds: [einzeln.id] }))).fehler.probleme.map((p: { code: string }) => p.code)).toEqual(["EXPORT_ZEICHEN_NICHT_DARSTELLBAR"]);
+    expect((await json(await exportieren(bearbeiter, { transactionIds: [einzeln.id] }))).error.issues.map((p: { code: string }) => p.code)).toEqual(["unsupported_character"]);
     await db.update(s.organisation).set({ name: "Beta Müller – Größe GmbH" }).where(eq(s.organisation.id, ID.orgB));
-    const ok = await exportieren(bearbeiter, { vorgangIds: [einzeln.id] });
+    const ok = await exportieren(bearbeiter, { transactionIds: [einzeln.id] });
     expect(ok.status).toBe(201);
-    const bytes = new Uint8Array(await (await anfrage("GET", `/buchungsexporte/${(await json(ok)).id}/datei`, bearbeiter)).arrayBuffer());
+    const bytes = new Uint8Array(await (await anfrage("GET", `/posting-exports/${(await json(ok)).id}/file`, bearbeiter)).arrayBuffer());
     expect(dekodiere(bytes)).toContain("Zins Beta Müller – Größe GmbH 2026-01-01");
     expect([...bytes]).toContain(0xfc); // ü in Windows-1252, nicht UTF-8
     // ohne Konfiguration
     await db.delete(s.fondsBuchhaltung);
-    const ohneKonfig = await exportieren(bearbeiter, { vorgangIds: [zins.find((z) => z.id !== einzeln.id)!.id] });
-    expect((await json(ohneKonfig)).fehler.code).toBe("BUCHHALTUNG_NICHT_KONFIGURIERT");
+    const ohneKonfig = await exportieren(bearbeiter, { transactionIds: [zins.find((z) => z.id !== einzeln.id)!.id] });
+    expect((await json(ohneKonfig)).error.code).toBe("accounting_not_configured");
   });
 
   it("Rechte: Export und Vorschau ab Bearbeiter; Wirtschaftsjahr mit abweichendem Beginn", async () => {
     const lauf = await zinslaufGebucht();
-    expect((await exportieren(betrachter, { zinslaufId: lauf })).status).toBe(403);
-    expect((await exportieren(fremd, { zinslaufId: lauf })).status).toBe(403);
+    expect((await exportieren(betrachter, { interestRunId: lauf })).status).toBe(403);
+    expect((await exportieren(fremd, { interestRunId: lauf })).status).toBe(403);
     await db.update(s.fondsBuchhaltung).set({ wirtschaftsjahrBeginn: 7 });
-    const v = await json(await vorschau(verwalter, { zinslaufId: lauf }));
-    expect(v.wirtschaftsjahrBeginn).toBe("2025-07-01"); // Januar 2026 liegt im Wirtschaftsjahr ab Juli 2025
+    const v = await json(await vorschau(verwalter, { interestRunId: lauf }));
+    expect(v.fiscalYearStart).toBe("2025-07-01"); // Januar 2026 liegt im Wirtschaftsjahr ab Juli 2025
   });
 });

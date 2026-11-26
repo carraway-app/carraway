@@ -1,11 +1,12 @@
 import { Decimal } from "./decimal.js";
 import type { MitHerkunft, Rechenschritt } from "./herkunft.js";
+import { verteileAnteilig } from "./verteilung.js";
 import { aufCent } from "./zins.js";
 
 /**
  * Buchwert einer Beteiligung (Entscheidung 62):
  *
- *   Buchwert = Investiert + Kapitalisierte Zinsen − Tilgungen − Wertberichtigungen (netto) − Buchwertabgang früherer Teilverkäufe
+ *   Buchwert = Investiert + Kapitalisierte Zinsen − Tilgungen − Wertberichtigungen (netto) − Buchwertabgang durch Verkäufe
  *
  * Investiert ist die Summe der Auszahlungen nach Storno. Wertberichtigungen sind netto: Zuführungen positiv,
  * Auflösungen negativ. Erlöse (Rückflüsse, Verkaufspreise) mindern den Buchwert nicht, sie sind Ergebnis, kein Kapital.
@@ -32,7 +33,7 @@ export function buchwert(eingabe: BuchwertEingabe): MitHerkunft<Decimal> {
       { zeichen: "+", bezeichnung: "Kapitalisierte Zinsen", wert: kapitalisiert.toString() },
       { zeichen: "−", bezeichnung: "Tilgungen", wert: tilgungen.toString() },
       { zeichen: "−", bezeichnung: "Wertberichtigungen (netto)", wert: wertberichtigungen.toString() },
-      { zeichen: "−", bezeichnung: "Buchwertabgang früherer Teilverkäufe", wert: abgang.toString() },
+      { zeichen: "−", bezeichnung: "Buchwertabgang durch Verkäufe", wert: abgang.toString() },
       { zeichen: "=", bezeichnung: "Buchwert", wert: wert.toString() },
     ],
   };
@@ -79,4 +80,30 @@ export function verkaufsergebnis(eingabe: VerkaufEingabe): MitHerkunft<Verkaufse
     { zeichen: "=", bezeichnung: "Ergebnis (Gewinn positiv, Verlust negativ)", wert: ergebnis.toString() },
   ];
   return { wert: { buchwertAbgang: abgang, erloes, ergebnis }, schritte };
+}
+
+export interface BuchwertabgangAnteil {
+  id: string;
+  abgang: Decimal;
+}
+
+/**
+ * Verteilung des Buchwertabgangs eines Verkaufs der ganzen Beteiligung auf ihre Instrumente: anteilig nach dem Buchwert je Instrument unmittelbar
+ * vor dem Verkauf (Instrumente mit Buchwert null oder darunter bekommen nichts), auf den Cent nach der Methode des größten Rests (`verteileAnteilig`).
+ * Die Summe der Teile ist genau der Abgang; beim Verkauf der ganzen Beteiligung (Abgang = Summe der Buchwerte) bekommt jedes Instrument genau
+ * seinen Buchwert. Gibt es keinen positiven Buchwert, bleibt der Abgang unverteilt (alle Teile null, Schritt „nicht verteilbar“).
+ */
+export function verteileBuchwertabgang(abgang: Decimal.Value, instrumente: readonly { id: string; buchwert: Decimal.Value }[]): MitHerkunft<BuchwertabgangAnteil[]> {
+  const gesamt = new Decimal(abgang);
+  const gewichte = instrumente.map((i) => Decimal.max(0, new Decimal(i.buchwert)));
+  const summe = gewichte.reduce((s, g) => s.plus(g), new Decimal(0));
+  const schritte: Rechenschritt[] = [{ zeichen: "", bezeichnung: "Buchwertabgang des Verkaufs der ganzen Beteiligung", wert: gesamt.toString() }];
+  instrumente.forEach((i, k) => schritte.push({ zeichen: "", bezeichnung: "Buchwert des Instruments vor dem Verkauf (null, wenn nicht positiv)", wert: (gewichte[k] as Decimal).toString(), quellen: [i.id] }));
+  if (gesamt.isZero() || !summe.greaterThan(0)) {
+    if (!gesamt.isZero()) schritte.push({ zeichen: "", bezeichnung: "Nicht verteilbar (kein Instrument mit positivem Buchwert)", wert: gesamt.toString() });
+    return { wert: instrumente.map((i) => ({ id: i.id, abgang: new Decimal(0) })), schritte };
+  }
+  const teile = verteileAnteilig(gesamt, gewichte);
+  instrumente.forEach((i, k) => schritte.push({ zeichen: "=", bezeichnung: `Anteiliger Abgang des Instruments (Abgang × Buchwert ÷ ${summe.toString()}, auf Cent nach größtem Rest)`, wert: (teile[k] as Decimal).toString(), quellen: [i.id] }));
+  return { wert: instrumente.map((i, k) => ({ id: i.id, abgang: teile[k] as Decimal })), schritte };
 }

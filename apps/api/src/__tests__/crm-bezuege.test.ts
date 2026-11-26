@@ -60,7 +60,7 @@ describe("Verknüpfungsziele beim Schreiben", () => {
     const ohneId = (r: unknown) => JSON.stringify(r).replaceAll(dealB, "X").replaceAll(NICHT_DA, "X");
     const fremdJson = await json(fremd);
     expect(ohneId(fremdJson)).toBe(ohneId(await json(fehlt)));
-    expect(fremdJson.fehler.code).toBe("FELDWERT_UNGUELTIG");
+    expect(fremdJson.error.code).toBe("field_value_invalid");
     // Der bisherige Wert bleibt.
     const [zeile] = await db.select().from(s.organisation).where(eq(s.organisation.id, org));
     expect((zeile!.felder as Record<string, unknown>)[feldOrg]).toBe(dealOhne);
@@ -83,7 +83,7 @@ describe("Verknüpfungsziele beim Schreiben", () => {
     for (const [feld, id] of [[orgFeld, archiv!.id], [orgFeld, weg!.id], [personFeld, pArchiv!.id], [personFeld, pWeg!.id]] as const) {
       const antwort = await schreibe(feld, id);
       expect(antwort.status, id).toBe(400);
-      expect((await json(antwort)).fehler.felder[0].code).toBe("unknown_record");
+      expect((await json(antwort)).error.fields[0].code).toBe("unknown_record");
     }
     expect((await schreibe(orgFeld, org)).status).toBe(200);
     expect((await schreibe(personFeld, pLebend!.id)).status).toBe(200);
@@ -93,7 +93,7 @@ describe("Verknüpfungsziele beim Schreiben", () => {
     await patch(`/datensaetze/organisation/${org}`, { eigene: { [feldOrg]: null } });
     const ergebnis = await json(await post("/objekte/organisation/massenaktion", { ids: [org], aktion: { art: "feld_setzen", feld: feldOrg, wert: dealB } }, BEA_A));
     expect(ergebnis.erfolgreich).toBe(0);
-    expect(ergebnis.fehler).toEqual([{ id: org, code: "FELDWERT_UNGUELTIG" }]);
+    expect(ergebnis.fehler).toEqual([{ id: org, code: "field_value_invalid" }]);
     const ok = await json(await post("/objekte/organisation/massenaktion", { ids: [org], aktion: { art: "feld_setzen", feld: feldOrg, wert: dealA } }, BEA_A));
     expect(ok.erfolgreich).toBe(1);
     const [zeile] = await db.select().from(s.organisation).where(eq(s.organisation.id, org));
@@ -105,7 +105,7 @@ describe("Verknüpfungsziele beim Schreiben", () => {
     expect((await schreibe(dealA)).status).toBe(200);
     const fremd = await schreibe(dealB);
     expect(fremd.status).toBe(400);
-    expect((await json(fremd)).fehler.code).toBe("FELDWERT_UNGUELTIG");
+    expect((await json(fremd)).error.code).toBe("field_value_invalid");
     const [eintrag] = await db.select().from(s.listeEintrag);
     expect((eintrag!.felder as Record<string, unknown>)[feldListe]).toBe(dealA);
   });

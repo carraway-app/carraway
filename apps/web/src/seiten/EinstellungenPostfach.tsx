@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { getRouteApi } from "@tanstack/react-router";
-import { Auswahl, Button, Etikett, Feld, Hinweis, Segment, Seitenkopf, Status, Tabs } from "@carraway/ui";
+import { Auswahl, Button, Etikett, Feld, Hinweis, Segment, Status } from "@carraway/ui";
 import {
   kalenderLinkStatus,
   mailEinstellungen,
@@ -17,11 +17,14 @@ import {
   type KalenderLinkErgebnis,
   type PostfachVerbindung,
 } from "../api/mail";
+import { alle } from "../erweiterung";
 import { Seitenpanel } from "@carraway/ui";
 import { FehlerHinweis } from "../komponenten/FehlerHinweis";
 import SicherheitKarten from "../komponenten/SicherheitKarten";
+import { KontakteTeilnahmeKarte } from "../komponenten/KontakteAusPostfach";
 import { ThemaWahl } from "../komponenten/ThemaWahl";
-import { eigeneSeite, useEinstellungenReiter, useEinstellungenReiterListe } from "../komponenten/einstellungenReiter";
+import { EinstellungenKopf } from "../komponenten/EinstellungenKopf";
+import { eigeneSeite, useEinstellungenReiterListe } from "../komponenten/einstellungenReiter";
 import { Skelettzeilen } from "../komponenten/Skelett";
 import { aufzaehlung, useSprache, useT } from "../i18n";
 import { navigation } from "../lib/navigation";
@@ -32,36 +35,36 @@ const route = getRouteApi("/einstellungen/postfach");
 
 /** Persönliche Einstellungen (Etappe 17): Mails von Carraway, Anbindung von Postfach und Kalender, Kalenderabonnement. Alles gilt nur für die angemeldete Person. */
 export function EinstellungenPostfachSeite() {
-  const t = useT();
-  const e = t.mail.einstellungen;
   const suche = route.useSearch();
   const navigate = route.useNavigate();
   // Nach der Rückkehr von der Anbieterseite steht das Postfach im Mittelpunkt.
   const erlaubt = useEinstellungenReiterListe().filter((id) => !eigeneSeite(id));
   const { tab, setzeTab } = useTabs(suche.tab || !(suche.ergebnis || suche.fehler) ? suche : { ...suche, tab: "postfach" }, navigate, erlaubt);
-  const reiter = useEinstellungenReiter(t, {
-    benachrichtigungen: () => <MailEinstellungenKarte />,
-    postfach: () => <PostfachKarte />,
-    kalender: () => <KalenderKarte />,
-    darstellung: () => <DarstellungKarte />,
-    sicherheit: () => <SicherheitKarten />,
-  });
   return (
-    <div className="app-seite">
-      <Seitenkopf meta={t.konto.beschriftung} titel={e.titel} />
-      <p className="app-leer-text">{e.beschreibung}</p>
-      <Rueckkehr />
-      <Tabs
-        aria-label={t.tabs.bereiche}
-        aktiv={tab}
-        onWechsel={(id) => {
-          const ziel = eigeneSeite(id);
-          if (ziel) void navigate({ to: ziel as never, search: {} as never });
-          else setzeTab(id);
-        }}
-        tabs={reiter}
-      />
-    </div>
+    <EinstellungenKopf
+      aktiv={tab}
+      vorReitern={<Rueckkehr />}
+      onWechsel={(id) => {
+        const ziel = eigeneSeite(id);
+        if (ziel) void navigate({ to: ziel as never, search: {} as never });
+        else setzeTab(id);
+      }}
+      inhalte={{
+        benachrichtigungen: () => <MailEinstellungenKarte />,
+        postfach: () => (
+          <>
+            <PostfachKarte />
+            <KontakteTeilnahmeKarte />
+            {alle("postfachEinstellungen").map((E, i) => (
+              <E key={i} />
+            ))}
+          </>
+        ),
+        kalender: () => <KalenderKarte />,
+        darstellung: () => <DarstellungKarte />,
+        sicherheit: () => <SicherheitKarten />,
+      }}
+    />
   );
 }
 
@@ -72,7 +75,7 @@ function Rueckkehr() {
   const { ergebnis, bereich, fehler, grund } = route.useSearch();
   if (ergebnis === "verbunden") return <Hinweis>{r.verbunden(aufzaehlung(t.mail.einstellungen.postfach.bereich, bereich ?? "mail"))}</Hinweis>;
   if (!fehler) return null;
-  const text = fehler === "POSTFACH_ZUSTAND_UNGUELTIG" ? r.zustand : fehler === "POSTFACH_ANBIETER_AUS" ? r.anbieterAus : r.fehlgeschlagen;
+  const text = fehler === "mailbox_state_invalid" ? r.zustand : fehler === "mailbox_provider_disabled" ? r.anbieterAus : r.fehlgeschlagen;
   return (
     <Hinweis variante="fehler">
       {text}

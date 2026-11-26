@@ -241,7 +241,7 @@ describe("Runden: Transaktionen", () => {
 
 describe("Runden: Runde ändern", () => {
   it("ordnet einen Vorgang über PUT einer anderen Runde zu", async () => {
-    const api = spieleApi(mitRunden(transaktionenDaten, { "PUT /api/v1/vorgaenge/t-o1/runde": { koerper: { vorgangId: "t-o1", rundeId: "rb", quelle: "manuell", geaendert: true } } }));
+    const api = spieleApi(mitRunden(transaktionenDaten, { "PUT /api/v1/transactions/t-o1/round": { koerper: { transactionId: "t-o1", roundId: "rb", source: "manual", changed: true } } }));
     rendereApp(rundenUrl);
     const nutzer = userEvent.setup();
     await nutzer.click((await reiter()).getByRole("tab", { name: /Ohne Runde/ }));
@@ -252,13 +252,13 @@ describe("Runden: Runde ändern", () => {
     expect((d.getByRole("button", { name: "Zuordnung speichern" }) as HTMLButtonElement).disabled).toBe(true);
     await nutzer.selectOptions(auswahl, "rb");
     await nutzer.click(d.getByRole("button", { name: "Zuordnung speichern" }));
-    await waitFor(() => expect(api.anfragen("PUT", "/api/v1/vorgaenge/t-o1/runde")).toHaveLength(1));
-    expect(api.anfragen("PUT", "/api/v1/vorgaenge/t-o1/runde")[0]!.koerper).toEqual({ rundeId: "rb" });
+    await waitFor(() => expect(api.anfragen("PUT", "/api/v1/transactions/t-o1/round")).toHaveLength(1));
+    expect(api.anfragen("PUT", "/api/v1/transactions/t-o1/round")[0]!.koerper).toEqual({ roundId: "rb" });
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
   it("entfernt die Zuordnung mit „Keiner Runde zuordnen“ (rundeId null)", async () => {
-    const api = spieleApi(mitRunden(transaktionenDaten, { "PUT /api/v1/vorgaenge/t-s1/runde": { koerper: { vorgangId: "t-s1", rundeId: null, quelle: "manuell", geaendert: true } } }));
+    const api = spieleApi(mitRunden(transaktionenDaten, { "PUT /api/v1/transactions/t-s1/round": { koerper: { transactionId: "t-s1", roundId: null, source: "manual", changed: true } } }));
     rendereApp(rundenUrl);
     const nutzer = userEvent.setup();
     await nutzer.click((await reiter()).getByRole("tab", { name: /Seed/ }));
@@ -267,12 +267,12 @@ describe("Runden: Runde ändern", () => {
     expect((d.getByLabelText("Runde") as HTMLSelectElement).value).toBe("r1");
     await nutzer.selectOptions(d.getByLabelText("Runde"), "");
     await nutzer.click(d.getByRole("button", { name: "Zuordnung speichern" }));
-    await waitFor(() => expect(api.anfragen("PUT", "/api/v1/vorgaenge/t-s1/runde")).toHaveLength(1));
-    expect(api.anfragen("PUT", "/api/v1/vorgaenge/t-s1/runde")[0]!.koerper).toEqual({ rundeId: null });
+    await waitFor(() => expect(api.anfragen("PUT", "/api/v1/transactions/t-s1/round")).toHaveLength(1));
+    expect(api.anfragen("PUT", "/api/v1/transactions/t-s1/round")[0]!.koerper).toEqual({ roundId: null });
   });
 
   it("bietet „Runde ändern“ nur mit Recht zum Buchen am Fonds an", async () => {
-    spieleApi({ ...mitRunden(), "/api/v1/ich": alsRolle("betrachter") });
+    spieleApi({ ...mitRunden(), "/api/v1/me": alsRolle("betrachter") });
     rendereApp(rundenUrl);
     const nutzer = userEvent.setup();
     await nutzer.click((await reiter()).getByRole("tab", { name: /Ohne Runde/ }));
@@ -306,7 +306,7 @@ describe("Runden: Neue Runde als Brücke", () => {
 });
 
 describe("Vorgang erfassen: Runde", () => {
-  const VORGANG = `POST /api/v1/beteiligungen/${BET_ID}/vorgaenge`;
+  const VORGANG = `POST /api/v1/investments/${BET_ID}/transactions`;
   const mitInstrumentRunde = {
     ...mitRunden(),
     [`/api/v1/beteiligungen/${BET_ID}/instrumentdaten`]: { koerper: { ...instrumentDaten, instrumente: [{ ...hauptInstrument, runde: { id: "rb", bezeichnung: "Brücke 2022" } }] } },
@@ -329,8 +329,8 @@ describe("Vorgang erfassen: Runde", () => {
     expect(Array.from((runde as HTMLSelectElement).options).map((o) => schmal(o.textContent))).toEqual(["Keiner Runde zuordnen", "Serie A · 30.06.2023", "Brücke 2022 · 15.03.2022 (Brückenrunde)", "Seed · 31.05.2021"]);
     await nutzer.type(d.getByLabelText("Betrag in Euro"), "50000");
     await nutzer.click(d.getByRole("button", { name: "Vorgang buchen" }));
-    await waitFor(() => expect(api.anfragen("POST", `/api/v1/beteiligungen/${BET_ID}/vorgaenge`)).toHaveLength(1));
-    expect(api.anfragen("POST", `/api/v1/beteiligungen/${BET_ID}/vorgaenge`)[0]!.koerper).not.toHaveProperty("rundeId");
+    await waitFor(() => expect(api.anfragen("POST", `/api/v1/investments/${BET_ID}/transactions`)).toHaveLength(1));
+    expect(api.anfragen("POST", `/api/v1/investments/${BET_ID}/transactions`)[0]!.koerper).not.toHaveProperty("rundeId");
   });
 
   it("sendet die gewählte Runde und für „Keiner Runde zuordnen“ null", async () => {
@@ -340,8 +340,8 @@ describe("Vorgang erfassen: Runde", () => {
     await nutzer.selectOptions(await d.findByLabelText("Runde (optional)"), "r2");
     await nutzer.type(d.getByLabelText("Betrag in Euro"), "50000");
     await nutzer.click(d.getByRole("button", { name: "Vorgang buchen" }));
-    await waitFor(() => expect(api.anfragen("POST", `/api/v1/beteiligungen/${BET_ID}/vorgaenge`)).toHaveLength(1));
-    expect(api.anfragen("POST", `/api/v1/beteiligungen/${BET_ID}/vorgaenge`)[0]!.koerper).toMatchObject({ rundeId: "r2" });
+    await waitFor(() => expect(api.anfragen("POST", `/api/v1/investments/${BET_ID}/transactions`)).toHaveLength(1));
+    expect(api.anfragen("POST", `/api/v1/investments/${BET_ID}/transactions`)[0]!.koerper).toMatchObject({ roundId: "r2" });
   });
 
   it("sendet rundeId null, wenn „Keiner Runde zuordnen“ gewählt wird", async () => {
@@ -351,8 +351,8 @@ describe("Vorgang erfassen: Runde", () => {
     await nutzer.selectOptions(await d.findByLabelText("Runde (optional)"), "");
     await nutzer.type(d.getByLabelText("Betrag in Euro"), "50000");
     await nutzer.click(d.getByRole("button", { name: "Vorgang buchen" }));
-    await waitFor(() => expect(api.anfragen("POST", `/api/v1/beteiligungen/${BET_ID}/vorgaenge`)).toHaveLength(1));
-    expect(api.anfragen("POST", `/api/v1/beteiligungen/${BET_ID}/vorgaenge`)[0]!.koerper).toMatchObject({ rundeId: null });
+    await waitFor(() => expect(api.anfragen("POST", `/api/v1/investments/${BET_ID}/transactions`)).toHaveLength(1));
+    expect(api.anfragen("POST", `/api/v1/investments/${BET_ID}/transactions`)[0]!.koerper).toMatchObject({ roundId: null });
   });
 });
 

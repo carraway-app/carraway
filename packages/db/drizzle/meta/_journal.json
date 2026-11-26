@@ -575,6 +575,76 @@
       "when": 1795649119496,
       "tag": "0081_meldevorlagen_herausgeber",
       "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "7",
+      "when": 1795654209563,
+      "tag": "0082_kontakte_aus_postfach",
+      "breakpoints": true
+    },
+    {
+      "idx": 83,
+      "version": "7",
+      "when": 1795663363684,
+      "tag": "0083_instrument_arten",
+      "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1795663364459,
+      "tag": "0084_optionsscheine_uebertragungen",
+      "breakpoints": true
+    },
+    {
+      "idx": 85,
+      "version": "7",
+      "when": 1795664646533,
+      "tag": "0085_gremien_und_kosten",
+      "breakpoints": true
+    },
+    {
+      "idx": 86,
+      "version": "7",
+      "when": 1795670171634,
+      "tag": "0086_kontakte_ki",
+      "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "7",
+      "when": 1795681740477,
+      "tag": "0087_instrument_stornos",
+      "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1795684264070,
+      "tag": "0088_dachfonds_manager_profil",
+      "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "7",
+      "when": 1795692050929,
+      "tag": "0089_webhooks",
+      "breakpoints": true
+    },
+    {
+      "idx": 90,
+      "version": "7",
+      "when": 1795698914454,
+      "tag": "0090_ki_kennzahlen_captable",
+      "breakpoints": true
+    },
+    {
+      "idx": 91,
+      "version": "7",
+      "when": 1795704063729,
+      "tag": "0091_excel_uebernahme",
+      "breakpoints": true
     }
   ]
 }

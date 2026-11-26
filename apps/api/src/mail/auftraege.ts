@@ -46,16 +46,16 @@ export interface MailEingabe<V extends Vorlage> {
   bezug?: { art: string; id: string };
 }
 
-/** Prüft, dass Versand und Verschlüsselung eingerichtet sind; sonst 409 `MAIL_NICHT_EINGERICHTET`. */
+/** Prüft, dass Versand und Verschlüsselung eingerichtet sind; sonst 409 `mail_not_configured`. */
 export function verlangeMail(kontext: MailKontext | undefined): asserts kontext is MailKontext & { konfig: MailKonfiguration; ring: Schluesselring } {
-  if (!kontext?.konfig || !kontext.ring) throw new Fachfehler(409, "MAIL_NICHT_EINGERICHTET", "Der Mailversand ist nicht eingerichtet.");
+  if (!kontext?.konfig || !kontext.ring) throw new Fachfehler(409, "mail_not_configured", "Mail sending is not configured.");
 }
 
 /** Legt einen Auftrag im Ausgangskorb an (in der Transaktion des Aufrufers) und gibt seine ID zurück. */
 export async function legeMailAn<V extends Vorlage>(tx: Tx, protokoll: Protokollant, kontext: MailKontext | undefined, e: MailEingabe<V>): Promise<string> {
   verlangeMail(kontext);
   const an = e.an.trim();
-  if (!ADRESSE.test(an) || an.length > 254) throw new Fachfehler(400, "MAIL_ADRESSE_UNGUELTIG", "Die Mailadresse ist ungültig.");
+  if (!ADRESSE.test(an) || an.length > 254) throw new Fachfehler(400, "mail_address_invalid", "The email address is invalid.");
   const gerendert = rendereVorlage(e.vorlage, e.sprache, e.parameter);
   const id = randomUUID();
   const inhalt = kontext.ring.verschluessele(JSON.stringify({ text: gerendert.text, html: gerendert.html }), `mail_auftrag:${id}`);

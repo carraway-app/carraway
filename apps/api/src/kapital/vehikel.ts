@@ -13,7 +13,7 @@ import type { Tx } from "../zeitlimit";
 
 export type VehikelZeile = typeof vehikel.$inferSelect;
 
-export const vehikelNichtGefunden = () => new Fachfehler(404, "VEHIKEL_NICHT_GEFUNDEN", "Vehikel nicht gefunden.");
+export const vehikelNichtGefunden = () => new Fachfehler(404, "vehicle_not_found", "Vehicle not found.");
 
 /** Lädt ein Vehikel (mit `sperren` bis zum Ende der Transaktion gesperrt), 404 wenn es fehlt. */
 export async function ladeVehikel(tx: Tx, id: string, sperren = false): Promise<VehikelZeile> {
@@ -30,7 +30,7 @@ export async function verlangeNameFrei(tx: Tx, investorId: string, name: string,
     .from(vehikel)
     .where(and(eq(vehikel.investorId, investorId), eq(vehikel.name, name)));
   if (vorhanden && vorhanden.id !== ausser) {
-    throw new Fachfehler(409, "VEHIKEL_NAME_VERGEBEN", "Der Investor hat schon ein Vehikel mit diesem Namen.", { felder: [{ feld: "name", code: "vergeben", meldung: "Name schon vergeben" }] });
+    throw new Fachfehler(409, "vehicle_name_taken", "The investor already has a vehicle with this name.", { felder: [{ feld: "name", code: "taken", meldung: "Name already taken" }] });
   }
 }
 
@@ -68,7 +68,7 @@ export async function vehikelDerPosition(tx: Tx, protokoll: Protokollant, p: { v
 /** Neue Vehikel verlangen einen Investor mit dem Kennzeichen `investor`. */
 export async function verlangeInvestor(tx: Tx, organisationId: string) {
   const org = await ladeOrganisation(tx, organisationId);
-  if (org.art !== "investor") throw new Fachfehler(409, "VEHIKEL_KEIN_INVESTOR", "Vehikel gibt es nur bei Organisationen, die als Investor gekennzeichnet sind.");
+  if (org.art !== "investor") throw new Fachfehler(409, "vehicle_not_investor", "Vehicles exist only for organizations marked as investors.");
   return org;
 }
 

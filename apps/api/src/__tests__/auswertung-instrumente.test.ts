@@ -17,7 +17,7 @@ const betrachter = person("auswertung-betrachter", { rollen: { [ID.fonds]: "betr
 const fremd = person("auswertung-fremd", { rollen: { [ID.anderer]: "betrachter" } });
 const bearbeiter = person("auswertung-bearbeiter", { rollen: { [ID.fonds]: "bearbeiter" } });
 
-const vorgang = (b: string, koerper: unknown) => post(`/beteiligungen/${b}/vorgaenge`, koerper);
+const vorgang = (b: string, koerper: unknown) => post(`/investments/${b}/transactions`, koerper);
 const zahl = (w: unknown) => Number(w);
 
 beforeEach(async () => {
@@ -31,8 +31,8 @@ afterAll(async () => {
 
 /** Darlehen mit 100.000 ausgezahlt, 6 % jährlich nach 30E/360, eine Zinsbuchung (nicht kapitalisiert) zum 31.12.2025. */
 async function darlehenMitZins() {
-  expect((await vorgang(ID.darlehen, { art: "zusage", valuta: "2025-01-01", betrag: "100000" })).status).toBe(201);
-  expect((await vorgang(ID.darlehen, { art: "auszahlung", valuta: "2025-01-01", betrag: "100000" })).status).toBe(201);
+  expect((await vorgang(ID.darlehen, { type: "commitment", valueDate: "2025-01-01", amount: "100000" })).status).toBe(201);
+  expect((await vorgang(ID.darlehen, { type: "disbursement", valueDate: "2025-01-01", amount: "100000" })).status).toBe(201);
   const kond = await post(`/beteiligungen/${ID.darlehen}/konditionen`, { gueltigAb: "2025-01-01", satzFix: "0.06", methode: "30E/360", zinsperiode: "jaehrlich", anker: "2025-12-31" });
   expect(kond.status, await kond.clone().text()).toBe(201);
   await vorgaengeAnlegen(db, [{ beteiligungId: ID.darlehen, art: "zins", valuta: "2025-12-31", betrag: "6000.00", bemerkung: "Jahreszins 2025" }]);
@@ -47,8 +47,8 @@ describe("Kennzahlen: Rückflüsse mit Zinszahlung und Dividende", () => {
     expect(zahl(vorher.kennzahlen.rueckfluesse.wert)).toBe(0);
     expect(vorher.kennzahlen.rueckfluesse.schritte.at(-1).bezeichnung).toBe("Rückflüsse kumuliert (inkl. gezahlter Zinsen und Dividenden)");
 
-    expect((await vorgang(ID.darlehen, { art: "zinszahlung", valuta: "2026-01-15", betrag: "4000", beglichenVorgangId: zinsId })).status).toBe(201);
-    expect((await vorgang(ID.darlehen, { art: "tilgung", valuta: "2026-02-01", betrag: "10000" })).status).toBe(201);
+    expect((await vorgang(ID.darlehen, { type: "interest_payment", valueDate: "2026-01-15", amount: "4000", settledTransactionId: zinsId })).status).toBe(201);
+    expect((await vorgang(ID.darlehen, { type: "repayment", valueDate: "2026-02-01", amount: "10000" })).status).toBe(201);
     const nachher = await json(await get(`/beteiligungen/${ID.darlehen}?stichtag=2026-03-31`));
     expect(zahl(nachher.kennzahlen.rueckfluesse.wert)).toBe(14000);
     expect(nachher.kennzahlen.irr.schritte.map((x: { bezeichnung: string }) => x.bezeichnung)).toContain("Rückflüsse inkl. gezahlter Zinsen und Dividenden (2 Zahlungen)");
@@ -70,9 +70,9 @@ describe("Kennzahlen: Rückflüsse mit Zinszahlung und Dividende", () => {
   });
 
   it("Dividenden zählen zu den Rückflüssen des Eigenkapitals", async () => {
-    await vorgang(ID.eigen, { art: "zusage", valuta: "2025-01-01", betrag: "50000" });
-    await vorgang(ID.eigen, { art: "auszahlung", valuta: "2025-01-01", betrag: "50000" });
-    expect((await vorgang(ID.eigen, { art: "dividende", valuta: "2025-12-01", betrag: "2000" })).status).toBe(201);
+    await vorgang(ID.eigen, { type: "commitment", valueDate: "2025-01-01", amount: "50000" });
+    await vorgang(ID.eigen, { type: "disbursement", valueDate: "2025-01-01", amount: "50000" });
+    expect((await vorgang(ID.eigen, { type: "dividend", valueDate: "2025-12-01", amount: "2000" })).status).toBe(201);
     const d = await json(await get(`/beteiligungen/${ID.eigen}?stichtag=2026-03-31`));
     expect(zahl(d.kennzahlen.rueckfluesse.wert)).toBe(2000);
     expect(zahl(d.kennzahlen.multiple.wert)).toBeCloseTo(0.04, 10);
@@ -83,9 +83,9 @@ describe("Kennzahlen: Rückflüsse mit Zinszahlung und Dividende", () => {
 describe("Journal: Kasse bei Zinszahlung und Dividende", () => {
   it("die Zinsbuchung bewegt keine Kasse, Zinszahlung und Dividende sind Zuflüsse", async () => {
     const zinsId = await darlehenMitZins();
-    await vorgang(ID.darlehen, { art: "zinszahlung", valuta: "2026-01-15", betrag: "6000", beglichenVorgangId: zinsId });
-    await vorgang(ID.eigen, { art: "zusage", valuta: "2025-01-01", betrag: "50000" });
-    await vorgang(ID.eigen, { art: "dividende", valuta: "2026-02-01", betrag: "1000" });
+    await vorgang(ID.darlehen, { type: "interest_payment", valueDate: "2026-01-15", amount: "6000", settledTransactionId: zinsId });
+    await vorgang(ID.eigen, { type: "commitment", valueDate: "2025-01-01", amount: "50000" });
+    await vorgang(ID.eigen, { type: "dividend", valueDate: "2026-02-01", amount: "1000" });
     const j = await json(await get(`/fonds/${ID.fonds}/journal?typ=zins,zinszahlung,dividende`));
     const nach = (typ: string) => j.daten.find((z: { typ: string }) => z.typ === typ);
     expect(nach("zins")).toMatchObject({ kassenwirkung: null, richtung: null });
@@ -112,13 +112,13 @@ describe("GET /beteiligungen/:id/zinsen und /fonds/:id/zinsen", () => {
     expect(a.summe).toMatchObject({ aufgelaufen: "1500.00", gebucht: "6000.00", gezahlt: "0.00", offen: "6000.00" });
 
     // Teilzahlung mit Verweis: offen sinkt, die Periode bleibt offen.
-    await vorgang(ID.darlehen, { art: "zinszahlung", valuta: "2026-01-15", betrag: "4000", beglichenVorgangId: zinsId });
+    await vorgang(ID.darlehen, { type: "interest_payment", valueDate: "2026-01-15", amount: "4000", settledTransactionId: zinsId });
     a = await json(await get(`/beteiligungen/${ID.darlehen}/zinsen?stichtag=2026-03-31`));
     expect(a.instrumente[0]).toMatchObject({ gezahlt: "4000.00", offen: "2000.00" });
     expect(a.instrumente[0].perioden[0]).toMatchObject({ status: "offen", gezahlt: "4000.00", offen: "2000.00" });
 
     // Rest ohne Verweis: Die älteste offene Buchung gilt als beglichen.
-    await vorgang(ID.darlehen, { art: "zinszahlung", valuta: "2026-02-15", betrag: "2000" });
+    await vorgang(ID.darlehen, { type: "interest_payment", valueDate: "2026-02-15", amount: "2000" });
     a = await json(await get(`/beteiligungen/${ID.darlehen}/zinsen?stichtag=2026-03-31`));
     expect(a.instrumente[0]).toMatchObject({ gezahlt: "6000.00", offen: "0.00" });
     expect(a.instrumente[0].perioden[0]).toMatchObject({ status: "gezahlt", offen: "0.00" });
@@ -135,8 +135,8 @@ describe("GET /beteiligungen/:id/zinsen und /fonds/:id/zinsen", () => {
   });
 
   it("kapitalisierte Zinsen sind nie offen; das Eigenkapital hat keine Zinsansicht", async () => {
-    await vorgang(ID.darlehen, { art: "zusage", valuta: "2025-01-01", betrag: "100000" });
-    await vorgang(ID.darlehen, { art: "auszahlung", valuta: "2025-01-01", betrag: "100000" });
+    await vorgang(ID.darlehen, { type: "commitment", valueDate: "2025-01-01", amount: "100000" });
+    await vorgang(ID.darlehen, { type: "disbursement", valueDate: "2025-01-01", amount: "100000" });
     await vorgaengeAnlegen(db, [{ beteiligungId: ID.darlehen, art: "zins", valuta: "2025-12-31", betrag: "6000.00", kapitalisiert: true }]);
     const a = await json(await get(`/beteiligungen/${ID.darlehen}/zinsen?stichtag=2026-03-31`));
     expect(a.instrumente[0]).toMatchObject({ gebucht: "6000.00", kapitalisiert: "6000.00", offen: "0.00" });
@@ -161,7 +161,7 @@ describe("GET /beteiligungen/:id/zinsen und /fonds/:id/zinsen", () => {
 describe("Instrumentdaten und Instrumentfelder je Instrument", () => {
   it("instrumentdaten nennt je Instrument Zusage, Ausgezahltes, offene Zusage, offenes Kapital, gezahlte Zinsen und Tranchen; Stichtag und Stand schneiden", async () => {
     const zinsId = await darlehenMitZins();
-    await vorgang(ID.darlehen, { art: "zinszahlung", valuta: "2026-01-15", betrag: "4000", beglichenVorgangId: zinsId });
+    await vorgang(ID.darlehen, { type: "interest_payment", valueDate: "2026-01-15", amount: "4000", settledTransactionId: zinsId });
     const eigenkapital = await json(await post(`/beteiligungen/${ID.darlehen}/instrumente`, { art: "offene_beteiligung", bezeichnung: "Anteile" }));
     const tranche = await post(`/instrumente/${eigenkapital.id}/tranchen`, { bezeichnung: "Erste", betrag: "30000", zusageErhoehen: true, zusageValuta: "2026-02-01" });
     expect(tranche.status).toBe(201);
@@ -204,7 +204,7 @@ describe("Instrumentdaten und Instrumentfelder je Instrument", () => {
     const fremdes = await json(await post(`/beteiligungen/${ID.eigen}/instrumente`, { art: "offene_beteiligung" }));
     const falsch = await put(`/beteiligungen/${ID.darlehen}/instrumentfelder`, { werte: { [feld]: "x" }, instrumentId: fremdes.id }, bearbeiter);
     expect(falsch.status).toBe(409);
-    expect((await json(falsch)).fehler.code).toBe("INSTRUMENT_FALSCHE_BETEILIGUNG");
+    expect((await json(falsch)).error.code).toBe("instrument_wrong_investment");
     // Betrachter dürfen lesen, nicht schreiben.
     expect((await put(`/beteiligungen/${ID.darlehen}/instrumentfelder`, { werte: { [feld]: "y" } }, betrachter)).status).toBe(403);
   });
@@ -214,13 +214,13 @@ describe("Buchungsregeln für Zinszahlung und Dividende", () => {
   it("die Quellen zinszahlung und dividende lassen sich je Fonds zuordnen und stehen in der Liste", async () => {
     const verwalter = person("auswertung-verwalter", { rollen: { [ID.fonds]: "verwalter" } });
     await legePersonAn(db, verwalter);
-    for (const quelle of ["zinszahlung", "dividende"]) {
-      const antwort = await put(`/fonds/${ID.fonds}/buchungsregeln/${quelle}`, { konto: "1200", gegenkonto: quelle === "zinszahlung" ? "1400" : "4900", richtung: "S", buSchluessel: null, buchungstext: `${quelle} {organisation}` }, verwalter);
+    for (const quelle of ["interest_payment", "dividend"]) {
+      const antwort = await put(`/funds/${ID.fonds}/posting-rules/${quelle}`, { account: "1200", contraAccount: quelle === "interest_payment" ? "1400" : "4900", direction: "debit", taxKey: null, postingText: `${quelle} {organisation}` }, verwalter);
       expect(antwort.status, await antwort.clone().text()).toBe(200);
     }
-    const liste = (await json(await get(`/fonds/${ID.fonds}/buchungsregeln`, verwalter))).daten as { quelle: string; gegenkonto: string }[];
-    expect(liste.map((r) => [r.quelle, r.gegenkonto]).sort()).toEqual([["dividende", "4900"], ["zinszahlung", "1400"]]);
-    expect((await put(`/fonds/${ID.fonds}/buchungsregeln/unbekannt`, { konto: "1200", gegenkonto: "1400", richtung: "S", buSchluessel: null, buchungstext: "x" }, verwalter)).status).toBe(400);
+    const liste = (await json(await get(`/funds/${ID.fonds}/posting-rules`, verwalter))).data as { source: string; contraAccount: string }[];
+    expect(liste.map((r) => [r.source, r.contraAccount]).sort()).toEqual([["dividend", "4900"], ["interest_payment", "1400"]]);
+    expect((await put(`/funds/${ID.fonds}/posting-rules/unknown`, { account: "1200", contraAccount: "1400", direction: "debit", taxKey: null, postingText: "x" }, verwalter)).status).toBe(400);
   });
 });
 
@@ -234,7 +234,7 @@ describe("Instrumentfelder: unbekannte Beteiligung", () => {
 
 describe("Kennzahl-Snapshot und Instrumente", () => {
   it("ein neues Instrument macht den gespeicherten Snapshot veraltet", async () => {
-    await vorgang(ID.eigen, { art: "zusage", valuta: "2025-01-01", betrag: "50000" });
+    await vorgang(ID.eigen, { type: "commitment", valueDate: "2025-01-01", amount: "50000" });
     const davor = await json(await get(`/fonds/${ID.fonds}/uebersicht`, betrachter));
     expect(davor.snapshot).toMatchObject({ veraltet: false });
     expect((await post(`/beteiligungen/${ID.eigen}/instrumente`, { art: "venture_debt" })).status).toBe(201);

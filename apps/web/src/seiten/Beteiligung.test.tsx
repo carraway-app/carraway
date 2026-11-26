@@ -246,10 +246,10 @@ describe("Beteiligung", () => {
     expect(anfrage.query.get("stand")).toBe("2026-07-01T10:00:00Z");
     expect(screen.getByText(/Ansicht mit dem Wissensstand/)).toBeTruthy();
     const bericht = new URL(screen.getByRole("link", { name: "Quartalsbericht (PDF, Entwurf)" }).getAttribute("href")!, "http://x");
-    expect(bericht.pathname).toBe(`/api/v1/beteiligungen/${BET_ID}/berichte/quartalsbericht`);
-    expect(bericht.searchParams.get("stichtag")).toBe("2026-09-30"); // der Stichtag der Antwort
-    expect(bericht.searchParams.get("stand")).toBe("2026-07-01T10:00:00Z");
-    expect(bericht.searchParams.get("sprache")).toBe("de");
+    expect(bericht.pathname).toBe(`/api/v1/investments/${BET_ID}/reports/quarterly-report`);
+    expect(bericht.searchParams.get("asOf")).toBe("2026-09-30"); // der Stichtag der Antwort
+    expect(bericht.searchParams.get("knowledgeDate")).toBe("2026-07-01T10:00:00Z");
+    expect(bericht.searchParams.get("language")).toBe("de");
     expect(bericht.searchParams.get("format")).toBe("pdf");
     expect(screen.getByRole("link", { name: "Quartalsbericht (PDF, Entwurf)" }).hasAttribute("download")).toBe(true);
   });
@@ -296,7 +296,7 @@ describe("Beteiligung", () => {
     expect(irr.textContent).toContain("Disbursements (1 payments, excluding cancelled pairs)");
     expect(irr.textContent).toContain("IRR of the holding (XIRR, act/365)");
     const mit = new URL(screen.getByRole("link", { name: "Quarterly report (PDF, draft)" }).getAttribute("href")!, "http://x");
-    expect(mit.searchParams.get("sprache")).toBe("en");
+    expect(mit.searchParams.get("language")).toBe("en");
   });
 
   it("gliedert in Gruppen; bei einem Darlehen ohne Anteile aus Runden entfallen Captable und Exit-Szenario", async () => {
@@ -309,7 +309,7 @@ describe("Beteiligung", () => {
     expect(gruppe("Kapital")).toEqual(["Finanzierungsrunden", "Instrumente", "Transaktionen", "Zinsen", "Captable", "Exit-Szenario"]);
     expect(gruppe("Wert")).toEqual(["Bewertungen", "Bewertungsverlauf", "Währung"]);
     // ESG ist ein Eintrag der Erweiterung (ee/web); der Kern allein hat nur die Kennzahlen.
-    expect(gruppe("Unternehmen")).toEqual(["Kennzahlen"]);
+    expect(gruppe("Unternehmen")).toEqual(["Kennzahlen", "Gremien"]);
     expect(gruppe("Ablage")).toEqual(["Dokumente"]);
     expect(gruppe("Stammdaten")).toEqual(["Förderung und Buchhaltung", "Zusatzfelder Beteiligung", "Zusatzfelder Instrument"]);
   });
@@ -400,7 +400,7 @@ describe("Beteiligung", () => {
   });
 
   it("zeigt einen übersetzten Fehler, wenn es die Beteiligung nicht gibt", async () => {
-    spieleApi({ [`/api/v1/beteiligungen/${BET_ID}`]: () => fehler(404, "BETEILIGUNG_NICHT_GEFUNDEN") });
+    spieleApi({ [`/api/v1/beteiligungen/${BET_ID}`]: () => fehler(404, "investment_not_found") });
     rendereApp(url);
     expect((await screen.findByRole("alert")).textContent).toContain("Die Beteiligung wurde nicht gefunden.");
   });

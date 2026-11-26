@@ -228,6 +228,52 @@ export const lpZahlung = pgTable("lp_zahlung", {
   check("lp_zahlung_vorzeichen", sql`(${t.storniertZahlungId} IS NULL AND ${t.betrag} > 0) OR (${t.storniertZahlungId} IS NOT NULL AND ${t.betrag} < 0 AND ${t.grund} IS NOT NULL AND length(trim(${t.grund})) > 0)`),
 ]);
 
+/**
+ * Verwaltungsvergütung und weitere Fondskosten (Issue #157), verteilt auf die Kapitalkonten der Investoren. Anders als Abrufe und
+ * Ausschüttungen fließt dabei kein Geld zwischen Fonds und Investoren; die Buchung mindert die Kapitalkonten. Unveränderlich wie
+ * `fonds_bewegung`: Korrektur = Storno (Gegenbuchung mit negiertem Betrag und negierten Anteilen).
+ */
+export const fondsKostenArt = pgEnum("fonds_kosten_art", ["verwaltungsverguetung", "fondskosten"]);
+/** `grundlage`: nach der Verteilungsgrundlage zur Valuta (wie Abrufe); `manuell`: Anteile je Investor ausdrücklich angegeben. */
+export const fondsKostenVerteilung = pgEnum("fonds_kosten_verteilung", ["grundlage", "manuell"]);
+
+export const fondsKosten = pgTable(
+  "fonds_kosten",
+  {
+    id: id(),
+    fondsId: uuid("fonds_id").notNull().references(() => fonds.id),
+    art: fondsKostenArt("art").notNull(),
+    valuta: date("valuta").notNull(),
+    betrag: betrag("betrag").notNull(),
+    verteilung: fondsKostenVerteilung("verteilung").notNull(),
+    /** Abrechnungszeitraum (optional), bei einer berechneten Vergütung mit dem Jahressatz. */
+    zeitraumVon: date("zeitraum_von"),
+    zeitraumBis: date("zeitraum_bis"),
+    satz: numeric("satz", { precision: 9, scale: 6 }),
+    bemerkung: text("bemerkung"),
+    storniertKostenId: uuid("storniert_kosten_id").references((): AnyPgColumn => fondsKosten.id),
+    erfasstAm: timestamp("erfasst_am", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("fonds_kosten_fonds_valuta_idx").on(t.fondsId, t.valuta),
+    uniqueIndex("fonds_kosten_storno_uq").on(t.storniertKostenId),
+    check("fonds_kosten_vorzeichen", sql`(${t.storniertKostenId} IS NULL AND ${t.betrag} > 0) OR (${t.storniertKostenId} IS NOT NULL AND ${t.betrag} < 0)`),
+    check("fonds_kosten_zeitraum", sql`${t.zeitraumVon} IS NULL OR ${t.zeitraumBis} IS NULL OR ${t.zeitraumBis} >= ${t.zeitraumVon}`),
+    check("fonds_kosten_satz", sql`${t.satz} IS NULL OR (${t.satz} > 0 AND ${t.satz} < 1)`),
+  ],
+);
+
+/** Festgeschriebene Centbeträge einer Kostenbuchung je Investor; die Summe ist der Betrag der Buchung (Trigger). */
+export const fondsKostenAnteil = pgTable("fonds_kosten_anteil", {
+  kostenId: uuid("kosten_id").notNull().references(() => fondsKosten.id),
+  organisationId: uuid("organisation_id").notNull().references(() => organisation.id),
+  betrag: betrag("betrag").notNull(),
+  erfasstAm: timestamp("erfasst_am", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  primaryKey({ columns: [t.kostenId, t.organisationId] }),
+  index("fonds_kosten_anteil_organisation_idx").on(t.organisationId),
+]);
+
 // Dealflow -------------------------------------------------------------------------------------------------------
 
 export const dealPhase = pgEnum("deal_phase", [
@@ -345,7 +391,11 @@ export const beschlussvorlage = pgTable(
 
 // Portfolio ------------------------------------------------------------------------------------------------------
 
-export const instrumentArt = pgEnum("instrument_art", ["offene_beteiligung", "stille_beteiligung", "darlehen", "wandeldarlehen", "venture_debt", "gesellschafterdarlehen"]);
+/**
+ * Art eines Instruments. `safe`: Vereinbarung über künftige Anteile ohne Zinsen und Laufzeit (Bewertungsobergrenze und Abschlag, Wandlung in der
+ * nächsten Runde wie beim Wandeldarlehen). `optionsschein`: Recht, eine Zahl Anteile zum Ausübungspreis zu beziehen (Ausübung als Vorgang).
+ */
+export const instrumentArt = pgEnum("instrument_art", ["offene_beteiligung", "stille_beteiligung", "darlehen", "wandeldarlehen", "venture_debt", "gesellschafterdarlehen", "safe", "optionsschein"]);
 export const beteiligungStatus = pgEnum("beteiligung_status", ["aktiv", "exit", "insolvent", "abgeschrieben"]);
 
 export const beteiligung = pgTable(
@@ -377,6 +427,33 @@ export const beteiligung = pgTable(
   ],
 );
 
+/** Gremien eines Beteiligungsunternehmens, in denen der Fonds ein Mandat hält (Issue #156). */
+export const gremiumArt = pgEnum("gremium_art", ["beirat", "aufsichtsrat", "board", "sonstiges"]);
+export const mandatRolle = pgEnum("mandat_rolle", ["mitglied", "vorsitz", "stellvertretender_vorsitz", "beobachter"]);
+
+/** Mandat einer Person in einem Gremium der Beteiligung; offen, solange `ende` leer ist. Änderungen stehen im Änderungsprotokoll. */
+export const gremienmandat = pgTable(
+  "gremienmandat",
+  {
+    id: id(),
+    beteiligungId: uuid("beteiligung_id").notNull().references(() => beteiligung.id),
+    gremium: gremiumArt("gremium").notNull(),
+    /** Eigener Name des Gremiums (z. B. „Investorenbeirat“); leer = Name der Art. */
+    gremiumName: text("gremium_name"),
+    personId: uuid("person_id").notNull().references(() => person.id),
+    rolle: mandatRolle("rolle").notNull(),
+    beginn: date("beginn").notNull(),
+    ende: date("ende"),
+    bemerkung: text("bemerkung"),
+    erstelltAm: erstelltAm(),
+  },
+  (t) => [
+    index("gremienmandat_beteiligung_idx").on(t.beteiligungId),
+    index("gremienmandat_person_idx").on(t.personId),
+    check("gremienmandat_zeitraum", sql`${t.ende} IS NULL OR ${t.ende} >= ${t.beginn}`),
+  ],
+);
+
 export const instrumentStatus = pgEnum("instrument_status", ["aktiv", "gewandelt", "getilgt", "verkauft", "abgeschrieben"]);
 
 /**
@@ -403,10 +480,22 @@ export const instrument = pgTable(
     bewertungsobergrenze: betrag("bewertungsobergrenze"),
     /** Zinsen wandeln mit (leer = nicht erfasst; die Schätzung offener Wandlungen nimmt es dann an). */
     zinsenWandeln: boolean("zinsen_wandeln"),
+    /**
+     * Optionsschein (leer bei anderen Arten): Zahl der Anteile, die sich beziehen lassen (ein Anteil je Optionsschein), Ausübungspreis je Anteil in der
+     * Währung der Beteiligung, Tag der Ausgabe (ab dann voll verwässert in der Kapitaltabelle) und letzter Tag der Ausübung (danach verfallen die nicht
+     * ausgeübten). Die Ausübungen stehen in `optionsschein_ausuebung`, die Anteile daraus bekommen die Anteilsklasse des Instruments (leer = Stammanteile).
+     */
+    optionsscheinAnzahl: numeric("optionsschein_anzahl", { precision: 18, scale: 0 }),
+    ausuebungspreis: numeric("ausuebungspreis", { precision: 18, scale: 4 }),
+    ausgabeAm: date("ausgabe_am"),
+    laufzeitBis: date("laufzeit_bis"),
     erstelltAm: erstelltAm(),
   },
   (t) => [
     index("instrument_beteiligung_idx").on(t.beteiligungId),
+    check("instrument_optionsschein_anzahl", sql`${t.optionsscheinAnzahl} IS NULL OR ${t.optionsscheinAnzahl} > 0`),
+    check("instrument_ausuebungspreis", sql`${t.ausuebungspreis} IS NULL OR ${t.ausuebungspreis} >= 0`),
+    check("instrument_laufzeit", sql`${t.laufzeitBis} IS NULL OR ${t.ausgabeAm} IS NULL OR ${t.laufzeitBis} >= ${t.ausgabeAm}`),
     check("instrument_wandlungsabschlag_bereich", sql`${t.wandlungsabschlag} IS NULL OR (${t.wandlungsabschlag} >= 0 AND ${t.wandlungsabschlag} < 1)`),
     check("instrument_bewertungsobergrenze_positiv", sql`${t.bewertungsobergrenze} IS NULL OR ${t.bewertungsobergrenze} > 0`),
     index("instrument_runde_idx").on(t.rundeId),
@@ -1114,6 +1203,75 @@ export const verkauf = pgTable(
   (t) => [index("verkauf_beteiligung_idx").on(t.beteiligungId, t.datum), index("verkauf_rueckfluss_idx").on(t.rueckflussVorgangId)],
 );
 
+// Ausübung von Optionsscheinen und Anteilsübertragungen zwischen Gesellschaftern ------------------------------------
+
+/**
+ * Ausübung von Optionsscheinen eines Fonds (Instrument der Art `optionsschein`) als ein Ereignis: Anzahl, Ausübungspreis (vom Instrument übernommen) und
+ * der Betrag in der Fondswährung, den der Fonds dafür zahlt (Zusage und Auszahlung auf dem Instrument, Verweise auf die Vorgänge). Die Anteile stehen ab
+ * `datum` als ausgegebene Anteile des Fonds in der Kapitaltabelle; vor einer späteren Runde zählen sie zu deren Gesamtzahl.
+ */
+export const optionsscheinAusuebung = pgTable(
+  "optionsschein_ausuebung",
+  {
+    id: id(),
+    instrumentId: uuid("instrument_id").notNull().references(() => instrument.id),
+    datum: date("datum").notNull(),
+    anzahl: numeric("anzahl", { precision: 18, scale: 0 }).notNull(),
+    preisJeAnteil: numeric("preis_je_anteil", { precision: 18, scale: 4 }).notNull(),
+    /** Gezahlter Betrag in der Fondswährung (Anzahl × Preis, auf Cent; bei abweichender Währung über den Kurs der Buchung). */
+    betrag: betrag("betrag").notNull(),
+    zusageVorgangId: uuid("zusage_vorgang_id").references(() => vorgang.id),
+    auszahlungVorgangId: uuid("auszahlung_vorgang_id").references(() => vorgang.id),
+    bemerkung: text("bemerkung"),
+    erfasstAm: timestamp("erfasst_am", { withTimezone: true }).notNull().defaultNow(),
+    /** Storno als Ganzes: Zusage und Auszahlung sind per Storno-Vorgang aufgehoben, die Ausübung zählt nicht mehr. */
+    storniertAm: timestamp("storniert_am", { withTimezone: true }),
+    storniertVon: text("storniert_von"),
+  },
+  (t) => [index("optionsschein_ausuebung_instrument_idx").on(t.instrumentId, t.datum), check("optionsschein_ausuebung_anzahl", sql`${t.anzahl} > 0`), check("optionsschein_ausuebung_betrag", sql`${t.betrag} >= 0`)],
+);
+
+/**
+ * Übertragung von Anteilen zwischen Gesellschaftern (Secondary): Es entstehen keine neuen Anteile. Die Quelle ist ein Bestand der Kapitaltabelle:
+ * eine Rundenposition (`quelle_position_id`), eine frühere Übertragung (`quelle_uebertragung_id`) oder, wenn beides leer ist, die Stammanteile.
+ * Die übertragenen Anteile behalten Klasse, Runde und anteilige Präferenzbasis der Quelle. Käufer ist ein Fonds dieser Plattform oder ein Vehikel.
+ * Für eigene Fonds: Abgang über einen Verkauf des Instruments (`verkauf_id`), Zugang als neues Instrument mit Zusage und Auszahlung des Kaufpreises.
+ */
+export const anteilsuebertragung = pgTable(
+  "anteilsuebertragung",
+  {
+    id: id(),
+    organisationId: uuid("organisation_id").notNull().references(() => organisation.id),
+    datum: date("datum").notNull(),
+    quellePositionId: uuid("quelle_position_id").references(() => rundenposition.id),
+    quelleUebertragungId: uuid("quelle_uebertragung_id").references((): AnyPgColumn => anteilsuebertragung.id),
+    /** Ausgeübte Optionsscheine eines Fonds als Quelle (Zeile `ausuebung:<id>` der Kapitaltabelle). */
+    quelleAusuebungId: uuid("quelle_ausuebung_id").references((): AnyPgColumn => optionsscheinAusuebung.id),
+    kaeuferFondsId: uuid("kaeufer_fonds_id").references(() => fonds.id),
+    kaeuferVehikelId: uuid("kaeufer_vehikel_id").references(() => vehikel.id),
+    anzahl: numeric("anzahl", { precision: 18, scale: 0 }).notNull(),
+    /** Preis je Anteil in der Währung der Beteiligung; der Kaufpreis ist Anzahl × Preis auf Cent. */
+    preisJeAnteil: numeric("preis_je_anteil", { precision: 18, scale: 6 }).notNull(),
+    kaufpreis: betrag("kaufpreis").notNull(),
+    /** Abgang eines eigenen Fonds: der Verkauf des Instruments der Quelle. */
+    verkaufId: uuid("verkauf_id").references(() => verkauf.id),
+    /** Zugang eines eigenen Fonds: das Instrument mit Zusage und Auszahlung des Kaufpreises. */
+    kaeuferInstrumentId: uuid("kaeufer_instrument_id").references(() => instrument.id),
+    bemerkung: text("bemerkung"),
+    erfasstAm: timestamp("erfasst_am", { withTimezone: true }).notNull().defaultNow(),
+    /** Storno als Ganzes: Verkauf des Verkäuferfonds und Zugang des Käuferfonds sind zurückgenommen, die Übertragung zählt nicht mehr. */
+    storniertAm: timestamp("storniert_am", { withTimezone: true }),
+    storniertVon: text("storniert_von"),
+  },
+  (t) => [
+    index("anteilsuebertragung_organisation_idx").on(t.organisationId, t.datum),
+    check("anteilsuebertragung_ein_kaeufer", sql`(${t.kaeuferFondsId} IS NULL) <> (${t.kaeuferVehikelId} IS NULL)`),
+    check("anteilsuebertragung_eine_quelle", sql`num_nonnulls(${t.quellePositionId}, ${t.quelleUebertragungId}, ${t.quelleAusuebungId}) <= 1`),
+    check("anteilsuebertragung_anzahl", sql`${t.anzahl} > 0`),
+    check("anteilsuebertragung_preis", sql`${t.preisJeAnteil} >= 0 AND ${t.kaufpreis} >= 0`),
+  ],
+);
+
 /** Forderung aus einem Verkauf, z. B. Treuhandbetrag bis zur Freigabe. Erfüllt = als Rückfluss gebucht. */
 export const forderung = pgTable(
   "forderung",
@@ -1387,6 +1545,7 @@ export const werteSchluessel = pgTable(
     name: text("name").notNull(),
     benutzerId: uuid("benutzer_id").notNull().references(() => benutzer.id, { onDelete: "cascade" }),
     fondsIds: uuid("fonds_ids").array().notNull().default(sql`'{}'::uuid[]`),
+    darfSchreiben: boolean("darf_schreiben").notNull().default(false),
     ablauf: timestamp("ablauf", { withTimezone: true }).notNull(),
     hash: text("hash").notNull().unique(),
     /** Die ersten Zeichen des Schlüssels, damit er in der Liste erkennbar bleibt. */
@@ -1397,6 +1556,21 @@ export const werteSchluessel = pgTable(
   },
   (t) => [index("werte_schluessel_benutzer_idx").on(t.benutzerId)],
 );
+
+/** Geprüfte Excel-Auswahl und Ergebnis der bestätigten Übernahme. */
+export const excelUebernahme = pgTable("excel_uebernahme", {
+  id: id(),
+  schluesselId: uuid("schluessel_id").notNull(),
+  benutzerId: uuid("benutzer_id").notNull(),
+  benutzerName: text("benutzer_name").notNull(),
+  erstelltAm: erstelltAm(),
+  eingabe: jsonb("eingabe").notNull(),
+  vorschau: jsonb("vorschau").notNull(),
+  uebernommenAm: timestamp("uebernommen_am", { withTimezone: true }),
+  uebernommenVon: uuid("uebernommen_von"),
+  uebernommenVonName: text("uebernommen_von_name"),
+  ergebnis: jsonb("ergebnis"),
+}, (t) => [index("excel_uebernahme_schluessel_idx").on(t.schluesselId, t.erstelltAm)]);
 
 /**
  * Kennzeichen einer pseudonymisierten Kopie (Etappe 22): höchstens eine Zeile, nur vom Befehl `pseudonymisieren` geschrieben. Die Anwendung
@@ -2083,7 +2257,7 @@ export const dokumentSeite = pgTable(
   (t) => [primaryKey({ columns: [t.dokumentId, t.seite] }), index("dokument_seite_suche_idx").using("gin", t.suchvektor), check("dokument_seite_nr", sql`${t.seite} >= 1`), check("dokument_seite_quelle", sql`${t.quelle} IN ('text', 'ocr')`), check("dokument_seite_konfidenz", sql`${t.konfidenz} IS NULL OR (${t.konfidenz} >= 0 AND ${t.konfidenz} <= 100)`)],
 );
 
-export const auslesungArt = pgEnum("auslesung_art", ["beteiligungsvertrag", "darlehensvertrag", "bewertungsnachweis", "registerauszug"]);
+export const auslesungArt = pgEnum("auslesung_art", ["beteiligungsvertrag", "darlehensvertrag", "bewertungsnachweis", "registerauszug", "kennzahlenbericht", "captable"]);
 /** `wartend` (angelegt, im Ausgangskorb) → `eingereiht` (bei pg-boss) → `laeuft` → `bereit` (Vorschläge liegen vor) oder `fehlgeschlagen`; danach `bestaetigt` oder `verworfen` durch eine Person. */
 export const auslesungStatus = pgEnum("auslesung_status", ["wartend", "eingereiht", "laeuft", "bereit", "fehlgeschlagen", "bestaetigt", "verworfen"]);
 
@@ -2146,7 +2320,7 @@ export const wertQuelle = pgTable(
   (t) => [
     index("wert_quelle_objekt_idx").on(t.objektTyp, t.objektId),
     index("wert_quelle_dokument_idx").on(t.dokumentId),
-    check("wert_quelle_objekt_typ", sql`${t.objektTyp} IN ('finanzierungsrunde', 'rundenposition', 'anteilsklasse', 'darlehen_kondition', 'bewertung', 'beteiligung', 'registereintrag')`),
+    check("wert_quelle_objekt_typ", sql`${t.objektTyp} IN ('finanzierungsrunde', 'rundenposition', 'anteilsklasse', 'darlehen_kondition', 'bewertung', 'beteiligung', 'registereintrag', 'kennzahl_wert')`),
     check("wert_quelle_seite", sql`${t.seite} >= 1`),
     check("wert_quelle_zitat_quelle", sql`${t.zitatQuelle} IN ('text', 'ocr')`),
   ],
@@ -2823,6 +2997,8 @@ export const postfachVerbindung = pgTable(
     gesperrtBis: timestamp("gesperrt_bis", { withTimezone: true }),
     /** Bei Mails: die ersten 500 Zeichen des Textes als Notiz speichern (Standard aus, nur Betreff). */
     inhaltSpeichern: boolean("inhalt_speichern").notNull().default(false),
+    /** Nächster Mailabgleich schaut wieder den ersten Zeitraum zurück (nach neuen Kontakten aus Postfach und Kalender); der Abgleich setzt es beim Start zurück. */
+    nachholen: boolean("nachholen").notNull().default(false),
     erstelltAm: erstelltAm(),
   },
   (t) => [
@@ -2852,7 +3028,8 @@ export const oauthZustand = pgTable(
 /**
  * Herkunft einer synchronisierten Aktivität (Mail oder Termin): wem die Verbindung gehört, bei welchem Anbieter, Beginn und Ende,
  * und welche bekannten Personen beteiligt sind. `extern_hash` (SHA-256 aus Bereich und Nachrichten- oder Termin-ID) ist eindeutig:
- * Dieselbe Nachricht entsteht nie zweimal, auch wenn mehrere Personen sie im Postfach haben. Adressen unbekannter Kontakte stehen nirgends.
+ * Dieselbe Nachricht entsteht nie zweimal, auch wenn mehrere Personen sie im Postfach haben. Adressen unbekannter Kontakte stehen hier nie
+ * (Vorschläge aus Postfach und Kalender stehen getrennt in `kontakt_vorschlag`).
  */
 export const aktivitaetSync = pgTable(
   "aktivitaet_sync",
@@ -2898,6 +3075,159 @@ export const syncAusschluss = pgTable(
     erstelltAm: erstelltAm(),
   },
   (t) => [primaryKey({ columns: [t.benutzerId, t.externHash] })],
+);
+
+/**
+ * Kontakte aus Postfach und Kalender (Einstellung der Installation, genau eine Zeile `id = 1`). `modus`: `aus` (Standard, der Abgleich verhält sich wie
+ * ohne diese Funktion), `vorschlag` (neue Gegenüber landen in der Vorschlagsliste) oder `direkt` (Personen und Unternehmen entstehen sofort).
+ * `eigene_domains`: Domains der Installation, deren Adressen intern sind. `sperrliste`: Adressen und Domains, aus denen nie ein Kontakt entsteht.
+ */
+export const kontaktabgleichEinstellung = pgTable(
+  "kontaktabgleich_einstellung",
+  {
+    id: integer("id").primaryKey().default(1),
+    modus: text("modus").notNull().default("aus"),
+    eigeneDomains: text("eigene_domains").array().notNull().default(sql`ARRAY[]::text[]`),
+    sperrliste: text("sperrliste").array().notNull().default(sql`ARRAY[]::text[]`),
+    geaendertAm: timestamp("geaendert_am", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [check("kontaktabgleich_einstellung_eine_zeile", sql`${t.id} = 1`), check("kontaktabgleich_einstellung_modus", sql`${t.modus} IN ('aus', 'vorschlag', 'direkt')`)],
+);
+
+/** Teilnahme einer Person mit ihrem Postfach und Kalender (Standard: nicht dabei) und ihre eigene Sperrliste; nur die Person selbst sieht und ändert sie. */
+export const kontaktabgleichTeilnahme = pgTable("kontaktabgleich_teilnahme", {
+  benutzerId: uuid("benutzer_id").primaryKey().references(() => benutzer.id, { onDelete: "cascade" }),
+  teilnehmen: boolean("teilnehmen").notNull().default(false),
+  sperrliste: text("sperrliste").array().notNull().default(sql`ARRAY[]::text[]`),
+  geaendertAm: timestamp("geaendert_am", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * Vorschlag oder Schlüssel eines Kontakts aus Postfach und Kalender: je normalisierter Mailadresse genau eine Zeile (eindeutig, auch bei gleichzeitigen Abgleichen
+ * mehrerer Postfächer). `offen`: wartet in der Vorschlagsliste; `uebernommen`: als Person angelegt; `zusammengefuehrt`: einer vorhandenen Person zugeordnet. Verworfen wird
+ * je Quelle (`kontakt_vorschlag_quelle.verworfen`). Gespeichert sind nur Adresse und Name aus dem Absender- oder Teilnehmerfeld, nie Betreff, Inhalt oder Anzahl der Mails.
+ */
+export const kontaktVorschlag = pgTable(
+  "kontakt_vorschlag",
+  {
+    id: id(),
+    adresse: text("adresse").notNull(),
+    name: text("name"),
+    status: text("status").notNull().default("offen"),
+    personId: uuid("person_id").references(() => person.id, { onDelete: "set null" }),
+    entschiedenVon: uuid("entschieden_von").references(() => benutzer.id, { onDelete: "set null" }),
+    entschiedenAm: timestamp("entschieden_am", { withTimezone: true }),
+    erstelltAm: erstelltAm(),
+  },
+  (t) => [
+    uniqueIndex("kontakt_vorschlag_adresse_uq").on(t.adresse),
+    index("kontakt_vorschlag_status_idx").on(t.status),
+    check("kontakt_vorschlag_status", sql`${t.status} IN ('offen', 'uebernommen', 'zusammengefuehrt')`),
+    check("kontakt_vorschlag_adresse_klein", sql`${t.adresse} = lower(${t.adresse})`),
+  ],
+);
+
+/**
+ * Aus wessen Postfach (Bereich `mail`) oder Kalender ein Vorschlag stammt. Hängt an Person und Bereich, nicht an der Verbindung (die beim erneuten Anmelden ersetzt wird).
+ * Trennen entfernt die offenen Quellen dieser Person; ein offener Vorschlag ohne Quelle entfällt. `verworfen`: Die Person hat ihn dauerhaft verworfen.
+ */
+export const kontaktVorschlagQuelle = pgTable(
+  "kontakt_vorschlag_quelle",
+  {
+    vorschlagId: uuid("vorschlag_id").notNull().references(() => kontaktVorschlag.id, { onDelete: "cascade" }),
+    benutzerId: uuid("benutzer_id").notNull().references(() => benutzer.id, { onDelete: "cascade" }),
+    bereich: postfachBereich("bereich").notNull(),
+    verworfen: boolean("verworfen").notNull().default(false),
+    erstelltAm: erstelltAm(),
+  },
+  (t) => [primaryKey({ columns: [t.vorschlagId, t.benutzerId, t.bereich] }), index("kontakt_vorschlag_quelle_benutzer_idx").on(t.benutzerId)],
+);
+
+/** Je Domain höchstens ein Unternehmen, das aus Postfach oder Kalender entstanden ist (eindeutig, auch bei gleichzeitigen Abgleichen). */
+export const kontaktDomain = pgTable(
+  "kontakt_domain",
+  {
+    domain: text("domain").primaryKey(),
+    organisationId: uuid("organisation_id").notNull().references(() => organisation.id, { onDelete: "cascade" }),
+    erstelltAm: erstelltAm(),
+  },
+  (t) => [check("kontakt_domain_klein", sql`${t.domain} = lower(${t.domain})`)],
+);
+
+/**
+ * Herkunft eines Kontakts, der aus Postfach oder Kalender entstanden ist: aus wessen Postfach, in welchem Bereich, wann. Nennt keine Mails und keine Termine.
+ * Genau eine von Person und Organisation ist gesetzt.
+ */
+export const kontaktHerkunft = pgTable(
+  "kontakt_herkunft",
+  {
+    id: id(),
+    personId: uuid("person_id").references(() => person.id, { onDelete: "cascade" }),
+    organisationId: uuid("organisation_id").references(() => organisation.id, { onDelete: "cascade" }),
+    benutzerId: uuid("benutzer_id").references(() => benutzer.id, { onDelete: "set null" }),
+    bereich: postfachBereich("bereich").notNull(),
+    angelegtAm: timestamp("angelegt_am", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("kontakt_herkunft_person_uq").on(t.personId),
+    uniqueIndex("kontakt_herkunft_organisation_uq").on(t.organisationId),
+    check("kontakt_herkunft_ziel", sql`(${t.personId} IS NULL) <> (${t.organisationId} IS NULL)`),
+  ],
+);
+
+/** Einstellung der KI-Ergänzung von Kontakten je Installation (eine Zeile): Signaturen aus Mails und Website von Unternehmen auslesen; Standard aus. */
+export const kontaktKiEinstellung = pgTable(
+  "kontakt_ki_einstellung",
+  {
+    id: integer("id").primaryKey().default(1),
+    signaturen: boolean("signaturen").notNull().default(false),
+    website: boolean("website").notNull().default(false),
+    geaendertAm: timestamp("geaendert_am", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [check("kontakt_ki_einstellung_eine_zeile", sql`${t.id} = 1`)],
+);
+
+/** Ob die Person ihr eigenes Postfach für die Auslesung von Signaturen freigibt (Standard: nein); nur die Person selbst sieht und ändert es. */
+export const kontaktKiTeilnahme = pgTable("kontakt_ki_teilnahme", {
+  benutzerId: uuid("benutzer_id").primaryKey().references(() => benutzer.id, { onDelete: "cascade" }),
+  signaturen: boolean("signaturen").notNull().default(false),
+  geaendertAm: timestamp("geaendert_am", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * Vorschlag der KI für ein Feld einer Person oder Organisation, mit Quelle: `signatur` (Mail vom `quelle_datum`) oder `website` (`quelle_url`, abgerufen am `erstellt_am`).
+ * Er schreibt nichts: Erst die Übernahme durch eine Person setzt den Wert. `bisher` ist der Wert zur Zeit des Vorschlags (Hinweis auf eine Änderung). Je Objekt und Feld gibt es
+ * höchstens einen offenen Vorschlag (der jüngere nach `quelle_datum` gewinnt); ein verworfener Wert kommt nicht wieder. Das Zitat ist der gelesene Textausschnitt, nie die ganze Mail.
+ */
+export const kontaktKiVorschlag = pgTable(
+  "kontakt_ki_vorschlag",
+  {
+    id: id(),
+    personId: uuid("person_id").references(() => person.id, { onDelete: "cascade" }),
+    organisationId: uuid("organisation_id").references(() => organisation.id, { onDelete: "cascade" }),
+    feld: text("feld").notNull(),
+    wert: text("wert").notNull(),
+    bisher: text("bisher"),
+    quelle: text("quelle").notNull(),
+    quelleDatum: timestamp("quelle_datum", { withTimezone: true }).notNull(),
+    quelleUrl: text("quelle_url"),
+    zitat: text("zitat").notNull(),
+    benutzerId: uuid("benutzer_id").references(() => benutzer.id, { onDelete: "set null" }),
+    anbieter: text("anbieter"),
+    status: text("status").notNull().default("offen"),
+    entschiedenVon: uuid("entschieden_von").references(() => benutzer.id, { onDelete: "set null" }),
+    entschiedenAm: timestamp("entschieden_am", { withTimezone: true }),
+    erstelltAm: erstelltAm(),
+  },
+  (t) => [
+    check("kontakt_ki_vorschlag_ziel", sql`(${t.personId} IS NULL) <> (${t.organisationId} IS NULL)`),
+    check("kontakt_ki_vorschlag_status", sql`${t.status} IN ('offen', 'uebernommen', 'verworfen')`),
+    check("kontakt_ki_vorschlag_quelle", sql`${t.quelle} IN ('signatur', 'website')`),
+    uniqueIndex("kontakt_ki_vorschlag_person_offen_uq").on(t.personId, t.feld).where(sql`${t.status} = 'offen' AND ${t.personId} IS NOT NULL`),
+    uniqueIndex("kontakt_ki_vorschlag_organisation_offen_uq").on(t.organisationId, t.feld).where(sql`${t.status} = 'offen' AND ${t.organisationId} IS NOT NULL`),
+    index("kontakt_ki_vorschlag_person_idx").on(t.personId),
+    index("kontakt_ki_vorschlag_organisation_idx").on(t.organisationId),
+  ],
 );
 
 /** Link für das Kalenderabonnement (ICS) einer Person: wie die Links der Kennzahlen-Abfrage nur als Hash gespeichert, widerrufbar. */
@@ -3288,5 +3618,174 @@ export const wechselkurs = pgTable(
     index("wechselkurs_erfasst_idx").on(t.erfasstAm),
     check("wechselkurs_codes", sql`${t.basis} ~ '^[A-Z]{3}$' AND ${t.quote} ~ '^[A-Z]{3}$' AND ${t.basis} <> ${t.quote}`),
     check("wechselkurs_positiv", sql`${t.kurs} > 0`),
+  ],
+);
+
+// Webhooks und Live-Aktualisierung ---------------------------------------------------------------------------------
+
+/**
+ * Webhook-Endpunkt (Issue #154): Ziel außerhalb von Carraway, das bei Änderungen eine signierte Nachricht bekommt. Er gehört der Person, die ihn
+ * angelegt hat, oder dem API-Schlüssel, mit dem er angelegt wurde (`api_schluessel_id`); zugestellt wird nur, was dieser Zugang zum Zeitpunkt
+ * der Zustellung sehen darf. Das Geheimnis der Signatur steht nur verschlüsselt in `geheimnis_verschluesselt` (AAD `webhook:<id>`), nie im
+ * Änderungsprotokoll oder im Vollexport. `tabellen` leer = alle Tabellen der Änderungsabfrage.
+ */
+export const webhook = pgTable(
+  "webhook",
+  {
+    id: id(),
+    benutzerId: uuid("benutzer_id").notNull().references(() => benutzer.id, { onDelete: "cascade" }),
+    apiSchluesselId: uuid("api_schluessel_id").references(() => apiSchluessel.id, { onDelete: "cascade" }),
+    url: text("url").notNull(),
+    beschreibung: text("beschreibung"),
+    tabellen: text("tabellen").array().notNull().default(sql`'{}'::text[]`),
+    geheimnisVerschluesselt: text("geheimnis_verschluesselt").notNull(),
+    aktiv: boolean("aktiv").notNull().default(true),
+    /** Endgültig gescheiterte Zustellungen in Folge; eine erfolgreiche setzt auf 0, ab der Grenze wird der Endpunkt abgeschaltet. */
+    fehlerInFolge: integer("fehler_in_folge").notNull().default(0),
+    deaktiviertAm: zeitstempel("deaktiviert_am"),
+    /** Code: `too_many_failures`, `owner_inactive` oder `manual`. */
+    deaktiviertGrund: text("deaktiviert_grund"),
+    erstelltAm: erstelltAm(),
+    geaendertAm: timestamp("geaendert_am", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("webhook_benutzer_idx").on(t.benutzerId), index("webhook_aktiv_idx").on(t.aktiv)],
+);
+
+/**
+ * Ausgangskorb der Webhooks: Ein Trigger auf `aenderung` legt je Zeile (außer Lesezugriffen) einen Eintrag an, solange es einen aktiven
+ * Endpunkt gibt; der Worker verteilt ihn auf die Endpunkte und löscht ihn in derselben Transaktion. Wie bei `snapshot_auftrag` geht so keine
+ * Änderung verloren, auch wenn eine Transaktion mit älterem Zeitstempel später festgeschrieben wird.
+ */
+export const webhookAusgang = pgTable("webhook_ausgang", {
+  nr: bigint("nr", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+  aenderungId: uuid("aenderung_id").notNull(),
+  erstelltAm: erstelltAm(),
+});
+
+/**
+ * Zustellprotokoll: eine Zeile je Ereignis und Endpunkt. Enthält nie Nutzdaten, Kopfzeilen, Signaturen oder Antworttexte, nur Status, Anzahl der
+ * Versuche, HTTP-Status, Fehlercode und Dauer. `status`: `pending`, `delivered`, `failed` (alle Versuche gescheitert) oder `skipped` (zum
+ * Zeitpunkt der Zustellung nicht mehr sichtbar oder Endpunkt aus). Zeilen älter als 30 Tage löscht der Worker.
+ */
+export const webhookZustellung = pgTable(
+  "webhook_zustellung",
+  {
+    id: id(),
+    webhookId: uuid("webhook_id").notNull().references(() => webhook.id, { onDelete: "cascade" }),
+    /** Zeile des Änderungsprotokolls; leer bei einem Testereignis (`art` = `ping`). */
+    aenderungId: uuid("aenderung_id"),
+    art: text("art").notNull().default("change"),
+    status: text("status").notNull().default("pending"),
+    versuche: integer("versuche").notNull().default(0),
+    letzterVersuchAm: zeitstempel("letzter_versuch_am"),
+    httpStatus: integer("http_status"),
+    fehler: text("fehler"),
+    dauerMs: integer("dauer_ms"),
+    erstelltAm: erstelltAm(),
+    /** Zeitpunkt, zu dem der Worker die Zustellung an die Warteschlange übergeben hat; leer = noch nicht übergeben (z. B. Testereignis aus der API). */
+    eingereihtAm: zeitstempel("eingereiht_am"),
+    zugestelltAm: zeitstempel("zugestellt_am"),
+  },
+  (t) => [
+    index("webhook_zustellung_webhook_idx").on(t.webhookId, t.erstelltAm),
+    index("webhook_zustellung_offen_idx").on(t.erstelltAm).where(sql`${t.eingereihtAm} IS NULL`),
+    index("webhook_zustellung_erstellt_idx").on(t.erstelltAm),
+    check("webhook_zustellung_status", sql`${t.status} IN ('pending', 'delivered', 'failed', 'skipped')`),
+    check("webhook_zustellung_art", sql`${t.art} IN ('change', 'ping')`),
+  ],
+);
+
+// Manager-Profil und Dachfonds ---------------------------------------------------------------------------------------
+
+/**
+ * Profil des Managers (der Installation), genau eine Zeile (`id = 1`): Name für Übersichten und die Hauswährung (ISO 4217), in der die fondsübergreifenden
+ * Summen und die Währungssicht „Hauswährung“ rechnen. Ohne Zeile gilt EUR.
+ */
+export const managerProfil = pgTable(
+  "manager_profil",
+  {
+    id: integer("id").primaryKey().default(1),
+    name: text("name"),
+    hauswaehrung: text("hauswaehrung").notNull().default("EUR"),
+    geaendertAm: timestamp("geaendert_am", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [check("manager_profil_eine_zeile", sql`${t.id} = 1`), check("manager_profil_hauswaehrung", sql`${t.hauswaehrung} ~ '^[A-Z]{3}$'`)],
+);
+
+/**
+ * Beteiligung eines Fonds (Dachfonds) an einem Zielfonds. `zielfonds_id` verweist auf den Zielfonds, wenn er in derselben Installation geführt wird
+ * (Durchrechnung der NAV, keine Doppelzählung in fondsübergreifenden Summen); sonst bleibt sie leer. Beträge stehen in der Fondswährung des Dachfonds.
+ */
+export const zielfondsBeteiligung = pgTable(
+  "zielfonds_beteiligung",
+  {
+    id: id(),
+    fondsId: uuid("fonds_id").notNull().references(() => fonds.id),
+    name: text("name").notNull(),
+    zielfondsId: uuid("zielfonds_id").references(() => fonds.id),
+    /** Optional: Verwaltungsgesellschaft oder Vehikel des Zielfonds als Kontakt. */
+    organisationId: uuid("organisation_id").references(() => organisation.id),
+    /**
+     * Nur bei einem Zielfonds derselben Installation: die Organisation, als die der Dachfonds dort als Investor gezeichnet hat. Nur dann stecken Zusage, Abrufe
+     * und Ausschüttungen des Anteils auch in den Investorenzahlen des Zielfonds und werden in fondsübergreifenden Summen abgezogen.
+     */
+    investorOrganisationId: uuid("investor_organisation_id").references(() => organisation.id),
+    erstelltAm: erstelltAm(),
+  },
+  (t) => [
+    index("zielfonds_beteiligung_fonds_idx").on(t.fondsId),
+    index("zielfonds_beteiligung_ziel_idx").on(t.zielfondsId),
+    uniqueIndex("zielfonds_beteiligung_ziel_uq").on(t.fondsId, t.zielfondsId),
+    check("zielfonds_beteiligung_nicht_selbst", sql`${t.zielfondsId} IS NULL OR ${t.zielfondsId} <> ${t.fondsId}`),
+    check("zielfonds_beteiligung_investor", sql`${t.investorOrganisationId} IS NULL OR ${t.zielfondsId} IS NOT NULL`),
+  ],
+);
+
+export const zielfondsBewegungArt = pgEnum("zielfonds_bewegung_art", ["zusage", "abruf", "ausschuettung"]);
+
+/**
+ * Zusagen, Kapitalabrufe und Ausschüttungen eines Zielfonds an den Dachfonds. Unveränderlich (Trigger); eine Korrektur ist ein Storno mit negiertem Betrag,
+ * das auf die stornierte Bewegung verweist.
+ */
+export const zielfondsBewegung = pgTable(
+  "zielfonds_bewegung",
+  {
+    id: id(),
+    beteiligungId: uuid("beteiligung_id").notNull().references(() => zielfondsBeteiligung.id),
+    art: zielfondsBewegungArt("art").notNull(),
+    valuta: date("valuta").notNull(),
+    betrag: betrag("betrag").notNull(),
+    bemerkung: text("bemerkung"),
+    storniertBewegungId: uuid("storniert_bewegung_id").references((): AnyPgColumn => zielfondsBewegung.id),
+    erfasstVon: text("erfasst_von").notNull(),
+    erfasstAm: timestamp("erfasst_am", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("zielfonds_bewegung_beteiligung_idx").on(t.beteiligungId, t.valuta),
+    uniqueIndex("zielfonds_bewegung_storno_uq").on(t.storniertBewegungId),
+    check("zielfonds_bewegung_vorzeichen", sql`(${t.storniertBewegungId} IS NULL AND ${t.betrag} > 0) OR (${t.storniertBewegungId} IS NOT NULL AND ${t.betrag} < 0)`),
+  ],
+);
+
+/**
+ * Meldung eines Zielfonds zu einem Stichtag (Kapitalkontoauszug): NAV des Anteils in Fondswährung des Dachfonds und/oder Anteil am Zielfonds als Bruch.
+ * Unveränderlich (Trigger); eine Korrektur ist eine neue Meldung zum selben Stichtag, die zuletzt erfasste gilt (je Feld die jüngste mit Wert).
+ */
+export const zielfondsMeldung = pgTable(
+  "zielfonds_meldung",
+  {
+    id: id(),
+    beteiligungId: uuid("beteiligung_id").notNull().references(() => zielfondsBeteiligung.id),
+    stichtag: date("stichtag").notNull(),
+    nav: betrag("nav"),
+    anteil: numeric("anteil", { precision: 12, scale: 10 }),
+    bemerkung: text("bemerkung"),
+    erfasstVon: text("erfasst_von").notNull(),
+    erfasstAm: timestamp("erfasst_am", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("zielfonds_meldung_beteiligung_idx").on(t.beteiligungId, t.stichtag),
+    check("zielfonds_meldung_inhalt", sql`${t.nav} IS NOT NULL OR ${t.anteil} IS NOT NULL`),
+    check("zielfonds_meldung_anteil", sql`${t.anteil} IS NULL OR (${t.anteil} > 0 AND ${t.anteil} <= 1)`),
   ],
 );

@@ -67,7 +67,7 @@ describe("Token", () => {
     alles.push(await (await get(`/fonds/${ID.fonds}/kennzahlen/abfragen`, betrachter)).text());
     alles.push(await (await get(`/beteiligungen/${ID.eigen}/kennzahlen/abfragen`, betrachter)).text());
     alles.push(await (await get(`/fonds/${ID.fonds}/kennzahlen/uebersicht?periode=2026-Q3`, betrachter)).text());
-    alles.push(await (await get(`/aenderungen?limit=1000`, verwalter)).text());
+    alles.push(await (await get(`/changes?limit=1000`, verwalter)).text());
     alles.push(JSON.stringify((await db.execute(sql`SELECT vorher, nachher FROM aenderung`)).rows));
     const ex = await t.request("/export?format=zip", { als: person("ab-global", { globalVerwalter: true }) });
     expect(ex.status).toBe(200);
@@ -113,7 +113,7 @@ describe("Token", () => {
     for (const [methode, pfad, koerper] of [["GET", extern(a.token)], ["PUT", extern(a.token), { werte: [] }], ["POST", `${extern(a.token)}/einreichen`, {}]] as const) {
       const antwort = await oeffentlich(pfad, methode, koerper);
       expect(antwort.status, methode).toBe(410);
-      expect((await json(antwort)).fehler.code).toBe("ABFRAGE_WIDERRUFEN");
+      expect((await json(antwort)).error.code).toBe("metric_request_revoked");
     }
     expect((await post(`/kennzahlen/abfragen/${a.abfrage.id}/widerrufen`, undefined, bearbeiter)).status).toBe(409);
     expect((await post(`/kennzahlen/abfragen/${a.abfrage.id}/neuer-link`, undefined, bearbeiter)).status).toBe(409);
@@ -127,7 +127,7 @@ describe("Token", () => {
     await db.execute(sql`UPDATE kennzahl_abfrage SET token_ablauf = now() - interval '1 minute' WHERE id = ${a.abfrage.id}`);
     const antwort = await oeffentlich(extern(a.token));
     expect(antwort.status).toBe(410);
-    expect((await json(antwort)).fehler.code).toBe("ABFRAGE_ABGELAUFEN");
+    expect((await json(antwort)).error.code).toBe("metric_request_expired");
     expect((await oeffentlich(extern(a.token), "PUT", { werte: [] })).status).toBe(410);
   });
 
@@ -163,7 +163,7 @@ describe("Öffentliche Seite: Inhalt und Geltungsbereich", () => {
     // Angabe einer nicht angeforderten Kennzahl (auch wenn sie in einer anderen Anfrage steht) wird abgelehnt, nichts wird geschrieben.
     const fremdeKennzahl = await oeffentlich(extern(a.token), "PUT", { werte: [{ schluessel: "ebitda", wert: "1" }] });
     expect(fremdeKennzahl.status).toBe(400);
-    expect((await json(fremdeKennzahl)).fehler.code).toBe("KENNZAHL_NICHT_ANGEFORDERT");
+    expect((await json(fremdeKennzahl)).error.code).toBe("metric_not_requested");
     // Nicht angegebene Felder wie Beteiligung, Zeitraum, Szenario oder Status lassen sich nicht mitschicken.
     for (const extra of [{ beteiligungId: ID.darlehen }, { periodeBeginn: "2026-01-01" }, { szenario: "plan" }, { status: "bestaetigt" }, { abfrageId: b.abfrage.id }]) {
       const antwort = await oeffentlich(extern(a.token), "PUT", { werte: [{ schluessel: "umsatz", wert: "1", ...extra }] });
@@ -216,18 +216,19 @@ describe("Entwurf, Einreichen, danach nur lesbar, Protokoll", () => {
     }
     expect((await speichere("umsatz", "1234567.89")).status).toBe(200);
     expect((await speichere("mitarbeitende_vzae", "12.5")).status).toBe(200);
-    expect((await speichere("esg_verstoesse_ungc", "nein")).status).toBe(200);
+    expect((await speichere("esg_verstoesse_ungc", "nein")).status).toBe(400);
+    expect((await speichere("esg_verstoesse_ungc", "no")).status).toBe(200);
   });
 
   it("einreichen verlangt alle Pflichtkennzahlen; danach ist der Link nur lesbar, im Protokoll steht extern:<id>", async () => {
     const a = await neueAbfrage(); // Pflicht: umsatz, ebitda, mitarbeitende_vzae
     const leer = await oeffentlich(`${extern(a.token)}/einreichen`, "POST", {});
     expect(leer.status).toBe(400);
-    expect((await json(leer)).fehler.code).toBe("KENNZAHL_PFLICHT_FEHLT");
+    expect((await json(leer)).error.code).toBe("metric_required_missing");
     await oeffentlich(extern(a.token), "PUT", { werte: [{ schluessel: "umsatz", wert: "100" }, { schluessel: "mitarbeitende_vzae", wert: "12" }] });
     const fehlt = await oeffentlich(`${extern(a.token)}/einreichen`, "POST", {});
     expect(fehlt.status).toBe(400);
-    expect((await json(fehlt)).fehler.fehlend).toEqual(["ebitda"]);
+    expect((await json(fehlt)).error.fehlend).toEqual(["ebitda"]);
     await oeffentlich(extern(a.token), "PUT", { werte: [{ schluessel: "ebitda", wert: "-5" }] });
     const ok = await oeffentlich(`${extern(a.token)}/einreichen`, "POST", {});
     expect(ok.status).toBe(200);
@@ -240,7 +241,7 @@ describe("Entwurf, Einreichen, danach nur lesbar, Protokoll", () => {
     for (const [methode, pfad, koerper] of [["PUT", extern(a.token), { werte: [{ schluessel: "umsatz", wert: "999" }] }], ["POST", `${extern(a.token)}/einreichen`, {}]] as const) {
       const antwort = await oeffentlich(pfad, methode, koerper);
       expect(antwort.status, methode).toBe(409);
-      expect((await json(antwort)).fehler.code).toBe("ABFRAGE_EINGEREICHT");
+      expect((await json(antwort)).error.code).toBe("metric_request_submitted");
     }
     expect((await db.execute(sql`SELECT wert FROM kennzahl_wert WHERE abfrage_id = ${a.abfrage.id} ORDER BY wert`)).rows.map((r) => (r as { wert: string }).wert)).toEqual(["-5", "100", "12"]);
     expect((await db.execute(sql`SELECT status::text AS s FROM kennzahl_abfrage WHERE id = ${a.abfrage.id}`)).rows[0]).toMatchObject({ s: "eingereicht" });
@@ -259,7 +260,7 @@ describe("Entwurf, Einreichen, danach nur lesbar, Protokoll", () => {
     const a = await neueAbfrage();
     const riesig = await oeffentlich(extern(a.token), "PUT", JSON.stringify({ werte: [{ schluessel: "umsatz", wert: "1", kommentar: "x".repeat(70_000) }] }));
     expect(riesig.status).toBe(413);
-    expect((await json(riesig)).fehler.code).toBe("ANFRAGE_ZU_GROSS");
+    expect((await json(riesig)).error.code).toBe("request_too_large");
     expect((await oeffentlich(extern(a.token), "PUT", "{kaputt")).status).toBe(400);
     expect((await oeffentlich(extern(a.token), "PUT", { werte: "nein" })).status).toBe(400);
     expect((await oeffentlich(extern(a.token), "PUT", { werte: [{ schluessel: "umsatz", wert: 5 }] })).status).toBe(400);
@@ -283,7 +284,7 @@ describe("Prüfung durch das Haus", () => {
     const [wert] = (await db.execute(sql`SELECT id FROM kennzahl_wert WHERE abfrage_id = ${a.abfrage.id}`)).rows as { id: string }[];
     const frueh = await post(`/kennzahlen/werte/${wert!.id}/bestaetigen`, undefined, bearbeiter);
     expect(frueh.status).toBe(409);
-    expect((await json(frueh)).fehler.code).toBe("KENNZAHL_WERT_NICHT_EINGEREICHT");
+    expect((await json(frueh)).error.code).toBe("metric_value_not_submitted");
     await oeffentlich(extern(a.token), "PUT", { werte: [{ schluessel: "ebitda", wert: "1" }, { schluessel: "mitarbeitende_vzae", wert: "1" }] });
     await oeffentlich(`${extern(a.token)}/einreichen`, "POST", {});
     expect((await post(`/kennzahlen/werte/${wert!.id}/bestaetigen`, undefined, betrachter)).status).toBe(403);
@@ -337,10 +338,10 @@ describe("Anlegen der Anfrage", () => {
     expect((await post(`/beteiligungen/${ID.eigen}/kennzahlen/abfragen`, { ...koerper, schluessel: ["umsatz"] }, fremd)).status).toBe(403);
     // ohne Auswahl im Fonds und ohne Angabe: Fehler
     const ohne = await post(`/beteiligungen/${ID.eigen}/kennzahlen/abfragen`, koerper, bearbeiter);
-    expect((await json(ohne)).fehler.code).toBe("ABFRAGE_OHNE_KENNZAHLEN");
+    expect((await json(ohne)).error.code).toBe("metric_request_without_metrics");
     await put(`/fonds/${ID.fonds}/kennzahlen/auswahl`, { schluessel: ["liquiditaet", "umsatz", "esg_thg_scope1"] }, verwalter);
     // Ausdrücklich genannt, passt die Jahreskennzahl nicht zu einem Quartal ...
-    expect((await json(await post(`/beteiligungen/${ID.eigen}/kennzahlen/abfragen`, { ...koerper, schluessel: ["esg_thg_scope1"] }, bearbeiter))).fehler.code).toBe("KENNZAHL_PERIODE_ZU_FEIN");
+    expect((await json(await post(`/beteiligungen/${ID.eigen}/kennzahlen/abfragen`, { ...koerper, schluessel: ["esg_thg_scope1"] }, bearbeiter))).error.code).toBe("metric_period_too_fine");
     // ... und ohne Angabe wird sie aus der Auswahl des Fonds ausgelassen (wie in der Übersicht)
     const ok = await post(`/beteiligungen/${ID.eigen}/kennzahlen/abfragen`, koerper, bearbeiter);
     expect(ok.status).toBe(201);
@@ -350,11 +351,11 @@ describe("Anlegen der Anfrage", () => {
     await put(`/fonds/${ID.fonds}/kennzahlen/auswahl`, { schluessel: ["esg_thg_scope1"] }, verwalter);
     const leer = await post(`/beteiligungen/${ID.darlehen}/kennzahlen/abfragen`, koerper, bearbeiter);
     expect(leer.status).toBe(400);
-    expect((await json(leer)).fehler.code).toBe("ABFRAGE_OHNE_KENNZAHLEN");
+    expect((await json(leer)).error.code).toBe("metric_request_without_metrics");
     await put(`/fonds/${ID.fonds}/kennzahlen/auswahl`, { schluessel: ["liquiditaet", "umsatz", "esg_thg_scope1"] }, verwalter);
     const doppelt = await post(`/beteiligungen/${ID.eigen}/kennzahlen/abfragen`, koerper, bearbeiter);
     expect(doppelt.status).toBe(409);
-    expect((await json(doppelt)).fehler).toMatchObject({ code: "ABFRAGE_VORHANDEN", abfrageId: id });
+    expect((await json(doppelt)).error).toMatchObject({ code: "metric_request_exists", abfrageId: id });
     expect((await post(`/beteiligungen/${ID.eigen}/kennzahlen/abfragen`, { ...koerper, periodeBeginn: "2026-07-01", periodeEnde: "2026-08-31", schluessel: ["umsatz"] }, bearbeiter)).status).toBe(400);
     expect((await post(`/beteiligungen/${ID.eigen}/kennzahlen/abfragen`, { ...koerper, faelligAm: "2020-01-01", schluessel: ["umsatz"] }, bearbeiter)).status).toBe(400);
     expect((await post(`/beteiligungen/${ID.eigen}/kennzahlen/abfragen`, { ...koerper, periodeBeginn: "2026-10-01", periodeEnde: "2026-12-31", schluessel: ["umsatz", "umsatz"] }, bearbeiter)).status).toBe(400);
@@ -387,7 +388,7 @@ describe("Begrenzung der öffentlichen Wege", () => {
     const zuViel = await oeffentlich(extern(a.token), "GET", undefined, knapp);
     expect(zuViel.status).toBe(429);
     expect(zuViel.headers.get("retry-after")).toBe("60");
-    expect((await json(zuViel)).fehler.code).toBe("ZU_VIELE_ANFRAGEN");
+    expect((await json(zuViel)).error.code).toBe("too_many_requests");
     expect((await oeffentlich(extern(b.token), "GET", undefined, knapp)).status).toBe(200);
     // schreibende Wege zählen mit
     expect((await oeffentlich(extern(a.token), "PUT", { werte: [] }, knapp)).status).toBe(429);
@@ -402,7 +403,7 @@ describe("Begrenzung der öffentlichen Wege", () => {
     for (let i = 0; i < 3; i++) expect((await oeffentlich(extern(`${"A".repeat(42)}${i}`), "GET", undefined, knapp)).status).toBe(404);
     const gesperrt = await oeffentlich(extern(a.token), "GET", undefined, knapp);
     expect(gesperrt.status).toBe(429);
-    expect((await json(gesperrt)).fehler.code).toBe("ZU_VIELE_ANFRAGEN");
+    expect((await json(gesperrt)).error.code).toBe("too_many_requests");
     // Die normale App (Standardgrenzen) bleibt für diese IP-Zähler erreichbar: die Grenze gilt je Konfiguration, die Zähler sind gemeinsam.
     await db.execute(sql`DELETE FROM abfrage_zugriff`);
     expect((await oeffentlich(extern(a.token), "GET", undefined, knapp)).status).toBe(200);

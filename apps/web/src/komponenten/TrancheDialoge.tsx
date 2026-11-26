@@ -12,7 +12,7 @@ import { FehlerHinweis } from "./FehlerHinweis";
 import { betragFuerFeld, betragOderNichts, textOderNichts, textOderNull, useFormular } from "./formular";
 import { JaNein } from "./JaNein";
 import { BetragFeld } from "./BetragFeld";
-import { betragRegel, datumRegel, prozentRegel } from "../lib/feldpruefung";
+import { betragRegel, datumRegel, ganzzahlRegel, prozentRegel } from "../lib/feldpruefung";
 import { anteilZuProzent, prozentZuAnteil } from "../lib/zahl";
 
 const cent = (wert: string | undefined) => Math.round(Number(wert ?? "0") * 100);
@@ -130,13 +130,31 @@ export function TrancheBearbeitenDialog({ tranche, onSchliessen }: { tranche: Tr
   );
 }
 
-const ARTEN = ["offene_beteiligung", "stille_beteiligung", "darlehen", "wandeldarlehen", "venture_debt", "gesellschafterdarlehen"] as const;
+const ARTEN = ["offene_beteiligung", "stille_beteiligung", "darlehen", "wandeldarlehen", "venture_debt", "gesellschafterdarlehen", "safe", "optionsschein"] as const;
 type Art = NonNullable<NeuesInstrument["art"]>;
-/** Eigenkapital und stille Beteiligung gehören nie zu einer Brückenrunde (die API lehnt sie mit `INSTRUMENT_RUNDE_BRUECKE` ab); Darlehensarten dürfen. */
+/** Eigenkapital und stille Beteiligung gehören nie zu einer Brückenrunde (die API lehnt sie mit `instrument_round_bridge` ab); Darlehensarten dürfen. */
 const ANTEILSARTEN = ["offene_beteiligung", "stille_beteiligung"];
 const angeboteneRunden = <R extends { art: string }>(runden: R[] | undefined, art: string): R[] => (runden ?? []).filter((r) => r.art !== "bruecke" || !ANTEILSARTEN.includes(art));
 
-const INSTRUMENT_FELDER = ["art", "bezeichnung", "rundeId", "anteilsklasseId", "wandlungsabschlag", "bewertungsobergrenze", "zinsenWandeln"];
+const INSTRUMENT_FELDER = ["art", "bezeichnung", "rundeId", "anteilsklasseId", "wandlungsabschlag", "bewertungsobergrenze", "zinsenWandeln", "optionsscheinAnzahl", "ausuebungspreis", "ausgabeAm", "laufzeitBis"];
+const ganzzahl = (wert: string) => wert.replace(/\s/g, "").replace(/\.(?=\d{3}(\D|$))/g, "");
+
+/** Felder der Optionsscheine (Anzahl und Ausübungspreis Pflicht), Preis bis vier Nachkommastellen wie die API. */
+const optionsscheinRegeln = { optionsscheinAnzahl: ganzzahlRegel({ min: 1, pflicht: true }), ausuebungspreis: betragRegel({ nachkomma: 4, ganzstellen: 14, pflicht: true }), ausgabeAm: datumRegel(), laufzeitBis: datumRegel() };
+function OptionsscheinFelder({ feld, fehler }: { feld: (name: "optionsscheinAnzahl" | "ausuebungspreis" | "ausgabeAm" | "laufzeitBis", fehler?: string | undefined) => object; fehler: (name: string) => string | undefined }) {
+  const t = useT();
+  const o = t.instrumentForm.optionsschein;
+  return (
+    <fieldset className="app-gruppe">
+      <legend className="cw-feld__label">{o.titel}</legend>
+      <p className="app-leer-text">{o.hilfe}</p>
+      <BetragFeld label={o.anzahl} inputMode="numeric" {...feld("optionsscheinAnzahl", fehler("optionsscheinAnzahl"))} />
+      <BetragFeld label={o.preis} hilfe={o.preisHilfe} {...feld("ausuebungspreis", fehler("ausuebungspreis"))} />
+      <Feld label={o.ausgabe} type="date" {...feld("ausgabeAm", fehler("ausgabeAm"))} />
+      <Feld label={o.laufzeit} type="date" {...feld("laufzeitBis", fehler("laufzeitBis"))} />
+    </fieldset>
+  );
+}
 
 /**
  * Instrument anlegen (Art, Bezeichnung, optional Runde und Anteilsklasse) mit optionaler erster Tranche samt Zusage. Das sind zwei Aufrufe:
@@ -151,12 +169,18 @@ export function InstrumentAnlegenDialog({ beteiligungId, organisationId, onSchli
   const tranche = useTrancheAnlegen();
   const { data: runden } = useQuery(finanzierungsrunden(organisationId));
   const { data: klassen } = useQuery(anteilsklassen(organisationId));
-  const { werte, feld, pruefeAlle } = useFormular({ art: "offene_beteiligung", bezeichnung: "", rundeId: "", anteilsklasseId: "", betrag: "", geplantAm: "", bedingung: "" }, { betrag: betragRegel({ vorzeichen: "positiv" }), geplantAm: datumRegel() });
+  const [wirdOptionsschein, setWirdOptionsschein] = useState(false);
+  const { werte, feld, pruefeAlle } = useFormular(
+    { art: "offene_beteiligung", bezeichnung: "", rundeId: "", anteilsklasseId: "", betrag: "", geplantAm: "", bedingung: "", optionsscheinAnzahl: "", ausuebungspreis: "", ausgabeAm: "", laufzeitBis: "" },
+    { betrag: betragRegel({ vorzeichen: "positiv" }), geplantAm: datumRegel(), ...(wirdOptionsschein ? optionsscheinRegeln : {}) },
+  );
   const [angelegt, setAngelegt] = useState<string | null>(null);
   const [trancheFehler, setTrancheFehler] = useState(false);
   const fehler = (name: string) => feldText(t, anlegen.error, name);
   const hatTranche = betragOderNichts(werte.betrag, sprache) !== undefined;
   const eigenkapital = werte.art === "offene_beteiligung";
+  const optionsschein = werte.art === "optionsschein";
+  if (optionsschein !== wirdOptionsschein) setWirdOptionsschein(optionsschein);
   const rundenAngebot = angeboteneRunden(runden, werte.art);
   const rundeId = rundenAngebot.some((r) => r.id === werte.rundeId) ? werte.rundeId : "";
 
@@ -171,6 +195,14 @@ export function InstrumentAnlegenDialog({ beteiligungId, organisationId, onSchli
           ...(textOderNichts(werte.bezeichnung) ? { bezeichnung: textOderNichts(werte.bezeichnung) } : {}),
           ...(rundeId ? { rundeId } : {}),
           ...(eigenkapital && werte.anteilsklasseId ? { anteilsklasseId: werte.anteilsklasseId } : {}),
+          ...(optionsschein
+            ? {
+                optionsscheinAnzahl: ganzzahl(werte.optionsscheinAnzahl),
+                ausuebungspreis: betragOderNichts(werte.ausuebungspreis, sprache) ?? "",
+                ...(textOderNichts(werte.ausgabeAm) ? { ausgabeAm: textOderNichts(werte.ausgabeAm) } : {}),
+                ...(textOderNichts(werte.laufzeitBis) ? { laufzeitBis: textOderNichts(werte.laufzeitBis) } : {}),
+              }
+            : {}),
         });
         id = neu.id;
         setAngelegt(id);
@@ -235,6 +267,7 @@ export function InstrumentAnlegenDialog({ beteiligungId, organisationId, onSchli
             ))}
           </Auswahl>
         ) : null}
+        {optionsschein ? <OptionsscheinFelder feld={(name, f) => (feld as (n: string, f?: string) => object)(name, f)} fehler={fehler} /> : null}
         <fieldset className="app-gruppe">
           <legend className="cw-feld__label">{f.zusage}</legend>
           <p className="app-leer-text">{f.zusageHilfe}</p>
@@ -254,7 +287,7 @@ export function InstrumentAnlegenDialog({ beteiligungId, organisationId, onSchli
 
 /**
  * Instrument bearbeiten: Art, Bezeichnung, Runde und Anteilsklasse. Die Art lässt sich nur ändern, solange das Instrument keine Vorgänge, Tranchen
- * oder Konditionen hat (`artGesperrt`, aus dem Stand der Seite abgeleitet; die API entscheidet endgültig mit `INSTRUMENT_ART_GESPERRT`).
+ * oder Konditionen hat (`artGesperrt`, aus dem Stand der Seite abgeleitet; die API entscheidet endgültig mit `instrument_type_locked`).
  */
 export function InstrumentBearbeitenDialog({ instrument, organisationId, artGesperrt, waehrung = "EUR", onSchliessen }: { instrument: InstrumentZeile; organisationId: string; artGesperrt: boolean; waehrung?: string | undefined; onSchliessen: () => void }) {
   const t = useT();
@@ -272,12 +305,19 @@ export function InstrumentBearbeitenDialog({ instrument, organisationId, artGesp
       wandlungsabschlag: anteilZuProzent(instrument.wandlungsabschlag),
       bewertungsobergrenze: betragFuerFeld(instrument.bewertungsobergrenze),
       zinsenWandeln: instrument.zinsenWandeln === null ? "" : instrument.zinsenWandeln ? "ja" : "nein",
+      optionsscheinAnzahl: instrument.optionsschein?.anzahl ?? "",
+      ausuebungspreis: (instrument.optionsschein?.ausuebungspreis ?? "").replace(/(\.\d*?)0+$/, "$1").replace(/\.$/, ""),
+      ausgabeAm: instrument.optionsschein?.ausgabeAm ?? "",
+      laufzeitBis: instrument.optionsschein?.laufzeitBis ?? "",
     },
     // Abschlag in Prozent; 100 Prozent lehnt die API am Feld ab (Bruch unter 1).
-    { wandlungsabschlag: prozentRegel(), bewertungsobergrenze: betragRegel({ vorzeichen: "positiv" }) },
+    { wandlungsabschlag: prozentRegel(), bewertungsobergrenze: betragRegel({ vorzeichen: "positiv" }), ...(instrument.art === "optionsschein" ? optionsscheinRegeln : {}) },
   );
   const fehler = (name: string) => feldText(t, aendern.error, name);
-  const wandel = werte.art === "wandeldarlehen";
+  // SAFE: Abschlag und Bewertungsobergrenze wie beim Wandeldarlehen, aber ohne Zinsen.
+  const wandel = werte.art === "wandeldarlehen" || werte.art === "safe";
+  const safe = werte.art === "safe";
+  const optionsschein = werte.art === "optionsschein";
   const artGeaendert = werte.art !== instrument.art;
   const eigenkapital = werte.art === "offene_beteiligung";
   const rundenAngebot = angeboteneRunden(runden, werte.art);
@@ -300,7 +340,15 @@ export function InstrumentBearbeitenDialog({ instrument, organisationId, artGesp
                 ? {
                     wandlungsabschlag: textOderNichts(werte.wandlungsabschlag) ? prozentZuAnteil(werte.wandlungsabschlag) : null,
                     bewertungsobergrenze: betragOderNichts(werte.bewertungsobergrenze, sprache) ?? null,
-                    zinsenWandeln: werte.zinsenWandeln === "" ? null : werte.zinsenWandeln === "ja",
+                    ...(safe ? {} : { zinsenWandeln: werte.zinsenWandeln === "" ? null : werte.zinsenWandeln === "ja" }),
+                  }
+                : {}),
+              ...(optionsschein
+                ? {
+                    optionsscheinAnzahl: ganzzahl(werte.optionsscheinAnzahl),
+                    ausuebungspreis: betragOderNichts(werte.ausuebungspreis, sprache) ?? "",
+                    ausgabeAm: textOderNull(werte.ausgabeAm),
+                    laufzeitBis: textOderNull(werte.laufzeitBis),
                   }
                 : {}),
               rundeId: rundeId || null,
@@ -344,13 +392,16 @@ export function InstrumentBearbeitenDialog({ instrument, organisationId, artGesp
             <p className="app-leer-text">{f.wandlung.hilfe}</p>
             <BetragFeld label={f.wandlung.abschlag} hilfe={f.wandlung.abschlagHilfe} {...feld("wandlungsabschlag", fehler("wandlungsabschlag"))} />
             <BetragFeld label={f.wandlung.obergrenze(waehrung)} hilfe={f.wandlung.obergrenzeHilfe} {...feld("bewertungsobergrenze", fehler("bewertungsobergrenze"))} />
-            <Auswahl label={f.wandlung.zinsen} hilfe={f.wandlung.zinsenHilfe} {...feld("zinsenWandeln")} fehler={fehler("zinsenWandeln")}>
-              <option value="">{f.wandlung.zinsenOffen}</option>
-              <option value="ja">{f.wandlung.ja}</option>
-              <option value="nein">{f.wandlung.nein}</option>
-            </Auswahl>
+            {safe ? null : (
+              <Auswahl label={f.wandlung.zinsen} hilfe={f.wandlung.zinsenHilfe} {...feld("zinsenWandeln")} fehler={fehler("zinsenWandeln")}>
+                <option value="">{f.wandlung.zinsenOffen}</option>
+                <option value="ja">{f.wandlung.ja}</option>
+                <option value="nein">{f.wandlung.nein}</option>
+              </Auswahl>
+            )}
           </fieldset>
         ) : null}
+        {optionsschein ? <OptionsscheinFelder feld={(name, f) => (feld as (n: string, f?: string) => object)(name, f)} fehler={fehler} /> : null}
         <div>
           <Button type="submit" disabled={aendern.isPending}>
             {f.speichern}

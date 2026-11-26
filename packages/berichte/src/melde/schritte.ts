@@ -38,7 +38,7 @@ export const S = {
   bwKapitalisiert: "Kapitalisierte Zinsen",
   bwTilgungen: "Tilgungen",
   bwWertberichtigungen: "Wertberichtigungen (netto)",
-  bwAbgang: "Buchwertabgang früherer Teilverkäufe",
+  bwAbgang: "Buchwertabgang durch Verkäufe",
   bwBuchwert: "Buchwert",
   beteiligungenBestand: "Beteiligungen mit Erstinvestment bis zum Stichtag",
   beteiligungenNeu: "Beteiligungen mit Erstinvestment im Berichtszeitraum",

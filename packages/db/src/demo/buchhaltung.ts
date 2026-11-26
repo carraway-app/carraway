@@ -92,8 +92,13 @@ export function erzeugeBuchhaltung(d: Demodaten, seed: number): DemoBuchhaltung 
     const vs = d.vorgaenge.filter((v) => art.has(v.beteiligungId) && v.valuta <= BUCHHALTUNG_BIS);
     const summe = (filter: (v: (typeof vs)[number]) => boolean) => vs.filter(filter).reduce((s, v) => s + cent(v.betrag), 0);
     const eigen = (v: (typeof vs)[number]) => art.get(v.beteiligungId) === "offene_beteiligung";
-    const eigenInvestiert = summe((v) => v.art === "auszahlung" && eigen(v));
-    const darlehenInvestiert = summe((v) => v.art === "auszahlung" && !eigen(v));
+    // Ein Verkauf bucht den Buchwert aus (wie in der Anwendung); der Abgang mindert das Konto, auf dem die Auszahlungen stehen.
+    const abgang = (istEigen: boolean) =>
+      d.verkaeufe.filter((x) => art.has(x.beteiligungId) && x.datum <= BUCHHALTUNG_BIS && (art.get(x.beteiligungId) === "offene_beteiligung") === istEigen).reduce((s, x) => s + cent(x.buchwertAbgang), 0);
+    const eigenAusgezahlt = summe((v) => v.art === "auszahlung" && eigen(v));
+    const darlehenAusgezahlt = summe((v) => v.art === "auszahlung" && !eigen(v));
+    const eigenInvestiert = eigenAusgezahlt - abgang(true);
+    const darlehenInvestiert = darlehenAusgezahlt - abgang(false);
     const kapitalisiert = summe((v) => v.art === "zins" && v.kapitalisiert === true);
     const tilgungen = summe((v) => v.art === "tilgung");
     const wertberichtigung = summe((v) => v.art === "wertberichtigung");
@@ -101,7 +106,7 @@ export function erzeugeBuchhaltung(d: Demodaten, seed: number): DemoBuchhaltung 
     // Bar fließen nur gezahlte Zinsen; die Zinsbuchung ist eine Forderung.
     const zinsBar = summe((v) => v.art === "zinszahlung");
     const rueckfluesse = summe((v) => v.art === "rueckfluss");
-    const auszahlungen = eigenInvestiert + darlehenInvestiert;
+    const auszahlungen = eigenAusgezahlt + darlehenAusgezahlt;
     const bew = d.fondsBewegungen.filter((x) => x.fondsId === fondsId && x.valuta <= BUCHHALTUNG_BIS);
     const kapitalabrufe = bew.filter((x) => x.art === "abruf");
     const abrufe = kapitalabrufe.reduce((s, x) => s + cent(x.betrag), 0);

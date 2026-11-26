@@ -27,7 +27,7 @@ export function schnappschussVon(lauf: Pick<MeldeLauf, "definition">): Schnappsc
 
 export async function sperreLauf(tx: Tx, id: string): Promise<MeldeLauf> {
   const [l] = await tx.select().from(meldeLauf).where(eq(meldeLauf.id, id)).for("update");
-  if (!l) throw new Fachfehler(404, "MELDELAUF_NICHT_GEFUNDEN","Meldelauf nicht gefunden.");
+  if (!l) throw new Fachfehler(404, "reporting_run_not_found","Reporting run not found.");
   return l;
 }
 
@@ -119,7 +119,7 @@ export interface Datei {
 /** Erzeugt die Datei zu Art (`meldung` im Format der Definition, `pruefansicht` immer PDF) aus den gespeicherten Werten; `xml` gibt es nicht. */
 export async function erzeugeDatei(tx: Tx, lauf: MeldeLauf, art: "meldung" | "pruefansicht", entwurf: boolean): Promise<Datei> {
   const format = art === "pruefansicht" ? "pdf" : lauf.format;
-  if (format === "xml") throw new Fachfehler(409, "MELDEFORMAT_NICHT_UNTERSTUETZT", "Für das Format xml gibt es noch keine Erzeugung.", { format });
+  if (format === "xml") throw new Fachfehler(409, "reporting_format_not_supported", "Generation for the xml format is not available yet.", { format });
   const a = await ausgabeFuer(tx, lauf, entwurf);
   const [f] = await tx.select({ kurz: fonds.kurzname }).from(fonds).where(eq(fonds.id, lauf.fondsId));
   const bytes = format === "xlsx" ? await erzeugeMeldeXlsx(a) : format === "csv" ? erzeugeMeldeCsv(a) : erzeugeMeldePdf(a);

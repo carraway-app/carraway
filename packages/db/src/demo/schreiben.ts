@@ -14,7 +14,7 @@ async function blockweise<T>(zeilen: T[], einfuegen: (teil: T[]) => Promise<unkn
 export async function schreibeDemodaten(db: Db, daten: Demodaten) {
   await db.transaction(async (tx) => {
     await tx.execute(
-      sql`TRUNCATE TABLE wechselkurs, datensatz_link, aufgabe, liste_eintrag, feld_definition, ansicht, liste, deal_kontakt, beschaeftigung, fonds_offenlegung, foerderprogramm, melde_datei, melde_freigabe, melde_wert, melde_lauf, melde_aktivierung, organisation_meldedaten, buchungsexport_position, buchungsexport, buchungsregel, saldo, saldenlauf_befund, saldenlauf, kontenregel, gliederung_position, sachkonto, beleg_stufe, beleg_nummernkreis, beleg, beleg_art_eigen, beleg_vorlage, fonds_mittelart, beteiligung_buchhaltung, fonds_buchhaltung, wert_quelle, auslesung, dokument_seite, dokument_verknuepfung, dokument, bericht_variante, fonds_mitteilung, investor_zugang, abfrage_zugriff, kennzahl_wert, kennzahl_abfrage_position, kennzahl_abfrage, fonds_kennzahl, kontaktrolle, organisationsbeziehung, beschlussvorlage, import_befund, import_zuordnung, import_lauf, idempotenz_schluessel, aenderung, snapshot_auftrag, bericht_vorlage, bericht_freigabestufen, kennzahl_snapshot, rundenposition_zahlung, vorgang_runde, runde_buchung, zuteilung_austritt, mitarbeiterzuteilung, pool_aenderung, mitarbeiterpool, rundenposition, vehikel, anteilsklasse, finanzierungsrunde, vorgang, tranche, instrument, bewertung, beteiligung, aktivitaet, beschluss, deal_phasenwechsel, deal, fonds_bewegung, fonds, person, organisation CASCADE`,
+      sql`TRUNCATE TABLE zielfonds_meldung, zielfonds_bewegung, zielfonds_beteiligung, manager_profil, wechselkurs, datensatz_link, aufgabe, liste_eintrag, feld_definition, ansicht, liste, deal_kontakt, beschaeftigung, fonds_offenlegung, foerderprogramm, melde_datei, melde_freigabe, melde_wert, melde_lauf, melde_aktivierung, organisation_meldedaten, buchungsexport_position, buchungsexport, buchungsregel, saldo, saldenlauf_befund, saldenlauf, kontenregel, gliederung_position, sachkonto, beleg_stufe, beleg_nummernkreis, beleg, beleg_art_eigen, beleg_vorlage, fonds_mittelart, beteiligung_buchhaltung, fonds_buchhaltung, wert_quelle, auslesung, dokument_seite, dokument_verknuepfung, dokument, bericht_variante, fonds_mitteilung, investor_zugang, abfrage_zugriff, kennzahl_wert, kennzahl_abfrage_position, kennzahl_abfrage, fonds_kennzahl, kontaktrolle, organisationsbeziehung, beschlussvorlage, import_befund, import_zuordnung, import_lauf, idempotenz_schluessel, aenderung, snapshot_auftrag, bericht_vorlage, bericht_freigabestufen, kennzahl_snapshot, rundenposition_zahlung, vorgang_runde, runde_buchung, zuteilung_austritt, mitarbeiterzuteilung, pool_aenderung, mitarbeiterpool, rundenposition, vehikel, anteilsklasse, finanzierungsrunde, vorgang, tranche, instrument, bewertung, beteiligung, aktivitaet, beschluss, deal_phasenwechsel, deal, gremienmandat, fonds_kosten_anteil, fonds_kosten, fonds_bewegung, fonds, person, organisation CASCADE`,
     );
     await blockweise(daten.organisationen, (z) => tx.insert(s.organisation).values(z));
     await blockweise(daten.personen, (z) => tx.insert(s.person).values(z));
@@ -23,6 +23,8 @@ export async function schreibeDemodaten(db: Db, daten: Demodaten) {
     await blockweise(daten.fondsZeichnungen, (z) => tx.insert(s.fondsZeichnung).values(z));
     await blockweise(daten.abrufAnteile, (z) => tx.insert(s.abrufAnteil).values(z));
     await blockweise(daten.lpZahlungen, (z) => tx.insert(s.lpZahlung).values(z));
+    await blockweise(daten.fondsKosten, (z) => tx.insert(s.fondsKosten).values(z));
+    await blockweise(daten.fondsKostenAnteile, (z) => tx.insert(s.fondsKostenAnteil).values(z));
     await blockweise(daten.vehikel, (z) => tx.insert(s.vehikel).values(z));
     await blockweise(daten.anteilsklassen, (z) => tx.insert(s.anteilsklasse).values(z));
     await blockweise(daten.finanzierungsrunden, (z) => tx.insert(s.finanzierungsrunde).values(z));
@@ -47,10 +49,14 @@ export async function schreibeDemodaten(db: Db, daten: Demodaten) {
     await blockweise(daten.mitarbeiterzuteilungen, (z) => tx.insert(s.mitarbeiterzuteilung).values(z));
     await blockweise(daten.vorgaenge, (z) => tx.insert(s.vorgang).values(z));
     await blockweise(daten.wandlungen, (z) => tx.insert(s.wandlung).values(z));
+    await blockweise(daten.optionsscheinAusuebungen, (z) => tx.insert(s.optionsscheinAusuebung).values(z));
+    await blockweise(daten.anteilsuebertragungen, (z) => tx.insert(s.anteilsuebertragung).values(z));
     // Zuerst die ausdrücklichen Zuordnungen (Buchungen der Wandlung gehören zur Zielrunde), dann die übrigen nach der Runde ihres Instruments.
     await blockweise(daten.vorgangRunden, (z) => tx.insert(s.vorgangRunde).values(z.map((r) => ({ ...r, quelle: "automatisch" as const, geaendertVon: "Demo" }))));
     await ordneDemoVorgaengeRunden(tx, daten.vorgangOhneRunde);
     await blockweise(daten.bewertungen, (z) => tx.insert(s.bewertung).values(z));
+    // Verkäufe verweisen auf ihren Rückfluss und die Bewertung des Verkaufstags.
+    await blockweise(daten.verkaeufe, (z) => tx.insert(s.verkauf).values(z));
     await blockweise(daten.darlehenKonditionen, (z) => tx.insert(s.darlehenKondition).values(z));
     await blockweise(daten.jahresueberschuesse, (z) => tx.insert(s.jahresueberschuss).values(z));
     await blockweise(daten.fondsKennzahlen, (z) => tx.insert(s.fondsKennzahl).values(z));
@@ -71,6 +77,7 @@ export async function schreibeDemodaten(db: Db, daten: Demodaten) {
     await blockweise(daten.registerEreignisse, (z) => tx.insert(s.registerEreignis).values(z));
     await blockweise(daten.reserven, (z) => tx.insert(s.reserve).values(z));
     await blockweise(daten.szenarien, (z) => tx.insert(s.szenario).values(z));
+    await blockweise(daten.gremienmandate, (z) => tx.insert(s.gremienmandat).values(z));
     // Der Katalog (Version 1) stammt aus der Migration und bleibt beim Leeren erhalten; die Werte verweisen über den Schlüssel darauf.
     const definitionen = new Map((await tx.select({ id: s.kennzahlDefinition.id, schluessel: s.kennzahlDefinition.schluessel }).from(s.kennzahlDefinition).where(eq(s.kennzahlDefinition.katalogVersion, 1))).map((x) => [x.schluessel, x.id]));
     await blockweise([...daten.kennzahlWerte, ...daten.esgWerte], (z) =>

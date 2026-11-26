@@ -1,3 +1,5 @@
+import { pruefeFonds } from "../fonds-pruefung";
+import { fondsAnApi } from "../fonds-vertrag";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -7,7 +9,6 @@ import { abgerufen, sperreFonds } from "../instrumente/fondsbewegung";
 import { ladeKapitalstand } from "../instrumente/kapitalstand";
 import { pruefePeriodensperre } from "../instrumente/zustand";
 import { bereitsZusammengefuehrtFehler, Fachfehler } from "../fehler";
-import { pruefe } from "../pruefung";
 import { schreibe, textEingabe, type Protokollant } from "../schreiben";
 import { lese, type Tx } from "../zeitlimit";
 
@@ -20,10 +21,10 @@ const fondsParam = z.object({ fondsId: z.uuid() });
 const zeichnungenEingabe = z.strictObject({
   zeichnungen: z.array(z.strictObject({
     organisationId: z.uuid().transform((id) => id.toLowerCase()),
-    zusage: z.string().regex(/^\d{1,16}(\.\d{1,2})?$/).refine((wert) => /[1-9]/.test(wert), "Positive Zusage erwartet"),
+    zusage: z.string().regex(/^\d{1,16}(\.\d{1,2})?$/).refine((wert) => /[1-9]/.test(wert), "Positive commitment expected"),
   })).min(1).max(200),
 });
-const betragEingabe = z.string().regex(/^\d{1,16}(\.\d{1,2})?$/).refine((wert) => /[1-9]/.test(wert), "Positiver Betrag erwartet");
+const betragEingabe = z.string().regex(/^\d{1,16}(\.\d{1,2})?$/).refine((wert) => /[1-9]/.test(wert), "Positive amount expected");
 const closingEingabe = z.strictObject({
   /** Tag, ab dem die Zusagen gelten; spätere Abrufe verteilen sich danach, frühere behalten ihre Aufteilung. */
   wirksamAm: z.iso.date(),
@@ -54,8 +55,8 @@ const zusageAenderungEingabe = z.strictObject({
   })).min(1).max(200),
 }).superRefine((e, ctx) => {
   e.investoren.forEach((i, index) => {
-    if (e.art === "verringerung" && i.neueZusage === undefined) ctx.addIssue({ code: "custom", path: ["investoren", index, "neueZusage"], message: "Neue Zusage erforderlich" });
-    if (e.art === "austritt" && i.neueZusage !== undefined) ctx.addIssue({ code: "custom", path: ["investoren", index, "neueZusage"], message: "Beim Austritt entfällt die neue Zusage" });
+    if (e.art === "verringerung" && i.neueZusage === undefined) ctx.addIssue({ code: "custom", path: ["investoren", index, "neueZusage"], message: "New commitment required" });
+    if (e.art === "austritt" && i.neueZusage !== undefined) ctx.addIssue({ code: "custom", path: ["investoren", index, "neueZusage"], message: "A withdrawal has no new commitment" });
   });
 });
 const korrekturEingabe = closingEingabe.extend({ grund: textEingabe(2000) });
@@ -63,9 +64,9 @@ const korrekturEingabe = closingEingabe.extend({ grund: textEingabe(2000) });
 /** Organisation für einen Zugang: gibt es sie, ist sie nicht zusammengeführt und von der Art `investor`? Die Zeile bleibt gesperrt (hält die Zusammenführung auf). */
 export async function ladeInvestorOrganisation(tx: Tx, id: string) {
   const [zeile] = await tx.select().from(organisation).where(eq(organisation.id, id)).for("update");
-  if (!zeile) throw new Fachfehler(404, "ORGANISATION_NICHT_GEFUNDEN", "Organisation nicht gefunden.");
+  if (!zeile) throw new Fachfehler(404, "organization_not_found", "Organization not found.");
   if (zeile.zusammengefuehrtIn) throw bereitsZusammengefuehrtFehler(zeile.zusammengefuehrtIn);
-  if (zeile.art !== "investor") throw new Fachfehler(409, "ORGANISATION_KEIN_INVESTOR", "Nur Organisationen der Art Investor lassen sich einem Investor-Zugang zuordnen.");
+  if (zeile.art !== "investor") throw new Fachfehler(409, "organization_not_investor", "Only organizations of type investor can be assigned to an investor access.");
   return zeile;
 }
 
@@ -73,6 +74,7 @@ export async function ladeInvestorOrganisation(tx: Tx, id: string) {
 async function hatFondsaktivitaet(tx: Tx, fondsId: string): Promise<boolean> {
   const { rows } = await tx.execute<{ aktiv: boolean }>(sql`
     SELECT EXISTS (SELECT 1 FROM ${fondsBewegung} WHERE ${fondsBewegung.fondsId} = ${fondsId})
+      OR EXISTS (SELECT 1 FROM fonds_kosten WHERE fonds_id = ${fondsId})
       OR EXISTS (SELECT 1 FROM ${bericht} WHERE ${bericht.fondsId} = ${fondsId}) AS aktiv
   `);
   return rows[0]!.aktiv;
@@ -138,26 +140,26 @@ interface Vorgang { art: VorgangArt; wirksamAm: string; bemerkung?: string | und
  */
 async function legeVorgangAn(tx: Tx, protokoll: Protokollant, fondsId: string, { art, wirksamAm, bemerkung, zeilen: eingabe }: Vorgang) {
   if (new Set(eingabe.map((z) => z.organisationId)).size !== eingabe.length) {
-    throw new Fachfehler(400, "LP_ZEICHNUNG_DOPPELT", "Jede Investor-Organisation darf in einem Closing nur einmal vorkommen.");
+    throw new Fachfehler(400, "lp_subscription_duplicate", "Each investor organization may appear only once in a closing.");
   }
   const f = await sperreFonds(tx, fondsId);
   const bestand = await tx.select().from(fondsZeichnung).where(eq(fondsZeichnung.fondsId, fondsId)).for("update");
   if (bestand.length === 0) {
-    throw new Fachfehler(409, "LP_CLOSING_OHNE_ERSTANLAGE", "Ein weiteres Closing setzt die Ersterfassung der Zeichnungen voraus.");
+    throw new Fachfehler(409, "lp_closing_without_initial", "A further closing requires the initial entry of subscriptions.");
   }
   await pruefePeriodensperre(tx, fondsId, wirksamAm);
   const [letztes] = await tx.select({ wirksamAm: fondsClosing.wirksamAm }).from(fondsClosing).leftJoin(fondsClosingStorno, eq(fondsClosingStorno.closingId, fondsClosing.id)).where(and(eq(fondsClosing.fondsId, fondsId), isNull(fondsClosingStorno.closingId))).orderBy(sql`${fondsClosing.wirksamAm} DESC`).limit(1);
   if (letztes && wirksamAm < letztes.wirksamAm) {
-    throw new Fachfehler(409, "LP_CLOSING_VOR_VORHERIGEM", `Das Wirksamkeitsdatum darf nicht vor dem des letzten Closings (${letztes.wirksamAm}) liegen.`, { letztes: letztes.wirksamAm });
+    throw new Fachfehler(409, "lp_closing_before_previous", `The effective date must not be before that of the last closing (${letztes.wirksamAm}).`, { letztes: letztes.wirksamAm });
   }
-  const { rows: spaeteste } = await tx.execute<{ valuta: string | null }>(sql`SELECT max(valuta)::text AS valuta FROM ${fondsBewegung} WHERE ${fondsBewegung.fondsId} = ${fondsId}`);
+  const { rows: spaeteste } = await tx.execute<{ valuta: string | null }>(letzteKapitalvaluta(fondsId));
   const letzteValuta = spaeteste[0]?.valuta ?? null;
   if (letzteValuta !== null && letzteValuta >= wirksamAm) {
-    throw new Fachfehler(409, "LP_CLOSING_VOR_BEWEGUNG", `Das Wirksamkeitsdatum muss nach der letzten Kapitalbewegung (${letzteValuta}) liegen, damit gebuchte Bewegungen ihre Aufteilung behalten.`, { letzteBewegung: letzteValuta });
+    throw new Fachfehler(409, "lp_closing_before_movement", `The effective date must be after the last capital movement (${letzteValuta}) so that posted movements keep their allocation.`, { letzteBewegung: letzteValuta });
   }
   for (const z of eingabe.toSorted((a, b) => a.organisationId.localeCompare(b.organisationId))) {
     const org = await ladeInvestorOrganisation(tx, z.organisationId);
-    if (org.archiviertAm && art === "closing") throw new Fachfehler(404, "ORGANISATION_NICHT_GEFUNDEN", "Die Investor-Organisation ist archiviert.");
+    if (org.archiviertAm && art === "closing") throw new Fachfehler(404, "organization_not_found", "The investor organization is archived.");
   }
 
   const vorhanden = new Map(bestand.map((b) => [b.organisationId, b]));
@@ -167,19 +169,19 @@ async function legeVorgangAn(tx: Tx, protokoll: Protokollant, fondsId: string, {
   for (const z of eingabe) {
     const alt = vorhanden.get(z.organisationId);
     if (art === "closing") {
-      if (alt?.ausgetreten) throw new Fachfehler(409, "LP_AUSGETRETEN", "Der Investor ist aus dem Fonds ausgetreten; seine Zusage lässt sich nicht aufstocken.", { organisationId: z.organisationId });
+      if (alt?.ausgetreten) throw new Fachfehler(409, "lp_withdrawn", "The investor has withdrawn from the fund; their commitment cannot be increased.", { organisationId: z.organisationId });
       const zuwachs = new Decimal(z.zusage ?? 0);
       neu.set(z.organisationId, { zusage: new Decimal(alt?.zusage ?? 0).plus(zuwachs), betrag: zuwachs, ausgetreten: false });
       continue;
     }
-    if (!alt) throw new Fachfehler(404, "LP_ZEICHNUNG_NICHT_GEFUNDEN", "Der Investor hat keine Zusage in diesem Fonds.", { organisationId: z.organisationId });
-    if (alt.ausgetreten) throw new Fachfehler(409, "LP_AUSGETRETEN", "Der Investor ist aus dem Fonds bereits ausgetreten.", { organisationId: z.organisationId });
+    if (!alt) throw new Fachfehler(404, "lp_subscription_not_found", "The investor has no commitment in this fund.", { organisationId: z.organisationId });
+    if (alt.ausgetreten) throw new Fachfehler(409, "lp_withdrawn", "The investor has already withdrawn from the fund.", { organisationId: z.organisationId });
     const bisher = new Decimal(abgerufenJe!.get(z.organisationId)?.abgerufen ?? 0);
     const zusageNeu = art === "austritt" ? bisher : new Decimal(z.neueZusage ?? 0);
     if (art === "verringerung") {
-      if (!zusageNeu.gt(0)) throw new Fachfehler(400, "LP_ZUSAGE_NULL", "Eine Zusage von null ist ein Austritt; bitte als Austritt erfassen.");
-      if (!zusageNeu.lt(alt.zusage)) throw new Fachfehler(400, "LP_ZUSAGE_NICHT_KLEINER", "Die neue Zusage muss unter der bisherigen liegen.", { zusage: new Decimal(alt.zusage).toFixed(2), neueZusage: zusageNeu.toFixed(2) });
-      if (zusageNeu.lt(bisher)) throw new Fachfehler(409, "LP_ZUSAGE_UNTER_ABGERUFEN", `Die neue Zusage darf nicht unter dem bereits abgerufenen Betrag (${bisher.toFixed(2)}) liegen.`, { abgerufen: bisher.toFixed(2), neueZusage: zusageNeu.toFixed(2) });
+      if (!zusageNeu.gt(0)) throw new Fachfehler(400, "lp_commitment_zero", "A commitment of zero is a withdrawal; please record it as a withdrawal.");
+      if (!zusageNeu.lt(alt.zusage)) throw new Fachfehler(400, "lp_commitment_not_lower", "The new commitment must be lower than the previous one.", { zusage: new Decimal(alt.zusage).toFixed(2), neueZusage: zusageNeu.toFixed(2) });
+      if (zusageNeu.lt(bisher)) throw new Fachfehler(409, "lp_commitment_below_called", `The new commitment must not be lower than the amount already called (${bisher.toFixed(2)}).`, { abgerufen: bisher.toFixed(2), neueZusage: zusageNeu.toFixed(2) });
     }
     neu.set(z.organisationId, { zusage: zusageNeu, betrag: new Decimal(alt.zusage).minus(zusageNeu), ausgetreten: art === "austritt" });
   }
@@ -188,15 +190,15 @@ async function legeVorgangAn(tx: Tx, protokoll: Protokollant, fondsId: string, {
   const gesamt = new Map(bestand.map((b) => [b.organisationId, { zusage: new Decimal(b.zusage), ausgetreten: b.ausgetreten }]));
   for (const [organisationId, n] of neu) gesamt.set(organisationId, { zusage: n.zusage, ausgetreten: n.ausgetreten });
   const sortiert = [...gesamt.entries()].sort(([a], [b]) => a.localeCompare(b));
-  if (sortiert.every(([, g]) => g.ausgetreten)) throw new Fachfehler(409, "LP_LETZTER_INVESTOR", "Der letzte verbleibende Investor kann nicht austreten.");
+  if (sortiert.every(([, g]) => g.ausgetreten)) throw new Fachfehler(409, "lp_last_investor", "The last remaining investor cannot withdraw.");
   const gewichte = sortiert.map(([, g]) => (g.ausgetreten ? new Decimal(0) : g.zusage));
   const anteile = verteileAnteilig("10000", gewichte).map((a) => a.div(10000));
   if (sortiert.some(([, g], i) => !g.ausgetreten && !anteile[i]!.gt(0))) {
-    throw new Fachfehler(400, "LP_ZEICHNUNG_ANTEIL_ZU_KLEIN", "Mindestens eine Zusage ergibt bei sechs Nachkommastellen einen Anteil von null.");
+    throw new Fachfehler(400, "lp_subscription_share_too_small", "At least one commitment results in a share of zero at six decimal places.");
   }
   const kapitalNeu = new Decimal(f.zeichnungskapital).plus(Decimal.sum(0, ...[...neu.entries()].map(([organisationId, n]) => n.zusage.minus(vorhanden.get(organisationId)?.zusage ?? 0))));
   if ((await abgerufen(tx, fondsId)).greaterThan(kapitalNeu)) {
-    throw new Fachfehler(409, "ZEICHNUNGSKAPITAL_UNTER_ABRUFEN", "Das Zeichnungskapital läge nach dem Vorgang unter den bereits abgerufenen Beträgen.");
+    throw new Fachfehler(409, "subscribed_capital_below_calls", "After this transaction the subscribed capital would be below the amounts already called.");
   }
 
   const [closing] = await tx.insert(fondsClosing).values({ fondsId, art, wirksamAm, bemerkung: bemerkung ?? null, erfasstVon: protokoll.akteur }).returning();
@@ -252,19 +254,24 @@ async function letztesAktivesClosing(tx: Tx, fondsId: string) {
  * Stand vor dem Closing (`fonds_closing_basis`) wird in `fonds_zeichnung` und im Zeichnungskapital wiederhergestellt. Das geht nur für das
  * letzte nicht stornierte Closing und nur, solange ab seinem Wirksamkeitsdatum keine Kapitalbewegung gebucht ist.
  */
+/** Späteste Valuta der Kapitalbewegungen und Kostenbuchungen (Issue #157): beide behalten ihre festgeschriebene Aufteilung. */
+const letzteKapitalvaluta = (fondsId: string) => sql`SELECT greatest(
+  (SELECT max(valuta) FROM ${fondsBewegung} WHERE ${fondsBewegung.fondsId} = ${fondsId}),
+  (SELECT max(valuta) FROM fonds_kosten WHERE fonds_id = ${fondsId}))::text AS valuta`;
+
 async function storniereClosing(tx: Tx, protokoll: Protokollant, fondsId: string, closingId: string, grund: string) {
   const f = await sperreFonds(tx, fondsId);
   const [closing] = await tx.select().from(fondsClosing).where(and(eq(fondsClosing.id, closingId), eq(fondsClosing.fondsId, fondsId)));
-  if (!closing) throw new Fachfehler(404, "LP_CLOSING_NICHT_GEFUNDEN", "Closing nicht gefunden.");
+  if (!closing) throw new Fachfehler(404, "lp_closing_not_found", "Closing not found.");
   const [schonStorniert] = await tx.select({ id: fondsClosingStorno.closingId }).from(fondsClosingStorno).where(eq(fondsClosingStorno.closingId, closingId));
-  if (schonStorniert) throw new Fachfehler(409, "LP_CLOSING_STORNIERT", "Das Closing ist bereits storniert.");
+  if (schonStorniert) throw new Fachfehler(409, "lp_closing_reversed", "The closing has already been reversed.");
   if ((await letztesAktivesClosing(tx, fondsId)) !== closingId) {
-    throw new Fachfehler(409, "LP_CLOSING_NICHT_LETZTES", "Nur das letzte nicht stornierte Closing lässt sich stornieren oder korrigieren. Stornieren Sie zuerst die späteren Closings.");
+    throw new Fachfehler(409, "lp_closing_not_latest", "Only the last closing that has not been reversed can be reversed or corrected. Reverse the later closings first.");
   }
-  const { rows: spaeteste } = await tx.execute<{ valuta: string | null }>(sql`SELECT max(valuta)::text AS valuta FROM ${fondsBewegung} WHERE ${fondsBewegung.fondsId} = ${fondsId}`);
+  const { rows: spaeteste } = await tx.execute<{ valuta: string | null }>(letzteKapitalvaluta(fondsId));
   const letzteValuta = spaeteste[0]?.valuta ?? null;
   if (letzteValuta !== null && letzteValuta >= closing.wirksamAm) {
-    throw new Fachfehler(409, "LP_CLOSING_BEWEGUNG_GEBUCHT", `Seit dem Wirksamkeitsdatum (${closing.wirksamAm}) ist eine Kapitalbewegung gebucht (Valuta ${letzteValuta}). Das Closing lässt sich nicht mehr stornieren.`, { letzteBewegung: letzteValuta, wirksamAm: closing.wirksamAm });
+    throw new Fachfehler(409, "lp_closing_movement_posted", `A capital movement has been posted since the effective date (${closing.wirksamAm}) (value date ${letzteValuta}). The closing can no longer be reversed.`, { letzteBewegung: letzteValuta, wirksamAm: closing.wirksamAm });
   }
   await pruefePeriodensperre(tx, fondsId, closing.wirksamAm);
 
@@ -275,13 +282,13 @@ async function storniereClosing(tx: Tx, protokoll: Protokollant, fondsId: string
     const n = nachher.find((x) => x.organisationId === z.organisationId);
     return n !== undefined && new Decimal(n.zusage).eq(z.zusage) && new Decimal(n.anteil).eq(z.anteil) && n.ausgetreten === z.ausgetreten;
   });
-  if (!gleich) throw new Fachfehler(409, "LP_CLOSING_STAND_ABWEICHEND", "Die Zeichnungen des Fonds weichen vom Stand nach dem Closing ab. Das Closing lässt sich nicht automatisch zurücknehmen.");
+  if (!gleich) throw new Fachfehler(409, "lp_closing_state_mismatch", "The subscriptions of the fund differ from the state after the closing. The closing cannot be undone automatically.");
 
   // Das Zeichnungskapital kehrt um die Änderung durch den Vorgang zurück (Zuwachs beim Closing, Verringerung bei Austritt und Verringerung).
   const aenderung = Decimal.sum(0, ...nachher.map((n) => n.zusage)).minus(Decimal.sum(0, ...basis.map((b) => b.zusage)));
   const kapitalNeu = new Decimal(f.zeichnungskapital).minus(aenderung);
   if ((await abgerufen(tx, fondsId)).greaterThan(kapitalNeu)) {
-    throw new Fachfehler(409, "ZEICHNUNGSKAPITAL_UNTER_ABRUFEN", "Das Zeichnungskapital läge nach der Stornierung unter den bereits abgerufenen Beträgen.");
+    throw new Fachfehler(409, "subscribed_capital_below_calls", "After the reversal the subscribed capital would be below the amounts already called.");
   }
   const [storno] = await tx.insert(fondsClosingStorno).values({ closingId, grund, storniertVon: protokoll.akteur }).returning();
   const vorher = new Map(basis.map((b) => [b.organisationId, b]));
@@ -305,11 +312,11 @@ async function storniereClosing(tx: Tx, protokoll: Protokollant, fondsId: string
 
 export function fondsInvestorRouten(db: Db) {
   return new Hono()
-    .get("/", pruefe("param", fondsParam), async (c) => {
+    .get("/", pruefeFonds("param", fondsParam), async (c) => {
       const { fondsId } = c.req.valid("param");
       const sicht = await lese(db, async (tx) => {
         const [vorhanden] = await tx.select({ zeichnungskapital: fonds.zeichnungskapital, waehrung: fonds.waehrung }).from(fonds).where(eq(fonds.id, fondsId));
-        if (!vorhanden) throw new Fachfehler(404, "FONDS_NICHT_GEFUNDEN", "Fonds nicht gefunden.");
+        if (!vorhanden) throw new Fachfehler(404, "fund_not_found", "Fund not found.");
         const zeichnungen = await tx
           .select({ id: organisation.id, name: organisation.name, art: organisation.art, zusammengefuehrtIn: organisation.zusammengefuehrtIn, zusage: fondsZeichnung.zusage, anteil: fondsZeichnung.anteil, ausgetreten: fondsZeichnung.ausgetreten })
           .from(fondsZeichnung)
@@ -323,35 +330,35 @@ export function fondsInvestorRouten(db: Db) {
         const initialisierungMoeglich = zeichnungen.length === 0 && new Decimal(vorhanden.zeichnungskapital).gt(0) && !(await hatFondsaktivitaet(tx, fondsId));
         return { ...vorhanden, organisationen, initialisierungMoeglich, closings, closingMoeglich: zeichnungen.length > 0, zeichnungen: zeichnungen.map(({ id, name, zusage, anteil, ausgetreten }) => ({ id, name, zusage, anteil, ausgetreten, abgerufen: abgerufenJe?.get(id)?.abgerufen ?? "0.00" })) };
       });
-      return c.json(sicht, 200);
+      return c.json(fondsAnApi(sicht), 200);
     })
-    .post("/zeichnungen", pruefe("param", fondsParam), pruefe("json", zeichnungenEingabe), async (c) => {
+    .post("/subscriptions", pruefeFonds("param", fondsParam), pruefeFonds("json", zeichnungenEingabe), async (c) => {
       const { fondsId } = c.req.valid("param");
       const { zeichnungen } = c.req.valid("json");
       const organisationIds = new Set(zeichnungen.map((z) => z.organisationId));
       if (organisationIds.size !== zeichnungen.length) {
-        throw new Fachfehler(400, "LP_ZEICHNUNG_DOPPELT", "Jede Investor-Organisation darf im Fonds nur einmal zeichnen.");
+        throw new Fachfehler(400, "lp_subscription_duplicate", "Each investor organization may subscribe to the fund only once.");
       }
       const ergebnis = await schreibe(db, c, async (tx, protokoll) => {
         // Dieselbe Fondszeile sperrt Bewegungen und Stammdaten. Der Fonds-Fremdschlüssel serialisiert auch die Berichtsanlage.
         const f = await sperreFonds(tx, fondsId);
         const [vorhanden] = await tx.select({ id: fondsZeichnung.id }).from(fondsZeichnung).where(eq(fondsZeichnung.fondsId, fondsId)).limit(1);
         if (vorhanden || await hatFondsaktivitaet(tx, fondsId)) {
-          throw new Fachfehler(409, "LP_ZEICHNUNG_ERSTANLAGE_GESPERRT", "Die Ersterfassung ist nur vor Zeichnungen, Kapitalbewegungen und Berichten möglich.");
+          throw new Fachfehler(409, "lp_subscription_initial_locked", "The initial entry is only possible before subscriptions, capital movements and reports.");
         }
         const sortiert = zeichnungen.toSorted((a, b) => a.organisationId.localeCompare(b.organisationId));
         const zusagen = sortiert.map((z) => new Decimal(z.zusage));
         if (!Decimal.sum(...zusagen).eq(f.zeichnungskapital)) {
-          throw new Fachfehler(409, "LP_ZUSAGEN_KAPITAL_ABWEICHEND", "Die Summe der Zusagen muss dem Zeichnungskapital entsprechen.");
+          throw new Fachfehler(409, "lp_commitments_capital_mismatch", "The sum of the commitments must equal the subscribed capital.");
         }
         // Das Verteilungsverfahren arbeitet in Cent. 10.000 Einheiten ergeben eine Million Anteile der kleinsten Einheit.
         const anteile = verteileAnteilig("10000", zusagen).map((a) => a.div(10000));
         if (anteile.some((a) => !a.gt(0))) {
-          throw new Fachfehler(400, "LP_ZEICHNUNG_ANTEIL_ZU_KLEIN", "Mindestens eine Zusage ergibt bei sechs Nachkommastellen einen Anteil von null.");
+          throw new Fachfehler(400, "lp_subscription_share_too_small", "At least one commitment results in a share of zero at six decimal places.");
         }
         for (const { organisationId } of sortiert) {
           const org = await ladeInvestorOrganisation(tx, organisationId);
-          if (org.archiviertAm) throw new Fachfehler(404, "ORGANISATION_NICHT_GEFUNDEN", "Die Investor-Organisation ist archiviert.");
+          if (org.archiviertAm) throw new Fachfehler(404, "organization_not_found", "The investor organization is archived.");
         }
         const neu = await tx.insert(fondsZeichnung).values(sortiert.map(({ organisationId }, i) => ({
           fondsId, organisationId, zusage: zusagen[i]!.toFixed(2), anteil: anteile[i]!.toFixed(6),
@@ -360,42 +367,42 @@ export function fondsInvestorRouten(db: Db) {
         await protokoll.mehrere(neu.map((z) => ({ aktion: "anlegen", tabelle: "fonds_zeichnung", datensatzId: z.id, nachher: z })));
         return neu;
       });
-      return c.json({ daten: ergebnis }, 201);
+      return c.json(fondsAnApi({ daten: ergebnis }), 201);
     })
     /** Weiteres Closing (Issue #113); siehe `legeClosingAn`. */
-    .post("/closings", pruefe("param", fondsParam), pruefe("json", closingEingabe), async (c) => {
+    .post("/closings", pruefeFonds("param", fondsParam), pruefeFonds("json", closingEingabe), async (c) => {
       const { fondsId } = c.req.valid("param");
       const eingabe = c.req.valid("json");
       const ergebnis = await schreibe(db, c, (tx, protokoll) => legeClosingAn(tx, protokoll, fondsId, eingabe));
-      return c.json(ergebnis, 201);
+      return c.json(fondsAnApi(ergebnis), 201);
     })
     /**
      * Verringerung der Zusage oder Austritt eines Investors (Issue #132) als datierter Vorgang wie ein Closing; Storno über
      * `/closings/:closingId/storno`.
      */
-    .post("/zusageaenderungen", pruefe("param", fondsParam), pruefe("json", zusageAenderungEingabe), async (c) => {
+    .post("/commitment-changes", pruefeFonds("param", fondsParam), pruefeFonds("json", zusageAenderungEingabe), async (c) => {
       const { fondsId } = c.req.valid("param");
       const { art, wirksamAm, bemerkung, investoren } = c.req.valid("json");
       const ergebnis = await schreibe(db, c, (tx, protokoll) => legeVorgangAn(tx, protokoll, fondsId, { art, wirksamAm, bemerkung, zeilen: investoren }));
-      return c.json(ergebnis, 201);
+      return c.json(fondsAnApi(ergebnis), 201);
     })
     /** Storno eines weiteren Closings (Issue #126): stellt den Stand vor dem Closing wieder her; siehe `storniereClosing`. */
-    .post("/closings/:closingId/storno", pruefe("param", closingParam), pruefe("json", stornoEingabe), async (c) => {
+    .post("/closings/:closingId/reverse", pruefeFonds("param", closingParam), pruefeFonds("json", stornoEingabe), async (c) => {
       const { fondsId, closingId } = c.req.valid("param");
       const { grund } = c.req.valid("json");
       const ergebnis = await schreibe(db, c, (tx, protokoll) => storniereClosing(tx, protokoll, fondsId, closingId, grund));
-      return c.json(ergebnis);
+      return c.json(fondsAnApi(ergebnis));
     })
     /**
      * Korrektur (Issue #126): Storno des Closings und neues Closing mit den berichtigten Angaben in einer Transaktion. Scheitert das
      * neue Closing, bleibt das alte unverändert bestehen.
      */
-    .post("/closings/:closingId/korrektur", pruefe("param", closingParam), pruefe("json", korrekturEingabe), async (c) => {
+    .post("/closings/:closingId/correct", pruefeFonds("param", closingParam), pruefeFonds("json", korrekturEingabe), async (c) => {
       const { fondsId, closingId } = c.req.valid("param");
       const { grund, ...eingabe } = c.req.valid("json");
       const ergebnis = await schreibe(db, c, async (tx, protokoll) => {
         const [art] = await tx.select({ art: fondsClosing.art }).from(fondsClosing).where(and(eq(fondsClosing.id, closingId), eq(fondsClosing.fondsId, fondsId)));
-        if (art && art.art !== "closing") throw new Fachfehler(409, "LP_KORREKTUR_NUR_CLOSING", "Eine Korrektur gibt es nur für Closings. Verringerung oder Austritt bitte stornieren und neu erfassen.");
+        if (art && art.art !== "closing") throw new Fachfehler(409, "lp_correction_closing_only", "A correction is only available for closings. Please reverse a reduction or withdrawal and record it again.");
         await storniereClosing(tx, protokoll, fondsId, closingId, grund);
         const neu = await legeClosingAn(tx, protokoll, fondsId, eingabe);
         const [vorher] = await tx.select().from(fondsClosingStorno).where(eq(fondsClosingStorno.closingId, closingId));
@@ -403,7 +410,7 @@ export function fondsInvestorRouten(db: Db) {
         await protokoll("aendern", "fonds_closing_storno", closingId, vorher, nachher);
         return { ...neu, ersetzt: closingId };
       });
-      return c.json(ergebnis, 201);
+      return c.json(fondsAnApi(ergebnis), 201);
     });
 }
 

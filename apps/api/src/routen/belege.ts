@@ -3,6 +3,8 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { formatBetrag, formatDatum, formatProzent, formatZahl, erzeugeBelegPdf, type BelegPdfDaten, type Sprache } from "@carraway/berichte";
 import { benutzer, beleg, belegArt, belegArtEigen, belegBezugArt, belegNummernkreis, belegStatus, belegStufe, fonds, fondsBuchhaltung, type Beleg, type Db } from "@carraway/db";
+import { enumWerte, katalogname, insDeutsche, insEnglische, istBelegfeld } from "../buchhaltung/abbildung";
+import { buchhaltungsFehler } from "../buchhaltung/fehler";
 import { aktuellerAkteur, hatRolle } from "../anmeldung/akteur";
 import { sendeBerichtFreigegeben } from "../mail/benachrichtigung";
 import { sha256, erstelleStandardSpeicher, type Speicher } from "../berichte/speicher";
@@ -26,11 +28,11 @@ import { aktiveFreigaben } from "./berichtsfreigabe";
 export const BELEG_STUFEN = ["Prüfung", "Freigabe"] as const;
 
 /** `art` ist die Basis-Art; bei einer eigenen Belegart (`eigeneArtId`) muss sie deren Basis-Art sein. */
-const feldwerte = z.record(z.string().max(60), z.string().max(2000).nullable());
-const neuerBeleg = z.object({ art: z.enum(belegArt.enumValues), eigeneArtId: z.uuid().optional(), werte: feldwerte.optional(), bezugArt: z.enum(belegBezugArt.enumValues), bezugId: z.uuid(), sprache: z.enum(["de", "en"]).default("de") });
-const listenAbfrage = z.object({ fondsId: z.uuid().optional(), art: z.enum(belegArt.enumValues).optional(), eigeneArtId: z.uuid().optional(), status: z.enum(belegStatus.enumValues).optional() });
-const stornoEingabe = z.object({ grund: textEingabe(500) });
-const stufeEingabe = z.object({ stufe: textEingabe(100), ergebnis: z.enum(["ok", "zurueck"]), kommentar: optionalerText(2000) });
+const feldwerte = z.record(z.string().max(60).refine(istBelegfeld, "Unknown voucher field key"), z.string().max(2000).nullable());
+const neuerBeleg = z.object({ type: z.enum(enumWerte(belegArt.enumValues)), customTypeId: z.uuid().optional(), values: feldwerte.optional(), referenceType: z.enum(enumWerte(belegBezugArt.enumValues)), referenceId: z.uuid(), language: z.enum(["de", "en"]).default("de") });
+const listenAbfrage = z.object({ fundId: z.uuid().optional(), type: z.enum(enumWerte(belegArt.enumValues)).optional(), customTypeId: z.uuid().optional(), status: z.enum(enumWerte(belegStatus.enumValues)).optional() });
+const stornoEingabe = z.object({ reason: textEingabe(500) });
+const stufeEingabe = z.object({ stage: z.enum(enumWerte(BELEG_STUFEN)), result: z.enum(["ok", "returned"]), comment: optionalerText(2000) });
 
 interface GespeicherteDaten {
   werte: Record<string, string | null>;
@@ -41,13 +43,13 @@ interface GespeicherteDaten {
 
 /** Entwürfe und geprüfte Belege sind änderbar; freigegebene bleiben stehen, stornierte ebenso. */
 function verlangeAenderbar(b: Beleg): void {
-  if (b.status === "storniert") throw new Fachfehler(409, "BELEG_STORNIERT", "Der Beleg ist storniert.", { status: b.status });
-  if (b.status === "freigegeben") throw new Fachfehler(409, "BELEG_STATUS_UNGUELTIG", "Der Beleg ist bereits freigegeben.", { status: b.status });
+  if (b.status === "storniert") throw new Fachfehler(409, "voucher_reversed", "The voucher is reversed.", { status: b.status });
+  if (b.status === "freigegeben") throw new Fachfehler(409, "voucher_status_invalid", "The voucher is already approved.", { status: b.status });
 }
 
 async function sperreBeleg(tx: Tx, id: string): Promise<Beleg> {
   const [b] = await tx.select().from(beleg).where(eq(beleg.id, id)).for("update");
-  if (!b) throw new Fachfehler(404, "BELEG_NICHT_GEFUNDEN", "Beleg nicht gefunden.");
+  if (!b) throw new Fachfehler(404, "voucher_not_found", "Voucher not found.");
   return b;
 }
 
@@ -129,28 +131,28 @@ async function ladeDetail(tx: Tx, b: Beleg) {
 }
 
 export function belegRouten(db: Db, speicher: Speicher = erstelleStandardSpeicher()) {
-  return new Hono()
+  return new Hono().onError(buchhaltungsFehler)
     /** Erzeugt einen Beleg als Entwurf, vorbefüllt aus den Geschäftsdaten; fehlende Pflichtfelder stehen in `befunde`. */
     .post("/", pruefe("json", neuerBeleg), async (c) => {
-      const e = c.req.valid("json");
+      const e = insDeutsche(c.req.valid("json"));
       const akteur = aktuellerAkteur(c);
       const neu = await schreibe(db, c, async (tx, protokoll) => {
         // Erst der Fonds des Bezugs und die Rolle, dann der Inhalt: Ein fremder oder fehlender Datensatz antwortet gleich (404).
         const bezugFonds = await fondsVonBezug(tx, e.bezugArt, e.bezugId);
-        if (bezugFonds === null || !hatRolle(akteur, bezugFonds, "bearbeiter")) throw new Fachfehler(404, "BELEG_BEZUG_NICHT_GEFUNDEN", "Der Vorfall, auf den sich der Beleg beziehen soll, wurde nicht gefunden.");
-        if (e.art === "frei" && !e.eigeneArtId) throw new Fachfehler(400, "EINGABE_UNGUELTIG", "Ein freier Beleg benötigt eine eigene Belegart.");
+        if (bezugFonds === null || !hatRolle(akteur, bezugFonds, "bearbeiter")) throw new Fachfehler(404, "voucher_reference_not_found", "The event the voucher should refer to was not found.");
+        if (e.art === "frei" && !e.eigeneArtId) throw new Fachfehler(400, "invalid_input", "A free voucher requires a custom voucher type.");
         const eigeneArt = e.eigeneArtId ? await ladeEigeneArt(tx, bezugFonds, e.eigeneArtId) : null;
         if (e.eigeneArtId) {
-          if (!eigeneArt) throw new Fachfehler(404, "BELEGART_NICHT_GEFUNDEN", "Die Belegart gibt es in diesem Fonds nicht.");
-          if (eigeneArt.basisArt !== e.art) throw new Fachfehler(400, "EINGABE_UNGUELTIG", "Die Eingabe ist ungültig.", { felder: [{ feld: "art", code: "passt_nicht", meldung: "Die Art muss die Basis-Art der eigenen Belegart sein" }] });
-          if (!eigeneArt.aktiv) throw new Fachfehler(409, "BELEGART_STILLGELEGT", "Die Belegart ist stillgelegt.", { eigeneArtId: eigeneArt.id });
+          if (!eigeneArt) throw new Fachfehler(404, "voucher_type_not_found", "The voucher type does not exist in this fund.");
+          if (eigeneArt.basisArt !== e.art) throw new Fachfehler(400, "invalid_input", "The input is invalid.", { felder: [{ feld: "art", code: "mismatch", meldung: "The type must be the base type of the custom voucher type" }] });
+          if (!eigeneArt.aktiv) throw new Fachfehler(409, "voucher_type_retired", "The voucher type is retired.", { eigeneArtId: eigeneArt.id });
         }
         const daten = await sammleBelegdaten(tx, e.art, e.bezugArt, e.bezugId);
         const [vorhanden] = await tx
           .select({ id: beleg.id })
           .from(beleg)
           .where(and(eigeneArt ? eq(beleg.eigeneArtId, eigeneArt.id) : and(eq(beleg.art, e.art), isNull(beleg.eigeneArtId)), eq(beleg.bezugArt, e.bezugArt), eq(beleg.bezugId, e.bezugId), isNull(beleg.stornoAm)));
-        if (vorhanden) throw new Fachfehler(409, "BELEG_VORHANDEN", "Für diesen Vorfall gibt es schon einen Beleg.", { belegId: vorhanden.id });
+        if (vorhanden) throw new Fachfehler(409, "voucher_exists", "A voucher already exists for this event.", { belegId: vorhanden.id });
         const { vorlage } = await ladeBelegVorlage(tx, daten.fondsId, e.art, eigeneArt?.id ?? null);
         setzeFeldwerte(vorlage, daten.werte, e.werte ?? {});
         const befunde = pruefePflicht(vorlage, daten.werte);
@@ -161,10 +163,10 @@ export function belegRouten(db: Db, speicher: Speicher = erstelleStandardSpeiche
         await protokoll("anlegen", "beleg", b!.id, null, { id: b!.id, art: e.art, eigeneArtId: eigeneArt?.id ?? null, bezugArt: e.bezugArt, bezugId: e.bezugId, fondsId: daten.fondsId, befunde });
         return b!;
       });
-      return c.json(neu, 201);
+      return c.json(insEnglische(neu), 201);
     })
     .get("/", pruefe("query", listenAbfrage), async (c) => {
-      const { fondsId, art, eigeneArtId, status } = c.req.valid("query");
+      const { fondsId, art, eigeneArtId, status } = insDeutsche(c.req.valid("query"));
       const daten = await lese(db, (tx) =>
         tx
           .select({ id: beleg.id, fondsId: beleg.fondsId, art: beleg.art, eigeneArtId: beleg.eigeneArtId, artNameDe: belegArtEigen.bezeichnungDe, artNameEn: belegArtEigen.bezeichnungEn, bezugArt: beleg.bezugArt, bezugId: beleg.bezugId, beteiligungId: beleg.beteiligungId, sprache: beleg.sprache, status: beleg.status, belegnummer: beleg.belegnummer, befunde: beleg.befunde, naechsteStufe: beleg.naechsteStufe, erstelltVon: beleg.erstelltVon, erstelltAm: beleg.erstelltAm, freigegebenAm: beleg.freigegebenAm, stornoAm: beleg.stornoAm, stornoGrund: beleg.stornoGrund, betrag: sql<string | null>`${beleg.daten}->>'betrag'`, datum: sql<string | null>`${beleg.daten}->>'datum'` })
@@ -173,7 +175,7 @@ export function belegRouten(db: Db, speicher: Speicher = erstelleStandardSpeiche
           .where(and(fondsSichtbar(c, beleg.fondsId), fondsId ? eq(beleg.fondsId, fondsId) : undefined, art ? eq(beleg.art, art) : undefined, eigeneArtId ? eq(beleg.eigeneArtId, eigeneArtId) : undefined, status ? eq(beleg.status, status) : undefined))
           .orderBy(desc(beleg.erstelltAm), asc(beleg.id)),
       );
-      return c.json({ daten }, 200);
+      return c.json(insEnglische({ daten }), 200);
     })
     .get("/:id", pruefe("param", idParam), async (c) => {
       const { id } = c.req.valid("param");
@@ -181,16 +183,16 @@ export function belegRouten(db: Db, speicher: Speicher = erstelleStandardSpeiche
         const [b] = await tx.select().from(beleg).where(eq(beleg.id, id));
         return b ? ladeDetail(tx, b) : null;
       });
-      if (!detail) return fehlerAntwort(c, 404, "BELEG_NICHT_GEFUNDEN", "Beleg nicht gefunden.");
-      return c.json(detail, 200);
+      if (!detail) return fehlerAntwort(c, 404, "voucher_not_found", "Voucher not found.");
+      return c.json(insEnglische(detail), 200);
     })
-    .patch("/:id/feldwerte", pruefe("param", idParam), pruefe("json", z.object({ werte: feldwerte.refine((w) => Object.keys(w).length > 0) })), async (c) => {
+    .patch("/:id/field-values", pruefe("param", idParam), pruefe("json", z.object({ values: feldwerte.refine((w) => Object.keys(w).length > 0) })), async (c) => {
       const { id } = c.req.valid("param");
-      const { werte } = c.req.valid("json");
+      const { werte } = insDeutsche(c.req.valid("json"));
       const neu = await schreibe(db, c, async (tx, protokoll) => {
         const vorher = await sperreBeleg(tx, id);
         verlangeAenderbar(vorher);
-        if (vorher.status !== "entwurf") throw new Fachfehler(409, "BELEG_STATUS_UNGUELTIG", "Feldwerte lassen sich nur im Entwurf ändern.");
+        if (vorher.status !== "entwurf") throw new Fachfehler(409, "voucher_status_invalid", "Field values can only be changed in draft.");
         const vorlage = vorher.vorlage as Vorlage;
         const alt = vorher.daten as GespeicherteDaten;
         const daten = { ...alt, werte: { ...alt.werte } };
@@ -200,10 +202,10 @@ export function belegRouten(db: Db, speicher: Speicher = erstelleStandardSpeiche
         await protokoll("aendern", "beleg", id, vorher, belegNeu);
         return belegNeu!;
       });
-      return c.json(neu, 200);
+      return c.json(insEnglische(neu), 200);
     })
     /** Befüllt einen Entwurf neu aus den aktuellen Geschäftsdaten und der aktuellen Vorlage; wer das tut, wird Urheber, erteilte Stufen entfallen. */
-    .post("/:id/neu-befuellen", pruefe("param", idParam), async (c) => {
+    .post("/:id/refill", pruefe("param", idParam), async (c) => {
       const { id } = c.req.valid("param");
       const nachher = await schreibe(db, c, async (tx, protokoll) => {
         const vorher = await sperreBeleg(tx, id);
@@ -225,60 +227,60 @@ export function belegRouten(db: Db, speicher: Speicher = erstelleStandardSpeiche
         await protokoll("neu_befuellen", "beleg", id, vorher, neu);
         return neu!;
       });
-      return c.json(nachher, 200);
+      return c.json(insEnglische(nachher), 200);
     })
-    .get("/:id/datei", pruefe("param", idParam), async (c) => {
+    .get("/:id/file", pruefe("param", idParam), async (c) => {
       const { id } = c.req.valid("param");
       const ergebnis = await lese(db, async (tx) => {
         const [b] = await tx.select().from(beleg).where(eq(beleg.id, id));
         if (!b) return null;
         if ((b.status === "freigegeben" || b.status === "storniert") && b.dateiSchluessel && b.dateiSha256 && b.dateiName) {
           const bytes = await speicher.lese(b.dateiSchluessel);
-          if (sha256(bytes) !== b.dateiSha256) throw new Fachfehler(500, "DATEI_BESCHAEDIGT", "Die gespeicherte Datei stimmt nicht mehr mit ihrem Hash überein.");
+          if (sha256(bytes) !== b.dateiSha256) throw new Fachfehler(500, "file_corrupt", "The stored file no longer matches its hash.");
           return { bytes, name: b.dateiName, hash: b.dateiSha256 };
         }
         const log = await tx.select().from(belegStufe).where(eq(belegStufe.belegId, id)).orderBy(asc(belegStufe.am), asc(belegStufe.id));
         const bytes = erzeugeBelegPdf(await pdfDaten(tx, b, log, new Date()), { entwurf: true });
         return { bytes, name: `beleg-entwurf-${b.id.slice(0, 8)}.pdf`, hash: null };
       });
-      if (!ergebnis) return fehlerAntwort(c, 404, "BELEG_NICHT_GEFUNDEN", "Beleg nicht gefunden.");
+      if (!ergebnis) return fehlerAntwort(c, 404, "voucher_not_found", "Voucher not found.");
       await protokolliereLesen(db, c, "beleg", id, { beleg: "datei", freigegeben: ergebnis.hash !== null, dateiName: ergebnis.name, sha256: ergebnis.hash });
       return c.body(Buffer.from(ergebnis.bytes), 200, {
         "Content-Type": "application/pdf",
         "Content-Disposition": `attachment; filename="${ergebnis.name}"`,
         "Cache-Control": "no-store",
-        ...(ergebnis.hash ? { "X-Datei-Sha256": ergebnis.hash } : {}),
+        ...(ergebnis.hash ? { "X-File-Sha256": ergebnis.hash } : {}),
       });
     })
     /** Storniert einen freigegebenen Beleg (Freigeber, Grund ist Pflicht): Nummer und Datei bleiben, ein neuer Beleg für den Vorfall ist danach möglich. */
-    .post("/:id/storno", pruefe("param", idParam), pruefe("json", stornoEingabe), async (c) => {
+    .post("/:id/reverse", pruefe("param", idParam), pruefe("json", stornoEingabe), async (c) => {
       const { id } = c.req.valid("param");
-      const { grund } = c.req.valid("json");
+      const { grund } = insDeutsche(c.req.valid("json"));
       const nachher = await schreibe(db, c, async (tx, protokoll) => {
         const vorher = await sperreBeleg(tx, id);
-        if (vorher.status === "storniert") throw new Fachfehler(409, "BELEG_STORNIERT", "Der Beleg ist bereits storniert.", { status: vorher.status });
-        if (vorher.status !== "freigegeben") throw new Fachfehler(409, "BELEG_NICHT_FREIGEGEBEN", "Nur ein freigegebener Beleg lässt sich stornieren.", { status: vorher.status });
+        if (vorher.status === "storniert") throw new Fachfehler(409, "voucher_reversed", "The voucher is already reversed.", { status: vorher.status });
+        if (vorher.status !== "freigegeben") throw new Fachfehler(409, "voucher_not_approved", "Only an approved voucher can be reversed.", { status: vorher.status });
         const [neu] = await tx.update(beleg).set({ status: "storniert", stornoAm: new Date(), stornoVon: protokoll.akteur, stornoGrund: grund }).where(eq(beleg.id, id)).returning();
         await protokoll("stornieren", "beleg", id, vorher, neu);
         return neu!;
       });
-      return c.json(nachher, 200);
+      return c.json(insEnglische(nachher), 200);
     })
     /** Stufe `ok` oder `zurueck`. Die Freigabe (zweite Stufe) vergibt die Belegnummer und speichert das PDF. */
-    .post("/:id/stufe", pruefe("param", idParam), pruefe("json", stufeEingabe), async (c) => {
+    .post("/:id/stage", pruefe("param", idParam), pruefe("json", stufeEingabe), async (c) => {
       const { id } = c.req.valid("param");
-      const e = c.req.valid("json");
+      const e = insDeutsche(c.req.valid("json"));
       const nachher = await schreibe(db, c, async (tx, protokoll) => {
         const vorher = await sperreBeleg(tx, id);
         verlangeAenderbar(vorher);
         const log = await tx.select().from(belegStufe).where(eq(belegStufe.belegId, id)).orderBy(asc(belegStufe.am), asc(belegStufe.id));
         const aktiv = aktiveFreigaben(log);
         const index = aktiv.length;
-        if (e.stufe !== BELEG_STUFEN[index]) throw new Fachfehler(409, "BELEG_STUFE_FALSCH", "Das ist nicht die nächste Stufe.", { erwartet: BELEG_STUFEN[index] ?? null, stufe: e.stufe });
-        const fehlerhaft = (feld: string, code: string, meldung: string) => new Fachfehler(400, "EINGABE_UNGUELTIG", "Die Eingabe ist ungültig.", { felder: [{ feld, code, meldung }] });
+        if (e.stufe !== BELEG_STUFEN[index]) throw new Fachfehler(409, "voucher_stage_wrong", "This is not the next stage.", { erwartet: BELEG_STUFEN[index] ?? null, stufe: e.stufe });
+        const fehlerhaft = (feld: string, code: string, meldung: string) => new Fachfehler(400, "invalid_input", "The input is invalid.", { felder: [{ feld, code, meldung }] });
 
         if (e.ergebnis === "zurueck") {
-          if (!e.kommentar?.trim()) throw fehlerhaft("kommentar", "kommentar_erforderlich", "Für die Rückgabe ist ein Kommentar erforderlich");
+          if (!e.kommentar?.trim()) throw fehlerhaft("kommentar", "comment_required", "A comment is required for returning");
           await tx.insert(belegStufe).values({ belegId: id, stufeIndex: index, stufe: e.stufe, ergebnis: "zurueck", kommentar: e.kommentar, akteur: protokoll.akteur });
           const rest = Math.max(0, index - 1);
           const [neu] = await tx.update(beleg).set({ naechsteStufe: rest, status: rest === 0 ? "entwurf" : "geprueft" }).where(eq(beleg.id, id)).returning();
@@ -287,9 +289,9 @@ export function belegRouten(db: Db, speicher: Speicher = erstelleStandardSpeiche
         }
 
         verlangeAnderenAkteur(vorher.erstelltVon, protokoll.akteur);
-        if (aktiv.includes(protokoll.akteur)) throw new Fachfehler(409, "VIER_AUGEN_VERLETZT", "Jede Stufe verlangt eine andere Person als die bereits erteilten Stufen.");
+        if (aktiv.includes(protokoll.akteur)) throw new Fachfehler(409, "four_eyes_violated", "Each stage requires a different person than the stages already given.");
         const befunde = vorher.befunde as { feld: string; code: string }[];
-        if (befunde.length > 0) throw new Fachfehler(409, "BELEG_PFLICHTFELD_FEHLT", "Pflichtfelder fehlen; Angaben nachtragen und den Beleg neu befüllen.", { felder: befunde.map((b) => b.feld) });
+        if (befunde.length > 0) throw new Fachfehler(409, "voucher_required_field_missing", "Required fields are missing; add the details and refill the voucher.", { missingFields: befunde.map((b) => katalogname(b.feld, true)) });
 
         if (index < BELEG_STUFEN.length - 1) {
           await tx.insert(belegStufe).values({ belegId: id, stufeIndex: index, stufe: e.stufe, ergebnis: "ok", kommentar: e.kommentar ?? null, akteur: protokoll.akteur });
@@ -318,6 +320,6 @@ export function belegRouten(db: Db, speicher: Speicher = erstelleStandardSpeiche
         await sendeBerichtFreigegeben(tx, protokoll, c.get("mail"), { berichtId: id, bericht: "beleg", fondsId: vorher.fondsId, fondsName: fondsZeile?.name ?? null, linkPfad: `/belege/${id}`, bezugArt: "beleg" });
         return neu!;
       });
-      return c.json(nachher, 200);
+      return c.json(insEnglische(nachher), 200);
     });
 }

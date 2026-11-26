@@ -210,8 +210,11 @@ export interface Kapitalkonto {
   ausgeschuettet: string;
   /** Zusage − Abrufe. */
   offeneZusage: string;
-  /** Anteil am NAV des Stichtags (auf den Cent verteilt). */
+  /** Anteil am NAV des Stichtags (auf den Cent verteilt, mit Ausgleich abweichend verteilter Kosten). */
   navAnteil: string | null;
+  /** Nur bei Kostenbuchungen im Fonds: festgeschriebene Anteile an Verwaltungsvergütung und Fondskosten bis zum Stichtag. */
+  verwaltungsverguetung?: string;
+  fondskosten?: string;
 }
 
 /** LP-Bericht: Fondsbericht plus Kapitalkonten je Investor. Die Summen der Kapitalkonten sind die Summen des Fonds. */

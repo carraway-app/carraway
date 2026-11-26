@@ -181,6 +181,17 @@ describe.each([
     for (const p of d.rundenpositionen) if (p.vehikelId) genutzt.set(investorVon.get(p.vehikelId)!, (genutzt.get(investorVon.get(p.vehikelId)!) ?? new Set()).add(p.vehikelId));
     expect([...genutzt.values()].some((s) => s.size >= 2)).toBe(true);
   });
+
+  it("Gremienmandate: je Fonds Mandate an Beteiligungen des Fonds, Person vorhanden, Zeitraum stimmig", () => {
+    const beteiligung = new Map(d.beteiligungen.map((b) => [b.id, b]));
+    const personen = new Set(d.personen.map((p) => p.id));
+    for (const f of d.fonds) expect(d.gremienmandate.some((m) => beteiligung.get(m.beteiligungId)?.fondsId === f.id)).toBe(true);
+    for (const m of d.gremienmandate) {
+      expect(personen.has(m.personId)).toBe(true);
+      expect(m.ende === null || m.ende === undefined || m.ende >= m.beginn).toBe(true);
+    }
+    expect(d.gremienmandate.some((m) => m.ende)).toBe(true);
+  });
 });
 
 describe("Demo-Portfolio: Abwechslung und das Unternehmen mit der ganzen Kette", () => {
@@ -197,6 +208,8 @@ describe("Demo-Portfolio: Abwechslung und das Unternehmen mit der ganzen Kette",
       ["offene_beteiligung", "aktiv"],
       ["venture_debt", "aktiv"],
       ["offene_beteiligung", "aktiv"],
+      ["optionsschein", "aktiv"],
+      ["safe", "aktiv"],
     ]);
     const [seed, wandel, serieA, venture, folge] = instrumente;
     expect(seed?.bezeichnung).toBe("Seed-Runde-Anteile");
@@ -231,6 +244,33 @@ describe("Demo-Portfolio: Abwechslung und das Unternehmen mit der ganzen Kette",
     const bew = d.bewertungen.filter((x) => x.beteiligungId === b.id).sort((x, y) => x.stichtag.localeCompare(y.stichtag));
     expect(bew[0]).toMatchObject({ stichtag: "2024-12-31", methode: "anschaffungskosten" });
     expect(Math.abs(cent(bew[0]?.wert as string) - 131_910_000)).toBeLessThan(10_000);
+  });
+
+  it("Tapa Sensorik: Optionsscheine zur Venture Debt, SAFE als Brücke und eine Übertragung von Stammanteilen (Issue 148)", () => {
+    const org = d.organisationen.find((o) => o.name === "Tapa Sensorik")!;
+    const b = d.beteiligungen.find((x) => x.organisationId === org.id)!;
+    const instrumente = d.instrumente.filter((i) => i.beteiligungId === b.id);
+    const venture = instrumente.find((i) => i.art === "venture_debt")!;
+    const serieA = d.finanzierungsrunden.find((r) => r.organisationId === org.id && r.bezeichnung === "Serie-A-Runde")!;
+    const os = instrumente.find((i) => i.art === "optionsschein")!;
+    expect(os).toMatchObject({ optionsscheinAnzahl: "15000", ausuebungspreis: serieA.preisJeAnteil, rundeId: venture.rundeId, bezeichnung: `Optionsscheine zur ${venture.bezeichnung}` });
+    // Ohne Kaufpreis und ohne Ausübung: keine Zahlung
+    expect(d.vorgaenge.some((v) => v.instrumentId === os.id)).toBe(false);
+    expect(d.optionsscheinAusuebungen).toEqual([]);
+    const safe = instrumente.find((i) => i.art === "safe")!;
+    expect(safe).toMatchObject({ wandlungsabschlag: "0.200000", status: "aktiv" });
+    expect(d.finanzierungsrunden.find((r) => r.id === safe.rundeId)).toMatchObject({ art: "bruecke" });
+    expect(d.vorgaenge.filter((v) => v.instrumentId === safe.id).map((v) => [v.art, v.betrag])).toEqual([
+      ["zusage", "150000.00"],
+      ["auszahlung", "150000.00"],
+    ]);
+    expect(d.wandlungen.some((w) => w.quellInstrumentId === safe.id)).toBe(false);
+    // Übertragung aus den Stammanteilen an ein Vehikel, ohne Fonds und ohne Buchung
+    const [u] = d.anteilsuebertragungen;
+    expect(u).toMatchObject({ organisationId: org.id, anzahl: "30000" });
+    expect([u?.quellePositionId, u?.quelleUebertragungId, u?.kaeuferFondsId].every((x) => x == null)).toBe(true);
+    expect(d.vehikel.some((v) => v.id === u?.kaeuferVehikelId)).toBe(true);
+    expect(u!.datum > serieA.datum).toBe(true);
   });
 
   it("einfache Darlehen, eine stille Beteiligung mit Zinsen, ein Gesellschafterdarlehen und ein Unternehmen in zwei Fonds", () => {

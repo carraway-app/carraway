@@ -1,9 +1,9 @@
+import { kontaktJson, pruefeKontakt } from "../kontakte/http";
 import { Hono } from "hono";
 import { z } from "zod";
 import type { Db } from "@carraway/db";
 import { leseDatei, vorlageCsv, vorlageExcel, MAX_BYTES } from "../kontakte/import-datei";
 import { verarbeiteImport } from "../kontakte/import";
-import { pruefe } from "../pruefung";
 import { schreibe } from "../schreiben";
 import { lese } from "../zeitlimit";
 
@@ -22,7 +22,7 @@ const entscheidung = z.object({
 /** Kontaktimport aus CSV oder Excel: Vorlage, Vorschau mit Dublettenkandidaten, Übernahme in einer Transaktion. */
 export function kontaktimportRouten(db: Db) {
   return new Hono()
-    .get("/vorlage", pruefe("query", z.object({ sprache: z.enum(["de", "en"]).default("de"), format: z.enum(["csv", "xlsx"]).default("csv") })), async (c) => {
+    .get("/template", pruefeKontakt("query", z.object({ sprache: z.enum(["de", "en"]).default("de"), format: z.enum(["csv", "xlsx"]).default("csv") })), async (c) => {
       const { sprache, format } = c.req.valid("query");
       if (format === "xlsx") {
         const daten = await vorlageExcel(sprache);
@@ -36,18 +36,19 @@ export function kontaktimportRouten(db: Db) {
         "Content-Disposition": `attachment; filename="kontaktimport-vorlage-${sprache}.csv"`,
       });
     })
-    .post("/vorschau", pruefe("json", datei.extend({ entscheidungen: z.array(entscheidung).max(1000).default([]) })), async (c) => {
+    .post("/preview", pruefeKontakt("json", datei.extend({ entscheidungen: z.array(entscheidung).max(1000).default([]) })), async (c) => {
       const { format, inhalt, entscheidungen } = c.req.valid("json");
       const eingelesen = await leseDatei(format, inhalt);
       const ergebnis = await lese(db, (tx) => verarbeiteImport(tx, null, eingelesen.zeilen, entscheidungen));
-      return c.json({ unbekannteSpalten: eingelesen.unbekannteSpalten, zusammenfassung: ergebnis.zusammenfassung, zeilen: ergebnis.plaene }, 200);
+      return kontaktJson(c, { unbekannteSpalten: eingelesen.unbekannteSpalten, zusammenfassung: ergebnis.zusammenfassung, zeilen: ergebnis.plaene }, 200);
     })
-    .post("/", pruefe("json", datei.extend({ entscheidungen: z.array(entscheidung).max(1000).default([]) })), async (c) => {
+    .post("/", pruefeKontakt("json", datei.extend({ entscheidungen: z.array(entscheidung).max(1000).default([]) })), async (c) => {
       const { format, inhalt, entscheidungen } = c.req.valid("json");
       const eingelesen = await leseDatei(format, inhalt);
       const ergebnis = await schreibe(db, c, (tx, protokoll) => verarbeiteImport(tx, protokoll, eingelesen.zeilen, entscheidungen));
       const zaehle = (e: string) => ergebnis.plaene.filter((p) => p.ergebnis === e).length;
-      return c.json(
+      return kontaktJson(
+        c,
         {
           unbekannteSpalten: eingelesen.unbekannteSpalten,
           zusammenfassung: {

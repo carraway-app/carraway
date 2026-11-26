@@ -52,7 +52,7 @@ describe("Befehlsleiste (Strg+K)", () => {
 
   it("zeigt Anlegen nur mit Schreibrecht und ist auf Englisch vollständig", async () => {
     localStorage.setItem("carraway.sprache", "en");
-    spieleApi({ "/api/v1/suche": leer, "/api/v1/ich": { koerper: { id: "u", name: "Lesende", email: "l@x.example", technisch: false, globalVerwalter: false, zweiFaktorAktiv: true, passwortAendern: false, zweiFaktorErforderlich: false, rollen: [] } } });
+    spieleApi({ "/api/v1/suche": leer, "/api/v1/me": { koerper: { id: "u", name: "Lesende", email: "l@x.example", technisch: false, globalVerwalter: false, zweiFaktorAktiv: true, passwortAendern: false, zweiFaktorErforderlich: false, rollen: [] } } });
     rendereApp("/kontakte");
     await screen.findByRole("grid", { name: "Companies" });
     fireEvent.keyDown(document, { key: "k", ctrlKey: true });

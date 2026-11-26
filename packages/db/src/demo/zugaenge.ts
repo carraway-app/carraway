@@ -254,7 +254,7 @@ Wiederherstellungscodes (je einmal gültig, statt des TOTP-Codes): ${DEMO_ZUGAEN
 
 1. Mit Berta (Bearbeiterin) einen Zinslauf berechnen.
 2. Mit Frieda (Freigeberin) prüfen.
-3. Mit Frieda freigeben: abgelehnt (\`VIER_AUGEN_VERLETZT\`), dieselbe Person darf nicht beides.
+3. Mit Frieda freigeben: abgelehnt (\`four_eyes_violated\`), dieselbe Person darf nicht beides.
 4. Mit Friedrich (Freigeber) freigeben: gelingt.
 
 Die Fondsrollen weist das Seed-Skript nach den Demo-Daten zu: Vera ist Verwalterin aller Fonds, Frieda und Friedrich sind
@@ -281,7 +281,7 @@ ${investorZeilen}
 Wiederherstellungscodes: ${DEMO_INVESTOR_ZUGAENGE.map((z) => z.wiederherstellungscodes.map((c) => `\`${c}\``).join(", ")).join("; ")}.
 
 Die Mitteilungen erscheinen im Portal, sobald eine Freigeberin oder ein Freigeber sie zu einer Fondsbewegung freigibt
-(\`POST /api/v1/fonds/:id/bewegungen/:bewegungId/mitteilungen/freigeben\`, mit einer anderen Person als der, die die Bewegung erfasst hat).
+(\`POST /api/v1/funds/:id/movements/:movementId/notices/approve\`, mit einer anderen Person als der, die die Bewegung erfasst hat).
 `;
 }
 

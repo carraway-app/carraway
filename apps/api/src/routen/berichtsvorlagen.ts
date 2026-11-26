@@ -9,24 +9,37 @@ import { ungueltigeZusatzfelder } from "../berichte/zusatz";
 import { pruefe } from "../pruefung";
 import { idParam, ladeFonds, schreibe, textEingabe } from "../schreiben";
 import { lese } from "../zeitlimit";
+import { berichtPruefung, berichtSchema } from "../berichte-pruefung";
+import { berichtAnApi } from "../berichte-vertrag";
+
+const pruefeApi = berichtPruefung("report");
+const anApi = <T>(wert: T) => berichtAnApi("report", wert);
 
 /**
- * Vorlagen und Freigabestufen je Fonds. Mount unter `/fonds/:id`:
- * `GET /berichtsvorlagen`, `PUT /berichtsvorlagen/:art`, `GET /freigabestufen`, `PUT /freigabestufen`.
+ * Vorlagen und Freigabestufen je Fonds. Mount unter `/funds/:id`:
+ * `GET /report-templates`, `PUT /report-templates/:reportType`. Freigabestufen stehen unter `/funds/:id/approval-stages`.
  */
 
+const vorlagenEingabe = z.object({
+  einheit: z.enum(["EUR", "TEUR"]).optional(),
+  abschnitte: z.array(z.string()).optional(),
+  kennzahlen: z.array(z.string()).optional(),
+  spalten: z.array(z.string()).optional(),
+  unternehmenskennzahlen: z.array(z.string()).optional(),
+  zusatzfelder: z.array(z.string()).optional(),
+});
 const artParam = z.object({ id: z.uuid(), art: z.enum(BERICHTSARTEN) });
 const stufenEingabe = z.object({
-  stufen: z
+  stages: z
     .array(textEingabe(100))
     .min(2)
     .max(6)
-    .refine((l) => new Set(l.map((s) => s.toLowerCase())).size === l.length, { message: "Stufennamen dürfen sich nicht wiederholen" }),
+    .refine((l) => new Set(l.map((s) => s.toLowerCase())).size === l.length, { message: "Stage names must not repeat" }),
 });
 
 export function berichtsvorlagenRouten(db: Db) {
   return new Hono()
-    .get("/berichtsvorlagen", pruefe("param", idParam), async (c) => {
+    .get("/report-templates", pruefeApi("param", idParam), async (c) => {
       const { id } = c.req.valid("param");
       const daten = await lese(db, async (tx) => {
         await ladeFonds(tx, id);
@@ -43,10 +56,10 @@ export function berichtsvorlagenRouten(db: Db) {
           };
         });
       });
-      return c.json({ daten }, 200);
+      return c.json(anApi({ daten }), 200);
     })
     /** Setzt die Vorlage einer Art: Abschnitte (Reihenfolge), Kennzahlen, Spalten, Einheit. Fehlende Felder gelten als Standard. */
-    .put("/berichtsvorlagen/:art", pruefe("param", artParam), pruefe("json", z.record(z.string(), z.unknown())), async (c) => {
+    .put("/report-templates/:reportType", pruefeApi("param", artParam), pruefeApi("json", z.record(z.string(), z.unknown()), {}, berichtSchema("report", vorlagenEingabe)), async (c) => {
       const { id, art } = c.req.valid("param");
       const roh = c.req.valid("json");
       let konfiguration;
@@ -54,8 +67,8 @@ export function berichtsvorlagenRouten(db: Db) {
         konfiguration = pruefeKonfiguration(art, roh);
       } catch (fehler) {
         if (fehler instanceof ZodError) {
-          throw new Fachfehler(400, "EINGABE_UNGUELTIG", "Die Eingabe ist ungültig.", {
-            felder: fehler.issues.map((i) => ({ feld: i.path.map(String).join(".") || "konfiguration", code: i.code, meldung: i.message })),
+          throw new Fachfehler(400, "invalid_input", "The input is invalid.", {
+            felder: fehler.issues.map((i) => ({ feld: i.path.map(String).join(".") || "konfiguration", code: i.code, meldung: "This value is invalid for the report type." })),
           });
         }
         throw fehler;
@@ -66,14 +79,14 @@ export function berichtsvorlagenRouten(db: Db) {
         if (konfiguration.unternehmenskennzahlen.length) {
           const bekannt = new Set((await tx.select({ s: kennzahlDefinition.schluessel }).from(kennzahlDefinition).where(inArray(kennzahlDefinition.schluessel, konfiguration.unternehmenskennzahlen))).map((x) => x.s));
           const unbekannt = konfiguration.unternehmenskennzahlen.filter((s) => !bekannt.has(s));
-          if (unbekannt.length) throw new Fachfehler(404, "KENNZAHL_NICHT_GEFUNDEN", `Die Kennzahl „${unbekannt[0]}“ gibt es im Katalog nicht.`, { schluessel: unbekannt });
+          if (unbekannt.length) throw new Fachfehler(404, "metric_not_found", `The metric "${unbekannt[0]}" does not exist in the catalog.`, { schluessel: unbekannt });
         }
         // Eigene Felder als Spalten: Die Definition muss bestehen, aktiv sein und zu Fonds, Runde, Instrument oder Beteiligung gehören.
         if (konfiguration.zusatzfelder.length) {
           const unbekannt = await ungueltigeZusatzfelder(tx, konfiguration.zusatzfelder);
           if (unbekannt.length) {
-            throw new Fachfehler(400, "EINGABE_UNGUELTIG", "Die Eingabe ist ungültig.", {
-              felder: [{ feld: "zusatzfelder", code: "feld_unbekannt", meldung: `Das Feld ${unbekannt[0]} gibt es nicht, ist archiviert oder gehört nicht zu Fonds, Runde, Instrument oder Beteiligung` }],
+            throw new Fachfehler(400, "invalid_input", "The input is invalid.", {
+              felder: [{ feld: "zusatzfelder", code: "field_unknown", meldung: `The field ${unbekannt[0]} does not exist, is archived or does not belong to fund, round, instrument or investment` }],
             });
           }
         }
@@ -85,20 +98,24 @@ export function berichtsvorlagenRouten(db: Db) {
         await protokoll(vorher ? "aendern" : "anlegen", "bericht_vorlage", neu!.id, vorher ?? null, neu);
         return { art, angepasst: true, konfiguration, erlaubt: erlaubteAuswahl(art) };
       });
-      return c.json(ergebnis, 200);
-    })
-    .get("/freigabestufen", pruefe("param", idParam), async (c) => {
+      return c.json(anApi(ergebnis), 200);
+    });
+}
+
+export function freigabestufenRouten(db: Db) {
+  return new Hono()
+    .get("/approval-stages", pruefe("param", idParam), async (c) => {
       const { id } = c.req.valid("param");
       const stufen = await lese(db, async (tx) => {
         await ladeFonds(tx, id);
         return ladeFreigabestufen(tx, id);
       });
-      return c.json({ stufen }, 200);
+      return c.json({ stages: stufen }, 200);
     })
     /** Namen der Stufen für neue Berichte (bestehende Berichte behalten ihre); mindestens zwei, nur die Verwalter des Fonds dürfen ändern (Berechtigungstabelle). */
-    .put("/freigabestufen", pruefe("param", idParam), pruefe("json", stufenEingabe), async (c) => {
+    .put("/approval-stages", pruefe("param", idParam), pruefe("json", stufenEingabe), async (c) => {
       const { id } = c.req.valid("param");
-      const { stufen } = c.req.valid("json");
+      const { stages: stufen } = c.req.valid("json");
       const ergebnis = await schreibe(db, c, async (tx, protokoll) => {
         await ladeFonds(tx, id);
         const [vorher] = await tx.select().from(berichtFreigabestufen).where(eq(berichtFreigabestufen.fondsId, id));
@@ -107,7 +124,7 @@ export function berichtsvorlagenRouten(db: Db) {
           ? await tx.update(berichtFreigabestufen).set(werte).where(eq(berichtFreigabestufen.fondsId, id)).returning()
           : await tx.insert(berichtFreigabestufen).values({ fondsId: id, ...werte }).returning();
         await protokoll(vorher ? "aendern" : "anlegen", "bericht_freigabestufen", id, vorher ?? null, neu);
-        return { stufen };
+        return { stages: stufen };
       });
       return c.json(ergebnis, 200);
     });

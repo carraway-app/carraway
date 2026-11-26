@@ -6,6 +6,8 @@ import { z } from "zod";
 import { erzeugeAuswertungExcel, erzeugeAuswertungPdf, type AuswertungExportDaten } from "@carraway/berichte";
 import { fonds, gliederungSicht, saldenlauf, saldenlaufBefund, saldo, type Db } from "@carraway/db";
 import { erkenneDateityp, kappeParams } from "@carraway/import";
+import { enumWerte, insDeutsche, insEnglische } from "../buchhaltung/abbildung";
+import { buchhaltungsFehler } from "../buchhaltung/fehler";
 import { aktuellerAkteur } from "../anmeldung/akteur";
 import { aktiverLauf, ladeAuswertung, stimmeLiquiditaetAb, stimmePortfolioAb, type SichtName } from "../buchhaltung/auswertung";
 import { MAX_BEFUNDE_SUSA, pruefeSaldenlauf } from "../buchhaltung/saldenpruefung";
@@ -45,16 +47,33 @@ const ohneDatei = {
 };
 
 const datum = z.iso.date();
-const bisAbfrage = z.object({ bis: datum });
-const sichtParam = z.object({ id: z.uuid(), sicht: z.enum(gliederungSicht.enumValues) });
-const dateiAbfrage = z.object({ bis: datum, format: z.enum(["pdf", "xlsx"]).default("pdf"), sprache: z.enum(["de", "en"]).default("de") });
+const bisAbfrage = z.object({ to: datum });
+const sichtParam = z.object({ id: z.uuid(), view: z.enum(enumWerte(gliederungSicht.enumValues)) });
+const dateiAbfrage = z.object({ to: datum, format: z.enum(["pdf", "xlsx"]).default("pdf"), language: z.enum(["de", "en"]).default("de") });
 
 async function ladeLauf(tx: Tx, id: string, sperren = false) {
   const abfrage = tx.select().from(saldenlauf).where(eq(saldenlauf.id, id));
   const [lauf] = await (sperren ? abfrage.for("update") : abfrage);
-  if (!lauf) throw new Fachfehler(404, "SALDENLAUF_NICHT_GEFUNDEN", "Saldenliste nicht gefunden.");
+  if (!lauf) throw new Fachfehler(404, "balance_run_not_found", "Trial balance not found.");
   return lauf;
 }
+
+// Auch gespeicherte Saldenläufe erhalten beim Lesen den englischen Befundtext.
+const befundtexte: Record<string, string> = {
+  SUSA_SPALTE_FEHLT: "A mandatory column is missing.",
+  SUSA_KONTO_UNGUELTIG: "The account number is invalid.",
+  SUSA_KONTO_DOPPELT: "The account appears more than once in the list.",
+  SUSA_BETRAG_UNGUELTIG: "An amount is invalid.",
+  SUSA_SALDO_ABWEICHEND: "The balance does not match opening value plus debit minus credit.",
+  SUSA_KEINE_ZEILEN: "The file contains no accounts.",
+  SUSA_SALDENSUMME_UNGLEICH_NULL: "The balances of all accounts do not add up to zero.",
+  SUSA_KEIN_KONTENRAHMEN: "No chart of accounts has been set up for the fund yet.",
+  SUSA_KONTO_UNBEKANNT: "The account is not in the chart of accounts of the fund.",
+  SUSA_KONTO_UNBEKANNT_WEITERE: "Further unknown accounts.",
+  SUSA_ERSETZT_VORHANDENE: "The trial balance already taken over for this period is superseded and stays as an earlier version.",
+  SUSA_ZEITRAUM_UEBERLAPPT: "The period overlaps a trial balance already taken over.",
+  SUSA_KONTO_OHNE_REGEL: "Accounts without an account rule for the balance sheet.",
+};
 
 async function speichereBefunde(tx: Tx, laufId: string, befunde: { zeile: number | null; spalte: string | null; code: string; schweregrad: string; meldung: string; params: unknown }[]) {
   await tx.delete(saldenlaufBefund).where(eq(saldenlaufBefund.laufId, laufId));
@@ -66,33 +85,33 @@ async function speichereBefunde(tx: Tx, laufId: string, befunde: { zeile: number
 const zaehle = (b: { schweregrad: string }[]) => ({ fehler: b.filter((x) => x.schweregrad === "fehler").length, warnungen: b.filter((x) => x.schweregrad === "warnung").length });
 
 export function fondsSaldenRouten(db: Db) {
-  return new Hono()
-    /** Hochladen (multipart: `datei`, `zeitraumVon`, `zeitraumBis`); ändert noch keine Auswertung. */
+  return new Hono().onError(buchhaltungsFehler)
+    /** Hochladen (multipart: `file`, `periodFrom`, `periodTo`); ändert noch keine Auswertung. */
     .post(
-      "/:id/saldenlaeufe",
-      bodyLimit({ maxSize: MAX_UPLOAD + 64 * 1024, onError: (c) => c.json({ fehler: { code: "DATEI_ZU_GROSS" as const, meldung: `Die Datei ist größer als ${MAX_UPLOAD / 1024 / 1024} MB.` } }, 413) }),
+      "/:id/balance-runs",
+      bodyLimit({ maxSize: MAX_UPLOAD + 64 * 1024, onError: (c) => c.json({ error: { code: "file_too_large" as const, message: `The file is larger than ${MAX_UPLOAD / 1024 / 1024} MB.` } }, 413) }),
       pruefe("param", idParam),
       async (c) => {
         const { id } = c.req.valid("param");
-        if (!/^multipart\/form-data/i.test(c.req.header("content-type") ?? "")) throw new Fachfehler(400, "DATEI_FEHLT", "Erwartet wird multipart/form-data mit den Feldern „datei“, „zeitraumVon“ und „zeitraumBis“.");
+        if (!/^multipart\/form-data/i.test(c.req.header("content-type") ?? "")) throw new Fachfehler(400, "file_missing", "Expected multipart/form-data with the fields 'file', 'periodFrom' and 'periodTo'.");
         let formular: Record<string, string | File | (string | File)[]>;
         try {
           formular = await c.req.parseBody();
         } catch {
-          throw new Fachfehler(400, "DATEI_FEHLT", "Erwartet wird multipart/form-data.");
+          throw new Fachfehler(400, "file_missing", "Expected multipart/form-data.");
         }
-        const datei = formular.datei;
-        if (!(datei instanceof File)) throw new Fachfehler(400, "DATEI_FEHLT", "Das Feld „datei“ fehlt.");
-        const zeitraum = z.object({ zeitraumVon: datum, zeitraumBis: datum }).safeParse({ zeitraumVon: formular.zeitraumVon, zeitraumBis: formular.zeitraumBis });
-        if (!zeitraum.success) throw new Fachfehler(400, "EINGABE_UNGUELTIG", "Die Eingabe ist ungültig.", { felder: zeitraum.error.issues.map((i) => ({ feld: i.path.join("."), code: i.code, meldung: i.message })) });
-        const { zeitraumVon, zeitraumBis } = zeitraum.data;
+        const datei = formular.file;
+        if (!(datei instanceof File)) throw new Fachfehler(400, "file_missing", "The field 'file' is missing.");
+        const zeitraum = z.object({ periodFrom: datum, periodTo: datum }).safeParse({ periodFrom: formular.periodFrom, periodTo: formular.periodTo });
+        if (!zeitraum.success) throw new Fachfehler(400, "invalid_input", "The input is invalid.", { felder: zeitraum.error.issues.map((i) => ({ feld: i.path.join("."), code: i.code, meldung: i.message })) });
+        const { periodFrom: zeitraumVon, periodTo: zeitraumBis } = zeitraum.data;
         if (zeitraumBis < zeitraumVon || (new Date(zeitraumBis).getTime() - new Date(zeitraumVon).getTime()) / 86_400_000 > 400) {
-          throw new Fachfehler(400, "EINGABE_UNGUELTIG", "Die Eingabe ist ungültig.", { felder: [{ feld: "zeitraumBis", code: "zeitraum_ungueltig", meldung: "Das Ende darf nicht vor dem Beginn liegen und der Zeitraum höchstens 400 Tage umfassen" }] });
+          throw new Fachfehler(400, "invalid_input", "The input is invalid.", { felder: [{ feld: "zeitraumBis", code: "period_invalid", meldung: "The end must not be before the start and the period must not exceed 400 days" }] });
         }
-        if (datei.size > MAX_UPLOAD) throw new Fachfehler(413, "DATEI_ZU_GROSS", `Die Datei ist größer als ${MAX_UPLOAD / 1024 / 1024} MB.`);
+        if (datei.size > MAX_UPLOAD) throw new Fachfehler(413, "file_too_large", `The file is larger than ${MAX_UPLOAD / 1024 / 1024} MB.`);
         const inhalt = Buffer.from(await datei.arrayBuffer());
         const typ = erkenneDateityp(inhalt);
-        if (typ === null) throw new Fachfehler(415, "DATEITYP_UNBEKANNT", "Nur Excel-Dateien (.xlsx) und CSV-Dateien sind erlaubt.");
+        if (typ === null) throw new Fachfehler(415, "file_type_unknown", "Only Excel files (.xlsx) and CSV files are allowed.");
         const name = datei.name.replace(/^.*[\\/]/, "").replace(/[^\p{L}\p{N}._ -]/gu, "_").slice(0, 200) || "saldenliste";
         const akteur = aktuellerAkteur(c);
         const lauf = await schreibe(db, c, async (tx, protokoll) => {
@@ -104,19 +123,19 @@ export function fondsSaldenRouten(db: Db) {
           await protokoll("hochladen", "saldenlauf", neu!.id, null, { fondsId: id, zeitraumVon, zeitraumBis, dateiname: neu!.dateiname, groesse: neu!.groesse, sha256: neu!.sha256 });
           return neu!;
         });
-        return c.json(lauf, 201);
+        return c.json(insEnglische(lauf), 201);
       },
     )
-    .get("/:id/saldenlaeufe", pruefe("param", idParam), async (c) => {
+    .get("/:id/balance-runs", pruefe("param", idParam), async (c) => {
       const { id } = c.req.valid("param");
       const daten = await lese(db, async (tx) => {
         await ladeFonds(tx, id);
         return tx.select(ohneDatei).from(saldenlauf).where(eq(saldenlauf.fondsId, id)).orderBy(desc(saldenlauf.zeitraumBis), desc(saldenlauf.hochgeladenAm), asc(saldenlauf.id));
       });
-      return c.json({ daten }, 200);
+      return c.json(insEnglische({ daten }), 200);
     })
     /** Zeiträume mit gültiger (übernommener, nicht ersetzter) Saldenliste. */
-    .get("/:id/perioden", pruefe("param", idParam), async (c) => {
+    .get("/:id/periods", pruefe("param", idParam), async (c) => {
       const { id } = c.req.valid("param");
       const daten = await lese(db, async (tx) => {
         await ladeFonds(tx, id);
@@ -126,26 +145,26 @@ export function fondsSaldenRouten(db: Db) {
           .where(and(eq(saldenlauf.fondsId, id), eq(saldenlauf.status, "uebernommen"), isNull(saldenlauf.ersetztAm)))
           .orderBy(desc(saldenlauf.zeitraumBis));
       });
-      return c.json({ daten }, 200);
+      return c.json(insEnglische({ daten }), 200);
     })
-    .get("/:id/auswertung/:sicht", pruefe("param", sichtParam), pruefe("query", bisAbfrage), async (c) => {
-      const { id, sicht } = c.req.valid("param");
-      const { bis } = c.req.valid("query");
+    .get("/:id/evaluation/:view", pruefe("param", sichtParam), pruefe("query", bisAbfrage), async (c) => {
+      const { id, sicht } = insDeutsche(c.req.valid("param"));
+      const { bis } = insDeutsche(c.req.valid("query"));
       const daten = await lese(db, async (tx) => {
         await ladeFonds(tx, id);
         const lauf = await aktiverLauf(tx, id, bis);
         const a = await ladeAuswertung(tx, lauf, sicht as SichtName);
         return { sicht, zeitraumVon: lauf.zeitraumVon, zeitraumBis: lauf.zeitraumBis, lauf: { id: lauf.id, dateiname: lauf.dateiname, uebernommenAm: lauf.uebernommenAm, uebernommenVon: lauf.uebernommenVon }, ...a };
       });
-      return c.json(daten, 200);
+      return c.json(insEnglische(daten), 200);
     })
     /** Export einer Sicht als PDF oder Excel (bearbeiter, mit Zeile `gelesen` im Protokoll). Portfolio und Liquidität enthalten die Abstimmung. */
-    .get("/:id/auswertung/:sicht/datei", pruefe("param", sichtParam), pruefe("query", dateiAbfrage), async (c) => {
-      const { id, sicht } = c.req.valid("param");
-      const { bis, format, sprache } = c.req.valid("query");
+    .get("/:id/evaluation/:view/file", pruefe("param", sichtParam), pruefe("query", dateiAbfrage), async (c) => {
+      const { id, sicht } = insDeutsche(c.req.valid("param"));
+      const { bis, format, sprache } = insDeutsche(c.req.valid("query"));
       const { daten, lauf } = await lese(db, async (tx) => {
         const [fz] = await tx.select().from(fonds).where(eq(fonds.id, id));
-        if (!fz) throw new Fachfehler(404, "FONDS_NICHT_GEFUNDEN", "Fonds nicht gefunden.");
+        if (!fz) throw new Fachfehler(404, "fund_not_found", "Fund not found.");
         const l = await aktiverLauf(tx, id, bis);
         const a = await ladeAuswertung(tx, l, sicht as SichtName);
         let abstimmung: AuswertungExportDaten["abstimmung"];
@@ -179,9 +198,9 @@ export function fondsSaldenRouten(db: Db) {
       });
     })
     /** Abstimmung gegen die Plattform: Buchwert des Portfolios und Liquidität. */
-    .get("/:id/abstimmung", pruefe("param", idParam), pruefe("query", bisAbfrage), async (c) => {
+    .get("/:id/reconciliation", pruefe("param", idParam), pruefe("query", bisAbfrage), async (c) => {
       const { id } = c.req.valid("param");
-      const { bis } = c.req.valid("query");
+      const { bis } = insDeutsche(c.req.valid("query"));
       const daten = await lese(db, async (tx) => {
         await ladeFonds(tx, id);
         const lauf = await aktiverLauf(tx, id, bis);
@@ -189,42 +208,42 @@ export function fondsSaldenRouten(db: Db) {
         const liquiditaet = await ladeAuswertung(tx, lauf, "liquiditaet");
         return { zeitraumVon: lauf.zeitraumVon, zeitraumBis: lauf.zeitraumBis, portfolio: await stimmePortfolioAb(tx, lauf, portfolio), liquiditaet: await stimmeLiquiditaetAb(tx, lauf, liquiditaet) };
       });
-      return c.json(daten, 200);
+      return c.json(insEnglische(daten), 200);
     });
 }
 
 export function saldenlaufRouten(db: Db) {
-  return new Hono()
+  return new Hono().onError(buchhaltungsFehler)
     .get("/:id", pruefe("param", idParam), async (c) => {
       const { id } = c.req.valid("param");
       const daten = await lese(db, async (tx) => {
         const [l] = await tx.select(ohneDatei).from(saldenlauf).where(eq(saldenlauf.id, id));
-        if (!l) throw new Fachfehler(404, "SALDENLAUF_NICHT_GEFUNDEN", "Saldenliste nicht gefunden.");
+        if (!l) throw new Fachfehler(404, "balance_run_not_found", "Trial balance not found.");
         const befunde = await tx
           .select({ nr: saldenlaufBefund.nr, zeile: saldenlaufBefund.zeile, spalte: saldenlaufBefund.spalte, code: saldenlaufBefund.code, schweregrad: saldenlaufBefund.schweregrad, meldung: saldenlaufBefund.meldung, params: saldenlaufBefund.params })
           .from(saldenlaufBefund)
           .where(eq(saldenlaufBefund.laufId, id))
           .orderBy(asc(saldenlaufBefund.nr));
-        return { ...l, befunde };
+        return { ...l, befunde: befunde.map((b) => ({ ...b, meldung: befundtexte[b.code] ?? b.code })) };
       });
-      return c.json(daten, 200);
+      return c.json(insEnglische(daten), 200);
     })
-    .get("/:id/salden", pruefe("param", idParam), async (c) => {
+    .get("/:id/balances", pruefe("param", idParam), async (c) => {
       const { id } = c.req.valid("param");
       const daten = await lese(db, async (tx) => {
         await ladeLauf(tx, id);
         return tx.select({ zeile: saldo.zeile, konto: saldo.kontoNummer, bezeichnung: saldo.bezeichnung, eb: saldo.ebWert, soll: saldo.soll, haben: saldo.haben, saldo: saldo.saldo }).from(saldo).where(eq(saldo.laufId, id)).orderBy(asc(saldo.kontoNummer));
       });
-      return c.json({ daten }, 200);
+      return c.json(insEnglische({ daten }), 200);
     })
     /** Prüft und liest die Salden ein (ersetzt Salden und Befunde des Laufs); ändert keine Auswertung. */
-    .post("/:id/pruefen", pruefe("param", idParam), async (c) => {
+    .post("/:id/validate", pruefe("param", idParam), async (c) => {
       const { id } = c.req.valid("param");
       const akteur = aktuellerAkteur(c);
       const ergebnis = await schreibe(db, c, async (tx, protokoll) => {
         await tx.execute(sql.raw("SET LOCAL statement_timeout = 60000"));
         const lauf = await ladeLauf(tx, id, true);
-        if (lauf.status === "uebernommen") throw new Fachfehler(409, "SALDENLAUF_BEREITS_UEBERNOMMEN", "Die Saldenliste ist schon übernommen.");
+        if (lauf.status === "uebernommen") throw new Fachfehler(409, "balance_run_already_applied", "The trial balance has already been applied.");
         const r = await pruefeSaldenlauf(tx, lauf);
         const { fehler, warnungen } = zaehle(r.befunde);
         await tx.delete(saldo).where(eq(saldo.laufId, id));
@@ -242,10 +261,10 @@ export function saldenlaufRouten(db: Db) {
         await protokoll("pruefen", "saldenlauf", id, null, { fondsId: lauf.fondsId, fehler, warnungen, summe: r.summe });
         return nachher!;
       });
-      return c.json(ergebnis, 200);
+      return c.json(insEnglische(ergebnis), 200);
     })
     /** Übernimmt die Saldenliste (Vier-Augen); eine übernommene Liste für denselben Zeitraum wird ersetzt und bleibt als Fassung erhalten. */
-    .post("/:id/uebernehmen", pruefe("param", idParam), async (c) => {
+    .post("/:id/apply", pruefe("param", idParam), async (c) => {
       const { id } = c.req.valid("param");
       const akteur = aktuellerAkteur(c);
       const ergebnis = await schreibe(db, c, async (tx, protokoll) => {
@@ -253,15 +272,15 @@ export function saldenlaufRouten(db: Db) {
         const vorab = await ladeLauf(tx, id);
         await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`susa:${vorab.fondsId}`}))`);
         const lauf = await ladeLauf(tx, id, true);
-        if (lauf.status === "uebernommen") throw new Fachfehler(409, "SALDENLAUF_BEREITS_UEBERNOMMEN", "Die Saldenliste ist schon übernommen.");
-        if (lauf.status !== "geprueft") throw new Fachfehler(409, "SALDENLAUF_NICHT_GEPRUEFT", "Die Saldenliste ist nicht fehlerfrei geprüft.", { fehler: lauf.fehlerAnzahl });
+        if (lauf.status === "uebernommen") throw new Fachfehler(409, "balance_run_already_applied", "The trial balance has already been applied.");
+        if (lauf.status !== "geprueft") throw new Fachfehler(409, "balance_run_not_validated", "The trial balance has not been validated without errors.", { fehler: lauf.fehlerAnzahl });
         if (akteur.id === lauf.hochgeladenVon || akteur.id === lauf.geprueftVon) {
-          throw new Fachfehler(409, "VIER_AUGEN_VERLETZT", "Die Übernahme muss eine andere Person vornehmen als das Hochladen und die Prüfung.");
+          throw new Fachfehler(409, "four_eyes_violated", "The trial balance must be applied by a different person than the one who uploaded and validated it.");
         }
         // Frische Prüfung im selben Zug: Kontenrahmen und andere Listen können sich seit der Prüfung geändert haben.
         const r = await pruefeSaldenlauf(tx, lauf);
         const { fehler, warnungen } = zaehle(r.befunde);
-        if (fehler > 0) throw new Fachfehler(409, "SALDENLAUF_FEHLER", "Die Prüfung vor der Übernahme hat Fehler gefunden; bitte erneut prüfen.", { fehler, beispiele: r.befunde.filter((b) => b.schweregrad === "fehler").slice(0, 5).map((b) => ({ code: b.code, meldung: b.meldung })) });
+        if (fehler > 0) throw new Fachfehler(409, "balance_run_failed", "The validation before applying found errors; please validate again.", { fehler, beispiele: r.befunde.filter((b) => b.schweregrad === "fehler").slice(0, 5).map((b) => ({ code: b.code, meldung: befundtexte[b.code] ?? b.code })) });
         await speichereBefunde(tx, id, r.befunde);
         const jetzt = new Date();
         const ersetzt = await tx
@@ -278,6 +297,6 @@ export function saldenlaufRouten(db: Db) {
         await protokoll("uebernehmen", "saldenlauf", id, null, { fondsId: lauf.fondsId, zeitraumVon: lauf.zeitraumVon, zeitraumBis: lauf.zeitraumBis, konten: r.summe.konten, ersetzt: ersetzt.map((e) => e.id) });
         return nachher!;
       });
-      return c.json(ergebnis, 200);
+      return c.json(insEnglische(ergebnis), 200);
     });
 }

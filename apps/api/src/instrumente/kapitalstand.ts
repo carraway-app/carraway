@@ -3,6 +3,7 @@ import { Decimal } from "@carraway/rechenkern";
 import { bisStand, ohneStornoPaare } from "../kennzahlen/zeitstand";
 import type { Tx } from "../zeitlimit";
 import { ladeVerteilungsgrundlagen, verteileAufGrundlage } from "./lp-verteilung";
+import { ladeKostenbuchungen } from "../kapital/fondskosten";
 
 type Abfrage = Pick<Tx, "execute" | "select">;
 type Anteil = { organisationId: string; betrag: string };
@@ -97,5 +98,10 @@ export async function ladeKapitalstand(tx: Abfrage, fondsId: string, stichtag: s
     ...eingaenge.map((z) => ({ datum: z.valuta, betrag: new Decimal(z.betrag).neg().toFixed(2) })),
     ...ausschuettungen.map((b) => ({ datum: b.valuta, betrag: b.betrag })),
   ];
-  return { zeichnungen, gewichte, bewegungen, zahlungen, eingaenge, zahlungsstrom, positionen, jeLp, fonds: summiere(positionen) };
+  // Verwaltungsvergütung und Fondskosten (Issue #157): festgeschriebene Anteile in der Reihenfolge der Zeichnungen; kein Zahlungsstrom.
+  const kosten = bewegungId ? [] : (await ladeKostenbuchungen(tx, fondsId, stichtag, stand)).map((k) => {
+    const je = new Map(k.anteile.map((a) => [a.organisationId, a.betrag]));
+    return { id: k.id, art: k.art, valuta: k.valuta, betrag: k.betrag, storniertKostenId: k.storniertKostenId, teile: zeichnungen.map((z) => je.get(z.organisationId) ?? "0.00") };
+  });
+  return { stichtag, zeichnungen, gewichte, bewegungen, zahlungen, eingaenge, zahlungsstrom, positionen, jeLp, kosten, fonds: summiere(positionen) };
 }

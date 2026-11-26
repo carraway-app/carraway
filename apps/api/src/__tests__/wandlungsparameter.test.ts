@@ -30,8 +30,8 @@ async function fundstelle(werte: Record<string, string>) {
 
 beforeEach(async () => {
   await grundbestand(db);
-  await post(`/beteiligungen/${ID.wandel}/vorgaenge`, { art: "zusage", valuta: "2026-01-01", betrag: "200000" });
-  await post(`/beteiligungen/${ID.wandel}/vorgaenge`, { art: "auszahlung", valuta: "2026-01-01", betrag: "100000" });
+  await post(`/investments/${ID.wandel}/transactions`, { type: "commitment", valueDate: "2026-01-01", amount: "200000" });
+  await post(`/investments/${ID.wandel}/transactions`, { type: "disbursement", valueDate: "2026-01-01", amount: "100000" });
   await post(`/beteiligungen/${ID.wandel}/konditionen`, KONDITION);
   const [runde] = await db
     .insert(s.finanzierungsrunde)
@@ -68,7 +68,7 @@ describe("Wandlungsparameter am Instrument", () => {
     const darlehen = await json(await post(`/beteiligungen/${ID.wandel}/instrumente`, { art: "darlehen", bezeichnung: "Darlehen" }, "bearbeiter"));
     const abgelehnt = await patch(`/instrumente/${darlehen.id}`, { wandlungsabschlag: "0.2" }, "bearbeiter");
     expect(abgelehnt.status).toBe(409);
-    expect((await json(abgelehnt)).fehler.code).toBe("INSTRUMENT_KEIN_WANDELDARLEHEN");
+    expect((await json(abgelehnt)).error.code).toBe("instrument_not_convertible_loan");
     expect((await post(`/beteiligungen/${ID.wandel}/instrumente`, { art: "darlehen", zinsenWandeln: true }, "bearbeiter")).status).toBe(409);
     const neu = await post(`/beteiligungen/${ID.wandel}/instrumente`, { art: "wandeldarlehen", bezeichnung: "Wandeldarlehen II", wandlungsabschlag: "0.15", zinsenWandeln: true }, "bearbeiter");
     expect(neu.status, await neu.clone().text()).toBe(201);
@@ -91,8 +91,8 @@ describe("Wandlungsparameter am Instrument", () => {
   it("zwei Wandeldarlehen je Beteiligung: jedes mit eigenen Werten geschätzt statt parameter_mehrdeutig", async () => {
     const erstes = await wandeldarlehen();
     const zweites = await json(await post(`/beteiligungen/${ID.wandel}/instrumente`, { art: "wandeldarlehen", bezeichnung: "Wandeldarlehen II" }, "bearbeiter"));
-    await post(`/beteiligungen/${ID.wandel}/vorgaenge`, { art: "zusage", valuta: "2026-01-01", betrag: "50000", instrumentId: zweites.id });
-    await post(`/beteiligungen/${ID.wandel}/vorgaenge`, { art: "auszahlung", valuta: "2026-01-01", betrag: "50000", instrumentId: zweites.id });
+    await post(`/investments/${ID.wandel}/transactions`, { type: "commitment", valueDate: "2026-01-01", amount: "50000", instrumentId: zweites.id });
+    await post(`/investments/${ID.wandel}/transactions`, { type: "disbursement", valueDate: "2026-01-01", amount: "50000", instrumentId: zweites.id });
     await patch(`/instrumente/${erstes.id}`, { wandlungsabschlag: "0.2" }, "bearbeiter");
     await patch(`/instrumente/${zweites.id}`, { wandlungsabschlag: "0.1" }, "bearbeiter");
     const d = await tabelle("2026-07-01");
@@ -113,8 +113,8 @@ describe("Wandlungsparameter am Instrument", () => {
   it("zwei Darlehen: Felder am Instrument lösen die Mehrdeutigkeit der Fundstellen für diese Felder, der Rückfall bleibt mehrdeutig", async () => {
     const erstes = await wandeldarlehen();
     const zweites = await json(await post(`/beteiligungen/${ID.wandel}/instrumente`, { art: "wandeldarlehen", bezeichnung: "Wandeldarlehen II" }, "bearbeiter"));
-    await post(`/beteiligungen/${ID.wandel}/vorgaenge`, { art: "zusage", valuta: "2026-01-01", betrag: "50000", instrumentId: zweites.id });
-    await post(`/beteiligungen/${ID.wandel}/vorgaenge`, { art: "auszahlung", valuta: "2026-01-01", betrag: "50000", instrumentId: zweites.id });
+    await post(`/investments/${ID.wandel}/transactions`, { type: "commitment", valueDate: "2026-01-01", amount: "50000", instrumentId: zweites.id });
+    await post(`/investments/${ID.wandel}/transactions`, { type: "disbursement", valueDate: "2026-01-01", amount: "50000", instrumentId: zweites.id });
     await fundstelle({ wandlungsabschlag: "0.2" });
     await patch(`/instrumente/${erstes.id}`, { wandlungsabschlag: "0.2" }, "bearbeiter");
     const d = await tabelle("2026-07-01");

@@ -89,7 +89,7 @@ EXPOSE 8787
 # Nur für die Rolle `api` sinnvoll; Worker und Migration überschreiben den Health-Check in docker-compose.yml.
 # Node statt curl: kein zusätzliches Paket; die Frist liegt unter der von Docker (5 s). Exec-Form, keine Shell.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-    CMD ["node", "-e", "fetch('http://127.0.0.1:'+(process.env.PORT||8787)+'/api/v1/gesundheit',{signal:AbortSignal.timeout(4000)}).then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+    CMD ["node", "-e", "fetch('http://127.0.0.1:'+(process.env.PORT||8787)+'/api/v1/health',{signal:AbortSignal.timeout(4000)}).then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
 
 # Exec-Form: `node` ist Prozess 1 und bekommt SIGTERM direkt; API und Worker fahren dabei sauber herunter.
 CMD ["node", "dist/server.js"]

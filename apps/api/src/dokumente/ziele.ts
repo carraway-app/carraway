@@ -109,17 +109,17 @@ export async function sichtbareZiele(tx: Tx, akteur: Akteur, ziele: readonly Zie
   return ergebnis;
 }
 
-const keineBerechtigung = () => new Fachfehler(403, "KEINE_BERECHTIGUNG", "Dafür fehlt die Berechtigung an mindestens einem der verknüpften Ziele.");
+const keineBerechtigung = () => new Fachfehler(403, "forbidden", "Permission for at least one of the linked targets is missing.");
 
 /**
- * Verlangt für jedes Ziel die Rolle; 404 `ZIEL_NICHT_GEFUNDEN`, wenn es ein Ziel nicht gibt, 403, wenn die Person es nicht darf.
+ * Verlangt für jedes Ziel die Rolle; 404 `target_not_found`, wenn es ein Ziel nicht gibt, 403, wenn die Person es nicht darf.
  * Gibt die aufgelösten Fonds je Ziel zurück.
  */
 export async function verlangeZiele(tx: Tx, akteur: Akteur, ziele: readonly Ziel[], mindest: FondsRolle): Promise<ZielFonds[]> {
   const aufgeloest: ZielFonds[] = [];
   for (const ziel of ziele) {
     const zf = await ladeZielFonds(tx, ziel);
-    if (zf === null) throw new Fachfehler(404, "ZIEL_NICHT_GEFUNDEN", "Das Ziel der Verknüpfung gibt es nicht.");
+    if (zf === null) throw new Fachfehler(404, "target_not_found", "The target of the link does not exist.");
     if (!darfZiel(akteur, zf, mindest)) throw keineBerechtigung();
     aufgeloest.push(zf);
   }
@@ -130,6 +130,7 @@ export async function verlangeZiele(tx: Tx, akteur: Akteur, ziele: readonly Ziel
 interface ZielListen {
   ohne: SQL;
   portfolio: SQL;
+  kennzahlen: SQL;
   dealflow: SQL;
   /** Deals ohne Fonds sichtbar? */
   dealOhneFonds: boolean;
@@ -144,6 +145,7 @@ function zielListen(akteur: Akteur, route: string[], mindest: FondsRolle): ZielL
   return {
     ohne: liste(route, "uuid"),
     portfolio: liste(schnitt("portfolio"), "uuid"),
+    kennzahlen: liste(schnitt("kennzahlen"), "uuid"),
     dealflow: liste(schnitt("dealflow"), "uuid"),
     dealOhneFonds: darfZiel(akteur, { art: "irgendwo", bereich: ZIEL_BEREICH.deal }, mindest),
   };
@@ -179,6 +181,25 @@ export function zielSichtbarFuer(akteur: Akteur, typ: SQL, id: SQL, mindest: Fon
   const fondsIds = sichtbareFonds(akteur, mindest);
   if (fondsIds === "alle") return sql`true`;
   return zielSichtbar(typ, id, zielListen(akteur, fondsIds, mindest));
+}
+
+/**
+ * Bedingung „die Person sieht das Objekt dieser Fundstelle“ (`wert_quelle.objekt_typ` und `objekt_id` als SQL-Ausdruck). Fundstellen hängen auch an
+ * Objekten, die kein Dokumentziel sind; sie folgen dem Ziel, zu dem sie gehören: Rundenposition und Anteilsklasse wie eine Finanzierungsrunde
+ * (Portfolio, haltende Fonds), Darlehenskondition wie ihre Beteiligung, Registereintrag wie seine Organisation, Kennzahlenwert wie seine Beteiligung (Bereich Kennzahlen). Unbekannte Typen sind unsichtbar.
+ */
+export function fundstelleSichtbarFuer(akteur: Akteur, typ: SQL, id: SQL, mindest: FondsRolle = "betrachter"): SQL {
+  const fondsIds = sichtbareFonds(akteur, mindest);
+  if (fondsIds === "alle") return sql`true`;
+  const l = zielListen(akteur, fondsIds, mindest);
+  return sql`CASE ${typ}
+    WHEN 'rundenposition' THEN EXISTS (SELECT 1 FROM rundenposition p JOIN finanzierungsrunde r ON r.id = p.runde_id JOIN beteiligung b ON b.organisation_id = r.organisation_id WHERE p.id = ${id} AND b.fonds_id = ANY(${l.portfolio}))
+    WHEN 'anteilsklasse' THEN EXISTS (SELECT 1 FROM anteilsklasse k JOIN beteiligung b ON b.organisation_id = k.organisation_id WHERE k.id = ${id} AND b.fonds_id = ANY(${l.portfolio}))
+    WHEN 'darlehen_kondition' THEN EXISTS (SELECT 1 FROM darlehen_kondition k JOIN beteiligung b ON b.id = k.beteiligung_id WHERE k.id = ${id} AND b.fonds_id = ANY(${l.portfolio}))
+    WHEN 'registereintrag' THEN EXISTS (SELECT 1 FROM registereintrag e JOIN beteiligung b ON b.organisation_id = e.organisation_id WHERE e.id = ${id} AND b.fonds_id = ANY(${l.ohne}))
+    WHEN 'kennzahl_wert' THEN EXISTS (SELECT 1 FROM kennzahl_wert kw JOIN beteiligung b ON b.id = kw.beteiligung_id WHERE kw.id = ${id} AND b.fonds_id = ANY(${l.kennzahlen}))
+    ELSE ${zielSichtbar(typ, id, l)}
+  END`;
 }
 
 /** Anzeigename eines Ziels (Typ- und ID-Spalte als SQL-Ausdruck) für Listen. */

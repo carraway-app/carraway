@@ -9,8 +9,28 @@ import { useApiMutation } from "./mutationen";
  */
 const basis = ["sicherheit"] as const;
 
-const ladeUebersicht = () => auspacken(api.api.v1.konto.sicherheit.$get());
-const ladeSitzungen = () => auspacken(api.api.v1.konto.sitzungen.$get());
+const ladeUebersicht = async () => {
+  const s = await auspacken(api.api.v1.account.security.$get());
+  return {
+    passwortVorhanden: s.passwordSet,
+    passwortGeaendertAm: s.passwordChangedAt,
+    anbieter: s.providers,
+    zweiFaktorAktiv: s.twoFactorEnabled,
+    zweiFaktorPflicht: s.twoFactorRequired,
+    codesUebrig: s.recoveryCodesRemaining,
+    sitzungenAnzahl: s.sessionCount,
+  };
+};
+const ladeSitzungen = async () =>
+  (await auspacken(api.api.v1.account.sessions.$get())).map((s) => ({
+    id: s.id,
+    aktuell: s.current,
+    erstelltAm: s.createdAt,
+    zuletztAktivAm: s.lastActiveAt,
+    laeuftAbAm: s.expiresAt,
+    ip: s.ip,
+    geraet: s.device,
+  }));
 
 export type Sicherheit = Awaited<ReturnType<typeof ladeUebersicht>>;
 export type Sitzung = Awaited<ReturnType<typeof ladeSitzungen>>[number];
@@ -23,16 +43,17 @@ export const sicherheitUebersicht = () => queryOptions({ queryKey: [...basis, "u
 export const sitzungenListe = () => queryOptions({ queryKey: [...basis, "sitzungen"], queryFn: ladeSitzungen, staleTime: 0 });
 export const sicherheitEntwerten = (qc: QueryClient) => qc.invalidateQueries({ queryKey: basis });
 
-export const passwortAendern = (json: { aktuell: string; neu: string; andereSitzungenBeenden: boolean }) => auspacken(api.api.v1.konto.passwort.$post({ json }));
+export const passwortAendern = (json: { aktuell: string; neu: string; andereSitzungenBeenden: boolean }) =>
+  auspacken(api.api.v1.account.password.$post({ json: { currentPassword: json.aktuell, newPassword: json.neu, endOtherSessions: json.andereSitzungenBeenden } }));
 
 export const useSitzungBeenden = () =>
   useApiMutation({
-    aufruf: (id: string) => auspacken(api.api.v1.konto.sitzungen[":id"].$delete({ param: { id } })),
+    aufruf: (id: string) => auspacken(api.api.v1.account.sessions[":id"].$delete({ param: { id } })),
     invalidiert: () => [basis],
   });
 export const useAndereSitzungenBeenden = () =>
   useApiMutation({
-    aufruf: () => auspacken(api.api.v1.konto.sitzungen["andere-beenden"].$post({ json: {} })),
+    aufruf: () => auspacken(api.api.v1.account.sessions["end-others"].$post({ json: {} })),
     invalidiert: () => [basis],
   });
 
@@ -47,15 +68,18 @@ export const zweiFaktorErst = {
 
 /** Neueinrichtung: das bisherige Geheimnis gilt, bis ein Code des neuen bestätigt ist. */
 export const zweiFaktorNeu = {
-  starten: (passwort: string): Promise<ZweiFaktorAnsatz> => auspacken(api.api.v1.konto["zwei-faktor"].neu.$post({ json: passwort ? { passwort } : {} })),
+  starten: async (passwort: string): Promise<ZweiFaktorAnsatz> => {
+    const a = await auspacken(api.api.v1.account["two-factor"].restart.$post({ json: passwort ? { password: passwort } : {} }));
+    return { totpURI: a.totpUri, backupCodes: a.recoveryCodes };
+  },
   bestaetigen: async (code: string, andereSitzungenBeenden: boolean, qc: QueryClient): Promise<void> => {
-    await auspacken(api.api.v1.konto["zwei-faktor"].neu.bestaetigen.$post({ json: { code, andereSitzungenBeenden } }));
+    await auspacken(api.api.v1.account["two-factor"].restart.confirm.$post({ json: { code, endOtherSessions: andereSitzungenBeenden } }));
     await sicherheitEntwerten(qc);
   },
 };
 
 export const wiederherstellungscodesErneuern = async (passwort: string, qc: QueryClient): Promise<string[]> => {
-  const antwort = await auspacken(api.api.v1.konto.wiederherstellungscodes.$post({ json: passwort ? { passwort } : {} }));
+  const antwort = await auspacken(api.api.v1.account["recovery-codes"].$post({ json: passwort ? { password: passwort } : {} }));
   await sicherheitEntwerten(qc);
-  return antwort.backupCodes;
+  return antwort.recoveryCodes;
 };

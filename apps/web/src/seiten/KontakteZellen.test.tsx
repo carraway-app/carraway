@@ -118,7 +118,7 @@ describe("Tabelle: Personen- und Verknüpfungsfelder in der Zelle bearbeiten", (
       "/api/v1/crm/ansichten": { koerper: { daten: [ansicht] } },
       "POST /api/v1/crm/objekte/person/abfrage": { koerper: { daten: [zeile], gesamt: 1, limit: 100, offset: 0, bezuege } },
       "/api/v1/crm/zustaendige": { koerper: { daten: [{ id: "u2", name: "Max Muster" }] } },
-      "PATCH /api/v1/crm/datensaetze/person/p1": { status: 400, koerper: { fehler: { code: "FELDWERT_UNGUELTIG", meldung: "x", felder: [{ feld: "f-betreuer", code: "unknown_user", meldung: "Aktive Person nicht gefunden" }] } } },
+      "PATCH /api/v1/crm/datensaetze/person/p1": { status: 400, koerper: { error: { code: "field_value_invalid", message: "x", fields: [{ field: "f-betreuer", code: "unknown_user", message: "Aktive Person nicht gefunden" }] } } },
     });
     rendereApp("/kontakte?objekt=person");
     const grid = await screen.findByRole("grid", { name: "Kontakte" });

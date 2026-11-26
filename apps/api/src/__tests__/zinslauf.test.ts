@@ -8,14 +8,15 @@ import { hauptinstrumentId } from "../instrumente/hauptinstrument";
 import { vorgaengeEinfuegen } from "./instrument-hilfen";
 
 const { db, pool } = oeffneTestdb();
-const { get, post, put } = aufrufe(erstelleTestApp(db));
+const t = erstelleTestApp(db);
+const { get, post, put } = aufrufe(t);
 
 // Basis: 100.000 am 01.01.2025 ausgezahlt, 6 % nach 30E/360, jährlich mit Anker 01.01. (volle Jahre = 360/360 = 6.000,00).
 const KONDITION = { gueltigAb: "2025-01-01", satzFix: "0.06", methode: "30E/360", zinsperiode: "jaehrlich", anker: "2026-01-01" };
 
 async function darlehenAufsetzen(kondition: object = KONDITION, id: string = ID.darlehen) {
-  await post(`/beteiligungen/${id}/vorgaenge`, { art: "zusage", valuta: "2025-01-01", betrag: "200000" });
-  await post(`/beteiligungen/${id}/vorgaenge`, { art: "auszahlung", valuta: "2025-01-01", betrag: "100000" });
+  await post(`/investments/${id}/transactions`, { type: "commitment", valueDate: "2025-01-01", amount: "200000" });
+  await post(`/investments/${id}/transactions`, { type: "disbursement", valueDate: "2025-01-01", amount: "100000" });
   if (kondition) expect((await post(`/beteiligungen/${id}/konditionen`, kondition)).status).toBe(201);
 }
 
@@ -55,7 +56,7 @@ describe("Zinslauf: Ablauf berechnet bis gebucht", () => {
 
     const gleicher = await post(`/zinslaeufe/${lauf.id}/freigeben`, {}, "a");
     expect(gleicher.status).toBe(409);
-    expect((await json(gleicher)).fehler.code).toBe("VIER_AUGEN_VERLETZT");
+    expect((await json(gleicher)).error.code).toBe("four_eyes_violated");
     const andere = await post(`/zinslaeufe/${lauf.id}/freigeben`, {}); // Standard-Person: eine andere als "a"
     expect(andere.status).toBe(200);
     expect((await get(`/zinslaeufe/${lauf.id}`).then(json)).freigegebenVon).toBe(await idVon(db, STANDARD));
@@ -83,7 +84,7 @@ describe("Zinslauf: Ablauf berechnet bis gebucht", () => {
     // gebucht ist endgültig
     const verwerfen = await post(`/zinslaeufe/${lauf.id}/verwerfen`, {});
     expect(verwerfen.status).toBe(409);
-    expect((await json(verwerfen)).fehler.code).toBe("ZINSLAUF_STATUS_UNGUELTIG");
+    expect((await json(verwerfen)).error.code).toBe("interest_run_status_invalid");
     expect((await post(`/zinslaeufe/${lauf.id}/buchen`, {}, "c")).status).toBe(409);
   });
 
@@ -122,7 +123,7 @@ describe("Zinslauf: Ablauf berechnet bis gebucht", () => {
     expect((await post(`/zinslaeufe/${a.id}/buchen`, {})).status).toBe(200);
     const veraltet = await post(`/zinslaeufe/${b.id}/buchen`, {});
     expect(veraltet.status).toBe(409);
-    expect(["ZINSLAUF_VERALTET", "ZINSPERIODE_GEBUCHT"]).toContain((await json(veraltet)).fehler.code);
+    expect(["interest_run_outdated", "interest_period_posted"]).toContain((await json(veraltet)).error.code);
     expect(await anzahl(db, "vorgang", "art = 'zins'")).toBe(1);
   });
 });
@@ -184,8 +185,8 @@ describe("Zinslauf: Rechnung", () => {
     const fehlt = await post("/zinslaeufe", { fondsId: ID.fonds, stichtag: "2027-01-01" });
     expect(fehlt.status).toBe(409);
     const d = await json(fehlt);
-    expect(d.fehler).toMatchObject({ code: "BERECHNUNG_FEHLGESCHLAGEN", beteiligungId: ID.darlehen });
-    expect(d.fehler.grund).toContain("2026");
+    expect(d.error).toMatchObject({ code: "calculation_failed", beteiligungId: ID.darlehen });
+    expect(d.error.grund).toContain("2026");
     await put(`/beteiligungen/${ID.darlehen}/jahresueberschuss/2026`, { betrag: "-5000" });
     expect(betraege(await neuerLauf("2027-01-01"))).toEqual(["8000.00", "6000.00"]);
   });
@@ -207,7 +208,7 @@ describe("Zinslauf: Rechnung", () => {
     await post(`/zinslaeufe/${lauf.id}/freigeben`, {}, "b");
     await post(`/zinslaeufe/${lauf.id}/buchen`, {}, "c");
     const erste = (await db.select().from(s.vorgang).where(eq(s.vorgang.art, "zins"))).find((z) => z.valuta === "2026-01-01")!;
-    const storno = await post(`/vorgaenge/${erste.id}/storno`, { grund: "Zinssatz falsch" });
+    const storno = await post(`/transactions/${erste.id}/reverse`, { reason: "Zinssatz falsch" });
     expect(storno.status).toBe(201);
     expect(await anzahl(db, "zinsperiode_gebucht")).toBe(1);
     const neu = await neuerLauf("2027-01-01");
@@ -222,10 +223,10 @@ describe("Schutz gegen ferne Stichtage und zu viele Perioden", () => {
     for (const stichtag of ["9999-12-31", "2024-12-31"]) {
       const lauf = await post("/zinslaeufe", { fondsId: ID.fonds, stichtag });
       expect(lauf.status).toBe(400);
-      expect((await json(lauf)).fehler.felder[0]).toMatchObject({ feld: "stichtag", code: "stichtag_ausserhalb" });
+      expect((await json(lauf)).error.fields[0]).toMatchObject({ field: "stichtag", code: "as_of_out_of_range" });
       const abgrenzung = await get(`/fonds/${ID.fonds}/abgrenzung?stichtag=${stichtag}`);
       expect(abgrenzung.status).toBe(400);
-      expect((await json(abgrenzung)).fehler.felder[0].code).toBe("stichtag_ausserhalb");
+      expect((await json(abgrenzung)).error.fields[0].code).toBe("as_of_out_of_range");
     }
     expect(await anzahl(db, "zinslauf")).toBe(0);
     const naechstesJahr = new Date(Date.now() + 300 * 86_400_000).toISOString().slice(0, 10);
@@ -233,15 +234,15 @@ describe("Schutz gegen ferne Stichtage und zu viele Perioden", () => {
   });
 
   it("begrenzt die Zinsperioden je Darlehen mit 409", async () => {
-    await post(`/beteiligungen/${ID.darlehen}/vorgaenge`, { art: "zusage", valuta: "1900-01-01", betrag: "200000" });
-    await post(`/beteiligungen/${ID.darlehen}/vorgaenge`, { art: "auszahlung", valuta: "1900-01-01", betrag: "100000" });
+    await post(`/investments/${ID.darlehen}/transactions`, { type: "commitment", valueDate: "1900-01-01", amount: "200000" });
+    await post(`/investments/${ID.darlehen}/transactions`, { type: "disbursement", valueDate: "1900-01-01", amount: "100000" });
     await post(`/beteiligungen/${ID.darlehen}/konditionen`, { ...KONDITION, gueltigAb: "1900-01-01", zinsperiode: "quartalsweise", anker: "1900-03-31" });
     const lauf = await post("/zinslaeufe", { fondsId: ID.fonds, stichtag: "2026-11-01" });
     expect(lauf.status).toBe(409);
-    expect((await json(lauf)).fehler).toMatchObject({ code: "ZU_VIELE_PERIODEN", beteiligungId: ID.darlehen, maximum: 400 });
+    expect((await json(lauf)).error).toMatchObject({ code: "too_many_periods", beteiligungId: ID.darlehen, maximum: 400 });
     expect(await anzahl(db, "zinslauf")).toBe(0);
     const a = await get(`/fonds/${ID.fonds}/abgrenzung?stichtag=2026-11-01`).then(json);
-    expect(a.darlehen[0].fehler).toContain("zu viele");
+    expect(a.darlehen[0].fehler).toContain("too many");
   });
 });
 
@@ -312,9 +313,9 @@ describe("Kontrollbericht", () => {
   it("zeigt für einen noch nicht gebuchten Lauf einen Hinweis statt einer Summenprüfung", async () => {
     await darlehenAufsetzen();
     const lauf = await neuerLauf("2026-12-31");
-    const bericht = await get(`/zinslaeufe/${lauf.id}/kontrolle`).then(json);
-    expect(bericht.pruefungen[0]).toMatchObject({ status: "ok" });
-    expect(bericht.pruefungen[0].hinweis).toContain("berechnet");
+    const bericht = await t.requestApi(`/interest-runs/${lauf.id}/checks`).then(json);
+    expect(bericht.checks[0]).toMatchObject({ status: "ok", warningCode: "interest_run_not_posted" });
+    expect(bericht.checks[0].warning).toContain("calculated");
   });
 });
 

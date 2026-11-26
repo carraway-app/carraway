@@ -133,7 +133,7 @@ export function pruefeRunde(w: RundenWerte, positionen: readonly PositionWerte[]
 
 // Rechte -----------------------------------------------------------------------------------------------------------------------
 
-const keineBerechtigung = () => new Fachfehler(403, "KEINE_BERECHTIGUNG", "Dafür fehlt die Berechtigung.");
+const keineBerechtigung = () => new Fachfehler(403, "forbidden", "You lack permission for this.");
 
 /**
  * Rechtsgrundlage am Unternehmen: Fonds mit einer Beteiligung daran und Fonds mit einer Position in einer ABGESCHLOSSENEN Runde.
@@ -220,13 +220,13 @@ export function poolMitAufstockung(pool: string | null, a: { basis: "pre_money" 
 }
 
 export function ungueltig(felder: Feldfehler[]): never {
-  throw new Fachfehler(400, "EINGABE_UNGUELTIG", "Die Eingabe ist ungültig.", { felder });
+  throw new Fachfehler(400, "invalid_input", "The input is invalid.", { felder });
 }
 
 /** Post-Money und Anteile: angegeben oder aus Pre-Money, Volumen und Preis abgeleitet. */
 export function wirksam(e: { preMoney: string; preisJeAnteil: string; postMoney?: string | null | undefined; anteileGesamtNach?: string | null | undefined }, volumen: Decimal, poolAnteile?: string | null) {
   const postMoney = e.postMoney ?? new Decimal(e.preMoney).plus(volumen).toFixed(2);
-  if (new Decimal(postMoney).lessThan(e.preMoney)) ungueltig([{ feld: "postMoney", code: "post_unter_pre", meldung: "Post-Money darf nicht unter Pre-Money liegen" }]);
+  if (new Decimal(postMoney).lessThan(e.preMoney)) ungueltig([{ feld: "postMoney", code: "post_below_pre", meldung: "Post-money must not be below pre-money" }]);
   // Mit Pool ist der Preis voll verwässert: ausgegebene Anteile = Post-Money ÷ Preis − Pool.
   const anteileGesamtNach = e.anteileGesamtNach ?? Decimal.max(0, anteileZu(postMoney, e.preisJeAnteil).minus(poolAnteile ?? 0)).toFixed(0);
   return { postMoney, anteileGesamtNach };
@@ -239,12 +239,12 @@ export async function pruefePosition(tx: Tx, akteur: Akteur, organisationId: str
     verlangeBearbeiterAm(akteur, p.fondsId);
   } else if (v?.investorId === organisationId) {
     const feld = p.vehikelId ? "vehikelId" : "organisationId";
-    ungueltig([{ feld, code: "investor_ist_unternehmen", meldung: "Das Unternehmen kann nicht in sich selbst investieren" }]);
+    ungueltig([{ feld, code: "investor_is_company", meldung: "The company cannot invest in itself" }]);
   }
   if (p.anteilsklasseId) {
     const [k] = await tx.select().from(anteilsklasse).where(eq(anteilsklasse.id, p.anteilsklasseId));
-    if (!k) throw new Fachfehler(404, "ANTEILSKLASSE_NICHT_GEFUNDEN", "Anteilsklasse nicht gefunden.");
-    if (k.organisationId !== organisationId) throw new Fachfehler(409, "ANTEILSKLASSE_PASST_NICHT", "Die Klasse gehört zu einem anderen Unternehmen als die Runde.");
+    if (!k) throw new Fachfehler(404, "share_class_not_found", "Share class not found.");
+    if (k.organisationId !== organisationId) throw new Fachfehler(409, "share_class_mismatch", "The class belongs to a different company than the round.");
   }
 }
 
@@ -286,7 +286,7 @@ export async function findeRundenDubletten(tx: Tx, akteur: Akteur, organisationI
   return sichtbar.map((z) => ({ id: z.id, bezeichnung: z.bezeichnung, datum: z.datum, gleichesDatum: z.datum === w.datum, gleicherPreis: z.preisJeAnteil !== null && new Decimal(z.preisJeAnteil).equals(w.preisJeAnteil) }));
 }
 
-export const BRUECKE_OHNE_ANTEILE = () => new Fachfehler(409, "RUNDE_BRUECKE_OHNE_ANTEILE", "Eine Brückenrunde hat keine Bewertung und keine Positionen mit Anteilen.");
+export const BRUECKE_OHNE_ANTEILE = () => new Fachfehler(409, "round_bridge_without_shares", "A bridge round has no valuation and no positions with shares.");
 
 /** Eine Brückenrunde: Darlehen zwischen zwei Runden, ohne Bewertung und Anteile. Sie ist sofort abgeschlossen (es gibt nichts zu prüfen oder zu buchen). */
 async function legeBrueckenrundeAn(tx: Tx, protokoll: Protokollant, akteur: Akteur, organisationId: string, e: RundenEntwurf) {
@@ -306,8 +306,8 @@ async function legeBrueckenrundeAn(tx: Tx, protokoll: Protokollant, akteur: Akte
 
 export async function legeRundenentwurfAn(tx: Tx, protokoll: Protokollant, akteur: Akteur, organisationId: string, e: RundenEntwurf): Promise<{ runde: RundeZeile; positionen: PositionZeile[]; dubletten: RundenDublette[] }> {
   if (e.art === "bruecke") return legeBrueckenrundeAn(tx, protokoll, akteur, organisationId, e);
-  if (e.preMoney === undefined) ungueltig([{ feld: "preMoney", code: "erforderlich", meldung: "Pre-Money ist bei einer Eigenkapitalrunde erforderlich" }]);
-  if (e.preisJeAnteil === undefined) ungueltig([{ feld: "preisJeAnteil", code: "erforderlich", meldung: "Preis je Anteil ist bei einer Eigenkapitalrunde erforderlich" }]);
+  if (e.preMoney === undefined) ungueltig([{ feld: "preMoney", code: "required", meldung: "Pre-money is required for an equity round" }]);
+  if (e.preisJeAnteil === undefined) ungueltig([{ feld: "preisJeAnteil", code: "required", meldung: "Price per share is required for an equity round" }]);
   const entwurf = e as RundenEntwurf & { preMoney: string; preisJeAnteil: string };
   e = entwurf;
   pruefeDatumsfenster("datum", e.datum);
@@ -319,7 +319,7 @@ export async function legeRundenentwurfAn(tx: Tx, protokoll: Protokollant, akteu
   for (const p of e.positionen) {
     const v = p.fondsId ? null : await vehikelDerPosition(tx, protokoll, p);
     const schluessel = p.fondsId ? `f:${p.fondsId}` : `v:${v!.id}`;
-    if (doppelt.has(schluessel)) throw new Fachfehler(409, "RUNDENPOSITION_VORHANDEN", "Dieser Investor hat in der Runde bereits eine Position.");
+    if (doppelt.has(schluessel)) throw new Fachfehler(409, "round_position_exists", "This investor already has a position in the round.");
     doppelt.add(schluessel);
     await pruefePosition(tx, akteur, org.id, p, v);
     vehikelJe.push(v);
@@ -354,12 +354,12 @@ export type PositionZeile = typeof rundenposition.$inferSelect;
 /** Lädt die Runde und sperrt die Zeile bis zum Ende der Transaktion. */
 export async function sperreRunde(tx: Tx, id: string): Promise<RundeZeile> {
   const [zeile] = await tx.select().from(finanzierungsrunde).where(eq(finanzierungsrunde.id, id)).for("update");
-  if (!zeile) throw new Fachfehler(404, "RUNDE_NICHT_GEFUNDEN", "Finanzierungsrunde nicht gefunden.");
+  if (!zeile) throw new Fachfehler(404, "round_not_found", "Financing round not found.");
   return zeile;
 }
 
 export function verlangeEntwurf(r: RundeZeile): void {
-  if (r.status !== "entwurf") throw new Fachfehler(409, "RUNDE_NICHT_ENTWURF", "Die Runde ist abgeschlossen und nicht mehr änderbar.", { status: r.status });
+  if (r.status !== "entwurf") throw new Fachfehler(409, "round_not_draft", "The round is closed and can no longer be changed.", { status: r.status });
 }
 
 export type RundenAntwortPosition = {
@@ -533,7 +533,7 @@ export type FondsBuchungErgebnis = {
 }
 
 /** Beteiligung des Fonds am Unternehmen; fehlt sie, wird sie mit dem Rundendatum als Erstinvestment angelegt (ohne Instrument, das kommt aus der Runde). */
-async function ladeOderLegeBeteiligungAn(tx: Tx, protokoll: Protokollant, fondsId: string, organisationId: string, datum: string, art: (typeof instrumentArt.enumValues)[number]) {
+export async function ladeOderLegeBeteiligungAn(tx: Tx, protokoll: Protokollant, fondsId: string, organisationId: string, datum: string, art: (typeof instrumentArt.enumValues)[number]) {
   const [vorhanden] = await tx
     .select()
     .from(beteiligung)
@@ -558,10 +558,10 @@ export async function bucheFondsBuchungen(tx: Tx, protokoll: Protokollant, akteu
   for (const w of wuensche) {
     const position = positionen.find((p) => p.id === w.positionId);
     if (!position) {
-      throw new Fachfehler(400, "EINGABE_UNGUELTIG", "Die Eingabe ist ungültig.", { felder: [{ feld: "fondsBuchungen.positionId", code: "position_unbekannt", meldung: "Die Position gehört nicht zu dieser Runde" }] });
+      throw new Fachfehler(400, "invalid_input", "The input is invalid.", { felder: [{ feld: "fondsBuchungen.positionId", code: "position_unknown", meldung: "The position does not belong to this round" }] });
     }
     if (!position.fondsId) {
-      throw new Fachfehler(400, "EINGABE_UNGUELTIG", "Die Eingabe ist ungültig.", { felder: [{ feld: "fondsBuchungen.positionId", code: "position_nicht_eigener_fonds", meldung: "Buchungen gibt es nur für Positionen eines Fonds dieser Plattform" }] });
+      throw new Fachfehler(400, "invalid_input", "The input is invalid.", { felder: [{ feld: "fondsBuchungen.positionId", code: "position_not_own_fund", meldung: "Bookings exist only for positions of a fund on this platform" }] });
     }
   }
   // Alle eigenen Positionen in stabiler Reihenfolge; ausdrückliche Wünsche zuerst gelten, der Rest bekommt den Standard.
@@ -576,7 +576,7 @@ export async function bucheFondsBuchungen(tx: Tx, protokoll: Protokollant, akteu
       const { rows } = await tx.execute<{ vorgang_id: string }>(sql`
         SELECT rb.vorgang_id FROM runde_buchung rb
         WHERE rb.position_id = ${position.id} AND rb.art = 'zusage' AND NOT EXISTS (SELECT 1 FROM vorgang s WHERE s.storniert_vorgang_id = rb.vorgang_id)`);
-      if (rows.length > 0) throw new Fachfehler(409, "RUNDE_ZUSAGE_VORHANDEN", "Für diese Position gibt es schon eine Zusage des Fonds aus dieser Runde.", { vorgangId: rows[0]!.vorgang_id });
+      if (rows.length > 0) throw new Fachfehler(409, "round_commitment_exists", "A commitment of the fund from this round already exists for this position.", { vorgangId: rows[0]!.vorgang_id });
     }
     const art = w.art ?? "offene_beteiligung";
     const b = await ladeOderLegeBeteiligungAn(tx, protokoll, fondsId, runde.organisationId, runde.datum, art);
@@ -591,7 +591,7 @@ export async function bucheFondsBuchungen(tx: Tx, protokoll: Protokollant, akteu
       await tx.update(rundenposition).set({ instrumentId }).where(eq(rundenposition.id, position.id));
     } else {
       const [vorhanden] = await tx.select({ id: instrument.id }).from(instrument).where(eq(instrument.id, instrumentId));
-      if (!vorhanden) throw new Fachfehler(404, "INSTRUMENT_NICHT_GEFUNDEN", "Instrument nicht gefunden.");
+      if (!vorhanden) throw new Fachfehler(404, "instrument_not_found", "Instrument not found.");
     }
     const vorgangIds: string[] = [];
     let trancheId: string | null;

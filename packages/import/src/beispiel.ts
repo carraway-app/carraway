@@ -46,6 +46,10 @@ export function beispielZeilen(optionen: DemoOptionen = {}): Blattzeilen {
       bezeichnung: i.bezeichnung,
       erstinvestment: b.erstinvestment,
       status: b.status ?? "aktiv",
+      optionsschein_anzahl: text(i.optionsscheinAnzahl),
+      ausuebungspreis: text(i.ausuebungspreis),
+      ausgabe_am: text(i.ausgabeAm),
+      laufzeit_bis: text(i.laufzeitBis),
     });
   });
   zeilen.finanzierungsrunden = runden.map((r) =>

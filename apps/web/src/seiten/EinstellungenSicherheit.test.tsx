@@ -4,9 +4,9 @@ import { describe, expect, it } from "vitest";
 import { fehler, rendereApp, spieleApi, letzteRegion } from "../test/hilfen";
 import { geraetAus } from "../lib/geraet";
 
-const SICHERHEIT = "/api/v1/konto/sicherheit";
-const SITZUNGEN = "/api/v1/konto/sitzungen";
-const PASSWORT = "/api/v1/konto/passwort";
+const SICHERHEIT = "/api/v1/account/security";
+const SITZUNGEN = "/api/v1/account/sessions";
+const PASSWORT = "/api/v1/account/password";
 
 const uebersicht = { passwortVorhanden: true, passwortGeaendertAm: "2026-10-01T08:00:00.000Z", anbieter: [], zweiFaktorAktiv: true, zweiFaktorPflicht: true, codesUebrig: 7, sitzungenAnzahl: 2 };
 const sitzungen = [
@@ -59,14 +59,14 @@ describe("Einstellungen: Reiter Sicherheit", () => {
     await nutzer.click(karte.getByRole("checkbox", { name: /alle anderen Anmeldungen beenden/ }));
     await nutzer.click(karte.getByRole("button", { name: "Passwort speichern" }));
     await waitFor(() => expect(api.anfragen("POST", PASSWORT)).toHaveLength(1));
-    expect(api.anfragen("POST", PASSWORT)[0]!.koerper).toEqual({ aktuell: "alt-alt-alt-alt-1", neu: "neues-Passwort-2026", andereSitzungenBeenden: false });
+    expect(api.anfragen("POST", PASSWORT)[0]!.koerper).toEqual({ currentPassword: "alt-alt-alt-alt-1", newPassword: "neues-Passwort-2026", endOtherSessions: false }); // gitleaks:allow
     expect(await karte.findByText("Das Passwort ist geändert, 1 andere Anmeldung wurde beendet.")).toBeTruthy();
     expect((karte.getByLabelText("Aktuelles Passwort") as HTMLInputElement).value).toBe("");
   });
 
   it("zeigt ein falsches aktuelles Passwort als Fehler", async () => {
     const nutzer = userEvent.setup();
-    spieleApi({ ...grundlage, [`POST ${PASSWORT}`]: fehler(400, "PASSWORT_FALSCH") });
+    spieleApi({ ...grundlage, [`POST ${PASSWORT}`]: fehler(400, "password_incorrect") });
     rendereApp("/einstellungen/postfach?tab=sicherheit");
     const karte = within(await letzteRegion("Passwort ändern"));
     fireEvent.change(await karte.findByLabelText("Aktuelles Passwort"), { target: { value: "falsch" } });
@@ -78,22 +78,22 @@ describe("Einstellungen: Reiter Sicherheit", () => {
 
   it("Wiederherstellungscodes erneuern: Passwort wird mitgesendet, die neuen Codes erscheinen einmal", async () => {
     const nutzer = userEvent.setup();
-    const api = spieleApi({ ...grundlage, [`POST /api/v1/konto/wiederherstellungscodes`]: { koerper: { backupCodes: ["aaaaa-11111", "bbbbb-22222"] } } });
+    const api = spieleApi({ ...grundlage, [`POST /api/v1/account/recovery-codes`]: { koerper: { backupCodes: ["aaaaa-11111", "bbbbb-22222"] } } });
     rendereApp("/einstellungen/postfach?tab=sicherheit");
     const karte = within(await letzteRegion("Zweiter Faktor"));
     await nutzer.click(await karte.findByRole("button", { name: "Wiederherstellungscodes erneuern" }));
     fireEvent.change(karte.getByLabelText("Aktuelles Passwort"), { target: { value: "geheim-geheim-1" } });
     await nutzer.click(karte.getByRole("button", { name: "Neue Codes erzeugen" }));
     expect(await karte.findByText("aaaaa-11111")).toBeTruthy();
-    expect(api.anfragen("POST", "/api/v1/konto/wiederherstellungscodes")[0]!.koerper).toEqual({ passwort: "geheim-geheim-1" });
+    expect(api.anfragen("POST", "/api/v1/account/recovery-codes")[0]!.koerper).toEqual({ password: "geheim-geheim-1" });
   });
 
   it("Neu einrichten: Passwort, dann QR-Code und Codes; Bestätigen erst nach dem Sichern der Codes und mit Code", async () => {
     const nutzer = userEvent.setup();
     const api = spieleApi({
       ...grundlage,
-      "POST /api/v1/konto/zwei-faktor/neu": { koerper: { totpURI: "otpauth://totp/Carraway:a%40b.example?secret=ABCDEFGH&issuer=Carraway", backupCodes: ["aaaaa-11111"], ablaufSekunden: 900 } },
-      "POST /api/v1/konto/zwei-faktor/neu/bestaetigen": { koerper: { ok: true, andereSitzungenBeendet: 0 } },
+      "POST /api/v1/account/two-factor/restart": { koerper: { totpURI: "otpauth://totp/Carraway:a%40b.example?secret=ABCDEFGH&issuer=Carraway", backupCodes: ["aaaaa-11111"], ablaufSekunden: 900 } },
+      "POST /api/v1/account/two-factor/restart/confirm": { koerper: { ok: true, andereSitzungenBeendet: 0 } },
     });
     rendereApp("/einstellungen/postfach?tab=sicherheit");
     const karte = within(await letzteRegion("Zweiter Faktor"));
@@ -102,13 +102,13 @@ describe("Einstellungen: Reiter Sicherheit", () => {
     await nutzer.click(karte.getByRole("button", { name: "Weiter" }));
     expect(await karte.findByText("aaaaa-11111")).toBeTruthy();
     expect(karte.getByText(/ABCD EFGH/)).toBeTruthy();
-    fireEvent.change(karte.getByLabelText("Code"), { target: { value: "123456" } });
+    await nutzer.type(karte.getByLabelText("Ziffer 1 von 6"), "123456");
     const bestaetigen = karte.getByRole("button", { name: "Bestätigen und aktivieren" });
     expect(bestaetigen.matches(":disabled")).toBe(true);
     await nutzer.click(karte.getByRole("checkbox", { name: /Codes sicher abgelegt/ }));
     await nutzer.click(bestaetigen);
-    await waitFor(() => expect(api.anfragen("POST", "/api/v1/konto/zwei-faktor/neu/bestaetigen")).toHaveLength(1));
-    expect(api.anfragen("POST", "/api/v1/konto/zwei-faktor/neu/bestaetigen")[0]!.koerper).toEqual({ code: "123456", andereSitzungenBeenden: false });
+    await waitFor(() => expect(api.anfragen("POST", "/api/v1/account/two-factor/restart/confirm")).toHaveLength(1));
+    expect(api.anfragen("POST", "/api/v1/account/two-factor/restart/confirm")[0]!.koerper).toEqual({ code: "123456", endOtherSessions: false });
     expect(await karte.findByText("Der zweite Faktor ist eingerichtet.")).toBeTruthy();
   });
 

@@ -1,23 +1,26 @@
+import { pruefeFonds } from "../fonds-pruefung";
+import { fondsAnApi } from "../fonds-vertrag";
 import { and, eq, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import { beteiligung, fonds, wechselkurs, type Db } from "@carraway/db";
 import { Decimal } from "@carraway/rechenkern";
 import { Fachfehler, fehlerAntwort } from "../fehler";
-import { pruefe } from "../pruefung";
 import { idParam, schreibe, textEingabe } from "../schreiben";
 import { lese } from "../zeitlimit";
 import { leseKursdatei } from "../waehrung/kursdatei";
 import { ladeBeteiligungSicht, ladeFondsSicht } from "../waehrung/sicht";
 import { feldArray } from "../crm/felder";
+import { aktuellerAkteur } from "../anmeldung/akteur";
+import { portfolioSicht } from "../rechte/sichtbarkeit";
 
 /**
  * Währungen (Etappe 21): Kurstabelle (nur anhängend, Korrektur als neuer Eintrag), Kursimport aus einer Datei (kein Abruf aus dem Netz), lokale Währung einer
  * Beteiligung und die Währungssicht auf Beteiligung und Fonds. Regeln und Rechenwege: `docs/waehrung.md`, Rechenkern `waehrung.ts`.
  */
 
-const code = z.string().regex(/^[A-Z]{3}$/, "Dreibuchstabiger Währungscode in Großbuchstaben (ISO 4217) erwartet");
-const kursText = z.string().regex(/^\d{1,10}(\.\d{1,8})?$/, "Kurs größer als null mit höchstens acht Nachkommastellen erwartet").refine((w) => Number(w) > 0, { message: "Kurs größer als null" });
+const code = z.string().regex(/^[A-Z]{3}$/, "Three-letter currency code in uppercase (ISO 4217) expected");
+const kursText = z.string().regex(/^\d{1,10}(\.\d{1,8})?$/, "Rate greater than zero with at most eight decimal places expected").refine((w) => Number(w) > 0, { message: "Rate greater than zero" });
 const stand = z.iso.datetime({ offset: true });
 
 const neuerKurs = z
@@ -30,8 +33,8 @@ const neuerKurs = z
     korrigiertKursId: z.uuid().optional(),
     grund: textEingabe(500).optional(),
   })
-  .refine((w) => w.basis !== w.quote, { message: "Basis und Quote müssen verschieden sein", path: ["quote"] })
-  .refine((w) => (w.korrigiertKursId === undefined) === (w.grund === undefined), { message: "Korrektur und Grund gehören zusammen", path: ["grund"] });
+  .refine((w) => w.basis !== w.quote, { message: "Base and quote must differ", path: ["quote"] })
+  .refine((w) => (w.korrigiertKursId === undefined) === (w.grund === undefined), { message: "Correction and reason go together", path: ["grund"] });
 
 const kursListe = z.object({
   basis: code.optional(),
@@ -58,11 +61,11 @@ const importEingabe = z.object({
 const sichtAbfrage = z.object({ stichtag: z.iso.date().optional(), stand: stand.optional(), vergleich: code.optional() });
 const MAX_NEUE_KURSE = 100_000;
 
-/** Mount unter `/wechselkurse`. */
+/** Mount unter `/exchange-rates`. */
 export function wechselkursRouten(db: Db) {
   return new Hono()
     /** Gültige Kurse (je Tag und Paar der jüngste Eintrag bis zum Wissensstand) oder mit `alle=1` auch die ersetzten, neueste Tage zuerst. */
-    .get("/", pruefe("query", kursListe), async (c) => {
+    .get("/", pruefeFonds("query", kursListe), async (c) => {
       const q = c.req.valid("query");
       const daten = await lese(db, async (tx) => {
         const { rows } = await tx.execute<Record<string, unknown>>(sql`
@@ -78,28 +81,28 @@ export function wechselkursRouten(db: Db) {
           LIMIT ${q.limit}`);
         return rows.map((r) => ({ ...r, kurs: new Decimal(r.kurs as string).toFixed(), erfasstAm: new Date(r.erfasstAm as string).toISOString() }));
       });
-      return c.json({ daten }, 200);
+      return c.json(fondsAnApi({ daten }), 200);
     })
     /** Währungen, zu denen es Kurse gibt (Auswahl der Vergleichswährung), mit dem jüngsten Tag je Währung. */
-    .get("/waehrungen", async (c) => {
+    .get("/currencies", async (c) => {
       const daten = await lese(db, async (tx) => {
         const { rows } = await tx.execute<{ waehrung: string; letzter: string }>(sql`
           SELECT w AS waehrung, max(datum)::text AS letzter FROM (SELECT basis AS w, datum FROM wechselkurs UNION ALL SELECT quote AS w, datum FROM wechselkurs) x GROUP BY w ORDER BY w`);
         return rows.map((r) => ({ waehrung: r.waehrung, letzterKurs: r.letzter }));
       });
-      return c.json({ daten }, 200);
+      return c.json(fondsAnApi({ daten }), 200);
     })
     /**
      * Kurs von Hand erfassen. Gibt es für Tag und Paar schon einen gültigen Eintrag, ist eine Änderung eine Korrektur: `korrigiertKursId` nennt den bisher gültigen Eintrag
-     * (409 `KURS_VORHANDEN` ohne), `grund` ist Pflicht. Der alte Eintrag bleibt unverändert in der Tabelle; Zahlungen und Bewertungen haben ihren Kurs festgehalten.
+     * (409 `rate_exists` ohne), `grund` ist Pflicht. Der alte Eintrag bleibt unverändert in der Tabelle; Zahlungen und Bewertungen haben ihren Kurs festgehalten.
      */
-    .post("/", pruefe("json", neuerKurs), async (c) => {
+    .post("/", pruefeFonds("json", neuerKurs), async (c) => {
       const e = c.req.valid("json");
       const neu = await schreibe(db, c, async (tx, protokoll) => {
         const { rows } = await tx.execute<{ id: string; kurs: string }>(sql`SELECT id, kurs::text AS kurs FROM wechselkurs WHERE datum = ${e.datum}::date AND basis = ${e.basis} AND quote = ${e.quote} ORDER BY erfasst_am DESC, id DESC LIMIT 1`);
         const gueltig = rows[0];
-        if (gueltig && e.korrigiertKursId === undefined) throw new Fachfehler(409, "KURS_VORHANDEN", "Für diesen Tag und dieses Paar gibt es schon einen Kurs; eine Änderung ist eine Korrektur mit Grund.", { kursId: gueltig.id, kurs: new Decimal(gueltig.kurs).toFixed() });
-        if (e.korrigiertKursId !== undefined && gueltig?.id !== e.korrigiertKursId) throw new Fachfehler(404, "KURS_NICHT_GEFUNDEN", "Der zu korrigierende Kurs ist nicht der gültige Eintrag dieses Tages und Paares.");
+        if (gueltig && e.korrigiertKursId === undefined) throw new Fachfehler(409, "rate_exists", "An exchange rate already exists for this day and pair; a change is a correction with a reason.", { kursId: gueltig.id, kurs: new Decimal(gueltig.kurs).toFixed() });
+        if (e.korrigiertKursId !== undefined && gueltig?.id !== e.korrigiertKursId) throw new Fachfehler(404, "rate_not_found", "The rate to correct is not the valid entry for this day and pair.");
         const [zeile] = await tx
           .insert(wechselkurs)
           .values({ datum: e.datum, basis: e.basis, quote: e.quote, kurs: e.kurs, quelle: "manuell", korrigiertKursId: e.korrigiertKursId ?? null, grund: e.grund ?? null, erfasstVon: protokoll.akteur })
@@ -108,18 +111,18 @@ export function wechselkursRouten(db: Db) {
         await protokoll(e.korrigiertKursId ? "korrigieren" : "anlegen", "wechselkurs", zeile.id, gueltig ?? null, zeile);
         return zeile;
       });
-      return c.json({ ...neu, kurs: new Decimal(neu.kurs).toFixed() }, 201);
+      return c.json(fondsAnApi({ ...neu, kurs: new Decimal(neu.kurs).toFixed() }), 201);
     })
     /**
      * Kursdatei einlesen (EZB-Aufbau oder langer Aufbau, siehe `waehrung/kursdatei.ts`). Standard ist die Vorschau ohne Schreiben. Beim Übernehmen werden nur Einträge
      * geschrieben, für die es noch keinen gültigen Kurs gibt; ein gleicher Kurs ist unverändert (wiederholbar), ein abweichender wird gemeldet und nicht überschrieben:
      * Änderungen sind Korrekturen von Hand mit Grund.
      */
-    .post("/import", pruefe("json", importEingabe), async (c) => {
+    .post("/import", pruefeFonds("json", importEingabe), async (c) => {
       const e = c.req.valid("json");
       const gelesen = leseKursdatei(e.inhalt);
       if (gelesen.eintraege.length === 0 && gelesen.fehler.length > 0) {
-        throw new Fachfehler(400, "KURSDATEI_UNGUELTIG", "Die Kursdatei lässt sich nicht lesen.", { fehler: gelesen.fehler.slice(0, 20) });
+        throw new Fachfehler(400, "rate_file_invalid", "The rate file cannot be read.", { dateifehler: gelesen.fehler.slice(0, 20) });
       }
       const waehle = new Set(e.waehrungen ?? []);
       const kandidaten = gelesen.eintraege.filter((x) => (e.ab ? x.datum >= e.ab : true) && (waehle.size === 0 || waehle.has(x.quote) || waehle.has(x.basis)));
@@ -143,7 +146,7 @@ export function wechselkursRouten(db: Db) {
           else abweichend.push({ datum: k.datum, basis: k.basis, quote: k.quote, kurs: k.kurs, vorhanden: new Decimal(v).toFixed() });
         }
         if (neu.length > MAX_NEUE_KURSE) {
-          throw new Fachfehler(400, "KURSDATEI_UNGUELTIG", `Die Datei enthält mehr als ${MAX_NEUE_KURSE} neue Kurse; bitte mit Währungen und Startdatum einschränken.`, { neu: neu.length });
+          throw new Fachfehler(400, "rate_file_invalid", `The file contains more than ${MAX_NEUE_KURSE} new rates; narrow it down by currencies and start date.`, { neu: neu.length });
         }
         if (!e.vorschau && neu.length > 0) {
           for (let i = 0; i < neu.length; i += 1000) {
@@ -155,7 +158,7 @@ export function wechselkursRouten(db: Db) {
         return { neu: neu.length, unveraendert, abweichend, beispiele: neu.slice(0, 5) };
       });
       return c.json(
-        {
+        fondsAnApi({
           dateiname: e.dateiname,
           format: gelesen.format,
           zeilen: gelesen.zeilen,
@@ -165,11 +168,11 @@ export function wechselkursRouten(db: Db) {
           unveraendert: ergebnis.unveraendert,
           abweichend: ergebnis.abweichend.slice(0, 50),
           abweichendAnzahl: ergebnis.abweichend.length,
-          fehler: gelesen.fehler.slice(0, 50),
+          dateifehler: gelesen.fehler.slice(0, 50),
           fehlerAnzahl: gelesen.fehler.length,
           beispiele: ergebnis.beispiele,
           uebernommen: !e.vorschau,
-        },
+        }),
         e.vorschau ? 200 : 201,
       );
     });
@@ -180,46 +183,46 @@ const waehrungEingabe = z.object({ waehrung: code.nullable() });
 /** Mount unter `/beteiligungen`: lokale Währung und Währungssicht einer Beteiligung. */
 export function beteiligungWaehrungRouten(db: Db) {
   return new Hono()
-    .get("/:id/waehrungssicht", pruefe("param", idParam, { query: sichtAbfrage }), pruefe("query", sichtAbfrage), async (c) => {
+    .get("/:id/currency-view", pruefeFonds("param", idParam, { query: sichtAbfrage }), pruefeFonds("query", sichtAbfrage), async (c) => {
       const { id } = c.req.valid("param");
       const q = c.req.valid("query");
       const sicht = await lese(db, (tx) => ladeBeteiligungSicht(tx, id, q));
-      if (!sicht) return fehlerAntwort(c, 404, "BETEILIGUNG_NICHT_GEFUNDEN", "Beteiligung nicht gefunden.");
-      return c.json(sicht, 200);
+      if (!sicht) return fehlerAntwort(c, 404, "investment_not_found", "Investment not found.");
+      return c.json(fondsAnApi(sicht), 200);
     })
     /**
      * Lokale Währung der Beteiligung setzen (`null` = Fondswährung). Solange es lokale Beträge an Zahlungen oder Bewertungen gibt, lässt sie sich nicht ändern
-     * (409 `WAEHRUNG_NICHT_AENDERBAR`): Der festgehaltene Kurs gehört zu genau dieser Währung.
+     * (409 `currency_not_changeable`): Der festgehaltene Kurs gehört zu genau dieser Währung.
      */
-    .put("/:id/waehrung", pruefe("param", idParam), pruefe("json", waehrungEingabe), async (c) => {
+    .put("/:id/currency", pruefeFonds("param", idParam), pruefeFonds("json", waehrungEingabe), async (c) => {
       const { id } = c.req.valid("param");
       const { waehrung } = c.req.valid("json");
       const ergebnis = await schreibe(db, c, async (tx, protokoll) => {
         const [vorher] = await tx.select().from(beteiligung).where(eq(beteiligung.id, id)).for("update");
-        if (!vorher) throw new Fachfehler(404, "BETEILIGUNG_NICHT_GEFUNDEN", "Beteiligung nicht gefunden.");
+        if (!vorher) throw new Fachfehler(404, "investment_not_found", "Investment not found.");
         const [f] = await tx.select({ waehrung: fonds.waehrung }).from(fonds).where(eq(fonds.id, vorher.fondsId));
         const neu = waehrung === f?.waehrung ? null : waehrung;
         if ((vorher.waehrung ?? null) === neu) return { beteiligungId: id, waehrung: neu, fondsWaehrung: f?.waehrung ?? "EUR" };
         const { rows } = await tx.execute<{ n: number }>(sql`SELECT (SELECT count(*) FROM vorgang WHERE beteiligung_id = ${id} AND betrag_lokal IS NOT NULL) + (SELECT count(*) FROM bewertung WHERE beteiligung_id = ${id} AND wert_lokal IS NOT NULL) AS n`);
-        if (Number(rows[0]?.n ?? 0) > 0) throw new Fachfehler(409, "WAEHRUNG_NICHT_AENDERBAR", "Die lokale Währung lässt sich nicht mehr ändern, weil schon lokale Beträge erfasst sind.");
+        if (Number(rows[0]?.n ?? 0) > 0) throw new Fachfehler(409, "currency_not_changeable", "The local currency can no longer be changed because local amounts are already recorded.");
         const [nachher] = await tx.update(beteiligung).set({ waehrung: neu }).where(and(eq(beteiligung.id, id))).returning();
         await protokoll("aendern", "beteiligung", id, { waehrung: vorher.waehrung }, { waehrung: nachher?.waehrung ?? null });
         return { beteiligungId: id, waehrung: nachher?.waehrung ?? null, fondsWaehrung: f?.waehrung ?? "EUR" };
       });
-      return c.json(ergebnis, 200);
+      return c.json(fondsAnApi(ergebnis), 200);
     });
 }
 
-/** Mount unter `/fonds`: Währungssicht auf das Portfolio. */
+/** Mount unter `/funds`: Währungssicht auf das Portfolio. */
 export function fondsWaehrungRouten(db: Db) {
-  return new Hono().get("/:id/waehrungssicht", pruefe("param", idParam, { query: sichtAbfrage }), pruefe("query", sichtAbfrage), async (c) => {
+  return new Hono().get("/:id/currency-view", pruefeFonds("param", idParam, { query: sichtAbfrage }), pruefeFonds("query", sichtAbfrage), async (c) => {
     const { id } = c.req.valid("param");
     const q = c.req.valid("query");
     const sicht = await lese(db, async (tx) => {
       const [f] = await tx.select({ id: fonds.id }).from(fonds).where(eq(fonds.id, id));
-      return f ? ladeFondsSicht(tx, id, q) : null;
+      return f ? ladeFondsSicht(tx, id, { ...q, sieht: portfolioSicht(aktuellerAkteur(c)) }) : null;
     });
-    if (!sicht) return fehlerAntwort(c, 404, "FONDS_NICHT_GEFUNDEN", "Fonds nicht gefunden.");
-    return c.json(sicht, 200);
+    if (!sicht) return fehlerAntwort(c, 404, "fund_not_found", "Fund not found.");
+    return c.json(fondsAnApi(sicht), 200);
   });
 }

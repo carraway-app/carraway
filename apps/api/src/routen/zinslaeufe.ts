@@ -1,3 +1,5 @@
+import { pruefeFonds } from "../fonds-pruefung";
+import { fondsAnApi, fondsEnumAnApi } from "../fonds-vertrag";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -9,7 +11,6 @@ import { pruefeStichtag } from "../instrumente/stichtag";
 import { berechneZinsstand, gebuchtePerioden, ladeZinskontexte, type Zinskontext } from "../instrumente/zinsen";
 import { berechneZustand, offenesKapital, pruefePeriodensperre } from "../instrumente/zustand";
 import { geaendertSeitBedingung, geaendertSeitEingabe } from "../geaendert";
-import { pruefe } from "../pruefung";
 import { fondsSichtbar } from "../rechte/sichtbarkeit";
 import { akteurAus, idParam, ladeFonds, schreibe } from "../schreiben";
 import { lese, type Tx } from "../zeitlimit";
@@ -51,13 +52,13 @@ function istEindeutigkeitsfehler(fehler: unknown): boolean {
 
 async function sperreLauf(tx: Tx, id: string): Promise<Lauf> {
   const [lauf] = await tx.select().from(zinslauf).where(eq(zinslauf.id, id)).for("update");
-  if (!lauf) throw new Fachfehler(404, "ZINSLAUF_NICHT_GEFUNDEN", "Zinslauf nicht gefunden.");
+  if (!lauf) throw new Fachfehler(404, "interest_run_not_found", "Interest run not found.");
   return lauf;
 }
 
 function verlangeStatus(lauf: Lauf, erlaubt: Lauf["status"][]) {
   if (!erlaubt.includes(lauf.status)) {
-    throw new Fachfehler(409, "ZINSLAUF_STATUS_UNGUELTIG", `Der Zinslauf hat den Status „${lauf.status}“.`, { status: lauf.status, erlaubt });
+    throw new Fachfehler(409, "interest_run_status_invalid", `The interest run has the status "${fondsEnumAnApi(lauf.status)}".`, { status: lauf.status, erlaubt });
   }
 }
 
@@ -132,13 +133,13 @@ async function kontrolliere(tx: Tx, lauf: Lauf) {
     ergebnis(
       "summe_positionen_gleich_buchungen",
       "ZINSLAUF_SUMME_ABWEICHUNG",
-      "Summe der Positionen entspricht der Summe der Buchungen",
+      "The total of positions matches the total of postings",
       summePositionen.equals(summeBuchungen) && ohneVorgang.length === 0 ? [] : [{ summePositionen: summePositionen.toFixed(2), summeBuchungen: summeBuchungen.toFixed(2), positionenOhneBuchung: ohneVorgang.map((p) => p.id) }],
       { params: { summePositionen: summePositionen.toFixed(2), summeBuchungen: summeBuchungen.toFixed(2) } },
     );
   } else {
-    ergebnis("summe_positionen_gleich_buchungen", "ZINSLAUF_SUMME_ABWEICHUNG", "Summe der Positionen entspricht der Summe der Buchungen", [], {
-      hinweis: `Lauf ist ${lauf.status}, es gibt noch keine Buchungen (Summe der Positionen ${summePositionen.toFixed(2)})`,
+    ergebnis("summe_positionen_gleich_buchungen", "ZINSLAUF_SUMME_ABWEICHUNG", "The total of positions matches the total of postings", [], {
+      hinweis: `No postings yet (status: ${fondsEnumAnApi(lauf.status)}, position total: ${summePositionen.toFixed(2)})`,
       hinweisCode: "ZINSLAUF_NOCH_NICHT_GEBUCHT",
       params: { status: lauf.status, summePositionen: summePositionen.toFixed(2) },
     });
@@ -162,33 +163,33 @@ async function kontrolliere(tx: Tx, lauf: Lauf) {
     if (lauf.status !== "gebucht") {
       const gebucht = new Set(gebuchtePerioden(k));
       for (const p of positionen.filter((x) => gehoertZu(x, k) && gebucht.has(x.bis))) {
-        doppelt.push({ beteiligungId: k.beteiligung.id, instrumentId: k.instrument.id, periodeBis: p.bis, hinweis: "Periode ist bereits anderweitig gebucht" });
+        doppelt.push({ beteiligungId: k.beteiligung.id, instrumentId: k.instrument.id, periodeBis: p.bis, hinweis: "The period is already posted elsewhere" });
       }
     }
   }
-  ergebnis("keine_periode_doppelt", "ZINSPERIODE_DOPPELT", "Keine Zinsperiode ist doppelt gebucht", doppelt);
+  ergebnis("keine_periode_doppelt", "ZINSPERIODE_DOPPELT", "No interest period is posted twice", doppelt);
 
-  // 3. Jedes aktive Darlehen mit Konditionen ist im Lauf abgedeckt
+  // 3. All active loans with terms are covered
   const abdeckungen = lauf.abgedeckt as Abdeckung[];
   const luecken = aktive(kontexte)
     .filter((k) => k.konditionen.length > 0 && !abdeckungen.some((a) => gehoertZu(a, k)))
     .map((k) => ({ beteiligungId: k.beteiligung.id, instrumentId: k.instrument.id, organisation: k.organisationName }));
-  ergebnis("alle_darlehen_abgedeckt", "DARLEHEN_NICHT_ABGEDECKT", "Jedes aktive Darlehen mit Konditionen ist im Lauf abgedeckt", luecken);
+  ergebnis("alle_darlehen_abgedeckt", "DARLEHEN_NICHT_ABGEDECKT", "All active loans with terms are covered", luecken);
 
   // 4. Aktive Darlehen ohne Konditionen
   const ohneKonditionen = aktive(kontexte)
     .filter((k) => k.konditionen.length === 0 && ["darlehen", "wandeldarlehen"].includes(k.instrument.art))
     .map((k) => ({ beteiligungId: k.beteiligung.id, instrumentId: k.instrument.id, organisation: k.organisationName }));
-  ergebnis("darlehen_mit_konditionen", "DARLEHEN_OHNE_KONDITIONEN", "Jedes aktive Darlehen hat Konditionen", ohneKonditionen);
+  ergebnis("darlehen_mit_konditionen", "DARLEHEN_OHNE_KONDITIONEN", "All active loans have terms", ohneKonditionen);
 
   // 5. Positionen und Darlehen ohne Kapital
   const kapitalNull: unknown[] = positionen
     .filter((p) => (p.kapitalien as { kapital: string }[]).every((a) => new Decimal(a.kapital).isZero()))
     .map((p) => ({ positionId: p.id, beteiligungId: p.beteiligungId, von: p.von, bis: p.bis }));
   for (const a of abdeckungen) {
-    if (new Decimal(a.offenesKapital).isZero()) kapitalNull.push({ beteiligungId: a.beteiligungId, ...(a.instrumentId ? { instrumentId: a.instrumentId } : {}), hinweis: "Kein offenes Kapital im Lauf" });
+    if (new Decimal(a.offenesKapital).isZero()) kapitalNull.push({ beteiligungId: a.beteiligungId, ...(a.instrumentId ? { instrumentId: a.instrumentId } : {}), hinweis: "No outstanding principal in this run" });
   }
-  ergebnis("kapital_null", "KAPITAL_NULL", "Keine Position und kein Darlehen mit Kapital null", kapitalNull);
+  ergebnis("kapital_null", "KAPITAL_NULL", "No position or loan has zero principal", kapitalNull);
 
   return {
     zinslaufId: lauf.id,
@@ -201,7 +202,7 @@ async function kontrolliere(tx: Tx, lauf: Lauf) {
 
 export function zinslaufRouten(db: Db) {
   return new Hono()
-    .get("/", pruefe("query", listenAbfrage), async (c) => {
+    .get("/", pruefeFonds("query", listenAbfrage), async (c) => {
       const { fondsId, geaendertSeit } = c.req.valid("query");
       const zeilen = await lese(db, (tx) =>
         tx
@@ -222,28 +223,28 @@ export function zinslaufRouten(db: Db) {
           .where(and(fondsId ? eq(zinslauf.fondsId, fondsId) : undefined, fondsSichtbar(c, zinslauf.fondsId), geaendertSeitBedingung("zinslauf", zinslauf.id, zinslauf.berechnetAm, geaendertSeit)))
           .orderBy(desc(zinslauf.stichtag), desc(zinslauf.berechnetAm), asc(zinslauf.id)),
       );
-      return c.json({ daten: zeilen }, 200);
+      return c.json(fondsAnApi({ daten: zeilen }), 200);
     })
-    .get("/:id", pruefe("param", idParam), async (c) => {
+    .get("/:id", pruefeFonds("param", idParam), async (c) => {
       const { id } = c.req.valid("param");
       const lauf = await lese(db, async (tx) => {
         const l = await ladeLaufMitPositionen(tx, id);
         return l ? { ...l, hinweise: await ladeHinweise(tx, l.fondsId) } : null;
       });
-      if (!lauf) return fehlerAntwort(c, 404, "ZINSLAUF_NICHT_GEFUNDEN", "Zinslauf nicht gefunden.");
-      return c.json(lauf, 200);
+      if (!lauf) return fehlerAntwort(c, 404, "interest_run_not_found", "Interest run not found.");
+      return c.json(fondsAnApi(lauf), 200);
     })
-    .get("/:id/kontrolle", pruefe("param", idParam), async (c) => {
+    .get("/:id/checks", pruefeFonds("param", idParam), async (c) => {
       const { id } = c.req.valid("param");
       const bericht = await lese(db, async (tx) => {
         const [lauf] = await tx.select().from(zinslauf).where(eq(zinslauf.id, id));
         return lauf ? kontrolliere(tx, lauf) : null;
       });
-      if (!bericht) return fehlerAntwort(c, 404, "ZINSLAUF_NICHT_GEFUNDEN", "Zinslauf nicht gefunden.");
-      return c.json(bericht, 200);
+      if (!bericht) return fehlerAntwort(c, 404, "interest_run_not_found", "Interest run not found.");
+      return c.json(fondsAnApi(bericht), 200);
     })
     /** Berechnet die Positionen aller aktiven Darlehen mit Konditionen; Status `berechnet`. */
-    .post("/", pruefe("json", neuerLauf), async (c) => {
+    .post("/", pruefeFonds("json", neuerLauf), async (c) => {
       const { fondsId, stichtag } = c.req.valid("json");
       const ergebnis = await schreibe(db, c, async (tx, protokoll) => {
         await ladeFonds(tx, fondsId);
@@ -283,9 +284,9 @@ export function zinslaufRouten(db: Db) {
         return { id: lauf.id, hinweise: hinweiseAus(kontexte) };
       });
       const lauf = await lese(db, (tx) => ladeLaufMitPositionen(tx, ergebnis.id));
-      return c.json({ ...lauf, hinweise: ergebnis.hinweise }, 201);
+      return c.json(fondsAnApi({ ...lauf, hinweise: ergebnis.hinweise }), 201);
     })
-    .post("/:id/pruefen", pruefe("param", idParam), async (c) => {
+    .post("/:id/review", pruefeFonds("param", idParam), async (c) => {
       const { id } = c.req.valid("param");
       const akteur = akteurAus(c);
       const nachher = await schreibe(db, c, async (tx, protokoll) => {
@@ -295,25 +296,25 @@ export function zinslaufRouten(db: Db) {
         await protokoll("pruefen", "zinslauf", id, vorher, neu);
         return neu;
       });
-      return c.json(nachher, 200);
+      return c.json(fondsAnApi(nachher), 200);
     })
     /** Vier-Augen: die Person muss sich von der Person der Prüfung unterscheiden. */
-    .post("/:id/freigeben", pruefe("param", idParam), async (c) => {
+    .post("/:id/approve", pruefeFonds("param", idParam), async (c) => {
       const { id } = c.req.valid("param");
       const akteur = akteurAus(c);
       const nachher = await schreibe(db, c, async (tx, protokoll) => {
         const vorher = await sperreLauf(tx, id);
         verlangeStatus(vorher, ["geprueft"]);
         if (vorher.geprueftVon === akteur) {
-          throw new Fachfehler(409, "VIER_AUGEN_VERLETZT", "Die Freigabe muss von einem anderen Akteur kommen als die Prüfung.");
+          throw new Fachfehler(409, "four_eyes_violated", "The approval must come from a different actor than the review.");
         }
         const [neu] = await tx.update(zinslauf).set({ status: "freigegeben", freigegebenVon: akteur, freigegebenAm: new Date() }).where(eq(zinslauf.id, id)).returning();
         await protokoll("freigeben", "zinslauf", id, vorher, neu);
         return neu;
       });
-      return c.json(nachher, 200);
+      return c.json(fondsAnApi(nachher), 200);
     })
-    .post("/:id/verwerfen", pruefe("param", idParam), async (c) => {
+    .post("/:id/discard", pruefeFonds("param", idParam), async (c) => {
       const { id } = c.req.valid("param");
       const akteur = akteurAus(c);
       const nachher = await schreibe(db, c, async (tx, protokoll) => {
@@ -323,15 +324,15 @@ export function zinslaufRouten(db: Db) {
         await protokoll("verwerfen", "zinslauf", id, vorher, neu);
         return neu;
       });
-      return c.json(nachher, 200);
+      return c.json(fondsAnApi(nachher), 200);
     })
     /**
      * Bucht die freigegebenen Positionen: je Position ein `zins`-Vorgang (Valuta = Periodenende, Betrag auf Cent,
      * bei Kapitalisierung mit Kennzeichen `kapitalisiert`) und ein Marker, der die Periode sperrt. Sind seit der
-     * Berechnung Vorgänge der Darlehen erfasst worden (409 `ZINSLAUF_VERALTET`) oder ist eine Periode inzwischen
-     * gebucht (409 `ZINSPERIODE_GEBUCHT`), bricht die Buchung ab.
+     * Berechnung Vorgänge der Darlehen erfasst worden (409 `interest_run_outdated`) oder ist eine Periode inzwischen
+     * gebucht (409 `interest_period_posted`), bricht die Buchung ab.
      */
-    .post("/:id/buchen", pruefe("param", idParam), async (c) => {
+    .post("/:id/post", pruefeFonds("param", idParam), async (c) => {
       const { id } = c.req.valid("param");
       const akteur = akteurAus(c);
       const nachher = await schreibe(db, c, async (tx, protokoll) => {
@@ -353,11 +354,11 @@ export function zinslaufRouten(db: Db) {
           const spaeter = k.vorgaenge.filter((v) => v.erfasstAm > vorher.berechnetAm);
           for (const p of positionen.filter((x) => zuordnung.get(x.id) === k.instrument.id)) {
             if (gebucht.has(p.bis)) {
-              throw new Fachfehler(409, "ZINSPERIODE_GEBUCHT", "Die Periode ist bereits gebucht.", { beteiligungId: k.beteiligung.id, instrumentId: k.instrument.id, periodeBis: p.bis });
+              throw new Fachfehler(409, "interest_period_posted", "The period has already been posted.", { beteiligungId: k.beteiligung.id, instrumentId: k.instrument.id, periodeBis: p.bis });
             }
           }
           if (spaeter.length > 0) {
-            throw new Fachfehler(409, "ZINSLAUF_VERALTET", "Seit der Berechnung wurden Vorgänge der Darlehen erfasst; bitte neu berechnen.", { beteiligungId: k.beteiligung.id, instrumentId: k.instrument.id });
+            throw new Fachfehler(409, "interest_run_outdated", "Transactions for the loans have been recorded since the calculation; please recalculate.", { beteiligungId: k.beteiligung.id, instrumentId: k.instrument.id });
           }
         }
         for (const p of positionen) {
@@ -383,7 +384,7 @@ export function zinslaufRouten(db: Db) {
           try {
             await tx.insert(zinsperiodeGebucht).values({ beteiligungId: p.beteiligungId, instrumentId, periodeBis: p.bis, zinslaufPositionId: p.id, vorgangId });
           } catch (fehler) {
-            if (istEindeutigkeitsfehler(fehler)) throw new Fachfehler(409, "ZINSPERIODE_GEBUCHT", "Die Periode ist bereits gebucht.", { beteiligungId: p.beteiligungId, periodeBis: p.bis });
+            if (istEindeutigkeitsfehler(fehler)) throw new Fachfehler(409, "interest_period_posted", "The period has already been posted.", { beteiligungId: p.beteiligungId, periodeBis: p.bis });
             throw fehler;
           }
           if (vorgangId) await tx.update(zinslaufPosition).set({ vorgangId }).where(eq(zinslaufPosition.id, p.id));
@@ -392,6 +393,6 @@ export function zinslaufRouten(db: Db) {
         await protokoll("buchen", "zinslauf", id, vorher, { ...neu, positionen: positionen.length });
         return neu;
       });
-      return c.json(nachher, 200);
+      return c.json(fondsAnApi(nachher), 200);
     });
 }

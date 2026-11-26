@@ -16,6 +16,7 @@ import { ladePostfachKonfiguration } from "./postfach/konfiguration";
 import { erstelleAnbieterFabrik } from "./postfach/anbieter";
 import { erstelleEchteImapVerbindung } from "./postfach/imap";
 import { gleicheAb } from "./postfach/sync";
+import type { NachNeuenMails } from "./postfach/typen";
 import { ladeDemoKontakte } from "./demo/postfach";
 import { erstelleStandardSpeicher } from "./berichte/speicher";
 import { loescheAbgelaufeneDokumente } from "./dokumente/aufbewahrung";
@@ -24,6 +25,9 @@ import { verarbeiteOfficeTexte, verarbeiteTexterkennung } from "./dokumente/nach
 import { IsolierterErkenner } from "./dokumente/isoliert";
 import { ladeOcrKonfiguration } from "./dokumente/ocr";
 import { meldeBerichtsartenAn, type ApiErweiterung, type WorkerKontext } from "./erweiterung";
+import type { JobWithMetadata } from "pg-boss";
+import { raeumeZustellungenAuf, stelleZu, verteileWebhooks, WEBHOOK_ZUSTELLUNG, type ZustellJob } from "./webhooks/zustellung";
+import { privateZieleErlaubt } from "./webhooks/ziel";
 
 /**
  * Worker für die Kennzahlen-Snapshots: reiht Aufträge aus dem Ausgangskorb in pg-boss ein und rechnet die Jobs ab.
@@ -33,7 +37,7 @@ import { meldeBerichtsartenAn, type ApiErweiterung, type WorkerKontext } from ".
  * Mail und Kalender (Etappe 17): versendet den Ausgangskorb `mail_auftrag` über SMTP (Wiederholung mit Wartezeit, Stundenlimit) und gleicht
  * die Postfächer und Kalender der Personen ab, die sie angebunden haben. Beides braucht `GEHEIMNIS_SCHLUESSEL`; ohne SMTP-Einrichtung bleibt der Versand aus.
  *
- * Herzschlag: alle `WORKER_HERZSCHLAG_MS` (Vorgabe 5000) eine Zeile in `pgboss.carraway_herzschlag` für `/api/v1/gesundheit`
+ * Herzschlag: alle `WORKER_HERZSCHLAG_MS` (Vorgabe 5000) eine Zeile in `pgboss.carraway_herzschlag` für `/api/v1/health`
  * und `/metriken`, dazu eine Datei (`WORKER_HERZSCHLAG_DATEI`) für den Health-Check des Containers.
  */
 export async function starteWorker(erweiterungen: readonly ApiErweiterung[] = []): Promise<void> {
@@ -76,11 +80,24 @@ export async function starteWorker(erweiterungen: readonly ApiErweiterung[] = []
     }
   });
 
+  // Webhooks (#154): je Job ein Versuch; `retry` wirft, damit pg-boss mit Wartezeit wiederholt. Rechte und Ziel prüft `stelleZu` bei jedem Versuch.
+  const webhookPrivat = privateZieleErlaubt(process.env);
+  await boss.work(WEBHOOK_ZUSTELLUNG, { pollingIntervalSeconds: 2, localConcurrency: 4, includeMetadata: true }, async (jobs: JobWithMetadata<ZustellJob>[]) => {
+    for (const job of jobs) {
+      const ergebnis = await stelleZu(db, job.data.zustellungId, { ring, privateErlaubt: webhookPrivat, letzterVersuch: job.retryCount >= job.retryLimit });
+      if (ergebnis === "retry") throw new Error("Webhook-Zustellung gescheitert, wird wiederholt");
+      if (ergebnis === "failed") logger("warn", "Webhook-Zustellung endgültig gescheitert", { zustellungId: job.data.zustellungId });
+    }
+  });
+  const webhookAufraeumen = setInterval(() => {
+    raeumeZustellungenAuf(db).catch((fehler) => logger("error", "Zustellprotokoll nicht aufgeräumt", fehlerFelder(fehler)));
+  }, 6 * 60 * 60_000);
+
   let laeuft = false;
   const takt = setInterval(() => {
     if (laeuft) return;
     laeuft = true;
-    Promise.all([verteileAuftraege(db, boss), ...erweiterungen.map((e) => e.verteilen?.(kontext))])
+    Promise.all([verteileAuftraege(db, boss), verteileWebhooks(db, (job) => boss.send(WEBHOOK_ZUSTELLUNG, job)), ...erweiterungen.map((e) => e.verteilen?.(kontext))])
       .catch((fehler) => logger("error", "Verteilen fehlgeschlagen", fehlerFelder(fehler)))
       .finally(() => {
         laeuft = false;
@@ -159,11 +176,13 @@ export async function starteWorker(erweiterungen: readonly ApiErweiterung[] = []
         ocrLaeuft = false;
       });
   }, intervallMs);
+  const nachMailHaken = erweiterungen.flatMap((e) => e.postfachMails?.(kontext) ?? []);
+  const nachNeuenMails = nachMailHaken.length === 0 ? undefined : async (e: Parameters<NachNeuenMails>[0]) => void (await Promise.all(nachMailHaken.map((h) => h(e))));
   let abgleichLaeuft = false;
   const abgleichTakt = setInterval(() => {
     if (abgleichLaeuft || !ring) return;
     abgleichLaeuft = true;
-    gleicheAb(db, { ring, konfig: postfachKonfig, abrufer: fetch, anbieter: anbieterFabrik, logger })
+    gleicheAb(db, { ring, konfig: postfachKonfig, abrufer: fetch, anbieter: anbieterFabrik, logger, nachNeuenMails })
       .then((e) => {
         if (e.verbindungen > 0) logger("info", "Postfächer abgeglichen", { verbindungen: e.verbindungen, mails: e.mails, termine: e.termine, fehler: e.fehler });
       })
@@ -189,6 +208,7 @@ export async function starteWorker(erweiterungen: readonly ApiErweiterung[] = []
   const beenden = async () => {
     logger("info", "Worker beendet sich");
     clearInterval(takt);
+    clearInterval(webhookAufraeumen);
     clearInterval(mailTakt);
     clearInterval(abgleichTakt);
     clearInterval(aufbewahrungTakt);

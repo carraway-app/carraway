@@ -74,7 +74,7 @@ describe("Bereich Instrumente", () => {
       [`POST /api/v1/beteiligungen/${BET_ID}/instrumente`]: { status: 201, koerper: { id: "i3" } },
       "POST /api/v1/instrumente/i3/tranchen": () => {
         versuche++;
-        return versuche === 1 ? fehler(409, "TRANCHEN_UEBER_ZUSAGE") : { status: 201, koerper: {} };
+        return versuche === 1 ? fehler(409, "tranches_exceed_commitment") : { status: 201, koerper: {} };
       },
     });
     rendereApp(instrumenteUrl);
@@ -126,7 +126,7 @@ describe("Tranche anlegen", () => {
   it("sendet ohne Überschreitung kein zusageErhoehen; „Nein“ lässt die API den Fehler melden", async () => {
     const api = spieleApi({
       ...zweiInstrumente,
-      [`POST /api/v1/instrumente/${SEED_ID}/tranchen`]: (a) => ((a.koerper as Record<string, unknown>).zusageErhoehen ? { status: 201, koerper: {} } : (a.koerper as { betrag: string }).betrag === "100000" ? { status: 201, koerper: {} } : fehler(409, "TRANCHEN_UEBER_ZUSAGE")),
+      [`POST /api/v1/instrumente/${SEED_ID}/tranchen`]: (a) => ((a.koerper as Record<string, unknown>).zusageErhoehen ? { status: 201, koerper: {} } : (a.koerper as { betrag: string }).betrag === "100000" ? { status: 201, koerper: {} } : fehler(409, "tranches_exceed_commitment")),
     });
     rendereApp(instrumenteUrl);
     const nutzer = userEvent.setup();
@@ -278,7 +278,7 @@ describe("Vorgang erfassen mit mehreren Instrumenten", () => {
   });
 
   it("zeigt je Instrument nur die offenen Tranchen und sendet Instrument und Tranche", async () => {
-    const api = spieleApi({ ...zweiInstrumente, [`POST /api/v1/beteiligungen/${BET_ID}/vorgaenge`]: { status: 201, koerper: { vorgang: {}, buchwert: "1100000.00" } } });
+    const api = spieleApi({ ...zweiInstrumente, [`POST /api/v1/investments/${BET_ID}/transactions`]: { status: 201, koerper: { transaction: {}, bookValue: "1100000.00" } } });
     rendereApp(url);
     const nutzer = userEvent.setup();
     await waehleAktion(nutzer, "Vorgang erfassen");
@@ -295,11 +295,11 @@ describe("Vorgang erfassen mit mehreren Instrumenten", () => {
     await nutzer.type(d.getByLabelText("Betrag in Euro"), "50000");
     await nutzer.click(d.getByRole("button", { name: "Vorgang buchen" }));
     expect(await d.findByText(/Der Buchwert beträgt jetzt 1\.100\.000,00/)).toBeTruthy();
-    expect(api.anfragen("POST", `/api/v1/beteiligungen/${BET_ID}/vorgaenge`)[0]!.koerper).toMatchObject({ art: "auszahlung", instrumentId: SEED_ID, trancheId: T_SEED, betrag: "50000" });
+    expect(api.anfragen("POST", `/api/v1/investments/${BET_ID}/transactions`)[0]!.koerper).toMatchObject({ type: "disbursement", instrumentId: SEED_ID, trancheId: T_SEED, amount: "50000" });
   });
 
   it("lässt je Art nur passende Instrumente zu: Zinszahlung nur Darlehen (vorbelegt, mit offenen Zinsbuchungen), Dividende nur Eigenkapital", async () => {
-    const api = spieleApi({ ...zweiInstrumente, [`POST /api/v1/beteiligungen/${BET_ID}/vorgaenge`]: { status: 201, koerper: { vorgang: {}, buchwert: "1012000.00" } } });
+    const api = spieleApi({ ...zweiInstrumente, [`POST /api/v1/investments/${BET_ID}/transactions`]: { status: 201, koerper: { transaction: {}, bookValue: "1012000.00" } } });
     rendereApp(url);
     const nutzer = userEvent.setup();
     await waehleAktion(nutzer, "Vorgang erfassen");
@@ -316,11 +316,11 @@ describe("Vorgang erfassen mit mehreren Instrumenten", () => {
     await nutzer.type(d.getByLabelText("Betrag in Euro"), "25000");
     await nutzer.click(d.getByRole("button", { name: "Vorgang buchen" }));
     await d.findByText(/Der Buchwert beträgt jetzt/);
-    expect(api.anfragen("POST", `/api/v1/beteiligungen/${BET_ID}/vorgaenge`)[0]!.koerper).toMatchObject({ art: "zinszahlung", instrumentId: INSTR_ID, beglichenVorgangId: "z2", betrag: "25000" });
+    expect(api.anfragen("POST", `/api/v1/investments/${BET_ID}/transactions`)[0]!.koerper).toMatchObject({ type: "interest_payment", instrumentId: INSTR_ID, settledTransactionId: "z2", amount: "25000" });
   });
 
   it("zeigt Fehler zu Instrument und Tranche mit ihren Texten", async () => {
-    spieleApi({ ...zweiInstrumente, [`POST /api/v1/beteiligungen/${BET_ID}/vorgaenge`]: fehler(409, "INSTRUMENT_NICHT_AKTIV") });
+    spieleApi({ ...zweiInstrumente, [`POST /api/v1/investments/${BET_ID}/transactions`]: fehler(409, "instrument_not_active") });
     rendereApp(url);
     const nutzer = userEvent.setup();
     await waehleAktion(nutzer, "Vorgang erfassen");
@@ -451,7 +451,7 @@ describe("Wertberichtigung unter Bewertungen", () => {
   const bewertungenUrl = `${url}?tab=bewertung&unter=bewertungen`;
 
   it("bucht eine bilanzielle Wertberichtigung auf das gewählte Instrument und erklärt, dass sie den Buchwert senkt", async () => {
-    const api = spieleApi({ ...zweiInstrumente, [`POST /api/v1/beteiligungen/${BET_ID}/vorgaenge`]: { status: 201, koerper: { vorgang: {}, buchwert: "982000.00" } } });
+    const api = spieleApi({ ...zweiInstrumente, [`POST /api/v1/investments/${BET_ID}/transactions`]: { status: 201, koerper: { transaction: {}, bookValue: "982000.00" } } });
     rendereApp(bewertungenUrl);
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Wertberichtigung (bilanziell)" }));
@@ -463,7 +463,7 @@ describe("Wertberichtigung unter Bewertungen", () => {
     await nutzer.type(d.getByLabelText("Begründung"), "Umsatz unter Plan");
     await nutzer.click(d.getByRole("button", { name: "Wertberichtigung buchen" }));
     expect(await d.findByText(/Der Buchwert beträgt jetzt 982\.000,00/)).toBeTruthy();
-    expect(api.anfragen("POST", `/api/v1/beteiligungen/${BET_ID}/vorgaenge`)[0]!.koerper).toMatchObject({ art: "wertberichtigung", instrumentId: INSTR_ID, betrag: "30000", bemerkung: "Umsatz unter Plan" });
+    expect(api.anfragen("POST", `/api/v1/investments/${BET_ID}/transactions`)[0]!.koerper).toMatchObject({ type: "impairment", instrumentId: INSTR_ID, amount: "30000", remark: "Umsatz unter Plan" });
   });
 
   it("belegt das einzige Instrument vor", async () => {

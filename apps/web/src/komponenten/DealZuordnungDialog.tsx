@@ -77,7 +77,7 @@ export function DealZuordnungDialog({ deal, onSchliessen, onGespeichert }: {
           </div>
         ) : null}
         {konflikt ? (
-          <Hinweis variante="fehler" titel={t.fehler.DEAL_ZUORDNUNG_KONFLIKT}>
+          <Hinweis variante="fehler" titel={t.fehler.deal_assignment_conflict}>
             {nichtVerfuegbar ? f.nichtMehrOffen : f.konfliktBearbeiten}
           </Hinweis>
         ) : <FehlerHinweis fehler={speichern.error} bekannt={ROLLEN.map(({ id }) => id)} />}

@@ -51,7 +51,7 @@ describe("Dealflow-Auswertung", () => {
   });
 
   it("meldet einen Fehler der API und zeigt Leerzustand ohne Deals", async () => {
-    spieleApi({ "/api/v1/dealflow/trichter": () => fehler(400, "EINGABE_UNGUELTIG") });
+    spieleApi({ "/api/v1/dealflow/trichter": () => fehler(400, "invalid_input") });
     rendereApp("/dealflow/auswertung?von=2026-06-30&bis=2026-01-01");
     expect((await screen.findByRole("alert")).textContent).toContain("Die Eingabe ist ungültig");
   });

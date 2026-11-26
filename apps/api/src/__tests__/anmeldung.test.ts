@@ -42,29 +42,29 @@ const melden = (t: ReturnType<typeof erstelleTestApp>, email: string, passwort =
   roh(t, "/auth/sign-in/email", { body: { email, password: passwort }, kopf });
 
 describe("Registrierung, Anmeldung und Abmeldung", () => {
-  it("Registrierung über Better Auth ist geschlossen; die erste Person richtet die Installation über /einrichtung ein, danach ist auch das zu", async () => {
+  it("Registrierung über Better Auth ist geschlossen; die erste Person richtet die Installation über /setup ein, danach ist auch das zu", async () => {
     const t = erstelleTestApp(db);
     const zu = await roh(t, "/auth/sign-up/email", { body: { name: "Erste Person", email: "erste@test.example", password: TESTPASSWORT } });
     expect(zu.status).toBeGreaterThanOrEqual(400); // disableSignUp der Bibliothek
     expect((await db.execute(sql`SELECT count(*)::int AS n FROM benutzer`)).rows[0]).toEqual({ n: 0 });
-    expect((await json(await roh(t, "/umgebung"))).einrichtungOffen).toBe(true);
+    expect((await json(await roh(t, "/environment"))).setupOpen).toBe(true);
 
-    const erste = await roh(t, "/einrichtung", { body: { name: "Erste Person", email: "erste@test.example", passwort: TESTPASSWORT } });
+    const erste = await roh(t, "/setup", { body: { name: "Erste Person", email: "erste@test.example", password: TESTPASSWORT } });
     expect(erste.status).toBe(201);
     const melde = await melden(t, "erste@test.example");
     const cookie = cookieKopf(melde.headers.getSetCookie());
-    const ich = await json(await roh(t, "/ich", { cookie }));
-    expect(ich).toMatchObject({ email: "erste@test.example", globalVerwalter: true, technisch: false, zweiFaktorAktiv: false, zweiFaktorErforderlich: true });
+    const ich = await json(await roh(t, "/me", { cookie }));
+    expect(ich).toMatchObject({ email: "erste@test.example", globalAdmin: true, technicalUser: false, twoFactorEnabled: false, twoFactorSetupRequired: true });
 
-    expect((await json(await roh(t, "/umgebung"))).einrichtungOffen).toBe(false);
-    const zweite = await roh(t, "/einrichtung", { body: { name: "Zweite Person", email: "zweite@test.example", passwort: TESTPASSWORT } });
+    expect((await json(await roh(t, "/environment"))).setupOpen).toBe(false);
+    const zweite = await roh(t, "/setup", { body: { name: "Zweite Person", email: "zweite@test.example", password: TESTPASSWORT } });
     expect(zweite.status).toBe(403);
-    expect((await json(zweite)).fehler.code).toBe("REGISTRIERUNG_GESCHLOSSEN");
+    expect((await json(zweite)).error.code).toBe("registration_closed");
   });
 
   it("gleichzeitige Einrichtungen ergeben genau eine Verwalterin", async () => {
     const t = erstelleTestApp(db);
-    const antworten = await Promise.all([1, 2, 3, 4].map((n) => roh(t, "/einrichtung", { body: { name: `Person ${n}`, email: `p${n}@test.example`, passwort: TESTPASSWORT } })));
+    const antworten = await Promise.all([1, 2, 3, 4].map((n) => roh(t, "/setup", { body: { name: `Person ${n}`, email: `p${n}@test.example`, password: TESTPASSWORT } })));
     expect(antworten.filter((a) => a.status === 201)).toHaveLength(1);
     expect((await db.execute(sql`SELECT count(*)::int AS n FROM benutzer`)).rows[0]).toEqual({ n: 1 });
   });
@@ -73,11 +73,11 @@ describe("Registrierung, Anmeldung und Abmeldung", () => {
     const t = erstelleTestApp(db, { registrierungOffen: true });
     const erste = await roh(t, "/auth/sign-up/email", { body: { name: "Erste Person", email: "erste@test.example", password: TESTPASSWORT } });
     expect(erste.status).toBe(200);
-    expect((await json(await roh(t, "/ich", { cookie: cookieKopf(erste.headers.getSetCookie()) }))).globalVerwalter).toBe(true);
+    expect((await json(await roh(t, "/me", { cookie: cookieKopf(erste.headers.getSetCookie()) }))).globalAdmin).toBe(true);
     const zweite = await roh(t, "/auth/sign-up/email", { body: { name: "Zweite Person", email: "zweite@test.example", password: TESTPASSWORT } });
     expect(zweite.status).toBe(200);
-    const ich = await json(await roh(t, "/ich", { cookie: cookieKopf(zweite.headers.getSetCookie()) }));
-    expect(ich).toMatchObject({ email: "zweite@test.example", globalVerwalter: false, rollen: [] });
+    const ich = await json(await roh(t, "/me", { cookie: cookieKopf(zweite.headers.getSetCookie()) }));
+    expect(ich).toMatchObject({ email: "zweite@test.example", globalAdmin: false, roles: [] });
   });
 
   it("zu kurze Passwörter werden abgelehnt", async () => {
@@ -93,11 +93,11 @@ describe("Registrierung, Anmeldung und Abmeldung", () => {
     const antwort = await melden(t, p.email);
     expect(antwort.status).toBe(200);
     const cookie = cookieKopf(antwort.headers.getSetCookie());
-    expect((await roh(t, "/ich", { cookie })).status).toBe(200);
+    expect((await roh(t, "/me", { cookie })).status).toBe(200);
 
     const raus = await roh(t, "/auth/sign-out", { body: {}, cookie });
     expect(raus.status).toBe(200);
-    expect((await roh(t, "/ich", { cookie })).status).toBe(401); // das Sitzungstoken ist serverseitig ungültig
+    expect((await roh(t, "/me", { cookie })).status).toBe(401); // das Sitzungstoken ist serverseitig ungültig
   });
 
   it("falsches Passwort oder unbekannte Adresse: 401 ohne Sitzung", async () => {
@@ -116,9 +116,9 @@ describe("Registrierung, Anmeldung und Abmeldung", () => {
     const p = person("anna", { zweiFaktor: false });
     await legePersonAn(db, p);
     const cookie = cookieKopf((await melden(t, p.email)).headers.getSetCookie());
-    expect((await roh(t, "/ich", { cookie })).status).toBe(200);
+    expect((await roh(t, "/me", { cookie })).status).toBe(200);
     await db.execute(sql`UPDATE benutzer SET aktiv = false WHERE email = ${p.email}`);
-    expect((await roh(t, "/ich", { cookie })).status).toBe(401);
+    expect((await roh(t, "/me", { cookie })).status).toBe(401);
   });
 
   it("Cookies sind httpOnly und SameSite=Lax; Secure gilt nur bei https-Ursprung (nicht auf localhost)", async () => {
@@ -150,7 +150,7 @@ describe("Abweichende Pfadschreibweisen umgehen weder die Registrierungssperre n
 
   it("Registrierung bei geschlossener Registrierung: keine Variante legt einen Benutzer an", async () => {
     const t = erstelleTestApp(db);
-    await roh(t, "/einrichtung", { body: { name: "Erste Person", email: "erste@test.example", passwort: TESTPASSWORT } });
+    await roh(t, "/setup", { body: { name: "Erste Person", email: "erste@test.example", password: TESTPASSWORT } });
     const eindringling = { name: "Eindringling", email: "eindringling@test.example", password: TESTPASSWORT };
     for (const variante of ["/auth/sign-up/email", "/auth/sign-up/email/", "/auth//sign-up/email", "/auth/SIGN-UP/email", "/auth/sign-up%2Femail", "/auth/sign-up/%65mail"]) {
       expect((await post(t, variante, eindringling, jsonKopf())).status, variante).toBeGreaterThanOrEqual(400);
@@ -175,7 +175,7 @@ describe("Abweichende Pfadschreibweisen umgehen weder die Registrierungssperre n
     }
     const gesperrt = await melden(t, p.email, TESTPASSWORT, ip);
     expect(gesperrt.status).toBe(429);
-    expect((await json(gesperrt)).fehler.code).toBe("ZU_VIELE_VERSUCHE");
+    expect((await json(gesperrt)).error.code).toBe("too_many_attempts");
   });
 
   it("zweiter Faktor: die Begrenzung hängt am normalisierten Pfad der Bibliothek, nicht am Rohpfad", async () => {
@@ -218,7 +218,7 @@ describe("Abweichende Pfadschreibweisen umgehen weder die Registrierungssperre n
       for (const trustDevice of [true, false, undefined]) {
         const gesperrt = await roh(t, f.pfad, { body: { code: f.richtig(letzte.id), trustDevice }, cookie: await zwischenFuer(letzte.p.email), kopf });
         expect(gesperrt.status, f.pfad).toBe(429);
-        expect((await json(gesperrt)).fehler.code, f.pfad).toBe("ZU_VIELE_VERSUCHE");
+        expect((await json(gesperrt)).error.code, f.pfad).toBe("too_many_attempts");
         expect(gesperrt.headers.getSetCookie().some((c) => c.includes("session_token")), f.pfad).toBe(false);
       }
     }
@@ -249,16 +249,16 @@ describe("Abweichende Pfadschreibweisen umgehen weder die Registrierungssperre n
 });
 
 describe("Zweiter Faktor (TOTP)", () => {
-  it("ohne zweiten Faktor: Anmeldung gelingt, jede Route außer /ich und der Einrichtung liefert 403 ZWEI_FAKTOR_FEHLT", async () => {
+  it("ohne zweiten Faktor: Anmeldung gelingt, jede Route außer /me und der Einrichtung liefert 403 two_factor_required", async () => {
     const t = erstelleTestApp(db);
     const p = person("anna", { zweiFaktor: false, globalVerwalter: true });
     await legePersonAn(db, p);
     const cookie = cookieKopf((await melden(t, p.email)).headers.getSetCookie());
-    expect(await json(await roh(t, "/ich", { cookie }))).toMatchObject({ zweiFaktorAktiv: false, zweiFaktorErforderlich: true });
-    for (const pfad of ["/fonds", "/deals", "/benutzer", "/organisationen"]) {
+    expect(await json(await roh(t, "/me", { cookie }))).toMatchObject({ twoFactorEnabled: false, twoFactorSetupRequired: true });
+    for (const pfad of ["/funds", "/deals", "/users", "/organizations"]) {
       const antwort = await roh(t, pfad, { cookie });
       expect(antwort.status, pfad).toBe(403);
-      expect((await json(antwort)).fehler.code).toBe("ZWEI_FAKTOR_FEHLT");
+      expect((await json(antwort)).error.code, pfad).toBe("two_factor_required");
     }
     // Die Einrichtung selbst bleibt erreichbar.
     const einrichten = await roh(t, "/auth/two-factor/enable", { body: { password: TESTPASSWORT }, cookie });
@@ -280,22 +280,22 @@ describe("Zweiter Faktor (TOTP)", () => {
 
     const falsch = await roh(t, "/auth/two-factor/verify-totp", { body: { code: "000000" === totpCode(geheimnis) ? "111111" : "000000" }, cookie });
     expect(falsch.status).toBe(401);
-    expect((await roh(t, "/fonds", { cookie })).status).toBe(403);
+    expect((await roh(t, "/funds", { cookie })).status).toBe(403);
 
     const richtig = await roh(t, "/auth/two-factor/verify-totp", { body: { code: totpCode(geheimnis) }, cookie });
     expect(richtig.status).toBe(200);
     cookie = cookieKopf(richtig.headers.getSetCookie());
-    expect(await json(await roh(t, "/ich", { cookie }))).toMatchObject({ zweiFaktorAktiv: true, zweiFaktorErforderlich: false });
-    expect((await roh(t, "/fonds", { cookie })).status).toBe(200);
+    expect(await json(await roh(t, "/me", { cookie }))).toMatchObject({ twoFactorEnabled: true, twoFactorSetupRequired: false });
+    expect((await roh(t, "/funds", { cookie })).status).toBe(200);
 
     // Neue Anmeldung: erst Passwort, dann Code.
     const anmeldung = await melden(t, p.email);
     expect(await json(anmeldung)).toMatchObject({ twoFactorRedirect: true });
     const zwischen = cookieKopf(anmeldung.headers.getSetCookie());
-    expect((await roh(t, "/fonds", { cookie: zwischen })).status).toBe(401); // noch keine Sitzung
+    expect((await roh(t, "/funds", { cookie: zwischen })).status).toBe(401); // noch keine Sitzung
     const mitCode = await roh(t, "/auth/two-factor/verify-totp", { body: { code: totpCode(geheimnis) }, cookie: zwischen });
     expect(mitCode.status).toBe(200);
-    expect((await roh(t, "/fonds", { cookie: cookieKopf(mitCode.headers.getSetCookie()) })).status).toBe(200);
+    expect((await roh(t, "/funds", { cookie: cookieKopf(mitCode.headers.getSetCookie()) })).status).toBe(200);
   });
 
   it("TOTP-Codes nach RFC 6238: Testvektor und Anmeldung mit dem berechneten Code; ein Code aus einem weit entfernten Zeitfenster gilt nicht", async () => {
@@ -332,8 +332,8 @@ describe("Zweiter Faktor (TOTP)", () => {
     const p = person("anna", { zweiFaktor: false, globalVerwalter: true });
     await legePersonAn(db, p);
     const cookie = cookieKopf((await melden(t, p.email)).headers.getSetCookie());
-    expect((await roh(t, "/fonds", { cookie })).status).toBe(200);
-    expect(await json(await roh(t, "/ich", { cookie }))).toMatchObject({ zweiFaktorErforderlich: false });
+    expect((await roh(t, "/funds", { cookie })).status).toBe(200);
+    expect(await json(await roh(t, "/me", { cookie }))).toMatchObject({ twoFactorSetupRequired: false });
   });
 
   it("wer nur über OIDC kommt (kein Passwort-Zugang), braucht bei uns keinen zweiten Faktor; wer ein Passwort hat, schon", () => {
@@ -348,14 +348,14 @@ describe("Zweiter Faktor (TOTP)", () => {
 describe("Begrenzung der Fehlversuche", () => {
   const ip = (n: number) => ({ "X-Forwarded-For": `203.0.113.${n}` });
 
-  it("nach 10 Fehlversuchen je Konto: 429 ZU_VIELE_VERSUCHE, auch von anderen Adressen und auch mit richtigem Passwort", async () => {
+  it("nach 10 Fehlversuchen je Konto: 429 too_many_attempts, auch von anderen Adressen und auch mit richtigem Passwort", async () => {
     const t = erstelleTestApp(db, { proxyVertrauen: true });
     const p = person("anna", { zweiFaktor: false });
     await legePersonAn(db, p);
     for (let i = 0; i < 10; i++) expect((await melden(t, p.email, "falsches-Passwort-123", ip(i + 1))).status).toBe(401);
     const gesperrt = await melden(t, p.email, TESTPASSWORT, ip(200));
     expect(gesperrt.status).toBe(429);
-    expect((await json(gesperrt)).fehler.code).toBe("ZU_VIELE_VERSUCHE");
+    expect((await json(gesperrt)).error.code).toBe("too_many_attempts");
     expect(gesperrt.headers.get("Retry-After")).toBe("900");
     // Ein anderes Konto von einer anderen Adresse ist nicht betroffen.
     const q = person("berta", { zweiFaktor: false });
@@ -399,7 +399,7 @@ describe("Begrenzung der Fehlversuche", () => {
       }
       const gesperrt = await roh(t, pfad, { body: koerper(TESTPASSWORT), cookie, kopf });
       expect(gesperrt.status, pfad).toBe(429);
-      expect((await json(gesperrt)).fehler.code, pfad).toBe("ZU_VIELE_VERSUCHE");
+      expect((await json(gesperrt)).error.code, pfad).toBe("too_many_attempts");
     }
   });
 
@@ -411,7 +411,7 @@ describe("Begrenzung der Fehlversuche", () => {
 });
 
 describe("CSRF: Ursprungsprüfung", () => {
-  it("zustandsändernde Anfragen mit fremdem Origin: 403 ORIGIN_UNGUELTIG, auch mit gültiger Sitzung", async () => {
+  it("zustandsändernde Anfragen mit fremdem Origin: 403 origin_invalid, auch mit gültiger Sitzung", async () => {
     const t = erstelleTestApp(db);
     const antwort = await t.request("/organisationen", {
       method: "POST",
@@ -420,7 +420,7 @@ describe("CSRF: Ursprungsprüfung", () => {
       origin: "https://boese.example",
     });
     expect(antwort.status).toBe(403);
-    expect((await json(antwort)).fehler.code).toBe("ORIGIN_UNGUELTIG");
+    expect((await json(antwort)).error.code).toBe("origin_invalid");
     const anzahl = (await db.execute(sql`SELECT count(*)::int AS n FROM organisation`)).rows[0] as { n: number };
     expect(anzahl.n).toBe(0);
   });
@@ -464,24 +464,24 @@ describe("CSRF: Ursprungsprüfung", () => {
 });
 
 describe("Umgebung", () => {
-  it("GET /umgebung braucht keine Anmeldung und nennt Umgebung und Anmeldemöglichkeiten", async () => {
+  it("GET /environment braucht keine Anmeldung und nennt Umgebung und Anmeldemöglichkeiten", async () => {
     const t = erstelleTestApp(db, { umgebung: "test" });
-    const antwort = await t.request("/umgebung", { als: null });
+    const antwort = await t.request("/environment", { als: null });
     expect(antwort.status).toBe(200);
     expect(await json(antwort)).toEqual({
-      umgebung: "test",
-      einrichtungOffen: expect.any(Boolean),
-      pseudonymisiert: false,
+      environment: "test",
+      setupOpen: expect.any(Boolean),
+      pseudonymized: false,
       // Anmeldeanbieter (Single Sign-On) bringt nur die Erweiterung mit (ee/api/src/__tests__/sso.test.ts).
-      anmeldung: { zweiFaktorPflicht: true, registrierungOffen: false, anbieter: [], passwortZuruecksetzen: false },
+      signIn: { twoFactorRequired: true, registrationOpen: false, providers: [], passwordResetAvailable: false },
     });
-    for (const umgebung of ["demo", "echt"] as const) {
-      expect((await json(await erstelleTestApp(db, { umgebung }).request("/umgebung", { als: null }))).umgebung).toBe(umgebung);
+    for (const [umgebung, erwartet] of [["demo", "demo"], ["echt", "production"]] as const) {
+      expect((await json(await erstelleTestApp(db, { umgebung }).request("/environment", { als: null }))).environment).toBe(erwartet);
     }
   });
 
-  it("GET /gesundheit bleibt ohne Anmeldung erreichbar", async () => {
-    expect((await erstelleTestApp(db).request("/gesundheit", { als: null })).status).toBe(200);
+  it("GET /health bleibt ohne Anmeldung erreichbar", async () => {
+    expect((await erstelleTestApp(db).request("/health", { als: null })).status).toBe(200);
   });
 });
 

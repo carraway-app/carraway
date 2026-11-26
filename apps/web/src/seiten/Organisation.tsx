@@ -4,6 +4,8 @@ import { Verbindungen, useVerbindungen } from "../komponenten/crm/Verbindungen";
 import { Schnellaktionen } from "../komponenten/crm/Zelle";
 import { useState, type ReactNode } from "react";
 import type { VerzeichnisEintrag, VerzeichnisGruppe } from "@carraway/ui";
+import { alle as erweiterungsPunkt } from "../erweiterung";
+import { KontaktHerkunft } from "../komponenten/KontakteAusPostfach";
 import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { getRouteApi, Link } from "@tanstack/react-router";
 import { Button, Hinweis, Inhaltsverzeichnis, Seitenkopf, Status, Tabelle, formatBetrag, formatDatum, type StatusVariante, type TabelleSpalte } from "@carraway/ui";
@@ -209,6 +211,10 @@ export function OrganisationSeite() {
       />
 
       <NurLesen />
+      <KontaktHerkunft herkunft={o.herkunft} />
+      {erweiterungsPunkt("datensatzErgaenzung").map((E, i) => (
+        <E key={i} objekt="organisation" id={o.id} darfSchreiben={schreiben} />
+      ))}
       {weg ? (
         <Hinweis>
           {t.organisation.zusammengefuehrt}{" "}

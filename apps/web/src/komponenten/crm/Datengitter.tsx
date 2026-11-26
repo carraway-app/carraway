@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type PointerEvent } from "react";
 import { observeElementRect, useVirtualizer } from "@tanstack/react-virtual";
 import { CaretDownIcon, CaretUpIcon } from "@carraway/ui";
 import type { Feld, Konfig, Objekt, Zeile } from "../../api/crm";
@@ -30,6 +30,8 @@ interface Props {
   sortierung: Konfig["sortierung"];
   onSortieren: (feld: string) => void;
   onBreite: (feld: string, breite: number) => void;
+  /** Verschiebt eine Spalte per Ziehen im Kopf oder Alt+Pfeiltaste; `nach` ist die Position in der neuen Reihenfolge. Die erste Spalte bleibt vorn. Ohne diese Funktion lassen sich die Köpfe nicht ziehen. */
+  onVerschieben?: (feld: string, nach: number) => void;
   auswahl: ReadonlySet<string>;
   onAuswahl: (neu: Set<string>) => void;
   /** Darf die Person dieses Feld dieser Zeile ändern? (Listenfelder dürfen nur Besitzerin oder Besitzer der Liste und Verwalter, Felder des Datensatzes jede Person mit Schreibrecht.) */
@@ -48,9 +50,9 @@ interface Props {
 /**
  * Tabelle der Datensätze: virtualisiert (nur sichtbare Zeilen im DOM), mit Tastaturbedienung als `grid` (Pfeiltasten, Pos1/Ende,
  * Eingabe oder F2 bearbeitet die Zelle, Escape bricht ab, Leertaste wählt die Zeile), Sortierung über die Spaltenköpfe, Spaltenbreite
- * per Ziehen oder Pfeiltasten am Griff und Schnellaktionen (Mail, Telefon, Adressen) je Zeile.
+ * per Ziehen oder Pfeiltasten am Griff, Spaltenreihenfolge per Ziehen des Kopfs (oder Alt+Pfeil links/rechts) und Schnellaktionen (Mail, Telefon, Adressen) je Zeile.
  */
-export function Datengitter({ objekt, spalten, zeilen, gesamt, bezuege, sortierung, onSortieren, onBreite, auswahl, onAuswahl, darfSchreiben, onAendern, ladeMehr, laedtMehr, beschriftung, onOeffnen, fensterHoehe = FENSTERHOEHE }: Props) {
+export function Datengitter({ objekt, spalten, zeilen, gesamt, bezuege, sortierung, onSortieren, onBreite, onVerschieben, auswahl, onAuswahl, darfSchreiben, onAendern, ladeMehr, laedtMehr, beschriftung, onOeffnen, fensterHoehe = FENSTERHOEHE }: Props) {
   const t = useT();
   const sprache = useSprache();
   // Ein einziger Scrollbereich für Kopf und Zeilen (waagerecht und senkrecht): Kopfzeile, erste Spalte und Aktionsspalte kleben darin am Rand.
@@ -63,6 +65,21 @@ export function Datengitter({ objekt, spalten, zeilen, gesamt, bezuege, sortieru
   const [aktiv, setAktiv] = useState({ zeile: 0, spalte: 0 });
   const [bearbeitet, setBearbeitet] = useState<{ zeile: number; spalte: number } | null>(null);
   const [fokusNoetig, setFokusNoetig] = useState(false);
+  // Kantenschatten der klebenden Ränder nur, solange tatsächlich Inhalt darunter liegt.
+  const [kanten, setKanten] = useState({ links: false, rechts: false });
+  const messeKanten = useCallback(() => {
+    const el = wurzel.current;
+    if (!el) return;
+    const links = el.scrollLeft > 0.5;
+    const rechts = el.scrollLeft + el.clientWidth < el.scrollWidth - 1.5;
+    setKanten((alt) => (alt.links === links && alt.rechts === rechts ? alt : { links, rechts }));
+  }, []);
+  // Spaltenreihenfolge im Kopf: gezogene Spalte, Einfügeposition (1 bis n), Ansage für Screenreader.
+  const [kopfZiehend, setKopfZiehend] = useState<string | null>(null);
+  const [kopfZiel, setKopfZiel] = useState<number | null>(null);
+  const [meldung, setMeldung] = useState("");
+  const breitenZug = useRef(false);
+  const fokusKopf = useRef<string | null>(null);
 
   const virtuell = useVirtualizer({
     count: zeilen.length,
@@ -82,6 +99,22 @@ export function Datengitter({ objekt, spalten, zeilen, gesamt, bezuege, sortieru
   // Mindestbreite der Tabelle: schmale Fenster (1440 px mit Seitenleiste) quetschen die Spalten bis zur Mindestbreite, erst darunter scrollt die Tabelle,
   // damit die Spalte der Schnellaktionen am rechten Rand nicht abgeschnitten wird.
   const gesamtBreite = `calc(${AUSWAHL_BREITE + spalten.reduce((n, s) => n + minBreite(s.breite), 0)}px + var(--app-gitter-aktion))`;
+
+  useEffect(() => {
+    messeKanten();
+    if (!fenster || typeof ResizeObserver === "undefined") return;
+    const beobachter = new ResizeObserver(messeKanten);
+    beobachter.observe(fenster);
+    if (fenster.firstElementChild) beobachter.observe(fenster.firstElementChild);
+    return () => beobachter.disconnect();
+  }, [fenster, vorlage, messeKanten]);
+
+  // Nach dem Verschieben per Tastatur behält die Spalte den Fokus (der Knoten wird umgesetzt).
+  useEffect(() => {
+    if (!fokusKopf.current) return;
+    wurzel.current?.querySelector<HTMLElement>(`[data-kopf="${CSS.escape(fokusKopf.current)}"] :is(button, [tabindex])`)?.focus();
+    fokusKopf.current = null;
+  }, [spalten]);
 
   // Weitere Seiten nachladen, sobald das Ende in Sicht kommt.
   const letzter = eintraege.at(-1)?.index ?? -1;
@@ -177,6 +210,7 @@ export function Datengitter({ objekt, spalten, zeilen, gesamt, bezuege, sortieru
   }
 
   function beiBreitenGriff(e: KeyboardEvent, s: GitterSpalte) {
+    if (e.altKey) return;
     const schritt = e.shiftKey ? 48 : 16;
     if (e.key === "ArrowRight") onBreite(s.feld.schluessel, s.breite + schritt);
     else if (e.key === "ArrowLeft") onBreite(s.feld.schluessel, s.breite - schritt);
@@ -186,15 +220,53 @@ export function Datengitter({ objekt, spalten, zeilen, gesamt, bezuege, sortieru
 
   function ziehe(e: PointerEvent, s: GitterSpalte) {
     e.preventDefault();
+    // Der Breitengriff liegt im ziehbaren Kopf: solange er gezogen wird, darf der Kopf keine Spaltenbewegung beginnen.
+    breitenZug.current = true;
     const start = e.clientX;
     const ausgang = s.breite;
     const bewege = (ev: globalThis.PointerEvent) => onBreite(s.feld.schluessel, ausgang + ev.clientX - start);
     const ende = () => {
+      breitenZug.current = false;
       window.removeEventListener("pointermove", bewege);
       window.removeEventListener("pointerup", ende);
     };
     window.addEventListener("pointermove", bewege);
     window.addEventListener("pointerup", ende);
+  }
+
+  const verschiebe = (c: number, nach: number, ansage: (name: string, nr: number, von: number) => string) => {
+    const s = spalten[c];
+    if (!onVerschieben || !s || c === 0) return;
+    const ziel = Math.max(1, Math.min(spaltenAnzahl - 1, nach));
+    if (ziel === c) return;
+    setMeldung(ansage(feldName(s.feld, t), ziel + 1, spaltenAnzahl));
+    onVerschieben(s.feld.schluessel, ziel);
+  };
+
+  function beiKopfTaste(e: KeyboardEvent, c: number) {
+    if (!e.altKey || (e.key !== "ArrowLeft" && e.key !== "ArrowRight")) return;
+    e.preventDefault();
+    const s = spalten[c];
+    if (!s) return;
+    fokusKopf.current = s.feld.schluessel;
+    verschiebe(c, c + (e.key === "ArrowLeft" ? -1 : 1), t.crm.spalteVerschoben);
+  }
+
+  function beiKopfUeber(e: DragEvent, c: number) {
+    if (!kopfZiehend) return;
+    e.preventDefault();
+    const rect = e.currentTarget.getBoundingClientRect();
+    setKopfZiel(Math.max(1, c + (e.clientX > rect.left + rect.width / 2 ? 1 : 0)));
+  }
+
+  function beiKopfAblegen(e: DragEvent) {
+    e.preventDefault();
+    const von = spalten.findIndex((s) => s.feld.schluessel === kopfZiehend);
+    const ziel = kopfZiel;
+    setKopfZiehend(null);
+    setKopfZiel(null);
+    if (von < 1 || ziel === null) return;
+    verschiebe(von, ziel > von ? ziel - 1 : ziel, t.crm.spalteAbgelegt);
   }
 
   const alleGewaehlt = zeilen.length > 0 && zeilen.every((z) => auswahl.has(z.id));
@@ -211,6 +283,9 @@ export function Datengitter({ objekt, spalten, zeilen, gesamt, bezuege, sortieru
       aria-colcount={spaltenAnzahl + 2}
       aria-multiselectable="true"
       onKeyDown={beiTaste}
+      onScroll={messeKanten}
+      data-kante-links={kanten.links || undefined}
+      data-kante-rechts={kanten.rechts || undefined}
       style={{ height: KOPFHOEHE + Math.min(fensterHoehe, Math.max(ZEILENHOEHE * 2, zeilen.length * ZEILENHOEHE)) }}
     >
       <div className="app-gitter__scroll" style={{ minWidth: gesamtBreite }}>
@@ -233,9 +308,35 @@ export function Datengitter({ objekt, spalten, zeilen, gesamt, bezuege, sortieru
           </div>
           {spalten.map((s, c) => {
             const richtung = sortRichtung(s.feld.schluessel);
+            const ziehbar = Boolean(onVerschieben) && c > 0;
+            const vonIndex = kopfZiehend ? spalten.findIndex((x) => x.feld.schluessel === kopfZiehend) : -1;
+            // Einfügemarke nur, wenn sich die Reihenfolge dadurch ändern würde.
+            const aendert = kopfZiel !== null && vonIndex > 0 && kopfZiel !== vonIndex && kopfZiel !== vonIndex + 1;
+            const marke = aendert ? (kopfZiel === c ? "vor" : kopfZiel === c + 1 && c === spaltenAnzahl - 1 ? "nach" : undefined) : undefined;
             return (
               <div
                 key={s.feld.schluessel}
+                data-kopf={s.feld.schluessel}
+                draggable={ziehbar || undefined}
+                data-gezogen={kopfZiehend === s.feld.schluessel || undefined}
+                data-einfuegen={marke}
+                aria-keyshortcuts={ziehbar ? "Alt+ArrowLeft Alt+ArrowRight" : undefined}
+                onKeyDown={(e) => beiKopfTaste(e, c)}
+                onDragStart={(e) => {
+                  if (!ziehbar || breitenZug.current) {
+                    e.preventDefault();
+                    return;
+                  }
+                  e.dataTransfer.effectAllowed = "move";
+                  e.dataTransfer.setData("text/plain", s.feld.schluessel);
+                  setKopfZiehend(s.feld.schluessel);
+                }}
+                onDragOver={(e) => beiKopfUeber(e, c)}
+                onDrop={beiKopfAblegen}
+                onDragEnd={() => {
+                  setKopfZiehend(null);
+                  setKopfZiel(null);
+                }}
                 role="columnheader"
                 aria-sort={richtung === "auf" ? "ascending" : richtung === "ab" ? "descending" : "none"}
                 data-zahl={s.feld.typ === "zahl" || s.feld.typ === "betrag" || undefined}
@@ -356,6 +457,9 @@ export function Datengitter({ objekt, spalten, zeilen, gesamt, bezuege, sortieru
         </div>
       </div>
     </div>
+      <div className="cw-nur-lesen" role="status" aria-live="assertive">
+        {meldung}
+      </div>
       <div className="app-gitter__fuss" aria-live="polite">
         {t.crm.zeilenVon(zeilen.length, gesamt)}
         {laedtMehr ? ` · ${t.gemeinsam.laedt}` : ""}

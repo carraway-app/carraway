@@ -86,7 +86,7 @@ function KursDialog({ korrektur, onSchliessen }: { korrektur?: Kurs; onSchliesse
   );
   const fehler = (name: string) => feldText(t, anlegen.error, name);
   const titel = korrektur ? f.titelKorrektur : f.titelNeu;
-  const vorhanden = anlegen.error && "code" in anlegen.error && (anlegen.error as { code: string }).code === "KURS_VORHANDEN" ? String((anlegen.error as { zusatz?: { kurs?: string } }).zusatz?.kurs ?? "") : null;
+  const vorhanden = anlegen.error && "code" in anlegen.error && (anlegen.error as { code: string }).code === "rate_exists" ? String((anlegen.error as { zusatz?: { kurs?: string } }).zusatz?.kurs ?? "") : null;
   return (
     <Seitenpanel titel={titel} onSchliessen={onSchliessen}>
       <h2 className="cw-t-untertitel">{titel}</h2>
@@ -193,11 +193,11 @@ function ImportDialog({ onSchliessen }: { onSchliessen: () => void }) {
                 </ul>
               </Hinweis>
             ) : null}
-            {ergebnis.fehler.length > 0 ? (
+            {ergebnis.dateifehler.length > 0 ? (
               <Hinweis titel={i.fehlerTitel}>
                 <ul className="app-waehrungsleiste__luecken">
-                  {ergebnis.fehler.slice(0, 8).map((f, n) => (
-                    <li key={n}>{i.fehlerZeile(f.zeile, f.meldung)}</li>
+                  {ergebnis.dateifehler.slice(0, 8).map((f, n) => (
+                    <li key={n}>{i.fehlerZeile(f.zeile, i.dateifehler[f.code]?.(f.wert) ?? f.meldung)}</li>
                   ))}
                 </ul>
               </Hinweis>

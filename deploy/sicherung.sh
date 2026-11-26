@@ -14,7 +14,7 @@
 # Frist abgelaufen war, ist die Zeile im Dump noch „gelöscht“, die Datei fehlt; nach der Wiederherstellung stellt der nächste
 # Lauf den Zustand „endgültig gelöscht“ her. Beide Zeitpunkte stehen in INFO.txt. Nach jeder Wiederherstellung `pnpm ops:dateien-pruefen`.
 # Die Schemas `public` und `drizzle` kommen in die Sicherung. Das Schema `pgboss` (Warteschlange) nicht: Es hält nur flüchtige
-# Aufträge; Kennzahlen-Snapshots lassen sich neu berechnen (POST /api/v1/fonds/:id/neuberechnen).
+# Aufträge; Kennzahlen-Snapshots lassen sich neu berechnen (POST /api/v1/funds/:id/recalculate).
 #
 # Umgebungsvariablen:
 #   SICHERUNG_ZIEL               Verzeichnis für die Sicherungen (Vorgabe ./sicherungen). Gehört auf ein anderes Medium als die Daten.

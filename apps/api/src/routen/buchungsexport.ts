@@ -17,6 +17,8 @@ import {
 } from "@carraway/db";
 import { EXTF_KENNUNG, schreibeExtf, type ExtfBuchung, type ExtfProblem } from "@carraway/import";
 import { Decimal } from "@carraway/rechenkern";
+import { insDeutsche, insEnglische, type Deutsch } from "../buchhaltung/abbildung";
+import { buchhaltungsFehler } from "../buchhaltung/fehler";
 import { sha256, erstelleStandardSpeicher, type Speicher } from "../berichte/speicher";
 import { belegnummern } from "../buchhaltung/belegnummern";
 import { Fachfehler, fehlerAntwort } from "../fehler";
@@ -36,12 +38,12 @@ import { lese, type Tx } from "../zeitlimit";
  */
 
 const auswahl = z.object({
-  zinslaufId: z.uuid().optional(),
-  vorgangIds: z.array(z.uuid()).max(2000).optional(),
-  fondsBewegungIds: z.array(z.uuid()).max(2000).optional(),
-  wiederholung: z.boolean().default(false),
+  interestRunId: z.uuid().optional(),
+  transactionIds: z.array(z.uuid()).max(2000).optional(),
+  fundMovementIds: z.array(z.uuid()).max(2000).optional(),
+  repeat: z.boolean().default(false),
 });
-const exportEingabe = auswahl.extend({ grund: textEingabe(500).optional() });
+const exportEingabe = auswahl.extend({ reason: textEingabe(500).optional() });
 
 export interface ExportZeile {
   /** Genau eines von beiden ist gesetzt. */
@@ -84,12 +86,12 @@ export function wirtschaftsjahrBeginn(tag: string, wj: number): string {
   return `${monat >= wj ? jahr : jahr - 1}-${String(wj).padStart(2, "0")}-01`;
 }
 
-async function sammleVorgangIds(tx: Tx, fondsId: string, e: z.infer<typeof auswahl>): Promise<string[]> {
+async function sammleVorgangIds(tx: Tx, fondsId: string, e: Deutsch<z.infer<typeof auswahl>>): Promise<string[]> {
   const ids = new Set<string>(e.vorgangIds ?? []);
   if (e.zinslaufId) {
     const [lauf] = await tx.select().from(zinslauf).where(and(eq(zinslauf.id, e.zinslaufId), eq(zinslauf.fondsId, fondsId)));
-    if (!lauf) throw new Fachfehler(404, "ZINSLAUF_NICHT_GEFUNDEN", "Zinslauf nicht gefunden.");
-        if (lauf.status !== "gebucht") throw new Fachfehler(409, "ZINSLAUF_STATUS_UNGUELTIG", `Der Zinslauf hat den Status „${lauf.status}“; exportiert werden nur gebuchte Läufe.`, { status: lauf.status, erlaubt: ["gebucht"] });
+    if (!lauf) throw new Fachfehler(404, "interest_run_not_found", "Interest run not found.");
+    if (lauf.status !== "gebucht") throw new Fachfehler(409, "interest_run_status_invalid", "Only posted interest runs can be exported.", { status: lauf.status, erlaubt: ["gebucht"] });
     const pos = await tx.select({ v: zinslaufPosition.vorgangId }).from(zinslaufPosition).where(eq(zinslaufPosition.zinslaufId, e.zinslaufId));
     for (const p of pos) if (p.v) ids.add(p.v);
   }
@@ -97,14 +99,14 @@ async function sammleVorgangIds(tx: Tx, fondsId: string, e: z.infer<typeof auswa
 }
 
 /** Baut Zeilen und Datei, ohne zu schreiben. Prüft Konfiguration, Kontenzuordnung, Fonds und Doppelexport. */
-async function plane(tx: Tx, fondsId: string, e: z.infer<typeof auswahl>): Promise<Plan> {
+async function plane(tx: Tx, fondsId: string, e: Deutsch<z.infer<typeof auswahl>>): Promise<Plan> {
   const [fz] = await tx.select().from(fonds).where(eq(fonds.id, fondsId));
-  if (!fz) throw new Fachfehler(404, "FONDS_NICHT_GEFUNDEN", "Fonds nicht gefunden.");
+  if (!fz) throw new Fachfehler(404, "fund_not_found", "Fund not found.");
   const [k] = await tx.select().from(fondsBuchhaltung).where(eq(fondsBuchhaltung.fondsId, fondsId));
-  if (!k || k.beraternummer === null || k.mandantennummer === null) throw new Fachfehler(409, "BUCHHALTUNG_NICHT_KONFIGURIERT", "Berater- und Mandantennummer des Fonds fehlen.");
+  if (!k || k.beraternummer === null || k.mandantennummer === null) throw new Fachfehler(409, "accounting_not_configured", "The advisor and client numbers of the fund are missing.");
   const ids = await sammleVorgangIds(tx, fondsId, e);
   const bewegungIds = [...new Set(e.fondsBewegungIds ?? [])];
-  if (ids.length === 0 && bewegungIds.length === 0) throw new Fachfehler(409, "BUCHUNGSEXPORT_LEER", "Es gibt nichts zu exportieren.");
+  if (ids.length === 0 && bewegungIds.length === 0) throw new Fachfehler(409, "posting_export_empty", "There is nothing to export.");
   const vorgaenge = ids.length
     ? await tx
         .select({ v: vorgang, fondsId: beteiligung.fondsId, organisation: organisation.name })
@@ -116,7 +118,7 @@ async function plane(tx: Tx, fondsId: string, e: z.infer<typeof auswahl>): Promi
   const bewegungen = bewegungIds.length ? await tx.select().from(fondsBewegung).where(inArray(fondsBewegung.id, bewegungIds)) : [];
   // Buchungen anderer Fonds antworten wie nicht vorhandene (kein Hinweis auf fremde Daten).
   const unbekannt = [...ids.filter((id) => !vorgaenge.some((z) => z.v.id === id && z.fondsId === fondsId)), ...bewegungIds.filter((id) => !bewegungen.some((b) => b.id === id && b.fondsId === fondsId))];
-  if (unbekannt.length) throw new Fachfehler(404, "VORGANG_NICHT_GEFUNDEN", "Vorgang nicht gefunden.");
+  if (unbekannt.length) throw new Fachfehler(404, "transaction_not_found", "Transaction not found.");
   // Einheitliche Buchungen, nach Valuta und Erfassung geordnet.
   const einheiten = [
     ...vorgaenge.map(({ v, organisation: name }) => ({ id: v.id, istVorgang: true, art: v.art as string, valuta: v.valuta, betrag: v.betrag, bemerkung: v.bemerkung, erfasstAm: v.erfasstAm.getTime(), name })),
@@ -124,11 +126,11 @@ async function plane(tx: Tx, fondsId: string, e: z.infer<typeof auswahl>): Promi
   ].sort((a, b) => a.valuta.localeCompare(b.valuta) || a.erfasstAm - b.erfasstAm || a.id.localeCompare(b.id));
   const regeln = new Map((await tx.select().from(buchungsregel).where(eq(buchungsregel.fondsId, fondsId))).map((r) => [r.quelle as string, r]));
   const fehlend = [...new Set(einheiten.map((z) => z.art))].filter((a) => !regeln.has(a));
-  if (fehlend.length) throw new Fachfehler(409, "BUCHUNGSREGEL_FEHLT", "Für eine Vorgangsart fehlt die Kontenzuordnung.", { arten: fehlend });
+  if (fehlend.length) throw new Fachfehler(409, "posting_rule_missing", "The account assignment is missing for a transaction type.", { arten: fehlend });
   const schonExportiert = new Set<string>();
   if (ids.length) for (const x of await tx.select({ v: buchungsexportPosition.vorgangId }).from(buchungsexportPosition).where(and(eq(buchungsexportPosition.aktiv, true), inArray(buchungsexportPosition.vorgangId, ids)))) if (x.v) schonExportiert.add(x.v);
   if (bewegungIds.length) for (const x of await tx.select({ b: buchungsexportPosition.fondsBewegungId }).from(buchungsexportPosition).where(and(eq(buchungsexportPosition.aktiv, true), inArray(buchungsexportPosition.fondsBewegungId, bewegungIds)))) if (x.b) schonExportiert.add(x.b);
-  if (schonExportiert.size && !e.wiederholung) throw new Fachfehler(409, "BUCHUNGSEXPORT_BEREITS_EXPORTIERT", "Vorgänge sind schon exportiert; ein erneuter Export muss ausdrücklich verlangt werden.", { vorgangIds: [...schonExportiert] });
+  if (schonExportiert.size && !e.wiederholung) throw new Fachfehler(409, "posting_export_already_exported", "Transactions have already been exported; a repeated export must be requested explicitly.", { vorgangIds: [...schonExportiert] });
   const nummern = await belegnummern(tx, fondsId, ids, bewegungIds);
   const zeilen: ExportZeile[] = einheiten.map((v) => {
     const r = regeln.get(v.art)!;
@@ -169,19 +171,19 @@ async function plane(tx: Tx, fondsId: string, e: z.infer<typeof auswahl>): Promi
 const dateiBasis = (kurzname: string, datumVon: string, datumBis: string) => `EXTF_Buchungsstapel_${kurzname.replace(/[^A-Za-z0-9]+/g, "_")}_${datumVon.replaceAll("-", "")}-${datumBis.replaceAll("-", "")}`;
 
 export function fondsExportRouten(db: Db, speicher: Speicher = erstelleStandardSpeicher()) {
-  return new Hono()
+  return new Hono().onError(buchhaltungsFehler)
     /** Zeigt, was exportiert würde (Konten, Belegfeld, Buchungstext), und die Probleme; schreibt nichts. */
-    .post("/:id/buchungsexport/vorschau", pruefe("param", idParam), pruefe("json", auswahl), async (c) => {
+    .post("/:id/posting-exports/preview", pruefe("param", idParam), pruefe("json", auswahl), async (c) => {
       const { id } = c.req.valid("param");
-      const e = c.req.valid("json");
+      const e = insDeutsche(c.req.valid("json"));
       const p = await lese(db, (tx) => plane(tx, id, e));
-      return c.json({ format: EXTF_KENNUNG, datumVon: p.kopf.datumVon, datumBis: p.kopf.datumBis, wirtschaftsjahrBeginn: p.kopf.wirtschaftsjahrBeginn, sachkontenlaenge: p.kopf.sachkontenlaenge, zeilen: p.zeilen, anzahl: p.datei.anzahl, probleme: p.datei.probleme, ohneBeleg: p.zeilen.filter((z) => !z.mitBeleg).map((z) => z.vorgangId ?? z.fondsBewegungId!) }, 200);
+      return c.json(insEnglische({ format: EXTF_KENNUNG, datumVon: p.kopf.datumVon, datumBis: p.kopf.datumBis, wirtschaftsjahrBeginn: p.kopf.wirtschaftsjahrBeginn, sachkontenlaenge: p.kopf.sachkontenlaenge, zeilen: p.zeilen, anzahl: p.datei.anzahl, probleme: p.datei.probleme, ohneBeleg: p.zeilen.filter((z) => !z.mitBeleg).map((z) => z.vorgangId ?? z.fondsBewegungId!) }), 200);
     })
     /** Erzeugt die Datei, speichert sie unveränderlich und markiert die Vorgänge als exportiert. */
-    .post("/:id/buchungsexport", pruefe("param", idParam), pruefe("json", exportEingabe), async (c) => {
+    .post("/:id/posting-exports", pruefe("param", idParam), pruefe("json", exportEingabe), async (c) => {
       const { id } = c.req.valid("param");
-      const e = c.req.valid("json");
-      if (e.wiederholung && !e.grund) throw new Fachfehler(400, "EINGABE_UNGUELTIG", "Die Eingabe ist ungültig.", { felder: [{ feld: "grund", code: "grund_erforderlich", meldung: "Ein erneuter Export braucht einen Grund" }] });
+      const e = insDeutsche(c.req.valid("json"));
+      if (e.wiederholung && !e.grund) throw new Fachfehler(400, "invalid_input", "The input is invalid.", { felder: [{ feld: "grund", code: "reason_required", meldung: "A repeated export requires a reason" }] });
       let ergebnis;
       try {
         ergebnis = await schreibe(db, c, async (tx, protokoll) => {
@@ -189,7 +191,7 @@ export function fondsExportRouten(db: Db, speicher: Speicher = erstelleStandardS
           await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`export:${id}`}))`);
           await ladeFonds(tx, id);
           const p = await plane(tx, id, e);
-          if (p.datei.probleme.length) throw new Fachfehler(409, "BUCHUNGSEXPORT_PROBLEME", "Die Datei hat Probleme und wird nicht erzeugt.", { probleme: p.datei.probleme });
+          if (p.datei.probleme.length) throw new Fachfehler(409, "posting_export_issues", "The file has problems and will not be created.", { probleme: p.datei.probleme });
           const hash = sha256(p.datei.bytes);
           const exportId = crypto.randomUUID();
           const schluessel = `buchungsexporte/${exportId}/${hash}.csv`;
@@ -210,12 +212,12 @@ export function fondsExportRouten(db: Db, speicher: Speicher = erstelleStandardS
           return { ...neu!, ohneBeleg: p.zeilen.filter((z) => !z.mitBeleg).map((z) => z.vorgangId ?? z.fondsBewegungId!) };
         });
       } catch (fehler) {
-        if (hatFehlercode(fehler, "23505")) throw new Fachfehler(409, "BUCHUNGSEXPORT_BEREITS_EXPORTIERT", "Vorgänge sind schon exportiert; ein erneuter Export muss ausdrücklich verlangt werden.");
+        if (hatFehlercode(fehler, "23505")) throw new Fachfehler(409, "posting_export_already_exported", "Transactions have already been exported; a repeated export must be requested explicitly.");
         throw fehler;
       }
-      return c.json(ergebnis, 201);
+      return c.json(insEnglische(ergebnis), 201);
     })
-    .get("/:id/buchungsexporte", pruefe("param", idParam), async (c) => {
+    .get("/:id/posting-exports", pruefe("param", idParam), async (c) => {
       const { id } = c.req.valid("param");
       const daten = await lese(db, async (tx) => {
         await ladeFonds(tx, id);
@@ -225,21 +227,21 @@ export function fondsExportRouten(db: Db, speicher: Speicher = erstelleStandardS
           .where(and(eq(buchungsexport.fondsId, id), fondsSichtbar(c, buchungsexport.fondsId)))
           .orderBy(desc(buchungsexport.erzeugtAm), asc(buchungsexport.id));
       });
-      return c.json({ daten }, 200);
+      return c.json(insEnglische({ daten }), 200);
     });
 }
 
 export function buchungsexportRouten(db: Db, speicher: Speicher = erstelleStandardSpeicher()) {
-  return new Hono().get("/:id/datei", pruefe("param", idParam), async (c) => {
+  return new Hono().onError(buchhaltungsFehler).get("/:id/file", pruefe("param", idParam), async (c) => {
     const { id } = c.req.valid("param");
     const x = await lese(db, async (tx) => {
       const [z] = await tx.select().from(buchungsexport).where(eq(buchungsexport.id, id));
       return z ?? null;
     });
-    if (!x) return fehlerAntwort(c, 404, "BUCHUNGSEXPORT_NICHT_GEFUNDEN", "Buchungsexport nicht gefunden.");
+    if (!x) return fehlerAntwort(c, 404, "posting_export_not_found", "Posting export not found.");
     const bytes = await speicher.lese(x.dateiSchluessel);
-    if (sha256(bytes) !== x.dateiSha256) throw new Fachfehler(500, "DATEI_BESCHAEDIGT", "Die gespeicherte Datei stimmt nicht mehr mit ihrem Hash überein.");
+    if (sha256(bytes) !== x.dateiSha256) throw new Fachfehler(500, "file_corrupt", "The stored file no longer matches its hash.");
     await protokolliereLesen(db, c, "buchungsexport", id, { buchungsexport: "datei", dateiName: x.dateiName, sha256: x.dateiSha256 });
-    return c.body(Buffer.from(bytes), 200, { "Content-Type": "text/csv; charset=windows-1252", "Content-Disposition": `attachment; filename="${x.dateiName}"`, "Cache-Control": "no-store", "X-Datei-Sha256": x.dateiSha256 });
+    return c.body(Buffer.from(bytes), 200, { "Content-Type": "text/csv; charset=windows-1252", "Content-Disposition": `attachment; filename="${x.dateiName}"`, "Cache-Control": "no-store", "X-File-Sha256": x.dateiSha256 });
   });
 }

@@ -21,7 +21,7 @@ describe("Zugänglichkeit (axe)", () => {
       localStorage.setItem("carraway.sprache", sprache);
       spieleApi({
         "/api/v1/wiedervorlagen": { koerper: { daten: [{ ...wiedervorlageDaten, zustaendigId: ICH_ID, ueberfaellig: true }] } },
-        "/api/v1/benutzer/namen": { koerper: { daten: [{ id: ICH_ID, name: "Vera Beispiel" }] } },
+        "/api/v1/users/names": { koerper: { daten: [{ id: ICH_ID, name: "Vera Beispiel" }] } },
       });
       rendereApp("/kontakte");
       await screen.findByRole("link", { name: /^(Wiedervorlagen|Follow-ups) \d/ });

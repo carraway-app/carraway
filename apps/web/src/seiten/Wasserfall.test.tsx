@@ -218,7 +218,7 @@ describe("Captable", () => {
   });
 
   it("zeigt Betrachtern nur die Ansicht und im früheren Wissensstand einen Hinweis", async () => {
-    spieleApi({ "/api/v1/ich": alsRolle("betrachter") });
+    spieleApi({ "/api/v1/me": alsRolle("betrachter") });
     const { unmount } = rendereApp(kapitalUrl);
     const tabelle = await screen.findByRole("region", { name: "Captable nach Inhaber und Klasse" });
     expect(within(tabelle).queryByRole("combobox")).toBeNull();
@@ -283,7 +283,7 @@ describe("Anteilsklassen", () => {
   it("ändert eine Klasse und zeigt den Fehler zu Cap und Faktor am Feld", async () => {
     const pfad = `/api/v1/organisationen/${klasseDaten.organisationId}/anteilsklassen/${KLASSE_ID}`;
     const api = spieleApi({
-      [`PATCH ${pfad}`]: () => ({ status: 400, koerper: { fehler: { code: "EINGABE_UNGUELTIG", meldung: "x", felder: [{ feld: "capFaktor", code: "cap_unter_praeferenz", meldung: "x" }] } } }),
+      [`PATCH ${pfad}`]: () => ({ status: 400, koerper: { error: { code: "invalid_input", message: "x", fields: [{ field: "capFaktor", code: "cap_below_preference", message: "x" }] } } }),
     });
     rendereApp(kapitalUrl);
     const nutzer = userEvent.setup();
@@ -293,19 +293,19 @@ describe("Anteilsklassen", () => {
     await nutzer.click(dialog.getByRole("checkbox", { name: /Partizipierend/ }));
     await nutzer.type(dialog.getByLabelText("Cap (Vielfaches des investierten Betrags)"), "0,5");
     await nutzer.click(dialog.getByRole("button", { name: "Klasse speichern" }));
-    expect(await dialog.findByText(de.feldfehler.cap_unter_praeferenz)).toBeTruthy();
+    expect(await dialog.findByText(de.feldfehler.cap_below_preference)).toBeTruthy();
     expect(api.anfragen("PATCH", pfad)[0]!.koerper).toMatchObject({ partizipierend: true, capFaktor: "0.5", rang: 1, name: "Seed-Vorzugsanteile" });
   });
 
   it("übersetzt den Fehler bei doppeltem Namen", async () => {
-    spieleApi({ [`POST /api/v1/organisationen/${klasseDaten.organisationId}/anteilsklassen`]: fehler(409, "ANTEILSKLASSE_NAME_VORHANDEN") });
+    spieleApi({ [`POST /api/v1/organisationen/${klasseDaten.organisationId}/anteilsklassen`]: fehler(409, "share_class_name_exists") });
     rendereApp(kapitalUrl);
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Neue Klasse" }));
     const dialog = within(await screen.findByRole("dialog", { name: "Neue Anteilsklasse" }));
     await nutzer.type(dialog.getByLabelText("Name"), "Seed-Vorzugsanteile");
     await nutzer.click(dialog.getByRole("button", { name: "Klasse speichern" }));
-    expect(await dialog.findByText(de.fehler.ANTEILSKLASSE_NAME_VORHANDEN)).toBeTruthy();
+    expect(await dialog.findByText(de.fehler.share_class_name_exists)).toBeTruthy();
   });
 });
 
@@ -374,7 +374,7 @@ describe("Exit-Szenario", () => {
 
   it("zeigt Fehler der API am Feld und fragt ohne Angabe nicht an", async () => {
     spieleApi({
-      [`POST ${WASSERFALL}`]: () => ({ status: 400, koerper: { fehler: { code: "EINGABE_UNGUELTIG", meldung: "x", felder: [{ feld: "kosten", code: "kosten_ueber_exitwert", meldung: "x" }] } } }),
+      [`POST ${WASSERFALL}`]: () => ({ status: 400, koerper: { error: { code: "invalid_input", message: "x", fields: [{ field: "kosten", code: "costs_exceed_exit_value", message: "x" }] } } }),
     });
     rendereApp(wasserfallUrl);
     const nutzer = userEvent.setup();
@@ -382,17 +382,17 @@ describe("Exit-Szenario", () => {
     await nutzer.type(abschnitt.getByLabelText("Exitwert in Euro"), "100");
     await nutzer.type(abschnitt.getByLabelText("Transaktionskosten in Euro (optional)"), "200");
     await nutzer.click(abschnitt.getByRole("button", { name: "Berechnen" }));
-    expect(await abschnitt.findByText(de.feldfehler.kosten_ueber_exitwert)).toBeTruthy();
+    expect(await abschnitt.findByText(de.feldfehler.costs_exceed_exit_value)).toBeTruthy();
   });
 
   it("übersetzt Fehler der Beteiligung ohne Anteile", async () => {
-    spieleApi({ [`POST ${WASSERFALL}`]: fehler(409, "WASSERFALL_KEINE_ANTEILE") });
+    spieleApi({ [`POST ${WASSERFALL}`]: fehler(409, "waterfall_no_shares") });
     rendereApp(wasserfallUrl);
     const nutzer = userEvent.setup();
     const abschnitt = within(await letzteRegion("Exit-Szenario"));
     await nutzer.type(abschnitt.getByLabelText("Exitwert in Euro"), "100");
     await nutzer.click(abschnitt.getByRole("button", { name: "Berechnen" }));
-    expect(await abschnitt.findByText(de.fehler.WASSERFALL_KEINE_ANTEILE)).toBeTruthy();
+    expect(await abschnitt.findByText(de.fehler.waterfall_no_shares)).toBeTruthy();
   });
 
   it("englisch: Texte, Schnellwahl und übersetzter Rechenweg mit unveränderten Klassennamen", async () => {
@@ -446,8 +446,8 @@ describe("Diagramm des Rückflusses", () => {
   });
 
   it("zeigt Fehler der Kurve", async () => {
-    spieleApi({ [`${WASSERFALL}/kurve`]: fehler(409, "WASSERFALL_KEINE_ANTEILE") });
+    spieleApi({ [`${WASSERFALL}/kurve`]: fehler(409, "waterfall_no_shares") });
     rendereApp(wasserfallUrl);
-    expect(await screen.findByText(de.fehler.WASSERFALL_KEINE_ANTEILE)).toBeTruthy();
+    expect(await screen.findByText(de.fehler.waterfall_no_shares)).toBeTruthy();
   });
 });

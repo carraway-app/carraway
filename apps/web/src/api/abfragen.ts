@@ -1,68 +1,86 @@
+import { journalTypenAnApi } from "@carraway/api/journal-vertrag";
+import { ausFonds } from "./abbildung-fonds";
+import { auspackenPortfolio, type PortfolioEingabe } from "./abbildung-portfolio";
+import { ausKontakten, ausCrm } from "./abbildung-kontakte";
 import { infiniteQueryOptions, keepPreviousData, queryOptions } from "@tanstack/react-query";
 import { api, auspacken } from "./client";
-import { ladeFonds, ladeUebersicht, ladeWiedervorlagenAnzahl, schluessel } from "./abfragen-kern";
+import { ladeFonds, ladeUebersicht, schluessel } from "./abfragen-kern";
+import { ausBerichteBereich } from "./abbildung-berichte";
+
+const ausBeschlussvorlagen = ausBerichteBereich("resolution");
+const ausBerichten = ausBerichteBereich("report");
 
 export { STALE_ZEIT, schluessel, fondsListe, fondsUebersicht, wiedervorlagenAnzahl } from "./abfragen-kern";
 
 
 const ladeBeteiligung = (id: string, stichtag?: string, stand?: string) =>
-  auspacken(api.api.v1.beteiligungen[":id"].$get({ param: { id }, query: { ...(stichtag ? { stichtag } : {}), ...(stand ? { stand } : {}) } }));
-const ladeDeals = async () => (await auspacken(api.api.v1.deals.$get({ query: {} }))).daten;
-const ladeDeal = (id: string) => auspacken(api.api.v1.deals[":id"].$get({ param: { id } }));
-const ladeOrganisation = (id: string) => auspacken(api.api.v1.organisationen[":id"].$get({ param: { id } }));
-const ladeOrganisationen = (query: { suche?: string; art?: OrganisationArt; cursor?: string; limit?: string }) => auspacken(api.api.v1.organisationen.$get({ query }));
-const ladeDubletten = async (name: string) => (await auspacken(api.api.v1.organisationen.dubletten.$get({ query: { name } }))).daten;
-const ladeAktivitaeten = async (organisationId: string) => (await auspacken(api.api.v1.aktivitaeten.$get({ query: { organisationId } }))).daten;
-const ladePersonAktivitaeten = async (personId: string) => (await auspacken(api.api.v1.aktivitaeten.$get({ query: { personId } }))).daten;
-const ladeWiedervorlagen = async () => (await auspacken(api.api.v1.wiedervorlagen.$get({ query: {} }))).daten;
+  auspackenPortfolio(api.api.v1.investments[":id"].$get, { param: { id }, query: { ...(stichtag ? { stichtag } : {}), ...(stand ? { stand } : {}) } });
+const ladeDeals = async () => (await ausKontakten(api.api.v1.deals.$get, { query: {} })).daten;
+const ladeDeal = (id: string) => ausKontakten(api.api.v1.deals[":id"].$get, { param: { id } });
+const ladeOrganisation = (id: string) => ausKontakten(api.api.v1.organizations[":id"].$get, { param: { id } });
+const ladeOrganisationen = (query: { suche?: string; art?: OrganisationArt; cursor?: string; limit?: string }) => ausKontakten(api.api.v1.organizations.$get, { query });
+const ladeDubletten = async (name: string) => (await ausKontakten(api.api.v1.organizations.duplicates.$get, { query: { name } })).daten;
+const ladeAktivitaeten = async (organisationId: string) => (await ausKontakten(api.api.v1.activities.$get, { query: { organisationId } })).daten;
+const ladePersonAktivitaeten = async (personId: string) => (await ausKontakten(api.api.v1.activities.$get, { query: { personId } })).daten;
+const ladeWiedervorlagen = async () => (await ausKontakten(api.api.v1["follow-ups"].$get, { query: {} })).daten;
 const ladeTrichter = (filter: TrichterFilter) =>
-  auspacken(api.api.v1.dealflow.trichter.$get({ query: { ...(filter.von ? { von: filter.von } : {}), ...(filter.bis ? { bis: filter.bis } : {}), ...(filter.fondsId ? { fondsId: filter.fondsId } : {}) } }));
+  ausCrm(api.api.v1.dealflow.funnel.$get, { query: { ...(filter.von ? { von: filter.von } : {}), ...(filter.bis ? { bis: filter.bis } : {}), ...(filter.fondsId ? { fondsId: filter.fondsId } : {}) } });
 
-const ladePerson = (id: string) => auspacken(api.api.v1.personen[":id"].$get({ param: { id } }));
+const ladePerson = (id: string) => ausKontakten(api.api.v1.people[":id"].$get, { param: { id } });
 const ladePersonenDubletten = async (q: { vorname: string; nachname: string; email?: string | undefined; ausser?: string | undefined }) =>
-  (await auspacken(api.api.v1.personen.dubletten.$get({ query: { vorname: q.vorname, nachname: q.nachname, ...(q.email ? { email: q.email } : {}), ...(q.ausser ? { ausser: q.ausser } : {}) } }))).daten;
+  (await ausKontakten(api.api.v1.people.duplicates.$get, { query: { vorname: q.vorname, nachname: q.nachname, ...(q.email ? { email: q.email } : {}), ...(q.ausser ? { ausser: q.ausser } : {}) } })).daten;
 const ladeWiedervorlagenListe = async (f: WiedervorlagenFilter) =>
-  (await auspacken(api.api.v1.wiedervorlagen.$get({ query: { zustaendig: f.zustaendig, ...(f.bis ? { bis: f.bis } : {}) } }))).daten;
-const ladeBeschlussvorlagen = (fondsId?: string) => auspacken(api.api.v1.beschlussvorlagen.$get({ query: fondsId ? { fondsId } : {} }));
-const ladeSuche = (q: string) => auspacken(api.api.v1.suche.$get({ query: { q, limit: "6" } }));
+  (await ausKontakten(api.api.v1["follow-ups"].$get, { query: { zustaendig: f.zustaendig, ...(f.bis ? { bis: f.bis } : {}) } })).daten;
+const ladeBeschlussvorlagen = (fondsId?: string) => ausBeschlussvorlagen(api.api.v1["resolution-templates"].$get, { query: fondsId ? { fondsId } : {} });
+const ladeSuche = (q: string) => ausKontakten(api.api.v1.search.$get, { query: { q, limit: "6" } });
 
-const ladeInstrumentdaten = (id: string) => auspacken(api.api.v1.beteiligungen[":id"].instrumentdaten.$get({ param: { id } }));
+const ladeInstrumentdaten = (id: string) => auspackenPortfolio(api.api.v1.investments[":id"]["instrument-data"].$get, { param: { id }, query: {} });
 const ladeBeteiligungZinsen = (id: string, stichtag?: string, stand?: string) =>
-  auspacken(api.api.v1.beteiligungen[":id"].zinsen.$get({ param: { id }, query: { ...(stichtag ? { stichtag } : {}), ...(stand ? { stand } : {}) } }));
-const ladeZinslaeufe = async (fondsId: string) => (await auspacken(api.api.v1.zinslaeufe.$get({ query: { fondsId } }))).daten;
-const ladeZinslauf = (id: string) => auspacken(api.api.v1.zinslaeufe[":id"].$get({ param: { id } }));
-const ladeKontrolle = (id: string) => auspacken(api.api.v1.zinslaeufe[":id"].kontrolle.$get({ param: { id } }));
-const ladeAbgrenzung = (fondsId: string, stichtag: string) => auspacken(api.api.v1.fonds[":id"].abgrenzung.$get({ param: { id: fondsId }, query: { stichtag } }));
+  auspackenPortfolio(api.api.v1.investments[":id"].interest.$get, { param: { id }, query: { ...(stichtag ? { stichtag } : {}), ...(stand ? { stand } : {}) } });
+const ladeZinslaeufe = async (fondsId: string) => (await ausFonds(api.api.v1["interest-runs"].$get, { query: { fondsId } })).daten;
+const ladeZinslauf = (id: string) => ausFonds(api.api.v1["interest-runs"][":id"].$get, { param: { id } });
+const ladeKontrolle = (id: string) => ausFonds(api.api.v1["interest-runs"][":id"].checks.$get, { param: { id } });
+const ladeAbgrenzung = (fondsId: string, stichtag: string) => ausFonds(api.api.v1.funds[":id"].accruals.$get, { param: { id: fondsId }, query: { stichtag } });
 
 type BewertungsAuswahl = { bewertungId?: string; stichtag?: string; stand?: string };
-const ladeBewertungen = async (beteiligungId: string, query: BewertungsAuswahl = {}) => (await auspacken(api.api.v1.beteiligungen[":id"].bewertungen.$get({ param: { id: beteiligungId }, query }))).daten;
-const ladeBewegungen = async (fondsId: string) => (await auspacken(api.api.v1.fonds[":id"].bewegungen.$get({ param: { id: fondsId } }))).daten;
-const ladeRundenListe = async (fondsId: string) => (await auspacken(api.api.v1.fonds[":id"].bewertungsrunden.$get({ param: { id: fondsId } }))).daten;
-const ladeRunde = (id: string) => auspacken(api.api.v1.bewertungsrunden[":id"].$get({ param: { id } }));
-const ladeBerichte = async (fondsId: string) => (await auspacken(api.api.v1.berichte.$get({ query: { fondsId } }))).daten;
-const ladeBericht = (id: string) => auspacken(api.api.v1.berichte[":id"].$get({ param: { id } }));
-const ladeBerichtKontrolle = (id: string) => auspacken(api.api.v1.berichte[":id"].kontrolle.$get({ param: { id } }));
-const ladeVorlagen = async (fondsId: string) => (await auspacken(api.api.v1.fonds[":id"].berichtsvorlagen.$get({ param: { id: fondsId } }))).daten;
-const ladeStufen = async (fondsId: string) => (await auspacken(api.api.v1.fonds[":id"].freigabestufen.$get({ param: { id: fondsId } }))).stufen;
+const ladeBewertungen = async (beteiligungId: string, query: BewertungsAuswahl = {}) => (await auspackenPortfolio(api.api.v1.investments[":id"].valuations.$get, { param: { id: beteiligungId }, query })).daten;
+const ladeBewegungen = async (fondsId: string) => (await ausFonds(api.api.v1.funds[":id"].movements.$get, { param: { id: fondsId } })).daten;
+const ladeRundenListe = async (fondsId: string) => (await auspackenPortfolio(api.api.v1.funds[":id"]["valuation-rounds"].$get, { param: { id: fondsId } })).daten;
+const ladeRunde = (id: string) => auspackenPortfolio(api.api.v1["valuation-rounds"][":id"].$get, { param: { id } });
+const ladeBerichte = async (fondsId: string) => (await ausBerichten(api.api.v1.reports.$get, { query: { fondsId } })).daten;
+const ladeBericht = (id: string) => ausBerichten(api.api.v1.reports[":id"].$get, { param: { id } });
+const ladeBerichtKontrolle = (id: string) => ausBerichten(api.api.v1.reports[":id"].checks.$get, { param: { id } });
+const ladeVorlagen = async (fondsId: string) => (await ausBerichten(api.api.v1.funds[":id"]["report-templates"].$get, { param: { id: fondsId } })).daten;
+const ladeStufen = async (fondsId: string) => (await auspacken(api.api.v1.funds[":id"]["approval-stages"].$get({ param: { id: fondsId } }))).stages;
 export interface WiedervorlagenFilter {
   zustaendig: "ich" | "alle";
   bis?: string | undefined;
 }
 
 const ladeKapitaltabelle = (id: string, stichtag?: string, offeneWandlungen = false) =>
-  auspacken(api.api.v1.beteiligungen[":id"].kapitaltabelle.$get({ param: { id }, query: { ...(stichtag ? { stichtag } : {}), ...(offeneWandlungen ? { offeneWandlungen: "true" as const } : {}) } }));
+  auspackenPortfolio(api.api.v1.investments[":id"]["cap-table"].$get, { param: { id }, query: { ...(stichtag ? { stichtag } : {}), ...(offeneWandlungen ? { offeneWandlungen: "true" as const } : {}) } });
 const ladeMitarbeiterpools = async (organisationId: string, stichtag?: string) =>
-  (await auspacken(api.api.v1.organisationen[":id"].mitarbeiterpools.$get({ param: { id: organisationId }, query: stichtag ? { stichtag } : {} }))).daten;
-const ladeAnteilsklassen = async (organisationId: string) => (await auspacken(api.api.v1.organisationen[":id"].anteilsklassen.$get({ param: { id: organisationId } }))).daten;
+  (await auspackenPortfolio(api.api.v1.organizations[":id"]["employee-pools"].$get, { param: { id: organisationId }, query: stichtag ? { stichtag } : {} })).daten;
+const ladeAnteilsklassen = async (organisationId: string) => (await auspackenPortfolio(api.api.v1.organizations[":id"]["share-classes"].$get, { param: { id: organisationId } })).daten;
+const ladeUebertragungen = async (organisationId: string) => (await auspacken(api.api.v1.organizations[":id"]["share-transfers"].$get({ param: { id: organisationId } }))).data;
 const ladeKurve = (id: string, bis: string, punkte: number, exitdatum: string) =>
-  auspacken(api.api.v1.beteiligungen[":id"].wasserfall.kurve.$get({ param: { id }, query: { bis, punkte: String(punkte), exitdatum } }));
+  auspackenPortfolio(api.api.v1.investments[":id"].waterfall.curve.$get, { param: { id }, query: { bis, punkte: String(punkte), exitdatum } });
 
-const ladeVehikelAuswahl = async (suche: string) => (await auspacken(api.api.v1.vehikel.$get({ query: suche ? { suche } : {} }))).daten;
-const ladeVehikelDesInvestors = async (organisationId: string) => (await auspacken(api.api.v1.organisationen[":id"].vehikel.$get({ param: { id: organisationId } }))).daten;
-const ladeFinanzierungsrunden = async (organisationId: string) => (await auspacken(api.api.v1.organisationen[":id"].finanzierungsrunden.$get({ param: { id: organisationId } }))).daten;
+const ladeVehikelAuswahl = async (suche: string) => (await ausFonds(api.api.v1.vehicles.$get, { query: suche ? { suche } : {} })).daten;
+const ladeVehikelDesInvestors = async (organisationId: string) => (await ausFonds(api.api.v1.organizations[":id"].vehicles.$get, { param: { id: organisationId } })).daten;
+const ladeFinanzierungsrunden = async (organisationId: string) => (await auspackenPortfolio(api.api.v1.organizations[":id"]["financing-rounds"].$get, { param: { id: organisationId } })).daten;
+/** Abfrageparameter des Exports mit denselben Filtern wie die Liste. */
+export function journalExportUrl(fondsId: string, f: JournalFilter, format: "csv" | "xlsx", language: string): string {
+  const query = new URLSearchParams({ format, language });
+  for (const [name, value] of Object.entries({
+    from: f.von, to: f.bis, entryType: f.typ ? journalTypenAnApi(f.typ) : undefined, investmentId: f.beteiligungId, knowledgeDate: f.stand,
+  })) if (value) query.set(name, value);
+  if (f.bewertungen) query.set("valuations", "1");
+  return `/api/v1/funds/${fondsId}/journal?${query}`;
+}
+
 const ladeJournalSeite = (fondsId: string, f: JournalFilter, cursor: string) =>
-  auspacken(
-    api.api.v1.fonds[":id"].journal.$get({
+  ausFonds(api.api.v1.funds[":id"].journal.$get, {
       param: { id: fondsId },
       query: {
         limit: "100",
@@ -74,13 +92,12 @@ const ladeJournalSeite = (fondsId: string, f: JournalFilter, cursor: string) =>
         ...(f.bewertungen ? { bewertungen: "1" as const } : {}),
         ...(f.stand ? { stand: f.stand } : {}),
       },
-    }),
-  );
-const ladeRundentransaktionen = (organisationId: string) => auspacken(api.api.v1.organisationen[":id"].rundentransaktionen.$get({ param: { id: organisationId } }));
-const ladeRundenVorschau = (organisationId: string, json: Parameters<(typeof api.api.v1.organisationen)[":id"]["finanzierungsrunden"]["vorschau"]["$post"]>[0]["json"]) =>
-  auspacken(api.api.v1.organisationen[":id"].finanzierungsrunden.vorschau.$post({ param: { id: organisationId }, json }));
-const ladePoolVorschlag = (organisationId: string, json: Parameters<(typeof api.api.v1.organisationen)[":id"]["finanzierungsrunden"]["pool-vorschlag"]["$post"]>[0]["json"]) =>
-  auspacken(api.api.v1.organisationen[":id"].finanzierungsrunden["pool-vorschlag"].$post({ param: { id: organisationId }, json }));
+    });
+const ladeRundentransaktionen = (organisationId: string) => auspackenPortfolio(api.api.v1.organizations[":id"]["round-transactions"].$get, { param: { id: organisationId } });
+const ladeRundenVorschau = (organisationId: string, json: PortfolioEingabe<(typeof api.api.v1.organizations)[":id"]["financing-rounds"]["preview"]["$post"]>["json"]) =>
+  auspackenPortfolio(api.api.v1.organizations[":id"]["financing-rounds"].preview.$post, { param: { id: organisationId }, json });
+const ladePoolVorschlag = (organisationId: string, json: PortfolioEingabe<(typeof api.api.v1.organizations)[":id"]["financing-rounds"]["pool-suggestion"]["$post"]>["json"]) =>
+  auspackenPortfolio(api.api.v1.organizations[":id"]["financing-rounds"]["pool-suggestion"].$post, { param: { id: organisationId }, json });
 
 export interface JournalFilter {
   von?: string | undefined;
@@ -115,7 +132,6 @@ export type Trichter = Awaited<ReturnType<typeof ladeTrichter>>;
 export type PersonDetail = Awaited<ReturnType<typeof ladePerson>>;
 export type PersonenKandidat = Awaited<ReturnType<typeof ladePersonenDubletten>>[number];
 export type WiedervorlageZeile = Awaited<ReturnType<typeof ladeWiedervorlagenListe>>[number];
-export type WiedervorlagenAnzahl = Awaited<ReturnType<typeof ladeWiedervorlagenAnzahl>>;
 export type Beschlussvorlagen = Awaited<ReturnType<typeof ladeBeschlussvorlagen>>;
 export type Beschlussvorlage = Beschlussvorlagen["daten"][number];
 export type Suchergebnis = Awaited<ReturnType<typeof ladeSuche>>;
@@ -135,6 +151,7 @@ export type Vorlage = Awaited<ReturnType<typeof ladeVorlagen>>[number];
 export type Kapitaltabelle = Awaited<ReturnType<typeof ladeKapitaltabelle>>;
 export type KapitalZeile = Kapitaltabelle["zeilen"][number];
 export type Anteilsklasse = Awaited<ReturnType<typeof ladeAnteilsklassen>>[number];
+export type Uebertragung = Awaited<ReturnType<typeof ladeUebertragungen>>[number];
 export type Mitarbeiterpool = Awaited<ReturnType<typeof ladeMitarbeiterpools>>[number];
 export type Mitarbeiterzuteilung = Mitarbeiterpool["zuteilungen"][number];
 export type Kurve = Awaited<ReturnType<typeof ladeKurve>>;
@@ -227,6 +244,9 @@ export const kapitaltabelle = (id: string, stichtag?: string, offeneWandlungen =
 export const mitarbeiterpools = (organisationId: string, stichtag?: string) =>
   queryOptions({ queryKey: [...schluessel.organisationen, "mitarbeiterpools", organisationId, stichtag ?? null], queryFn: () => ladeMitarbeiterpools(organisationId, stichtag) });
 
+/** Anteilsübertragungen eines Unternehmens (älteste zuerst, auch stornierte mit `reversedAt`). */
+export const uebertragungen = (organisationId: string) =>
+  queryOptions({ queryKey: [...schluessel.organisationen, "uebertragungen", organisationId], queryFn: () => ladeUebertragungen(organisationId) });
 /** Anteilsklassen eines Unternehmens (auch die, die noch keine Position nutzt). */
 export const anteilsklassen = (organisationId: string) =>
   queryOptions({ queryKey: [...schluessel.organisationen, "anteilsklassen", organisationId], queryFn: () => ladeAnteilsklassen(organisationId) });

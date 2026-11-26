@@ -140,7 +140,7 @@ describe("Aufstockung beim Anlegen der Runde", () => {
     await esop("ESOP 2");
     const mehrere = await post(rundenPfad, { ...serieB({ basis: "pre_money", anzahl: "1000" }), bezeichnung: "Serie C" }, bearbeiter);
     expect(mehrere.status).toBe(400);
-    expect(JSON.stringify(await json(mehrere))).toContain("pool_waehlen");
+    expect(JSON.stringify(await json(mehrere))).toContain("pool_selection_required");
     const gewaehlt = await post(rundenPfad, { ...serieB({ basis: "pre_money", anzahl: "1000", poolId: liste[0].id }), bezeichnung: "Serie C" }, bearbeiter);
     expect(gewaehlt.status).toBe(201);
   });
@@ -185,7 +185,7 @@ describe("Aufstockung beim Anlegen der Runde", () => {
     expect((await post(`${pools}/${poolId}/zuteilungen`, { kategorie: "fuehrung", anzahl: "100000", zugeteiltAm: "2026-03-02" }, bearbeiter)).status).toBe(201);
     const verweigert = await loesche(`/finanzierungsrunden/${zweite.id}`, undefined, bearbeiter);
     expect(verweigert.status).toBe(409);
-    expect((await json(verweigert)).fehler.code).toBe("ZUTEILUNG_UEBER_POOL");
+    expect((await json(verweigert)).error.code).toBe("grant_exceeds_pool");
   });
 });
 
@@ -216,7 +216,7 @@ describe("Aufstockung folgt dem Entwurf", () => {
     expect((await post(`${pools}/${poolId}/zuteilungen`, { kategorie: "fuehrung", anzahl: "100000", zugeteiltAm: "2026-03-02" }, bearbeiter)).status).toBe(201);
     const verweigert = await patch(rundePfad(runde.id), { datum: "2026-04-01" }, bearbeiter);
     expect(verweigert.status).toBe(409);
-    expect((await json(verweigert)).fehler.code).toBe("ZUTEILUNG_UEBER_POOL");
+    expect((await json(verweigert)).error.code).toBe("grant_exceeds_pool");
     expect((await json(await get(rundePfad(runde.id), bearbeiter))).datum).toBe("2026-03-01");
     expect((await poolListe())[0].aenderungen[1]).toMatchObject({ datum: "2026-03-01", rundeId: runde.id });
     // Ein früheres Datum passt
@@ -237,7 +237,7 @@ describe("Aufstockung folgt dem Entwurf", () => {
     const mit = await json(await post(rundenPfad, { ...serieB({ basis: "pre_money", anzahl: "150000" }), positionen: [] }, bearbeiter));
     const verweigert = await patch(rundePfad(mit.id), { art: "bruecke" }, bearbeiter);
     expect(verweigert.status).toBe(409);
-    expect((await json(verweigert)).fehler.code).toBe("RUNDE_MIT_AUFSTOCKUNG");
+    expect((await json(verweigert)).error.code).toBe("round_has_top_up");
     expect(await json(await get(rundePfad(mit.id), bearbeiter))).toMatchObject({ art: "eigenkapital", status: "entwurf" });
     expect((await poolListe())[0].aenderungen).toHaveLength(2);
     const ohne = await json(await post(rundenPfad, { ...serieB(), bezeichnung: "Serie C", positionen: [] }, bearbeiter));
@@ -272,7 +272,7 @@ describe("Aufstockung folgt dem Entwurf", () => {
     expect((await post(`${pools}/${poolId}/zuteilungen`, { kategorie: "mitarbeitende", anzahl: "1000", zugeteiltAm: "2026-03-02" }, bearbeiter)).status).toBe(201);
     const verweigert = await loesche(rundePfad(runde.id), undefined, bearbeiter);
     expect(verweigert.status).toBe(409);
-    expect((await json(verweigert)).fehler.code).toBe("ZUTEILUNG_UEBER_POOL");
+    expect((await json(verweigert)).error.code).toBe("grant_exceeds_pool");
     expect(await poolListe()).toHaveLength(1);
   });
 });

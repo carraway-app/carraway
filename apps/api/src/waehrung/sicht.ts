@@ -17,6 +17,7 @@ import { ermittleBeteiligungsstatus } from "../kennzahlen/beteiligungsstatus";
 import type { Tx } from "../zeitlimit";
 import { kursFuer, kursFenster, ladeGueltigeKurse } from "./kurse";
 import { geldlos } from "../instrumente/geldfluss";
+import { hauswaehrung } from "../manager/profil";
 
 /**
  * Währungssicht auf Beteiligungen und Fonds (Etappe 21). Die gebuchten Beträge stehen in der Fondswährung; hier kommen die lokale Währung der Beteiligung und eine
@@ -26,6 +27,7 @@ import { geldlos } from "../instrumente/geldfluss";
  * - **Zeitwert** (Bewertung, offene Forderungen) zum Kurs des Bewertungsstichtags; Forderungen zum Kurs des Stichtags der Ansicht.
  * - **Lücke**: Fehlt ein Kurs, steht an der Stelle keine Zahl, sondern die Lücke mit Paar, Tag und Grund; eine Summe mit einer Lücke ist selbst eine Lücke.
  * - Die Fondssicht stimmt immer mit den Kennzahlen überein (gleiche Posten, gleiche Regeln für Exit und Wissensstand).
+ * - **Hauswährung** (Manager-Profil, `manager/profil.ts`): eine weitere Sicht nach denselben Regeln wie die Vergleichswährung, immer dabei.
  */
 
 export interface KursInfo {
@@ -53,6 +55,8 @@ export interface Betraege {
   fonds: string;
   lokal: string | null;
   vergleich: string | null;
+  /** Betrag in der Hauswährung des Managers; `null` bei einer Lücke. */
+  haus: string | null;
 }
 
 export interface SichtVorgang {
@@ -78,6 +82,7 @@ export interface Waehrungen {
   fonds: string;
   lokal: string;
   vergleich: string | null;
+  haus: string;
 }
 
 export interface Beteiligungssicht {
@@ -95,6 +100,8 @@ export interface Beteiligungssicht {
   vorgaenge: SichtVorgang[];
   bewertungen: SichtBewertung[];
   luecken: SichtLuecke[];
+  /** Lücken der Hauswährung, getrennt, damit sie die Sichten Lokal und Vergleich nicht stören. */
+  hausLuecken: SichtLuecke[];
 }
 
 type Roh = {
@@ -134,6 +141,7 @@ interface Eingang {
   forderungen: Decimal;
   kurse: readonly Wechselkurs[];
   vergleich: string | null;
+  haus: string;
 }
 
 /** Reine Rechnung einer Beteiligung aus den geladenen Zeilen. */
@@ -141,12 +149,21 @@ function rechne(e: Eingang): Beteiligungssicht {
   const f = e.roh.fonds_waehrung;
   const l = e.roh.waehrung ?? f;
   const kontext = { fondsWaehrung: f, lokalWaehrung: l, vergleichsWaehrung: e.vergleich, kurse: e.kurse };
+  const hausKontext = { ...kontext, vergleichsWaehrung: e.haus };
   const luecken: SichtLuecke[] = [];
+  const hausLuecken: SichtLuecke[] = [];
+  /** Betrag eines Postens in der Hauswährung (gleiche Regeln wie die Vergleichswährung); Lücken landen in `hausLuecken`. */
+  const inHaus = (verwendung: SichtLuecke["verwendung"], posten: Parameters<typeof sichtenFuerPosten>[0]) => {
+    const h = sichtenFuerPosten(posten, hausKontext);
+    hausLuecken.push(...lueckenVon(verwendung, posten.datum, h.luecken.filter((x) => x.nach === e.haus)));
+    return h.vergleich;
+  };
 
   const vorgaenge: SichtVorgang[] = e.vorgaenge.map((v) => {
-    const s = sichtenFuerPosten({ datum: v.valuta, fonds: v.betrag, lokal: v.betrag_lokal }, kontext);
+    const posten = { datum: v.valuta, fonds: v.betrag, lokal: v.betrag_lokal };
+    const s = sichtenFuerPosten(posten, kontext);
     luecken.push(...lueckenVon("kosten", v.valuta, s.luecken));
-    return { id: v.id, art: v.art, valuta: v.valuta, betrag: { fonds: s.fonds.toFixed(2), lokal: text(s.lokal), vergleich: text(s.vergleich) }, gebuchterKurs: v.kurs === null ? null : new Decimal(v.kurs).toFixed(), kurse: kursInfo(v.valuta, s) };
+    return { id: v.id, art: v.art, valuta: v.valuta, betrag: { fonds: s.fonds.toFixed(2), lokal: text(s.lokal), vergleich: text(s.vergleich), haus: text(inHaus("kosten", posten)) }, gebuchterKurs: v.kurs === null ? null : new Decimal(v.kurs).toFixed(), kurse: kursInfo(v.valuta, s) };
   });
   const summe = (arten: readonly string[]): Betraege => {
     const zeilen = e.vorgaenge.map((v, i) => ({ v, s: vorgaenge[i]! })).filter((x) => arten.includes(x.v.art) && !x.v.geldlos);
@@ -155,6 +172,7 @@ function rechne(e: Eingang): Beteiligungssicht {
       fonds: fonds.toFixed(2),
       lokal: text(summeMitLuecken(zeilen.map((x) => x.s.betrag.lokal))),
       vergleich: e.vergleich === null ? null : text(summeMitLuecken(zeilen.map((x) => x.s.betrag.vergleich))),
+      haus: text(summeMitLuecken(zeilen.map((x) => x.s.betrag.haus))),
     };
   };
 
@@ -162,8 +180,10 @@ function rechne(e: Eingang): Beteiligungssicht {
   const verlauf: SichtBewertung[] = [];
   let vorige: { lokal: Decimal; kurs: Decimal } | null = null;
   for (const w of e.bewertungen) {
-    const s = sichtenFuerPosten({ datum: w.stichtag, fonds: w.wert, lokal: w.wert_lokal }, kontext);
+    const posten = { datum: w.stichtag, fonds: w.wert, lokal: w.wert_lokal };
+    const s = sichtenFuerPosten(posten, kontext);
     luecken.push(...lueckenVon("zeitwert", w.stichtag, s.luecken));
+    const haus = inHaus("zeitwert", posten);
     // Effektiver Kurs dieser Bewertung (Fondswährung je lokaler Einheit): der festgehaltene, sonst aus den beiden Beträgen.
     const kurs = s.lokal !== null && !s.lokal.isZero() ? s.fonds.div(s.lokal) : null;
     let fx: SichtBewertung["fx"] = null;
@@ -172,7 +192,7 @@ function rechne(e: Eingang): Beteiligungssicht {
       fx = { gesamt: z.gesamt, wert: z.wert, waehrung: z.waehrung };
     }
     vorige = s.lokal !== null && kurs !== null ? { lokal: s.lokal, kurs } : null;
-    verlauf.push({ stichtag: w.stichtag, wert: { fonds: s.fonds.toFixed(2), lokal: text(s.lokal), vergleich: text(s.vergleich) }, gebuchterKurs: w.kurs === null ? null : new Decimal(w.kurs).toFixed(), kurse: kursInfo(w.stichtag, s), fx });
+    verlauf.push({ stichtag: w.stichtag, wert: { fonds: s.fonds.toFixed(2), lokal: text(s.lokal), vergleich: text(s.vergleich), haus: text(haus) }, gebuchterKurs: w.kurs === null ? null : new Decimal(w.kurs).toFixed(), kurse: kursInfo(w.stichtag, s), fx });
   }
 
   const ausgeschieden = e.roh.status === "exit" && (e.roh.durch_verkauf || e.vorgaenge.some((v) => v.art === "rueckfluss" && new Decimal(v.betrag).gt(0)));
@@ -181,19 +201,22 @@ function rechne(e: Eingang): Beteiligungssicht {
   let bewertungKurse: KursInfo[] = [];
   {
     // Zeitwert = letzte Bewertung (zum Kurs ihres Stichtags) plus offene Forderungen (zum Kurs des Stichtags der Ansicht); nach einem Exit 0.
-    const teile: { fonds: Decimal; lokal: Decimal | null; vergleich: Decimal | null }[] = [];
-    if (letzte) teile.push({ fonds: new Decimal(letzte.wert.fonds), lokal: letzte.wert.lokal === null ? null : new Decimal(letzte.wert.lokal), vergleich: letzte.wert.vergleich === null ? null : new Decimal(letzte.wert.vergleich) });
+    const teile: { fonds: Decimal; lokal: Decimal | null; vergleich: Decimal | null; haus: Decimal | null }[] = [];
+    const dez = (x: string | null) => (x === null ? null : new Decimal(x));
+    if (letzte) teile.push({ fonds: new Decimal(letzte.wert.fonds), lokal: dez(letzte.wert.lokal), vergleich: dez(letzte.wert.vergleich), haus: dez(letzte.wert.haus) });
     if (letzte) bewertungKurse = [...letzte.kurse];
     if (!e.forderungen.isZero()) {
-      const s = sichtenFuerPosten({ datum: e.stichtag, fonds: e.forderungen, lokal: null }, kontext);
+      const posten = { datum: e.stichtag, fonds: e.forderungen, lokal: null };
+      const s = sichtenFuerPosten(posten, kontext);
       luecken.push(...lueckenVon("zeitwert", e.stichtag, s.luecken));
       bewertungKurse.push(...kursInfo(e.stichtag, s));
-      teile.push({ fonds: s.fonds, lokal: s.lokal, vergleich: s.vergleich });
+      teile.push({ fonds: s.fonds, lokal: s.lokal, vergleich: s.vergleich, haus: inHaus("zeitwert", posten) });
     }
     bewertung = {
       fonds: teile.reduce((a, t) => a.plus(t.fonds), new Decimal(0)).toFixed(2),
       lokal: text(summeMitLuecken(teile.map((t) => t.lokal))),
       vergleich: e.vergleich === null ? null : text(summeMitLuecken(teile.map((t) => t.vergleich))),
+      haus: text(summeMitLuecken(teile.map((t) => t.haus))),
     };
   }
 
@@ -201,7 +224,7 @@ function rechne(e: Eingang): Beteiligungssicht {
     beteiligungId: e.roh.id,
     stichtag: e.stichtag,
     stand: e.stand ?? null,
-    waehrungen: { fonds: f, lokal: l, vergleich: e.vergleich },
+    waehrungen: { fonds: f, lokal: l, vergleich: e.vergleich, haus: e.haus },
     kennzahlen: { investiert: summe(["auszahlung"]), rueckfluesse: summe([...RUECKFLUSS_ARTEN]), bewertung },
     bewertungKurse,
     kostenKurse: vorgaenge.filter((v, i) => ["auszahlung", ...RUECKFLUSS_ARTEN].includes(v.art) && !e.vorgaenge[i]!.geldlos).flatMap((v) => v.kurse),
@@ -209,11 +232,12 @@ function rechne(e: Eingang): Beteiligungssicht {
     vorgaenge,
     bewertungen: verlauf,
     luecken: eindeutig(luecken),
+    hausLuecken: eindeutig(hausLuecken),
   };
 }
 
 /** Lädt die Zeilen für mehrere Beteiligungen eines Fonds (oder eine) und die Kurse im nötigen Fenster. */
-async function lade(tx: Tx, auswahl: { fondsId: string } | { beteiligungId: string }, stichtag: string, stand: string | undefined, vergleich: string | null) {
+async function lade(tx: Tx, auswahl: { fondsId: string } | { beteiligungId: string }, stichtag: string, stand: string | undefined, vergleich: string | null, haus: string) {
   const { rows: stamm } = await tx.execute<Omit<Roh, "durch_verkauf">>(sql`
     SELECT b.id, b.organisation_id, o.name AS organisation_name, b.instrument::text AS instrument, b.status::text AS status, b.waehrung, f.waehrung AS fonds_waehrung
     FROM beteiligung b JOIN organisation o ON o.id = b.organisation_id JOIN fonds f ON f.id = b.fonds_id
@@ -236,9 +260,9 @@ async function lade(tx: Tx, auswahl: { fondsId: string } | { beteiligungId: stri
   for (const x of fr) forderungen.set(x.beteiligung_id, new Decimal(x.summe));
   const tage = [stichtag, ...vorgaenge.map((v) => v.valuta), ...bewertungen.map((w) => w.stichtag)];
   const fenster = kursFenster(tage)!;
-  const waehrungen = [...new Set([...roh.flatMap((r) => [r.fonds_waehrung, r.waehrung ?? r.fonds_waehrung]), ...(vergleich ? [vergleich] : []), "EUR"])];
+  const waehrungen = [...new Set([...roh.flatMap((r) => [r.fonds_waehrung, r.waehrung ?? r.fonds_waehrung]), ...(vergleich ? [vergleich] : []), haus, "EUR"])];
   // Nur nötig, wenn es überhaupt etwas umzurechnen gibt.
-  const braucht = roh.some((r) => (r.waehrung ?? r.fonds_waehrung) !== r.fonds_waehrung) || vergleich !== null;
+  const braucht = roh.some((r) => (r.waehrung ?? r.fonds_waehrung) !== r.fonds_waehrung || r.fonds_waehrung !== haus) || vergleich !== null;
   const kurse = braucht ? await ladeGueltigeKurse(tx, fenster.von, fenster.bis, { stand, waehrungen }) : [];
   return { roh, vorgaenge, bewertungen, forderungen, kurse };
 }
@@ -248,9 +272,10 @@ export async function ladeBeteiligungSicht(tx: Tx, beteiligungId: string, o: { s
   if (!vorab) return null;
   const stichtag = o.stichtag ?? (await standardStichtag(tx, vorab.fonds_id, o.stand));
   const vergleich = o.vergleich ?? null;
-  const d = await lade(tx, { beteiligungId }, stichtag, o.stand, vergleich);
+  const haus = await hauswaehrung(tx);
+  const d = await lade(tx, { beteiligungId }, stichtag, o.stand, vergleich, haus);
   const roh = d.roh[0]!;
-  return rechne({ roh, stichtag, stand: o.stand, vorgaenge: d.vorgaenge, bewertungen: d.bewertungen, forderungen: d.forderungen.get(roh.id) ?? new Decimal(0), kurse: d.kurse, vergleich });
+  return rechne({ roh, stichtag, stand: o.stand, vorgaenge: d.vorgaenge, bewertungen: d.bewertungen, forderungen: d.forderungen.get(roh.id) ?? new Decimal(0), kurse: d.kurse, vergleich, haus });
 }
 
 export interface FondsSichtZeile {
@@ -262,6 +287,7 @@ export interface FondsSichtZeile {
   rueckfluesse: Betraege;
   bewertung: Betraege;
   luecken: SichtLuecke[];
+  hausLuecken: SichtLuecke[];
   bewertungKurse: KursInfo[];
   kostenKurse: KursInfo[];
   letzteBewertung: { wert: Betraege; kurse: KursInfo[] } | null;
@@ -271,18 +297,24 @@ export interface Fondssicht {
   fondsId: string;
   stichtag: string;
   stand: string | null;
-  waehrungen: { fonds: string; vergleich: string | null };
+  waehrungen: { fonds: string; vergleich: string | null; haus: string };
   zeilen: FondsSichtZeile[];
   /** Summen in Fondswährung und Vergleichswährung; die Summe in lokalen Währungen gibt es nicht (verschiedene Einheiten). Eine Lücke in einer Zeile macht die Vergleichssumme zur Lücke. */
   navVergleich: string | null;
-  summen: { investiert: { fonds: string; vergleich: string | null }; rueckfluesse: { fonds: string; vergleich: string | null }; bewertung: { fonds: string; vergleich: string | null } };
+  /** NAV des Fonds in der Hauswährung (Kurs des Stichtags); `null` ohne NAV, bei fehlendem Kurs oder wenn die Hauswährung die Fondswährung ist (dann gilt die NAV der Kennzahlen). */
+  navHaus: string | null;
+  summen: { investiert: Summe; rueckfluesse: Summe; bewertung: Summe };
   luecken: SichtLuecke[];
+  hausLuecken: SichtLuecke[];
 }
 
-export async function ladeFondsSicht(tx: Tx, fondsId: string, o: { stichtag?: string | undefined; stand?: string | undefined; vergleich?: string | null | undefined }): Promise<Fondssicht> {
+type Summe = { fonds: string; vergleich: string | null; haus: string | null };
+
+export async function ladeFondsSicht(tx: Tx, fondsId: string, o: { stichtag?: string | undefined; stand?: string | undefined; vergleich?: string | null | undefined; sieht?: ((fondsId: string) => boolean) | undefined }): Promise<Fondssicht> {
   const stichtag = o.stichtag ?? (await standardStichtag(tx, fondsId, o.stand));
   const vergleich = o.vergleich ?? null;
-  const d = await lade(tx, { fondsId }, stichtag, o.stand, vergleich);
+  const haus = await hauswaehrung(tx);
+  const d = await lade(tx, { fondsId }, stichtag, o.stand, vergleich, haus);
   const zeilen: FondsSichtZeile[] = d.roh.map((roh) => {
     const s = rechne({
       roh,
@@ -293,6 +325,7 @@ export async function ladeFondsSicht(tx: Tx, fondsId: string, o: { stichtag?: st
       forderungen: d.forderungen.get(roh.id) ?? new Decimal(0),
       kurse: d.kurse,
       vergleich,
+      haus,
     });
     return {
       beteiligungId: roh.id,
@@ -303,33 +336,41 @@ export async function ladeFondsSicht(tx: Tx, fondsId: string, o: { stichtag?: st
       rueckfluesse: s.kennzahlen.rueckfluesse!,
       bewertung: s.kennzahlen.bewertung!,
       luecken: s.luecken,
+      hausLuecken: s.hausLuecken,
       bewertungKurse: s.bewertungKurse,
       kostenKurse: s.kostenKurse,
       letzteBewertung: s.letzteBewertung,
     };
   });
-  const summe = (wahl: (z: FondsSichtZeile) => Betraege) => ({
+  const summe = (wahl: (z: FondsSichtZeile) => Betraege): Summe => ({
     fonds: zeilen.reduce((a, z) => a.plus(wahl(z).fonds), new Decimal(0)).toFixed(2),
     vergleich: vergleich === null ? null : text(summeMitLuecken(zeilen.map((z) => wahl(z).vergleich))),
+    haus: text(summeMitLuecken(zeilen.map((z) => wahl(z).haus))),
   });
   const fonds = d.roh[0]?.fonds_waehrung ?? (await fondsWaehrung(tx, fondsId));
   let navVergleich: string | null = null;
-  if (vergleich !== null) {
-    const kurs = await kursFuer(tx, fonds, vergleich, stichtag, o.stand);
-    if (kurs.ok) {
-      const { nav } = await ladeNavBestandteile(tx, fondsId, stichtag, o.stand);
-      if (nav !== null) navVergleich = konvertiere(nav, kurs.faktor).toFixed(2);
+  let navHaus: string | null = null;
+  // Die NAV nur rechnen, wenn eine Umrechnung gefragt ist (Vergleich oder Hauswährung ungleich Fondswährung).
+  const { nav } = vergleich !== null || haus !== fonds ? await ladeNavBestandteile(tx, fondsId, stichtag, o.stand, new Set(), { sieht: o.sieht }) : { nav: null };
+  if (nav !== null) {
+    if (vergleich !== null) {
+      const kurs = await kursFuer(tx, fonds, vergleich, stichtag, o.stand);
+      if (kurs.ok) navVergleich = konvertiere(nav, kurs.faktor).toFixed(2);
     }
+    const kurs = await kursFuer(tx, fonds, haus, stichtag, o.stand);
+    if (kurs.ok) navHaus = konvertiere(nav, kurs.faktor).toFixed(2);
   }
   return {
     fondsId,
     stichtag,
     stand: o.stand === undefined ? null : new Date(o.stand).toISOString(),
-    waehrungen: { fonds, vergleich },
+    waehrungen: { fonds, vergleich, haus },
     navVergleich,
+    navHaus,
     zeilen,
     summen: { investiert: summe((z) => z.investiert), rueckfluesse: summe((z) => z.rueckfluesse), bewertung: summe((z) => z.bewertung) },
     luecken: eindeutig(zeilen.flatMap((z) => z.luecken)),
+    hausLuecken: eindeutig(zeilen.flatMap((z) => z.hausLuecken)),
   };
 }
 

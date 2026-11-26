@@ -1,6 +1,7 @@
+import type { Dateifehler } from "@carraway/api/waehrung/kursdatei";
+import { ausFonds, type FondsEingabe } from "./abbildung-fonds";
 import { queryOptions } from "@tanstack/react-query";
-import type { InferRequestType } from "hono/client";
-import { api, auspacken } from "./client";
+import { api } from "./client";
 import { useApiMutation } from "./mutationen";
 
 /** Währungen (Etappe 21): Währungssicht auf Beteiligung und Fonds, Kurstabelle, Kursimport und lokale Währung. Gerechnet wird nur auf dem Server. */
@@ -11,10 +12,10 @@ export type SichtAbfrage = { stichtag?: string | undefined; stand?: string | und
 
 const bereinigt = (q: SichtAbfrage) => ({ ...(q.stichtag ? { stichtag: q.stichtag } : {}), ...(q.stand ? { stand: q.stand } : {}), ...(q.vergleich ? { vergleich: q.vergleich } : {}) });
 
-const ladeBeteiligungSicht = (id: string, q: SichtAbfrage) => auspacken(api.api.v1.beteiligungen[":id"].waehrungssicht.$get({ param: { id }, query: bereinigt(q) }));
-const ladeFondsSicht = (id: string, q: SichtAbfrage) => auspacken(api.api.v1.fonds[":id"].waehrungssicht.$get({ param: { id }, query: bereinigt(q) }));
-const ladeWaehrungen = async () => (await auspacken(api.api.v1.wechselkurse.waehrungen.$get())).daten;
-const ladeKurse = async (q: KursFilter): Promise<Kurs[]> => (await auspacken(api.api.v1.wechselkurse.$get({ query: { ...(q.basis ? { basis: q.basis } : {}), ...(q.quote ? { quote: q.quote } : {}), alle: q.alle ? "1" : "0", limit: String(q.limit ?? 200) } }))).daten as unknown as Kurs[];
+const ladeBeteiligungSicht = (id: string, q: SichtAbfrage) => ausFonds(api.api.v1.investments[":id"]["currency-view"].$get, { param: { id }, query: bereinigt(q) });
+const ladeFondsSicht = (id: string, q: SichtAbfrage) => ausFonds(api.api.v1.funds[":id"]["currency-view"].$get, { param: { id }, query: bereinigt(q) });
+const ladeWaehrungen = async () => (await ausFonds(api.api.v1["exchange-rates"].currencies.$get)).daten;
+const ladeKurse = async (q: KursFilter): Promise<Kurs[]> => (await ausFonds(api.api.v1["exchange-rates"].$get, { query: { ...(q.basis ? { basis: q.basis } : {}), ...(q.quote ? { quote: q.quote } : {}), alle: q.alle ? "1" : "0", limit: String(q.limit ?? 200) } })).daten as unknown as Kurs[];
 
 export type Beteiligungssicht = Awaited<ReturnType<typeof ladeBeteiligungSicht>>;
 export type Fondssicht = Awaited<ReturnType<typeof ladeFondsSicht>>;
@@ -53,13 +54,13 @@ export interface KursImportErgebnis {
   unveraendert: number;
   abweichend: { datum: string; basis: string; quote: string; kurs: string; vorhanden: string }[];
   abweichendAnzahl: number;
-  fehler: { zeile: number; meldung: string }[];
+  dateifehler: Dateifehler[];
   fehlerAnzahl: number;
   beispiele: { datum: string; basis: string; quote: string; kurs: string }[];
   uebernommen: boolean;
 }
-type ImportEingabe = InferRequestType<typeof api.api.v1.wechselkurse.import.$post>["json"];
-const importiere = (json: ImportEingabe) => auspacken(api.api.v1.wechselkurse.import.$post({ json })) as unknown as Promise<KursImportErgebnis>;
+type ImportEingabe = FondsEingabe<(typeof api.api.v1)["exchange-rates"]["import"]["$post"]>["json"];
+const importiere = (json: ImportEingabe) => ausFonds(api.api.v1["exchange-rates"].import.$post, { json }) as unknown as Promise<KursImportErgebnis>;
 
 export const beteiligungWaehrungssicht = (id: string, q: SichtAbfrage) => queryOptions({ queryKey: [...wurzel, "beteiligung", id, bereinigt(q)], queryFn: () => ladeBeteiligungSicht(id, q) });
 export const fondsWaehrungssicht = (id: string, q: SichtAbfrage) => queryOptions({ queryKey: [...wurzel, "fonds", id, bereinigt(q)], queryFn: () => ladeFondsSicht(id, q) });
@@ -71,7 +72,7 @@ const alles = [wurzel, ["beteiligung"], ["fonds"], ["bewertungen"]] as const;
 
 export const useKursAnlegen = () =>
   useApiMutation({
-    aufruf: (json: InferRequestType<typeof api.api.v1.wechselkurse.$post>["json"]) => auspacken(api.api.v1.wechselkurse.$post({ json })),
+    aufruf: (json: FondsEingabe<(typeof api.api.v1)["exchange-rates"]["$post"]>["json"]) => ausFonds(api.api.v1["exchange-rates"].$post, { json }),
     invalidiert: () => alles,
   });
 
@@ -83,6 +84,6 @@ export const useKursImport = () =>
 
 export const useLokaleWaehrung = (beteiligungId: string) =>
   useApiMutation({
-    aufruf: (waehrung: string | null) => auspacken(api.api.v1.beteiligungen[":id"].waehrung.$put({ param: { id: beteiligungId }, json: { waehrung } })),
+    aufruf: (waehrung: string | null) => ausFonds(api.api.v1.investments[":id"].currency.$put, { param: { id: beteiligungId }, json: { waehrung } }),
     invalidiert: () => alles,
   });

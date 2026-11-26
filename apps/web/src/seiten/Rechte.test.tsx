@@ -5,7 +5,7 @@ import { alsRolle, BET_ID, DEAL_ID, FONDS_ID, ICH_ID, ZL_ID, dealDetailDaten, fe
 import { de } from "../i18n/de";
 import { en } from "../i18n/en";
 
-const ICH = "/api/v1/ich";
+const ICH = "/api/v1/me";
 const ANDERE = "88888888-8888-4888-8888-888888888888";
 const ICH_EIGENE = ICH_ID;
 
@@ -54,7 +54,7 @@ describe("Rechte in der Oberfläche", () => {
   it("sperrt die Freigabe für die Person, die geprüft hat, zeigt Namen statt IDs und erklärt die Regel in beiden Sprachen", async () => {
     const api = spieleApi({
       [ICH]: alsRolle("freigeber"),
-      "/api/v1/benutzer/namen": { koerper: { daten: [{ id: ICH_EIGENE, name: "Vera Beispiel" }, { id: ANDERE, name: "Berta Beispiel" }] } },
+      "/api/v1/users/names": { koerper: { daten: [{ id: ICH_EIGENE, name: "Vera Beispiel" }, { id: ANDERE, name: "Berta Beispiel" }] } },
       [`/api/v1/zinslaeufe/${ZL_ID}`]: { koerper: { ...zinslaufDaten, berechnetVon: ANDERE, geprueftVon: ICH_EIGENE } },
     });
     rendereApp(`/zinslaeufe/${ZL_ID}`);
@@ -64,7 +64,7 @@ describe("Rechte in der Oberfläche", () => {
     const fakten = within(screen.getByRole("region", { name: "Status des Zinslaufs" }));
     expect((await fakten.findByText(/^Berta Beispiel,/))).toBeTruthy();
     expect(fakten.getByText(/^Vera Beispiel,/)).toBeTruthy();
-    const namenAnfrage = api.anfragen("GET", "/api/v1/benutzer/namen")[0]!;
+    const namenAnfrage = api.anfragen("GET", "/api/v1/users/names")[0]!;
     expect(namenAnfrage.query.get("ids")?.split(",").sort()).toEqual([ANDERE, ICH_EIGENE].sort());
   });
 
@@ -72,16 +72,16 @@ describe("Rechte in der Oberfläche", () => {
     const api = spieleApi();
     rendereApp(`/zinslaeufe/${ZL_ID}`);
     await screen.findByRole("button", { name: "Freigeben" });
-    expect(api.anfragen("GET", "/api/v1/benutzer/namen")).toHaveLength(0);
+    expect(api.anfragen("GET", "/api/v1/users/names")).toHaveLength(0);
     expect(screen.getAllByText(/^System,/).length).toBeGreaterThan(0);
   });
 
-  it("erklärt VIER_AUGEN_VERLETZT beim Freigeben in beiden Sprachen", async () => {
-    spieleApi({ [`/api/v1/zinslaeufe/${ZL_ID}`]: { koerper: { ...zinslaufDaten, geprueftVon: ANDERE } }, [`POST /api/v1/zinslaeufe/${ZL_ID}/freigeben`]: fehler(409, "VIER_AUGEN_VERLETZT") });
+  it("erklärt four_eyes_violated beim Freigeben in beiden Sprachen", async () => {
+    spieleApi({ [`/api/v1/zinslaeufe/${ZL_ID}`]: { koerper: { ...zinslaufDaten, geprueftVon: ANDERE } }, [`POST /api/v1/zinslaeufe/${ZL_ID}/freigeben`]: fehler(409, "four_eyes_violated") });
     localStorage.setItem("carraway.sprache", "en");
     rendereApp(`/zinslaeufe/${ZL_ID}`);
     await userEvent.setup().click(await screen.findByRole("button", { name: "Approve" }));
-    expect((await screen.findByRole("alert")).textContent).toContain(en.fehler.VIER_AUGEN_VERLETZT);
+    expect((await screen.findByRole("alert")).textContent).toContain(en.fehler.four_eyes_violated);
   });
 });
 
@@ -120,7 +120,7 @@ describe("Beschluss und Übergang mit echten Personen", () => {
   it("sperrt den Übergang für die Person, die zugestimmt hat, und zeigt, wer den Beschluss erfasst hat", async () => {
     spieleApi({
       [ICH]: alsRolle("freigeber"),
-      "/api/v1/benutzer/namen": { koerper: { daten: [{ id: ICH_EIGENE, name: "Vera Beispiel" }] } },
+      "/api/v1/users/names": { koerper: { daten: [{ id: ICH_EIGENE, name: "Vera Beispiel" }] } },
       [`/api/v1/deals/${DEAL_ID}`]: { koerper: { ...dealDetailDaten, beschluesse: [{ ...zustimmung, erfasstVon: ICH_EIGENE }] } },
     });
     rendereApp(`/deals/${DEAL_ID}`);
@@ -136,7 +136,7 @@ describe("Beschluss und Übergang mit echten Personen", () => {
     spieleApi({
       "/api/v1/fonds": { koerper: { daten: [{ id: FONDS_ID, name: "Beispielfonds I", kurzname: "BF I", vintage: 2019, zeichnungskapital: "1", waehrung: "EUR" }, { id: zweiterFonds, name: "Beispielfonds II", kurzname: "BF II", vintage: 2021, zeichnungskapital: "1", waehrung: "EUR" }] } },
       [`/api/v1/deals/${DEAL_ID}`]: { koerper: { ...dealDetailDaten, fondsId: null, beschluesse: [{ ...zustimmung, fondsId: zweiterFonds }] } },
-      [`POST /api/v1/deals/${DEAL_ID}/beteiligung`]: fehler(409, "BESCHLUSS_FONDS_ABWEICHEND"),
+      [`POST /api/v1/deals/${DEAL_ID}/beteiligung`]: fehler(409, "resolution_fund_mismatch"),
     });
     rendereApp(`/deals/${DEAL_ID}`);
     const nutzer = userEvent.setup();
@@ -144,8 +144,8 @@ describe("Beschluss und Übergang mit echten Personen", () => {
     const dialog = within(await screen.findByRole("dialog", { name: "Ins Portfolio übernehmen" }));
     expect((dialog.getByLabelText("Fonds") as HTMLSelectElement).value).toBe(zweiterFonds);
     await nutzer.click(dialog.getByRole("button", { name: "Beteiligung anlegen" }));
-    expect((await dialog.findByRole("alert")).textContent).toContain(de.fehler.BESCHLUSS_FONDS_ABWEICHEND);
-    for (const code of ["DEAL_FONDS_GESPERRT", "FONDS_ERFORDERLICH", "FONDS_NUR_BEI_ZUSTIMMUNG"] as const) {
+    expect((await dialog.findByRole("alert")).textContent).toContain(de.fehler.resolution_fund_mismatch);
+    for (const code of ["deal_fund_locked", "fund_required", "fund_only_with_approval"] as const) {
       expect(de.fehler[code].length).toBeGreaterThan(10);
       expect(en.fehler[code].length).toBeGreaterThan(10);
     }
@@ -153,8 +153,8 @@ describe("Beschluss und Übergang mit echten Personen", () => {
 });
 
 describe("Periodensperre am Formular", () => {
-  it("zeigt PERIODE_GESPERRT mit Datum, ohne Datum und auf Englisch", async () => {
-    const pfad = `POST /api/v1/beteiligungen/${BET_ID}/vorgaenge`;
+  it("zeigt period_locked mit Datum, ohne Datum und auf Englisch", async () => {
+    const pfad = `POST /api/v1/investments/${BET_ID}/transactions`;
     const neuer = async (antwort: ReturnType<typeof fehler>, bereitsEn = false) => {
       spieleApi({ [pfad]: antwort });
       if (bereitsEn) localStorage.setItem("carraway.sprache", "en");
@@ -168,14 +168,14 @@ describe("Periodensperre am Formular", () => {
       app.unmount();
       return text;
     };
-    const mit = await neuer(fehler(409, "PERIODE_GESPERRT", { gesperrtBis: "2026-06-30", valuta: "2026-05-31" }));
-    expect(mit).toContain(de.fehler.PERIODE_GESPERRT);
+    const mit = await neuer(fehler(409, "period_locked", { gesperrtBis: "2026-06-30", valuta: "2026-05-31" }));
+    expect(mit).toContain(de.fehler.period_locked);
     expect(mit).toContain("Gesperrt bis 30.06.2026.");
-    const ohne = await neuer(fehler(409, "PERIODE_GESPERRT"));
-    expect(ohne).toContain(de.fehler.PERIODE_GESPERRT);
+    const ohne = await neuer(fehler(409, "period_locked"));
+    expect(ohne).toContain(de.fehler.period_locked);
     expect(ohne).not.toContain("Gesperrt bis");
-    const englisch = await neuer(fehler(409, "PERIODE_GESPERRT", { gesperrtBis: "2026-06-30" }), true);
-    expect(englisch).toContain(en.fehler.PERIODE_GESPERRT);
+    const englisch = await neuer(fehler(409, "period_locked", { gesperrtBis: "2026-06-30" }), true);
+    expect(englisch).toContain(en.fehler.period_locked);
     expect(englisch).toContain("Locked until 30/06/2026.");
   });
 });

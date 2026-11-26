@@ -11,12 +11,13 @@ import { anzahl, aufrufe, grundbestand, ID, json, protokollZeilen } from "./hilf
  */
 
 const { db, pool } = oeffneTestdb();
-const { get, post, patch } = aufrufe(erstelleTestApp(db));
+const t = erstelleTestApp(db);
+const { get, post, patch } = aufrufe(t);
 
 const betrachter = person("instrument-betrachter", { rollen: { [ID.fonds]: "betrachter" } });
 const bearbeiter = person("instrument-bearbeiter", { rollen: { [ID.fonds]: "bearbeiter" } });
 
-const vorgang = (b: string, koerper: unknown, als?: Parameters<typeof post>[2]) => post(`/beteiligungen/${b}/vorgaenge`, koerper, als);
+const vorgang = (b: string, koerper: unknown, als?: Parameters<typeof post>[2]) => post(`/investments/${b}/transactions`, koerper, als);
 type Zeile = Record<string, unknown> & { id: string; art: string; tranchen: unknown[] };
 const instrumente = async (b: string) => (await json(await get(`/beteiligungen/${b}/instrumente`))).daten as Zeile[];
 const neuesInstrument = async (b: string, koerper: object) => {
@@ -37,9 +38,9 @@ afterAll(async () => {
 describe("Instrumente einer Beteiligung", () => {
   it("legt Instrumente an, listet sie mit Zusage, Ausgezahltem, offener Zusage und offenem Kapital und führt das Hauptinstrument in der Beteiligung nach", async () => {
     // Die Beteiligung des Grundbestands hat ihr Hauptinstrument aus den Stammdaten (hier: Darlehen).
-    await vorgang(ID.darlehen, { art: "zusage", valuta: "2025-01-01", betrag: "300000" });
-    await vorgang(ID.darlehen, { art: "auszahlung", valuta: "2025-02-01", betrag: "100000" });
-    await vorgang(ID.darlehen, { art: "tilgung", valuta: "2025-06-01", betrag: "20000" });
+    await vorgang(ID.darlehen, { type: "commitment", valueDate: "2025-01-01", amount: "300000" });
+    await vorgang(ID.darlehen, { type: "disbursement", valueDate: "2025-02-01", amount: "100000" });
+    await vorgang(ID.darlehen, { type: "repayment", valueDate: "2025-06-01", amount: "20000" });
     const [haupt] = await instrumente(ID.darlehen);
     expect(haupt).toMatchObject({ art: "darlehen", status: "aktiv", istHauptinstrument: true, darlehensartig: true, zusage: "300000.00", ausgezahlt: "100000.00", offeneZusage: "200000.00", offenesKapital: "80000.00", tranchen: [] });
 
@@ -62,7 +63,7 @@ describe("Instrumente einer Beteiligung", () => {
 
     const fremd = await post(`/beteiligungen/${ID.darlehen}/instrumente`, { art: "offene_beteiligung", rundeId: fremdeRunde!.id });
     expect(fremd.status).toBe(409);
-    expect((await json(fremd)).fehler.code).toBe("RUNDE_PASST_NICHT");
+    expect((await json(fremd)).error.code).toBe("round_mismatch");
     expect((await post(`/beteiligungen/${ID.darlehen}/instrumente`, { art: "offene_beteiligung", rundeId: "00000000-0000-4000-8000-0000000000ee" })).status).toBe(404);
     expect((await post(`/beteiligungen/${ID.darlehen}/instrumente`, { art: "unbekannt" })).status).toBe(400);
     expect((await post(`/beteiligungen/00000000-0000-4000-8000-0000000000ff/instrumente`, { art: "darlehen" })).status).toBe(404);
@@ -74,10 +75,10 @@ describe("Instrumente einer Beteiligung", () => {
     expect(umgestellt.status).toBe(200);
     expect(await json(umgestellt)).toMatchObject({ art: "venture_debt", bezeichnung: "Venture Debt 2025" });
 
-    await vorgang(ID.darlehen, { art: "zusage", valuta: "2025-01-01", betrag: "1000", instrumentId: leer.id });
+    await vorgang(ID.darlehen, { type: "commitment", valueDate: "2025-01-01", amount: "1000", instrumentId: leer.id });
     const gesperrt = await patch(`/instrumente/${leer.id}`, { art: "gesellschafterdarlehen" });
     expect(gesperrt.status).toBe(409);
-    expect((await json(gesperrt)).fehler.code).toBe("INSTRUMENT_ART_GESPERRT");
+    expect((await json(gesperrt)).error.code).toBe("instrument_type_locked");
     expect((await patch(`/instrumente/${leer.id}`, { bezeichnung: "Umbenannt" })).status).toBe(200);
     expect((await patch(`/instrumente/${leer.id}`, {})).status).toBe(400);
     expect((await patch(`/instrumente/00000000-0000-4000-8000-0000000000ee`, { bezeichnung: "x" })).status).toBe(404);
@@ -95,33 +96,44 @@ describe("Instrumente einer Beteiligung", () => {
 });
 
 describe("Tranchen eines Instruments", () => {
-  it("nummeriert je Instrument, prüft die Summe gegen die Zusage (TRANCHEN_UEBER_ZUSAGE) und zeigt den Stand", async () => {
+  it("nummeriert je Instrument, prüft die Summe gegen die Zusage (tranches_exceed_commitment) und zeigt den Stand", async () => {
     const a = await neuesInstrument(ID.darlehen, { art: "darlehen" });
     const b = await neuesInstrument(ID.darlehen, { art: "venture_debt" });
-    await vorgang(ID.darlehen, { art: "zusage", valuta: "2025-01-01", betrag: "300000", instrumentId: a.id });
+    await vorgang(ID.darlehen, { type: "commitment", valueDate: "2025-01-01", amount: "300000", instrumentId: a.id });
 
-    const t1 = await post(`/instrumente/${a.id}/tranchen`, { bezeichnung: "Tranche 1", betrag: "100000", frist: "2025-02-01" });
+    const tranche = (id: string, body: object) => t.requestApi(`/instruments/${id}/tranches`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const t1 = await tranche(a.id, { label: "Tranche 1", amount: "100000", scheduledDate: "2025-02-01" });
     expect(t1.status).toBe(201);
-    expect(await json(t1)).toMatchObject({ nummer: 1, bezeichnung: "Tranche 1", geplantAm: "2025-02-01", frist: "2025-02-01", betrag: "100000.00", zusageVorgang: null, stand: { zahlung: "zugesagt", bedingung: null, ausgezahlt: "0.00", offen: "100000.00" } });
-    const t2 = await json(await post(`/instrumente/${a.id}/tranchen`, { bezeichnung: "Tranche 2", betrag: "200000", bedingung: "Umsatz über Plan" }));
-    expect(t2).toMatchObject({ nummer: 2, stand: { zahlung: "zugesagt", bedingung: "offen" } });
+    expect(await json(t1)).toMatchObject({
+      number: 1, label: "Tranche 1", scheduledDate: "2025-02-01", deadline: "2025-02-01", amount: "100000.00",
+      commitmentTransaction: null,
+    });
+    const t2 = await json(await tranche(a.id, { label: "Tranche 2", amount: "200000", condition: "Umsatz über Plan" }));
+    expect(t2).toMatchObject({ number: 2 });
 
-    const zuViel = await post(`/instrumente/${a.id}/tranchen`, { bezeichnung: "Tranche 3", betrag: "0.01" });
+    const zuViel = await tranche(a.id, { label: "Tranche 3", amount: "0.01" });
     expect(zuViel.status).toBe(409);
-    expect((await json(zuViel)).fehler).toMatchObject({ code: "TRANCHEN_UEBER_ZUSAGE", zusage: "300000.00", tranchen: "300000.00", betrag: "0.01" });
+    expect((await json(zuViel)).error).toMatchObject({ code: "tranches_exceed_commitment", commitment: "300000.00", tranches: "300000.00", amount: "0.01" });
     // Ein anderes Instrument zählt für sich: Die Zusage von `a` hilft `b` nicht, die Nummer beginnt dort bei 1.
-    const ohneZusage = await post(`/instrumente/${b.id}/tranchen`, { bezeichnung: "Tranche 1", betrag: "1000" });
+    const ohneZusage = await tranche(b.id, { label: "Tranche 1", amount: "1000" });
     expect(ohneZusage.status).toBe(409);
     expect(await anzahl(db, "tranche")).toBe(2);
 
-    const liste = (await json(await get(`/instrumente/${a.id}/tranchen`))).daten;
-    expect(liste.map((t: { nummer: number }) => t.nummer)).toEqual([1, 2]);
+    const liste = (await json(await t.requestApi(`/instruments/${a.id}/tranches`))).data;
+    expect(liste).toMatchObject([
+      { number: 1, knowledgeDate: { payment: "committed", condition: null, paidOut: "0.00", open: "100000.00" } },
+      { number: 2, knowledgeDate: { payment: "committed", condition: "open" } },
+    ]);
     expect((await instrumente(ID.darlehen)).find((i) => i.id === a.id)!.tranchen).toHaveLength(2);
   });
 
   it("zusageErhoehen bucht die fehlende Zusage im selben Schritt, ein Fehler danach rollt sie mit zurück", async () => {
     const i = await neuesInstrument(ID.darlehen, { art: "darlehen" });
-    await vorgang(ID.darlehen, { art: "zusage", valuta: "2025-01-01", betrag: "50000", instrumentId: i.id });
+    await vorgang(ID.darlehen, { type: "commitment", valueDate: "2025-01-01", amount: "50000", instrumentId: i.id });
     const antwort = await post(`/instrumente/${i.id}/tranchen`, { bezeichnung: "Tranche 1", betrag: "80000", zusageErhoehen: true, zusageValuta: "2025-03-01" });
     expect(antwort.status).toBe(201);
     const t = await json(antwort);
@@ -136,33 +148,33 @@ describe("Tranchen eines Instruments", () => {
     await db.update(s.instrument).set({ status: "verkauft" }).where(eq(s.instrument.id, i.id));
     const nichtAktiv = await post(`/instrumente/${i.id}/tranchen`, { bezeichnung: "Tranche 3", betrag: "500", zusageErhoehen: true });
     expect(nichtAktiv.status).toBe(409);
-    expect((await json(nichtAktiv)).fehler.code).toBe("INSTRUMENT_NICHT_AKTIV");
+    expect((await json(nichtAktiv)).error.code).toBe("instrument_not_active");
     expect(await anzahl(db, "tranche")).toBe(vorher);
   });
 
   it("ändert Tranchen (Betrag nicht unter das Ausgezahlte, nicht über die Zusage) und meldet die Bedingung als erfüllt", async () => {
     const i = await neuesInstrument(ID.darlehen, { art: "darlehen" });
-    await vorgang(ID.darlehen, { art: "zusage", valuta: "2025-01-01", betrag: "100000", instrumentId: i.id });
+    await vorgang(ID.darlehen, { type: "commitment", valueDate: "2025-01-01", amount: "100000", instrumentId: i.id });
     const t = await json(await post(`/instrumente/${i.id}/tranchen`, { bezeichnung: "Tranche 1", betrag: "60000", bedingung: "Meilenstein" }));
 
-    expect((await vorgang(ID.darlehen, { art: "auszahlung", valuta: "2025-02-01", betrag: "10000", instrumentId: i.id, trancheId: t.id })).status).toBe(409);
+    expect((await vorgang(ID.darlehen, { type: "disbursement", valueDate: "2025-02-01", amount: "10000", instrumentId: i.id, trancheId: t.id })).status).toBe(409);
     const erfuellt = await post(`/tranchen/${t.id}/erfuellt`, { datum: "2025-01-31", nachweis: "Bericht" });
     expect(erfuellt.status).toBe(200);
     expect(await json(erfuellt)).toMatchObject({ erfuelltAm: "2025-01-31", nachweis: "Bericht", stand: { bedingung: "erfuellt" } });
     expect((await post(`/tranchen/${t.id}/erfuellt`, {})).status).toBe(409);
 
-    const gezahlt = await vorgang(ID.darlehen, { art: "auszahlung", valuta: "2025-02-01", betrag: "40000", instrumentId: i.id, trancheId: t.id });
+    const gezahlt = await vorgang(ID.darlehen, { type: "disbursement", valueDate: "2025-02-01", amount: "40000", instrumentId: i.id, trancheId: t.id });
     expect(gezahlt.status).toBe(201);
-    expect((await json(gezahlt)).vorgang).toMatchObject({ trancheId: t.id, meilensteinId: t.id, instrumentId: i.id });
+    expect((await json(gezahlt)).transaction).toMatchObject({ trancheId: t.id, instrumentId: i.id });
     const teilweise = await json(await get(`/instrumente/${i.id}/tranchen`));
     expect(teilweise.daten[0].stand).toMatchObject({ zahlung: "teilweise_gezahlt", ausgezahlt: "40000.00", offen: "20000.00" });
 
     const zuWenig = await patch(`/tranchen/${t.id}`, { betrag: "39999.99" });
     expect(zuWenig.status).toBe(409);
-    expect((await json(zuWenig)).fehler.code).toBe("MEILENSTEIN_BETRAG_UEBERSCHRITTEN");
+    expect((await json(zuWenig)).error.code).toBe("milestone_amount_exceeded");
     const zuViel = await patch(`/tranchen/${t.id}`, { betrag: "100000.01" });
     expect(zuViel.status).toBe(409);
-    expect((await json(zuViel)).fehler.code).toBe("TRANCHEN_UEBER_ZUSAGE");
+    expect((await json(zuViel)).error.code).toBe("tranches_exceed_commitment");
     const ok = await patch(`/tranchen/${t.id}`, { betrag: "40000", bezeichnung: "Tranche 1 (gekürzt)", frist: "2025-05-01" });
     expect(ok.status).toBe(200);
     expect(await json(ok)).toMatchObject({ betrag: "40000.00", bezeichnung: "Tranche 1 (gekürzt)", geplantAm: "2025-05-01", stand: { zahlung: "gezahlt" } });
@@ -182,23 +194,23 @@ describe("Tranchen eines Instruments", () => {
 
 describe("Vorgänge je Instrument", () => {
   it("bucht auf ein Instrument; bei mehreren Instrumenten ist es Pflicht, eines ohne Angabe ist das einzige", async () => {
-    expect((await vorgang(ID.eigen, { art: "zusage", valuta: "2025-01-01", betrag: "1000" })).status).toBe(201);
+    expect((await vorgang(ID.eigen, { type: "commitment", valueDate: "2025-01-01", amount: "1000" })).status).toBe(201);
     const [einziges] = await instrumente(ID.eigen);
-    const eins = await json(await vorgang(ID.eigen, { art: "rueckfluss", valuta: "2025-02-01", betrag: "10" }));
-    expect(eins.vorgang.instrumentId).toBe(einziges!.id);
+    const eins = await json(await vorgang(ID.eigen, { type: "return_flow", valueDate: "2025-02-01", amount: "10" }));
+    expect(eins.transaction.instrumentId).toBe(einziges!.id);
 
     const zweites = await neuesInstrument(ID.eigen, { art: "stille_beteiligung" });
-    const ohne = await vorgang(ID.eigen, { art: "zusage", valuta: "2025-01-01", betrag: "1000" });
+    const ohne = await vorgang(ID.eigen, { type: "commitment", valueDate: "2025-01-01", amount: "1000" });
     expect(ohne.status).toBe(400);
-    expect((await json(ohne)).fehler.felder[0]).toMatchObject({ feld: "instrumentId", code: "instrument_erforderlich" });
-    expect((await vorgang(ID.eigen, { art: "wertberichtigung", valuta: "2025-12-31", betrag: "1" })).status).toBe(400);
-    expect((await vorgang(ID.eigen, { art: "zusage", valuta: "2025-01-01", betrag: "1000", instrumentId: zweites.id })).status).toBe(201);
+    expect((await json(ohne)).error.fields[0]).toMatchObject({ field: "instrumentId", code: "instrument_required" });
+    expect((await vorgang(ID.eigen, { type: "impairment", valueDate: "2025-12-31", amount: "1" })).status).toBe(400);
+    expect((await vorgang(ID.eigen, { type: "commitment", valueDate: "2025-01-01", amount: "1000", instrumentId: zweites.id })).status).toBe(201);
 
     const anderswoId = (await neuesInstrument(ID.darlehen, { art: "darlehen" })).id;
-    const falsch = await vorgang(ID.eigen, { art: "zusage", valuta: "2025-01-01", betrag: "1", instrumentId: anderswoId });
+    const falsch = await vorgang(ID.eigen, { type: "commitment", valueDate: "2025-01-01", amount: "1", instrumentId: anderswoId });
     expect(falsch.status).toBe(409);
-    expect((await json(falsch)).fehler.code).toBe("INSTRUMENT_FALSCHE_BETEILIGUNG");
-    expect((await vorgang(ID.eigen, { art: "zusage", valuta: "2025-01-01", betrag: "1", instrumentId: "00000000-0000-4000-8000-0000000000ee" })).status).toBe(404);
+    expect((await json(falsch)).error.code).toBe("instrument_wrong_investment");
+    expect((await vorgang(ID.eigen, { type: "commitment", valueDate: "2025-01-01", amount: "1", instrumentId: "00000000-0000-4000-8000-0000000000ee" })).status).toBe(404);
   });
 
   it("Zusage, Kapitalverlauf und Berichtigung gelten je Instrument: Eigenkapital und Darlehen in einer Beteiligung", async () => {
@@ -206,30 +218,30 @@ describe("Vorgänge je Instrument", () => {
     const darlehen = await neuesInstrument(ID.darlehen, { art: "darlehen" });
     const venture = await neuesInstrument(ID.darlehen, { art: "venture_debt" });
     for (const [i, betrag] of [[eigenkapital.id, "100000"], [darlehen.id, "50000"], [venture.id, "80000"]] as const) {
-      expect((await vorgang(ID.darlehen, { art: "zusage", valuta: "2025-01-01", betrag, instrumentId: i })).status).toBe(201);
+      expect((await vorgang(ID.darlehen, { type: "commitment", valueDate: "2025-01-01", amount: betrag, instrumentId: i })).status).toBe(201);
     }
-    expect((await vorgang(ID.darlehen, { art: "auszahlung", valuta: "2025-02-01", betrag: "100000", instrumentId: eigenkapital.id })).status).toBe(201);
+    expect((await vorgang(ID.darlehen, { type: "disbursement", valueDate: "2025-02-01", amount: "100000", instrumentId: eigenkapital.id })).status).toBe(201);
     // Die Zusage der anderen Instrumente reicht nicht aus: höchstens 50.000 auf dem Darlehen.
-    const ueber = await vorgang(ID.darlehen, { art: "auszahlung", valuta: "2025-02-01", betrag: "50000.01", instrumentId: darlehen.id });
+    const ueber = await vorgang(ID.darlehen, { type: "disbursement", valueDate: "2025-02-01", amount: "50000.01", instrumentId: darlehen.id });
     expect(ueber.status).toBe(409);
-    expect((await json(ueber)).fehler).toMatchObject({ code: "AUSZAHLUNG_UEBER_ZUSAGE", zusage: "50000.00", investiert: "50000.01" });
-    expect((await vorgang(ID.darlehen, { art: "auszahlung", valuta: "2025-02-01", betrag: "50000", instrumentId: darlehen.id })).status).toBe(201);
-    expect((await vorgang(ID.darlehen, { art: "auszahlung", valuta: "2025-02-01", betrag: "30000", instrumentId: venture.id })).status).toBe(201);
+    expect((await json(ueber)).error).toMatchObject({ code: "disbursement_exceeds_commitment", commitment: "50000.00", invested: "50000.01" });
+    expect((await vorgang(ID.darlehen, { type: "disbursement", valueDate: "2025-02-01", amount: "50000", instrumentId: darlehen.id })).status).toBe(201);
+    expect((await vorgang(ID.darlehen, { type: "disbursement", valueDate: "2025-02-01", amount: "30000", instrumentId: venture.id })).status).toBe(201);
 
     // Tilgung höchstens in Höhe des offenen Kapitals des Instruments (nicht der Beteiligung: dort wären 180.000 offen).
-    const tilgung = await vorgang(ID.darlehen, { art: "tilgung", valuta: "2025-06-01", betrag: "30000.01", instrumentId: venture.id });
+    const tilgung = await vorgang(ID.darlehen, { type: "repayment", valueDate: "2025-06-01", amount: "30000.01", instrumentId: venture.id });
     expect(tilgung.status).toBe(409);
-    expect((await json(tilgung)).fehler.code).toBe("KAPITALVERLAUF_UNGUELTIG");
-    expect((await vorgang(ID.darlehen, { art: "tilgung", valuta: "2025-06-01", betrag: "30000", instrumentId: venture.id })).status).toBe(201);
-    const aufEigenkapital = await vorgang(ID.darlehen, { art: "tilgung", valuta: "2025-06-01", betrag: "1", instrumentId: eigenkapital.id });
+    expect((await json(tilgung)).error.code).toBe("capital_history_invalid");
+    expect((await vorgang(ID.darlehen, { type: "repayment", valueDate: "2025-06-01", amount: "30000", instrumentId: venture.id })).status).toBe(201);
+    const aufEigenkapital = await vorgang(ID.darlehen, { type: "repayment", valueDate: "2025-06-01", amount: "1", instrumentId: eigenkapital.id });
     expect(aufEigenkapital.status).toBe(409);
-    expect((await json(aufEigenkapital)).fehler.code).toBe("INSTRUMENT_PASST_NICHT");
+    expect((await json(aufEigenkapital)).error.code).toBe("instrument_mismatch");
 
     // Auflösung höchstens bis zur Berichtigung des Instruments: Die Berichtigung des Eigenkapitals hilft dem Darlehen nicht.
-    expect((await vorgang(ID.darlehen, { art: "wertberichtigung", valuta: "2025-12-31", betrag: "40000", instrumentId: eigenkapital.id })).status).toBe(201);
-    const aufloesung = await vorgang(ID.darlehen, { art: "wertberichtigung", valuta: "2026-03-31", betrag: "-1", instrumentId: darlehen.id });
+    expect((await vorgang(ID.darlehen, { type: "impairment", valueDate: "2025-12-31", amount: "40000", instrumentId: eigenkapital.id })).status).toBe(201);
+    const aufloesung = await vorgang(ID.darlehen, { type: "impairment", valueDate: "2026-03-31", amount: "-1", instrumentId: darlehen.id });
     expect(aufloesung.status).toBe(409);
-    expect((await json(aufloesung)).fehler.code).toBe("AUFLOESUNG_UEBER_BERICHTIGUNG");
+    expect((await json(aufloesung)).error.code).toBe("release_exceeds_adjustment");
     const liste = await instrumente(ID.darlehen);
     expect(liste.find((i) => i.id === venture.id)).toMatchObject({ ausgezahlt: "30000.00", offenesKapital: "0.00" });
     expect(liste.find((i) => i.id === eigenkapital.id)).toMatchObject({ wertberichtigungen: "40000.00", buchwert: "60000.00" });
@@ -238,15 +250,15 @@ describe("Vorgänge je Instrument", () => {
   it("Storno prüft die Invarianten je Instrument", async () => {
     const a = await neuesInstrument(ID.darlehen, { art: "darlehen" });
     const b = await neuesInstrument(ID.darlehen, { art: "darlehen" });
-    await vorgang(ID.darlehen, { art: "zusage", valuta: "2025-01-01", betrag: "200000", instrumentId: a.id });
-    await vorgang(ID.darlehen, { art: "zusage", valuta: "2025-01-01", betrag: "200000", instrumentId: b.id });
-    const auszahlungA = await json(await vorgang(ID.darlehen, { art: "auszahlung", valuta: "2025-02-01", betrag: "100000", instrumentId: a.id }));
-    await vorgang(ID.darlehen, { art: "auszahlung", valuta: "2025-02-01", betrag: "100000", instrumentId: b.id });
-    await vorgang(ID.darlehen, { art: "tilgung", valuta: "2025-06-01", betrag: "60000", instrumentId: a.id });
+    await vorgang(ID.darlehen, { type: "commitment", valueDate: "2025-01-01", amount: "200000", instrumentId: a.id });
+    await vorgang(ID.darlehen, { type: "commitment", valueDate: "2025-01-01", amount: "200000", instrumentId: b.id });
+    const auszahlungA = await json(await vorgang(ID.darlehen, { type: "disbursement", valueDate: "2025-02-01", amount: "100000", instrumentId: a.id }));
+    await vorgang(ID.darlehen, { type: "disbursement", valueDate: "2025-02-01", amount: "100000", instrumentId: b.id });
+    await vorgang(ID.darlehen, { type: "repayment", valueDate: "2025-06-01", amount: "60000", instrumentId: a.id });
     // Die Auszahlung von A lässt sich nicht stornieren, weil A sonst negatives Kapital hätte, obwohl B genug hat.
-    const storno = await post(`/vorgaenge/${auszahlungA.vorgang.id}/storno`, { grund: "Test" });
+    const storno = await post(`/transactions/${auszahlungA.transaction.id}/reverse`, { reason: "Test" });
     expect(storno.status).toBe(409);
-    expect((await json(storno)).fehler.code).toBe("KAPITALVERLAUF_UNGUELTIG");
+    expect((await json(storno)).error.code).toBe("capital_history_invalid");
   });
 
   it("Zinszahlung nur auf darlehensartigen Instrumenten, Dividende nur auf Eigenkapital; beglichene Zinsbuchung muss zum Instrument passen", async () => {
@@ -257,64 +269,64 @@ describe("Vorgänge je Instrument", () => {
       (await db.insert(s.vorgang).values({ beteiligungId: ID.darlehen, instrumentId: i, art: "zins", valuta: "2025-12-31", betrag }).returning())[0]!;
     const zins = await zinsbuchung(darlehen.id);
 
-    const gezahlt = await vorgang(ID.darlehen, { art: "zinszahlung", valuta: "2026-01-15", betrag: "500", instrumentId: darlehen.id, beglichenVorgangId: zins.id });
+    const gezahlt = await vorgang(ID.darlehen, { type: "interest_payment", valueDate: "2026-01-15", amount: "500", instrumentId: darlehen.id, settledTransactionId: zins.id });
     expect(gezahlt.status).toBe(201);
-    const zahlung = (await json(gezahlt)).vorgang;
-    expect(zahlung).toMatchObject({ art: "zinszahlung", beglichenVorgangId: zins.id, instrumentId: darlehen.id });
+    const zahlung = (await json(gezahlt)).transaction;
+    expect(zahlung).toMatchObject({ type: "interest_payment", settledTransactionId: zins.id, instrumentId: darlehen.id });
     // ohne Verweis ist die Zinszahlung ebenfalls zulässig
-    expect((await vorgang(ID.darlehen, { art: "zinszahlung", valuta: "2026-01-16", betrag: "5", instrumentId: darlehen.id })).status).toBe(201);
+    expect((await vorgang(ID.darlehen, { type: "interest_payment", valueDate: "2026-01-16", amount: "5", instrumentId: darlehen.id })).status).toBe(201);
 
-    const auf = await vorgang(ID.darlehen, { art: "zinszahlung", valuta: "2026-01-15", betrag: "1", instrumentId: eigenkapital.id });
+    const auf = await vorgang(ID.darlehen, { type: "interest_payment", valueDate: "2026-01-15", amount: "1", instrumentId: eigenkapital.id });
     expect(auf.status).toBe(409);
-    expect((await json(auf)).fehler.code).toBe("INSTRUMENT_PASST_NICHT");
-    const fremdeBuchung = await vorgang(ID.darlehen, { art: "zinszahlung", valuta: "2026-01-15", betrag: "1", instrumentId: anderes.id, beglichenVorgangId: zins.id });
+    expect((await json(auf)).error.code).toBe("instrument_mismatch");
+    const fremdeBuchung = await vorgang(ID.darlehen, { type: "interest_payment", valueDate: "2026-01-15", amount: "1", instrumentId: anderes.id, settledTransactionId: zins.id });
     expect(fremdeBuchung.status).toBe(409);
-    expect((await json(fremdeBuchung)).fehler).toMatchObject({ code: "ZINSZAHLUNG_BEZUG_UNGUELTIG", grund: "anderes_instrument" });
-    const keinZins = await vorgang(ID.darlehen, { art: "zinszahlung", valuta: "2026-01-15", betrag: "1", instrumentId: darlehen.id, beglichenVorgangId: zahlung.id });
-    expect((await json(keinZins)).fehler).toMatchObject({ code: "ZINSZAHLUNG_BEZUG_UNGUELTIG", grund: "keine_zinsbuchung" });
-    expect((await vorgang(ID.darlehen, { art: "zinszahlung", valuta: "2026-01-15", betrag: "1", instrumentId: darlehen.id, beglichenVorgangId: "00000000-0000-4000-8000-0000000000ee" })).status).toBe(409);
+    expect((await json(fremdeBuchung)).error).toMatchObject({ code: "interest_payment_reference_invalid", reason: "other_instrument" });
+    const keinZins = await vorgang(ID.darlehen, { type: "interest_payment", valueDate: "2026-01-15", amount: "1", instrumentId: darlehen.id, settledTransactionId: zahlung.id });
+    expect((await json(keinZins)).error).toMatchObject({ code: "interest_payment_reference_invalid", reason: "not_interest_posting" });
+    expect((await vorgang(ID.darlehen, { type: "interest_payment", valueDate: "2026-01-15", amount: "1", instrumentId: darlehen.id, settledTransactionId: "00000000-0000-4000-8000-0000000000ee" })).status).toBe(409);
 
-    expect((await vorgang(ID.darlehen, { art: "dividende", valuta: "2026-04-01", betrag: "2500", instrumentId: eigenkapital.id })).status).toBe(201);
-    const aufDarlehen = await vorgang(ID.darlehen, { art: "dividende", valuta: "2026-04-01", betrag: "1", instrumentId: darlehen.id });
+    expect((await vorgang(ID.darlehen, { type: "dividend", valueDate: "2026-04-01", amount: "2500", instrumentId: eigenkapital.id })).status).toBe(201);
+    const aufDarlehen = await vorgang(ID.darlehen, { type: "dividend", valueDate: "2026-04-01", amount: "1", instrumentId: darlehen.id });
     expect(aufDarlehen.status).toBe(409);
-    expect((await json(aufDarlehen)).fehler.code).toBe("INSTRUMENT_PASST_NICHT");
+    expect((await json(aufDarlehen)).error.code).toBe("instrument_mismatch");
     // Ein stornierter Zins taugt nicht als Bezug.
     const stornierter = await zinsbuchung(darlehen.id, "10.00");
-    expect((await post(`/vorgaenge/${stornierter.id}/storno`, { grund: "Fehler" })).status).toBe(201);
-    const nachStorno = await vorgang(ID.darlehen, { art: "zinszahlung", valuta: "2026-01-15", betrag: "1", instrumentId: darlehen.id, beglichenVorgangId: stornierter.id });
-    expect((await json(nachStorno)).fehler).toMatchObject({ code: "ZINSZAHLUNG_BEZUG_UNGUELTIG", grund: "storniert" });
+    expect((await post(`/transactions/${stornierter.id}/reverse`, { reason: "Fehler" })).status).toBe(201);
+    const nachStorno = await vorgang(ID.darlehen, { type: "interest_payment", valueDate: "2026-01-15", amount: "1", instrumentId: darlehen.id, settledTransactionId: stornierter.id });
+    expect((await json(nachStorno)).error).toMatchObject({ code: "interest_payment_reference_invalid", reason: "reversed" });
     expect(await anzahl(db, "vorgang", "art = 'dividende'")).toBe(1);
   });
 
   it("eine Tranche eines anderen Instruments wird abgelehnt; ohne Instrument gilt das der Tranche", async () => {
     const a = await neuesInstrument(ID.darlehen, { art: "darlehen" });
     const b = await neuesInstrument(ID.darlehen, { art: "venture_debt" });
-    for (const i of [a, b]) await vorgang(ID.darlehen, { art: "zusage", valuta: "2025-01-01", betrag: "10000", instrumentId: i.id });
+    for (const i of [a, b]) await vorgang(ID.darlehen, { type: "commitment", valueDate: "2025-01-01", amount: "10000", instrumentId: i.id });
     const tranche = await json(await post(`/instrumente/${a.id}/tranchen`, { bezeichnung: "T1", betrag: "5000" }));
-    const falsch = await vorgang(ID.darlehen, { art: "auszahlung", valuta: "2025-02-01", betrag: "1000", instrumentId: b.id, trancheId: tranche.id });
+    const falsch = await vorgang(ID.darlehen, { type: "disbursement", valueDate: "2025-02-01", amount: "1000", instrumentId: b.id, trancheId: tranche.id });
     expect(falsch.status).toBe(409);
-    expect((await json(falsch)).fehler.code).toBe("TRANCHE_FALSCHES_INSTRUMENT");
-    const abgeleitet = await vorgang(ID.darlehen, { art: "auszahlung", valuta: "2025-02-01", betrag: "1000", trancheId: tranche.id });
+    expect((await json(falsch)).error.code).toBe("tranche_wrong_instrument");
+    const abgeleitet = await vorgang(ID.darlehen, { type: "disbursement", valueDate: "2025-02-01", amount: "1000", trancheId: tranche.id });
     expect(abgeleitet.status).toBe(201);
-    expect((await json(abgeleitet)).vorgang.instrumentId).toBe(a.id);
-    // Mit dem alten Namen `meilensteinId` ebenso
-    expect((await vorgang(ID.darlehen, { art: "auszahlung", valuta: "2025-02-02", betrag: "1000", meilensteinId: tranche.id })).status).toBe(201);
+    expect((await json(abgeleitet)).transaction.instrumentId).toBe(a.id);
+    // Der frühere zweite Name der Tranche gehört nicht zum neuen Vertrag.
+    expect((await vorgang(ID.darlehen, { type: "disbursement", valueDate: "2025-02-02", amount: "1000", meilensteinId: tranche.id })).status).toBe(400);
     const [t] = await db.select().from(s.tranche).where(and(eq(s.tranche.id, tranche.id)));
     expect(t!.instrumentId).toBe(a.id);
   });
 
-  it("POST /fonds/:id/buchungen übernimmt Instrument, Tranche, Zinszahlung und Dividende", async () => {
+  it("POST /funds/:id/postings übernimmt Instrument, Tranche, Zinszahlung und Dividende", async () => {
     const eigenkapital = await neuesInstrument(ID.darlehen, { art: "offene_beteiligung" });
     const darlehen = await neuesInstrument(ID.darlehen, { art: "darlehen" });
-    const buchen = (koerper: object) => post(`/fonds/${ID.fonds}/buchungen`, koerper);
-    const zusage = await buchen({ typ: "zusage", beteiligungId: ID.darlehen, valuta: "2025-01-01", betrag: "10000", instrumentId: darlehen.id });
+    const buchen = (koerper: object) => post(`/funds/${ID.fonds}/postings`, koerper);
+    const zusage = await buchen({ kind: "commitment", investmentId: ID.darlehen, valueDate: "2025-01-01", amount: "10000", instrumentId: darlehen.id });
     expect(zusage.status).toBe(201);
-    expect((await json(zusage)).vorgang.instrumentId).toBe(darlehen.id);
-    const ohne = await buchen({ typ: "zusage", beteiligungId: ID.darlehen, valuta: "2025-01-01", betrag: "10000" });
+    expect((await json(zusage)).transaction.instrumentId).toBe(darlehen.id);
+    const ohne = await buchen({ kind: "commitment", investmentId: ID.darlehen, valueDate: "2025-01-01", amount: "10000" });
     expect(ohne.status).toBe(400);
-    expect((await buchen({ typ: "zinszahlung", beteiligungId: ID.darlehen, valuta: "2025-07-01", betrag: "100", instrumentId: darlehen.id })).status).toBe(201);
-    expect((await buchen({ typ: "dividende", beteiligungId: ID.darlehen, valuta: "2025-07-01", betrag: "100", instrumentId: eigenkapital.id })).status).toBe(201);
-    expect((await buchen({ typ: "dividende", beteiligungId: ID.darlehen, valuta: "2025-07-01", betrag: "100", instrumentId: darlehen.id })).status).toBe(409);
+    expect((await buchen({ kind: "interest_payment", investmentId: ID.darlehen, valueDate: "2025-07-01", amount: "100", instrumentId: darlehen.id })).status).toBe(201);
+    expect((await buchen({ kind: "dividend", investmentId: ID.darlehen, valueDate: "2025-07-01", amount: "100", instrumentId: eigenkapital.id })).status).toBe(201);
+    expect((await buchen({ kind: "dividend", investmentId: ID.darlehen, valueDate: "2025-07-01", amount: "100", instrumentId: darlehen.id })).status).toBe(409);
   });
 });
 
@@ -331,7 +343,7 @@ describe("Eindeutigkeit je Fonds und Unternehmen", () => {
     expect((await post(`/beteiligungen/${ID.darlehen}/konditionen`, { ...kondition, instrumentId: b.id, satzFix: "0.08" })).status).toBe(201);
     const doppelt = await post(`/beteiligungen/${ID.darlehen}/konditionen`, { ...kondition, instrumentId: a.id });
     expect(doppelt.status).toBe(409);
-    expect((await json(doppelt)).fehler.code).toBe("KONDITION_VORHANDEN");
+    expect((await json(doppelt)).error.code).toBe("terms_exist");
     // ohne Instrument bei zwei darlehensartigen: Pflicht
     expect((await post(`/beteiligungen/${ID.darlehen}/konditionen`, { ...kondition, gueltigAb: "2026-01-01" })).status).toBe(400);
     expect((await post(`/beteiligungen/${ID.darlehen}/konditionen`, { ...kondition, gueltigAb: "2026-01-01", instrumentId: (await neuesInstrument(ID.darlehen, { art: "offene_beteiligung" })).id })).status).toBe(409);
@@ -347,8 +359,8 @@ describe("Zinslauf je Instrument", () => {
     const eins = (await instrumente(ID.darlehen))[0]!;
     const zwei = await neuesInstrument(ID.darlehen, { art: "venture_debt" });
     for (const [i, betrag] of [[eins.id, "100000"], [zwei.id, "50000"]] as const) {
-      await vorgang(ID.darlehen, { art: "zusage", valuta: "2025-01-01", betrag, instrumentId: i });
-      await vorgang(ID.darlehen, { art: "auszahlung", valuta: "2025-01-01", betrag, instrumentId: i });
+      await vorgang(ID.darlehen, { type: "commitment", valueDate: "2025-01-01", amount: betrag, instrumentId: i });
+      await vorgang(ID.darlehen, { type: "disbursement", valueDate: "2025-01-01", amount: betrag, instrumentId: i });
     }
     expect((await post(`/beteiligungen/${ID.darlehen}/konditionen`, kondition("0.06", eins.id))).status).toBe(201);
     expect((await post(`/beteiligungen/${ID.darlehen}/konditionen`, kondition("0.08", zwei.id))).status).toBe(201);
@@ -370,7 +382,7 @@ describe("Zinslauf je Instrument", () => {
     expect((await json(await post("/zinslaeufe", { fondsId: ID.fonds, stichtag: "2026-01-01" }, "rechner"))).positionen).toEqual([]);
 
     // Storno der Zinsbuchung des zweiten Darlehens: nur dessen Periode wird wieder berechnet
-    const storno = await post(`/vorgaenge/${zinsen.find((z) => z.instrumentId === zwei.id)!.id}/storno`, { grund: "Satz falsch" });
+    const storno = await post(`/transactions/${zinsen.find((z) => z.instrumentId === zwei.id)!.id}/reverse`, { reason: "Satz falsch" });
     expect(storno.status).toBe(201);
     const neu = await json(await post("/zinslaeufe", { fondsId: ID.fonds, stichtag: "2026-01-01" }, "rechner"));
     expect(neu.positionen.map((p: { instrumentId: string; betragGebucht: string }) => [p.instrumentId, p.betragGebucht])).toEqual([[zwei.id, "4000.00"]]);
@@ -383,8 +395,8 @@ describe("Zinslauf je Instrument", () => {
     const eins = (await instrumente(ID.darlehen))[0]!;
     const zwei = await neuesInstrument(ID.darlehen, { art: "darlehen" });
     for (const i of [eins.id, zwei.id]) {
-      await vorgang(ID.darlehen, { art: "zusage", valuta: "2025-01-01", betrag: "100000", instrumentId: i });
-      await vorgang(ID.darlehen, { art: "auszahlung", valuta: "2025-01-01", betrag: "100000", instrumentId: i });
+      await vorgang(ID.darlehen, { type: "commitment", valueDate: "2025-01-01", amount: "100000", instrumentId: i });
+      await vorgang(ID.darlehen, { type: "disbursement", valueDate: "2025-01-01", amount: "100000", instrumentId: i });
       await post(`/beteiligungen/${ID.darlehen}/konditionen`, kondition("0.06", i));
     }
     await db.update(s.instrument).set({ status: "getilgt" }).where(eq(s.instrument.id, eins.id));
@@ -400,8 +412,8 @@ describe("Verkauf und Insolvenz je Instrument", () => {
     const eigenkapital = await neuesInstrument(ID.eigen, { art: "stille_beteiligung", bezeichnung: "Stille Beteiligung" });
     const haupt = (await instrumente(ID.eigen))[0]!;
     for (const [i, betrag] of [[haupt.id, "100000"], [eigenkapital.id, "50000"]] as const) {
-      await vorgang(ID.eigen, { art: "zusage", valuta: "2025-01-01", betrag, instrumentId: i });
-      await vorgang(ID.eigen, { art: "auszahlung", valuta: "2025-02-01", betrag, instrumentId: i });
+      await vorgang(ID.eigen, { type: "commitment", valueDate: "2025-01-01", amount: betrag, instrumentId: i });
+      await vorgang(ID.eigen, { type: "disbursement", valueDate: "2025-02-01", amount: betrag, instrumentId: i });
     }
     return { haupt, zweites: eigenkapital };
   }
@@ -432,7 +444,7 @@ describe("Verkauf und Insolvenz je Instrument", () => {
     expect(nachErstem.find((i) => i.id === haupt.id)!.status).toBe("aktiv");
     // Das verkaufte Instrument nimmt keinen Verkauf mehr an
     const nochmal = await post(`/beteiligungen/${ID.eigen}/verkauf`, { ...verkauf, instrumentId: zweites.id }, bearbeiter);
-    expect((await json(nochmal)).fehler.code).toBe("INSTRUMENT_NICHT_AKTIV");
+    expect((await json(nochmal)).error.code).toBe("instrument_not_active");
     const zweiter = await json(await post(`/beteiligungen/${ID.eigen}/verkauf`, { ...verkauf, datum: "2026-12-31", kaufpreis: "130000", instrumentId: haupt.id }, bearbeiter));
     expect(zweiter.status).toBe("exit");
     expect((await db.select().from(s.instrument).where(eq(s.instrument.beteiligungId, ID.eigen))).every((i) => i.status === "verkauft")).toBe(true);

@@ -86,8 +86,8 @@ describe("Kontakte (CRM)", () => {
     expect(api.anfragen("PATCH", `/api/v1/crm/datensaetze/organisation/${ORG_A}`)).toHaveLength(1);
   });
 
-  it("zeigt Fehler beim Speichern einer Zelle (400 FELDWERT_UNGUELTIG)", async () => {
-    spieleApi({ [`PATCH /api/v1/crm/datensaetze/organisation/${ORG_A}`]: () => fehler(400, "FELDWERT_UNGUELTIG", { felder: [{ feld: "website", code: "invalid_value", meldung: "x" }] }) });
+  it("zeigt Fehler beim Speichern einer Zelle (400 field_value_invalid)", async () => {
+    spieleApi({ [`PATCH /api/v1/crm/datensaetze/organisation/${ORG_A}`]: () => fehler(400, "field_value_invalid", { felder: [{ feld: "website", code: "invalid_value", meldung: "x" }] }) });
     rendereApp("/kontakte");
     const nutzer = userEvent.setup();
     const grid = await gitter();
@@ -183,7 +183,7 @@ describe("Kontakte (CRM)", () => {
   });
 
   it("archiviert nur nach Bestätigung und meldet abgelehnte Datensätze mit Grund", async () => {
-    const api = spieleApi({ "POST /api/v1/crm/objekte/organisation/massenaktion": { koerper: { erfolgreich: 0, hinzugefuegt: 0, fehler: [{ id: ORG_A, code: "DATENSATZ_REFERENZIERT" }] } } });
+    const api = spieleApi({ "POST /api/v1/crm/objekte/organisation/massenaktion": { koerper: { erfolgreich: 0, hinzugefuegt: 0, fehler: [{ id: ORG_A, code: "record_referenced" }] } } });
     rendereApp("/kontakte");
     const nutzer = userEvent.setup();
     const grid = await gitter();
@@ -254,14 +254,14 @@ describe("Kontakte (CRM)", () => {
     expect(api.anfragen("POST", "/api/v1/crm/import")).toHaveLength(1);
   });
 
-  it("zeigt Ähnliches beim Tippen und legt erst nach ausdrücklicher Bestätigung an (409 DUBLETTE_MOEGLICH)", async () => {
+  it("zeigt Ähnliches beim Tippen und legt erst nach ausdrücklicher Bestätigung an (409 possible_duplicate)", async () => {
     const alpha = { id: ORG_A, name: "Alpha Energie", art: "unternehmen", sektor: "Energie", ort: "Hamburg", website: null };
     const api = spieleApi({
       "/api/v1/organisationen/dubletten": (a) => ({ koerper: { daten: a.query.get("name")?.startsWith("Alpha") ? [kandidat] : [] } }),
       "POST /api/v1/organisationen": (a) =>
         (a.koerper as { dubletteBestaetigt?: boolean }).dubletteBestaetigt
           ? { status: 201, koerper: { ...alpha, id: NEUE_ORG_ID, name: "Alpha Energie GmbH" } }
-          : fehler(409, "DUBLETTE_MOEGLICH", { kandidaten: [kandidat] }),
+          : fehler(409, "possible_duplicate", { kandidaten: [kandidat] }),
       [`/api/v1/organisationen/${NEUE_ORG_ID}`]: { koerper: { ...organisationDaten, id: NEUE_ORG_ID, name: "Alpha Energie GmbH" } },
     });
     const { router } = rendereApp("/kontakte");

@@ -94,7 +94,7 @@ describe("Anhänge auf Klick", () => {
     expect(aufrufe[0]!.url.searchParams.get("$select")).toBe("id,name,size,contentType,isInline");
   });
 
-  it("übernimmt einen Anhang als vertrauliches Dokument am Deal der Mail; ein zweites Mal meldet 409 DOKUMENT_VORHANDEN", async () => {
+  it("übernimmt einen Anhang als vertrauliches Dokument am Deal der Mail; ein zweites Mal meldet 409 document_exists", async () => {
     await verbinde(vera);
     const id = await mail(vera);
     const r = await aufruf("POST", `/aktivitaeten/${id}/anhaenge/att-1/importieren`, vera);
@@ -110,7 +110,7 @@ describe("Anhänge auf Klick", () => {
     expect(protokoll).not.toContain("Vertrag.pdf");
     const nochmal = await aufruf("POST", `/aktivitaeten/${id}/anhaenge/att-1/importieren`, vera);
     expect(nochmal.status).toBe(409);
-    expect((await json(nochmal)).fehler.code).toBe("DOKUMENT_VORHANDEN");
+    expect((await json(nochmal)).error.code).toBe("document_exists");
   });
 
   it("ohne Deal hängt das Dokument an der Organisation; die Angaben zum Anhang kommen vom Anbieter, nie vom Aufrufer", async () => {
@@ -123,7 +123,7 @@ describe("Anhänge auf Klick", () => {
     // eine ID, die der Anbieter nicht kennt
     const fremd = await aufruf("POST", `/aktivitaeten/${id}/anhaenge/erfunden/importieren`, vera);
     expect(fremd.status).toBe(404);
-    expect((await json(fremd)).fehler.code).toBe("ANHANG_NICHT_GEFUNDEN");
+    expect((await json(fremd)).error.code).toBe("attachment_not_found");
   });
 
   it("nur die Person, deren Postfach die Mail angelegt hat: andere (auch mit Rolle, auch Verwalter) bekommen 403 und der Anbieter wird nicht gefragt", async () => {
@@ -133,7 +133,7 @@ describe("Anhänge auf Klick", () => {
       for (const [methode, pfad] of [["GET", `/aktivitaeten/${id}/anhaenge`], ["POST", `/aktivitaeten/${id}/anhaenge/att-1/importieren`]] as const) {
         const r = await aufruf(methode, pfad, als);
         expect(r.status, `${methode} ${als.name}`).toBe(403);
-        expect((await json(r)).fehler.code).toBe("FREMDE_SYNC_AKTIVITAET");
+        expect((await json(r)).error.code).toBe("synced_activity_foreign");
       }
     }
     expect(aufrufe).toHaveLength(0);
@@ -153,13 +153,13 @@ describe("Anhänge auf Klick", () => {
     const [manuell] = await db.insert(s.aktivitaet).values({ art: "mail", datum: "2026-11-10", titel: "Von Hand", organisationId: ID.orgA }).returning();
     const a = await aufruf("GET", `/aktivitaeten/${manuell!.id}/anhaenge`, vera);
     expect(a.status).toBe(409);
-    expect((await json(a)).fehler.code).toBe("KEINE_SYNC_AKTIVITAET");
+    expect((await json(a)).error.code).toBe("not_synced_activity");
     const termin = await mail(vera, { art: "termin" });
-    expect((await json(await aufruf("GET", `/aktivitaeten/${termin}/anhaenge`, vera))).fehler.code).toBe("KEINE_SYNC_AKTIVITAET");
+    expect((await json(await aufruf("GET", `/aktivitaeten/${termin}/anhaenge`, vera))).error.code).toBe("not_synced_activity");
     const imap = await mail(vera, {}, { anbieter: "imap" });
-    expect((await json(await aufruf("GET", `/aktivitaeten/${imap}/anhaenge`, vera))).fehler.code).toBe("ANHANG_NICHT_UNTERSTUETZT");
+    expect((await json(await aufruf("GET", `/aktivitaeten/${imap}/anhaenge`, vera))).error.code).toBe("attachment_not_supported");
     const ohneId = await mail(vera, {}, { anbieterId: null });
-    expect((await json(await aufruf("GET", `/aktivitaeten/${ohneId}/anhaenge`, vera))).fehler.code).toBe("ANHANG_NICHT_UNTERSTUETZT");
+    expect((await json(await aufruf("GET", `/aktivitaeten/${ohneId}/anhaenge`, vera))).error.code).toBe("attachment_not_supported");
     expect(aufrufe).toHaveLength(0);
   });
 
@@ -169,7 +169,7 @@ describe("Anhänge auf Klick", () => {
     const id = await mail(vera);
     const r = await aufruf("GET", `/aktivitaeten/${id}/anhaenge`, vera);
     expect(r.status).toBe(409);
-    expect((await json(r)).fehler.code).toBe("POSTFACH_ZUGANG_ABGELAUFEN");
+    expect((await json(r)).error.code).toBe("mailbox_access_expired");
     expect(aufrufe).toHaveLength(0);
     const [v] = await db.select().from(s.postfachVerbindung).where(eq(s.postfachVerbindung.id, vid));
     expect(v!.naechsterAbgleichAm.getTime()).toBeLessThanOrEqual(Date.now());
@@ -177,17 +177,17 @@ describe("Anhänge auf Klick", () => {
     expect(leseZugang(ring, vid, v!.zugangVerschluesselt)).toMatchObject({ accessToken: "zugriffstoken" });
   });
 
-  it("getrenntes Postfach: 404 POSTFACH_NICHT_GEFUNDEN; zu große Anhänge und unzulässige Dateitypen werden abgelehnt, ohne etwas zu speichern", async () => {
+  it("getrenntes Postfach: 404 mailbox_not_found; zu große Anhänge und unzulässige Dateitypen werden abgelehnt, ohne etwas zu speichern", async () => {
     const id = await mail(vera);
     const getrennt = await aufruf("GET", `/aktivitaeten/${id}/anhaenge`, vera);
     expect(getrennt.status).toBe(404);
-    expect((await json(getrennt)).fehler.code).toBe("POSTFACH_NICHT_GEFUNDEN");
+    expect((await json(getrennt)).error.code).toBe("mailbox_not_found");
 
     await verbinde(vera);
     anhangListe = [{ id: "gross", name: "riesig.pdf", size: 26 * 1024 * 1024, contentType: "application/pdf", "@odata.type": "#microsoft.graph.fileAttachment" }];
     const gross = await aufruf("POST", `/aktivitaeten/${id}/anhaenge/gross/importieren`, vera);
     expect(gross.status).toBe(413);
-    expect((await json(gross)).fehler.code).toBe("DOKUMENT_ZU_GROSS");
+    expect((await json(gross)).error.code).toBe("document_too_large");
 
     anhangListe = [{ id: "exe", name: "programm.exe", size: 10, contentType: "application/octet-stream", "@odata.type": "#microsoft.graph.fileAttachment" }];
     inhalt = new Uint8Array([0x4d, 0x5a, 0x90, 0x00, 1, 2, 3]);
@@ -209,7 +209,7 @@ describe("Anhänge auf Klick", () => {
     const r = await kaputt.request(`/aktivitaeten/${id}/anhaenge`, { als: vera });
     expect(r.status).toBe(502);
     const text = await r.text();
-    expect(JSON.parse(text).fehler.code).toBe("POSTFACH_VERBINDUNG_FEHLGESCHLAGEN");
+    expect(JSON.parse(text).error.code).toBe("mailbox_connection_failed");
     expect(text).not.toContain("Geheimer");
   });
 });

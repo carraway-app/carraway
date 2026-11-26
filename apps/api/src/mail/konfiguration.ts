@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 
 /**
  * Ausgehende Mail je Installation (Etappe 17): ein SMTP-Zugang aus der Umgebung. Ohne `SMTP_HOST` ist der Versand aus; die Routen, die
- * Mails auslösen, antworten dann 409 `MAIL_NICHT_EINGERICHTET`. Das Passwort steht nur in der Umgebung oder in einer Datei
+ * Mails auslösen, antworten dann 409 `mail_not_configured`. Das Passwort steht nur in der Umgebung oder in einer Datei
  * (`SMTP_PASSWORT_DATEI`, z. B. ein Docker-Secret) und erscheint nie in der API, im Protokoll oder in Logs.
  */
 

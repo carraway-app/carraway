@@ -380,6 +380,13 @@ a.cw-tabelle__name:focus-visible { outline: 2px solid var(--cw-focus); outline-o
 .cw-leer__aktion { margin-top: var(--s-1); }
 
 /* Eingebettete SVGs folgen dem color-scheme der App. */
+.cw-code { display: flex; flex-direction: column; gap: var(--s-0); }
+.cw-code__felder { display: flex; gap: var(--s-1); }
+.cw-code__ziffer { flex: 1 1 0; min-width: 0; max-width: 56px; height: calc(var(--h-s) * 1.5); padding: 0; border: 1px solid var(--cw-line-control); border-radius: var(--r-m); background: var(--cw-field); color: var(--cw-text); font-family: var(--font-mono); font-size: var(--fs-titel); font-variant-numeric: tabular-nums; text-align: center; }
+.cw-code__ziffer:focus-visible { outline: 2px solid var(--cw-focus); outline-offset: 1px; }
+.cw-code__ziffer:disabled { color: var(--cw-text-disabled); cursor: not-allowed; }
+.cw-code--fehler .cw-code__ziffer { border-color: var(--cw-danger); }
+
 .cw-logo { display: inline-flex; align-items: center; gap: var(--s-1); color: var(--cw-text); }
 .cw-logo__zeichen { container-type: inline-size; flex: none; width: var(--h-s); height: var(--h-s); }
 .cw-logo__zeichen::before { content: ""; display: block; height: 100%; background: center / contain no-repeat url("../zeichen/carraway-mark.svg"); }
@@ -533,3 +540,18 @@ html:has(body > .cw-ueberlagerung) { overflow: hidden; }
 .cw-formularraster .cw-feld__eingabe { width: 100%; min-width: 0; text-overflow: ellipsis; }
 .cw-formularraster .cw-feld__hilfe { line-height: var(--lh-text); }
 @media (max-width: 599px) { .cw-formularraster > .cw-feld--breit { grid-column: 1 / -1; } }
+
+/* === Sortierbare Liste: Ziehgriff links, Einfügelinie in Akzentfarbe an der Zielposition === */
+.cw-sortierbar { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
+.cw-sortierbar__zeile { position: relative; display: flex; align-items: center; gap: var(--s-0); min-height: var(--h-s); border-radius: var(--r-m); transition: opacity 120ms ease; }
+.cw-sortierbar__zeile[data-gezogen] { opacity: 0.45; }
+.cw-sortierbar__zeile[data-aufgenommen] { background: var(--cw-selected); box-shadow: 0 2px 8px color-mix(in srgb, var(--cw-text) 22%, transparent); }
+.cw-sortierbar__zeile[data-einfuegen="vor"]::before, .cw-sortierbar__zeile[data-einfuegen="nach"]::after { content: ""; position: absolute; left: 0; right: 0; height: 2px; border-radius: 1px; background: var(--cw-accent); pointer-events: none; }
+.cw-sortierbar__zeile[data-einfuegen="vor"]::before { top: -1px; }
+.cw-sortierbar__zeile[data-einfuegen="nach"]::after { bottom: -1px; }
+.cw-sortierbar__griff { flex: none; display: inline-flex; align-items: center; justify-content: center; width: var(--h-xs); height: var(--h-xs); padding: 0; border: 0; border-radius: var(--r-m); background: transparent; color: var(--cw-text-muted); cursor: grab; }
+.cw-sortierbar__griff:hover { background: var(--cw-hover-raised); color: var(--cw-text); }
+.cw-sortierbar__griff:focus-visible { outline: 2px solid var(--cw-focus); outline-offset: -2px; }
+.cw-sortierbar__griff[aria-pressed="true"] { background: var(--cw-inverse); color: var(--cw-on-inverse); box-shadow: inset 0 -2px 0 var(--cw-accent); }
+.cw-sortierbar__inhalt { flex: 1; min-width: 0; display: flex; align-items: center; }
+@media (prefers-reduced-motion: reduce) { .cw-sortierbar__zeile { transition: none; } }

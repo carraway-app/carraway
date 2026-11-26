@@ -17,14 +17,14 @@ const KB = 1000;
  * die großen Bereiche kommen erst mit der Seite, siehe `apps/web/src/i18n/bereiche.ts`). Die Werte sind Obergrenzen gegen Rückschritte: Sie liegen knapp über dem
  * gemessenen Stand (Nacharbeiten 9: interne Anwendung 128,3 kB, Portal 114,4 kB, Abfrage 76,4 kB) und werden gesenkt, wenn der Umfang sinkt, nie angehoben, ohne dass die Entscheidung dazu im Entscheidungsprotokoll steht.
  */
-// Bis zum Start vorübergehend angehoben auf 135 kB (interne Anwendung, Entscheidung 483); vor dem Start wieder auf den gemessenen Stand senken (vorher 131,4 kB).
+// Bis zum Start vorübergehend angehoben auf 136 kB (interne Anwendung, Entscheidung 483; +1 kB für die Abbildung der englischen Schnittstelle in `apps/web/src/api/abbildung.ts`); vor dem Start wieder auf den gemessenen Stand senken (vorher 131,4 kB).
 // Das LP-Portal ist eine Erweiterung (`ee/web`): Sein Einstieg steht nur im Build „Voll“ (Schlüssel relativ zur Wurzel `apps/web` des Builds).
 // Im Build „Voll“ wartet der Start zusätzlich auf die Anmeldung der Erweiterungen (`ee/web/src/erweiterungen.tsx`, eigener Abschnitt, gemessen rund
 // 1,5 kB) samt einem kleinen gemeinsamen Laufzeitabschnitt, und der Einstieg trägt den Einstieg des Portals (gemessen: interne Anwendung 137,1 kB,
 // öffentliche Abfrage 77,7 kB). Dafür gilt dort ein fester Aufschlag (`AUFSCHLAG_VOLL`, Entscheidung 518).
 const AUFSCHLAG_VOLL = voll ? { intern: 2.5 * KB, extern: 0.5 * KB } : { intern: 0, extern: 0 };
 const BUDGETS = {
-  "src/start.tsx": { name: "interne Anwendung", js: 135 * KB + AUFSCHLAG_VOLL.intern, mit: ["src/i18n/kern.de.ts", ...(voll ? ["../../ee/web/src/erweiterungen.tsx"] : [])] },
+  "src/start.tsx": { name: "interne Anwendung", js: 136 * KB + AUFSCHLAG_VOLL.intern, mit: ["src/i18n/kern.de.ts", ...(voll ? ["../../ee/web/src/erweiterungen.tsx"] : [])] },
   ...(voll ? { "../../ee/web/src/portal/start.tsx": { name: "LP-Portal", js: 117.4 * KB, mit: [] } } : {}),
   "src/extern/start.tsx": { name: "öffentliche Abfrage", js: 77.3 * KB + AUFSCHLAG_VOLL.extern, mit: [] },
 };

@@ -24,7 +24,7 @@ export function PasswortVergessenSeite() {
   function senden(e: FormEvent) {
     e.preventDefault();
     void ausfuehren(async () => {
-      await auspacken(api.api.v1.passwort.vergessen.$post({ json: { email: email.trim(), sprache } }));
+      await auspacken(api.api.v1.password.forgot.$post({ json: { email: email.trim(), language: sprache } }));
       setGesendet(true);
     });
   }

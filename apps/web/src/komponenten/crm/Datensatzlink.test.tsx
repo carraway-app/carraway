@@ -65,7 +65,7 @@ describe("Vorschaukarte an Verweisen", () => {
   });
 
   it("zeigt bei einem Fehler nur „Keine Vorschau verfügbar“ und lässt den Verweis wie er ist", async () => {
-    spieleApi(seite({ status: 404, koerper: { fehler: { code: "DATENSATZ_NICHT_GEFUNDEN", meldung: "Datensatz nicht gefunden." } } }));
+    spieleApi(seite({ status: 404, koerper: { error: { code: "record_not_found", message: "Datensatz nicht gefunden." } } }));
     rendereApp(`/organisationen/${ORG_A}`);
     const nutzer = userEvent.setup();
     const link = await verweis();

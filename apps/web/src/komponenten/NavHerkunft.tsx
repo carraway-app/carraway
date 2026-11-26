@@ -1,7 +1,8 @@
+import { ausFonds } from "../api/abbildung-fonds";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import type { HerkunftProps } from "@carraway/ui";
-import { api, auspacken } from "../api/client";
+import { api } from "../api/client";
 import { formatBetragCent } from "../lib/zahl";
 import { useSprache, useT } from "../i18n";
 import { EinzelwertTabelle, type EinzelwertZeile } from "./EinzelwertTabelle";
@@ -18,7 +19,7 @@ export default function NavHerkunft({ fondsId, waehrung, stichtag, stand, schrit
   const schnitt = { stichtag, stand };
   const { data, error, isLoading } = useQuery({
     queryKey: ["fonds", fondsId, "nav-einzelwerte", stichtag, stand],
-    queryFn: () => auspacken(api.api.v1.fonds[":id"]["nav-einzelwerte"].$get({ param: { id: fondsId }, query: schnitt })),
+    queryFn: () => ausFonds(api.api.v1.funds[":id"]["nav-components"].$get, { param: { id: fondsId }, query: schnitt }),
     enabled: !!stand,
   });
   const portfolio: EinzelwertZeile[] = (data?.portfolio ?? []).map((p) => ({

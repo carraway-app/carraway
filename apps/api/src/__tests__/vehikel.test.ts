@@ -44,10 +44,10 @@ describe("Vehikel anlegen und pflegen", () => {
 
     const doppelt = await vehikelAnlegen({ name: "Musterkapital Seedfonds I" });
     expect(doppelt.status).toBe(409);
-    expect((await json(doppelt)).fehler.code).toBe("VEHIKEL_NAME_VERGEBEN");
+    expect((await json(doppelt)).error.code).toBe("vehicle_name_taken");
     const keinInvestor = await vehikelAnlegen({ name: "Firmenfonds" }, FIRMA);
     expect(keinInvestor.status).toBe(409);
-    expect((await json(keinInvestor)).fehler.code).toBe("VEHIKEL_KEIN_INVESTOR");
+    expect((await json(keinInvestor)).error.code).toBe("vehicle_not_investor");
     expect((await vehikelAnlegen({ name: "Zu alt", auflagejahr: 1800 })).status).toBe(400);
 
     // Standard wandert, es bleibt genau einer
@@ -87,7 +87,7 @@ describe("Positionen über Vehikel", () => {
       bearbeiterF1,
     );
     expect(doppelt.status).toBe(409);
-    expect((await json(doppelt)).fehler.code).toBe("RUNDENPOSITION_VORHANDEN");
+    expect((await json(doppelt)).error.code).toBe("round_position_exists");
 
     const antwort = await post(
       `/organisationen/${FIRMA}/finanzierungsrunden`,
@@ -147,7 +147,7 @@ describe("Positionen über Vehikel", () => {
     // Löschen nur ohne Positionen
     const inVerwendung = await loesche(`/vehikel/${v1.id}`, undefined, bearbeiterF1);
     expect(inVerwendung.status).toBe(409);
-    expect((await json(inVerwendung)).fehler.code).toBe("VEHIKEL_IN_VERWENDUNG");
+    expect((await json(inVerwendung)).error.code).toBe("vehicle_in_use");
     const frei = await json(await vehikelAnlegen({ name: "Leer" }));
     expect((await loesche(`/vehikel/${frei.id}`, undefined, bearbeiterF1)).status).toBe(204);
   });
@@ -199,8 +199,8 @@ describe("Positionen über Vehikel", () => {
     // Rechtemodell: Vehikel gehören zu Kontakte, die Positionen je Vehikel zum Portfolio. Eine Gruppe nur mit Kontakte sieht Vehikel ohne Positionen.
     const nurKontakte = person("vehikel-nur-kontakte");
     const pid = await legePersonAn(db, nurKontakte);
-    const rolle = await json(await post("/rechte/rollen", { name: "Kontaktpflege", bereiche: ["kontakte"] }, "a"));
-    expect((await post("/rechte/gruppen", { name: "Kontakte", stufe: "betrachter", rollenIds: [rolle.id], mitglieder: [pid] }, "a")).status).toBe(201);
+    const rolle = await json(await post("/permissions/roles", { name: "Kontaktpflege", areas: ["contacts"] }, "a"));
+    expect((await post("/permissions/groups", { name: "Kontakte", level: "viewer", roleIds: [rolle.id], memberIds: [pid] }, "a")).status).toBe(201);
     const kontaktSicht = await get(`/organisationen/${INV}/vehikel`, nurKontakte);
     expect(kontaktSicht.status).toBe(200);
     expect((await json(kontaktSicht)).daten[0]).toMatchObject({ anzahlPositionen: 0, positionen: [] });
@@ -213,22 +213,22 @@ describe("Positionen über Vehikel", () => {
     const v1 = await json(await vehikelAnlegen({ name: "Musterkapital Seedfonds I" }));
     const r = await post(`/organisationen/${FIRMA}/finanzierungsrunden`, runde([{ vehikelId: v1.id, betrag: "500000.00", anteile: "50000", rolle: "co" }, { fondsId: F1, betrag: "1000000.00", anteile: "100000", rolle: "lead" }]), bearbeiterF1);
     expect(r.status).toBe(201);
-    const rolle = await json(await post("/rechte/rollen", { name: "Kontakte und Portfolio", bereiche: ["kontakte", "portfolio"] }, "a"));
-    const gruppe = (name: string, fondsBereiche: Record<string, string[]>, mitglied: string) =>
-      post("/rechte/gruppen", { name, stufe: "betrachter", fondsBeschraenkt: true, bereicheJeFonds: true, fondsIds: Object.keys(fondsBereiche), fondsBereiche, rollenIds: [rolle.id], mitglieder: [mitglied] }, "a");
+    const rolle = await json(await post("/permissions/roles", { name: "Kontakte und Portfolio", areas: ["contacts", "portfolio"] }, "a"));
+    const gruppe = (name: string, fundAreas: Record<string, string[]>, mitglied: string) =>
+      post("/permissions/groups", { name, level: "viewer", fundsRestricted: true, areasPerFund: true, fundIds: Object.keys(fundAreas), fundAreas, roleIds: [rolle.id], memberIds: [mitglied] }, "a");
     // Kontakte an Fonds Eins, Portfolio nur an Fonds Zwei: Vehikel ja, Positionen von Fonds Eins nein
     const getrennt = person("vehikel-getrennt");
-    expect((await gruppe("Getrennt", { [F1]: ["kontakte"], [F2]: ["portfolio"] }, await legePersonAn(db, getrennt))).status).toBe(201);
+    expect((await gruppe("Getrennt", { [F1]: ["contacts"], [F2]: ["portfolio"] }, await legePersonAn(db, getrennt))).status).toBe(201);
     const ohne = await get(`/organisationen/${INV}/vehikel`, getrennt);
     expect(ohne.status).toBe(200);
     expect((await json(ohne)).daten[0]).toMatchObject({ name: "Musterkapital Seedfonds I", anzahlPositionen: 0, positionen: [] });
     // Portfolio an Fonds Eins: die Positionen erscheinen
     const mit = person("vehikel-mit-portfolio");
-    expect((await gruppe("Mit Portfolio", { [F1]: ["kontakte", "portfolio"] }, await legePersonAn(db, mit))).status).toBe(201);
+    expect((await gruppe("Mit Portfolio", { [F1]: ["contacts", "portfolio"] }, await legePersonAn(db, mit))).status).toBe(201);
     expect((await json(await get(`/organisationen/${INV}/vehikel`, mit))).daten[0]).toMatchObject({ anzahlPositionen: 1 });
     // Nur Kontakte an Fonds Eins, nirgends Portfolio: Anzahl 0; Löschen bleibt am Server gesperrt
     const nurKontakte = person("vehikel-nur-kontakte-anzahl");
-    expect((await gruppe("Nur Kontakte", { [F1]: ["kontakte"] }, await legePersonAn(db, nurKontakte))).status).toBe(201);
+    expect((await gruppe("Nur Kontakte", { [F1]: ["contacts"] }, await legePersonAn(db, nurKontakte))).status).toBe(201);
     expect((await json(await get(`/organisationen/${INV}/vehikel`, nurKontakte))).daten[0]).toMatchObject({ anzahlPositionen: 0, positionen: [] });
     expect((await loesche(`/vehikel/${v1.id}`, undefined, bearbeiterF1)).status).toBe(409);
   });
@@ -267,18 +267,18 @@ describe("Positionen über Vehikel", () => {
     // Vehikel eines anderen Investors: eigener Fehlercode
     const andererInvestor = await aendern(p1.id, { vehikelId: fremd.id });
     expect(andererInvestor.status).toBe(422);
-    expect((await json(andererInvestor)).fehler.code).toBe("VEHIKEL_ANDERER_INVESTOR");
+    expect((await json(andererInvestor)).error.code).toBe("vehicle_other_investor");
     expect((await aendern(p1.id, { vehikelId: "00000000-0000-4000-8000-00000000ffff" })).status).toBe(404);
 
     // Kollision: das Vehikel hat in der Runde schon eine Position
     const kollision = await aendern(p1.id, { vehikelId: v2.id });
     expect(kollision.status).toBe(409);
-    expect((await json(kollision)).fehler.code).toBe("RUNDENPOSITION_VORHANDEN");
+    expect((await json(kollision)).error.code).toBe("round_position_exists");
 
     // Positionen eigener Fonds haben kein Vehikel
     const ohneVehikel = await aendern(fonds.id, { vehikelId: v3.id });
     expect(ohneVehikel.status).toBe(409);
-    expect((await json(ohneVehikel)).fehler.code).toBe("RUNDENPOSITION_OHNE_VEHIKEL");
+    expect((await json(ohneVehikel)).error.code).toBe("round_position_without_vehicle");
 
     // Abgeschlossene Runde: nur das Vehikel ist änderbar, alles andere nicht
     expect((await post(`/finanzierungsrunden/${r.id}/abschliessen`, { fondsBuchungen: [] }, bearbeiterF1)).status).toBe(200);
@@ -287,14 +287,14 @@ describe("Positionen über Vehikel", () => {
     expect((await json(geschlossen)).positionen.find((p: { id: string }) => p.id === p1.id)).toMatchObject({ vehikel: { id: v1.id }, betrag: "600000.00" });
     const betragGesperrt = await aendern(p1.id, { betrag: "1.00" });
     expect(betragGesperrt.status).toBe(409);
-    expect((await json(betragGesperrt)).fehler.code).toBe("RUNDE_NICHT_ENTWURF");
+    expect((await json(betragGesperrt)).error.code).toBe("round_not_draft");
     expect((await aendern(p1.id, { vehikelId: v1.id, betrag: "1.00" })).status).toBe(409);
 
     // Bereich Portfolio nötig
     const nurKontakte = person("vehikel-zuordnen-nur-kontakte");
     const pid = await legePersonAn(db, nurKontakte);
-    const rolle = await json(await post("/rechte/rollen", { name: "Kontaktpflege", bereiche: ["kontakte"] }, "a"));
-    expect((await post("/rechte/gruppen", { name: "Kontakte", stufe: "bearbeiter", rollenIds: [rolle.id], mitglieder: [pid] }, "a")).status).toBe(201);
+    const rolle = await json(await post("/permissions/roles", { name: "Kontaktpflege", areas: ["contacts"] }, "a"));
+    expect((await post("/permissions/groups", { name: "Kontakte", level: "editor", roleIds: [rolle.id], memberIds: [pid] }, "a")).status).toBe(201);
     expect((await patch(`/finanzierungsrunden/${r.id}/positionen/${p1.id}`, { vehikelId: v3.id }, nurKontakte)).status).toBe(403);
   });
 
@@ -332,8 +332,8 @@ describe("Positionen über Vehikel", () => {
     ]);
     const antwort = await post(`/organisationen/${INV}/zusammenfuehren`, { quelleId: INV_OHNE }, "a");
     expect(antwort.status).toBe(409);
-    const fehler = (await json(antwort)).fehler;
-    expect(fehler.code).toBe("VEHIKEL_POSITION_KOLLIDIERT");
+    const fehler = (await json(antwort)).error;
+    expect(fehler.code).toBe("vehicle_position_conflict");
     expect(fehler.kollisionen).toEqual([{ rundeId: r!.id, vehikel: "Gemeinsamer Fonds" }]);
     // nichts verändert: beide Vehikel und beide Positionen bestehen, die Quelle ist nicht zusammengeführt
     expect(await db.select().from(s.vehikel).where(eq(s.vehikel.id, gleich.id))).toHaveLength(1);

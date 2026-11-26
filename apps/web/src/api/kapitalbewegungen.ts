@@ -1,14 +1,16 @@
+import { ausFonds } from "./abbildung-fonds";
+import { buchhaltungsAufruf } from "./abbildung-buchhaltung";
 import { queryOptions } from "@tanstack/react-query";
 import { schluessel } from "./abfragen-kern";
-import { api, auspacken } from "./client";
+import { api } from "./client";
 
 export type Kapitalart = "abruf" | "ausschuettung";
 export type AufteilungsEingabe = { art: Kapitalart; valuta: string; faelligAm?: string; betrag: string };
 
 export const ladeAufteilungsVorschau = (fondsId: string, query: AufteilungsEingabe) =>
-  auspacken(api.api.v1.fonds[":id"].fondsbewegungen.vorschau.$get({ param: { id: fondsId }, query }));
+  buchhaltungsAufruf((en) => api.api.v1.funds[":id"]["fund-movements"].preview.$get(en({ param: { id: fondsId }, query })));
 
-const ladeBewegungsDetails = (id: string) => auspacken(api.api.v1.fondsbewegungen[":id"].$get({ param: { id } }));
+const ladeBewegungsDetails = (id: string) => ausFonds(api.api.v1["fund-movements"][":id"].$get, { param: { id } });
 
 export const bewegungsDetails = (fondsId: string, id: string) => queryOptions({
   queryKey: [...schluessel.bewegungen, fondsId, "detail", id],
@@ -19,22 +21,26 @@ export type BewegungsAufteilung = Awaited<ReturnType<typeof ladeAufteilungsVorsc
 
 export const fondsKapitalstand = (fondsId: string, stichtag: string, stand?: string) => queryOptions({
   queryKey: [...schluessel.bewegungen, fondsId, "kapitalstand", stichtag, stand ?? null],
-  queryFn: () => auspacken(api.api.v1.fonds[":id"].bewegungen.kapitalstand.$get({ param: { id: fondsId }, query: { stichtag, stand } })),
+  queryFn: () => ausFonds(api.api.v1.funds[":id"].movements["capital-position"].$get, { param: { id: fondsId }, query: { stichtag, stand } }),
 });
 
-const zahlungen = api.api.v1.fondsbewegungen[":id"].zahlungen;
+const zahlungen = api.api.v1["fund-movements"][":id"].payments;
 
 export const zahlungsstand = (fondsId: string, id: string, stichtag: string, stand?: string) => queryOptions({
   queryKey: [...schluessel.bewegungen, fondsId, id, "zahlungen", stichtag, stand ?? null],
-  queryFn: () => auspacken(zahlungen.$get({ param: { id }, query: { stichtag, stand } })),
+  queryFn: () => ausFonds(zahlungen.$get, { param: { id }, query: { stichtag, stand } }),
 });
 
 export type Zahlungsbuchung = { organisationId: string; valuta: string; betrag: string; belegreferenz?: string } | { zahlungId: string; valuta: string; grund: string };
 export const bucheZahlung = (id: string, json: Zahlungsbuchung) => "zahlungId" in json
-  ? auspacken(zahlungen.storno.$post({ param: { id }, json }))
-  : auspacken(zahlungen.$post({ param: { id }, json }));
+  ? ausFonds(zahlungen.reverse.$post, { param: { id }, json })
+  : ausFonds(zahlungen.$post, { param: { id }, json });
 
 export const kapitalHerkunft = (fondsId: string, stichtag: string, stand: string, bewegungId?: string) => queryOptions({
   queryKey: [...schluessel.bewegungen, fondsId, "herkunft", stichtag, stand, bewegungId ?? null],
-  queryFn: () => auspacken(api.api.v1.fonds[":id"].bewegungen.herkunft.$get({ param: { id: fondsId }, query: { stichtag, stand, bewegungId } })),
+  queryFn: () => ausFonds(api.api.v1.funds[":id"].movements.sources.$get, { param: { id: fondsId }, query: { stichtag, stand, bewegungId } }),
 });
+
+
+export const mitteilungDateiUrl = (fundId: string, noticeId: string, asOf: string, knowledgeDate: string) =>
+  `/api/v1/funds/${fundId}/movements/notices/${noticeId}/file?${new URLSearchParams({ asOf, knowledgeDate })}`;

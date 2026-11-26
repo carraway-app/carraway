@@ -54,7 +54,7 @@ Verwalter. Deshalb zuerst einrichten, dann ins Netz stellen:
 4. Weitere Personen legt die Verwaltung unter „Verwaltung“ an (Startpasswort, das beim ersten Anmelden zu ändern ist), oder sie
    melden sich über die Firmenanmeldung an (Entra ID/Google, `OIDC_*`), wenn sie vorher mit derselben Adresse angelegt wurden.
 
-Danach antwortet `/einrichtung` mit `REGISTRIERUNG_GESCHLOSSEN`.
+Danach antwortet `/einrichtung` mit `registration_closed`.
 
 ## Bestände: demo, test, echt
 
@@ -75,7 +75,7 @@ immer ein eigenes `BETTER_AUTH_SECRET` und eine ausdrückliche `DATABASE_URL`.
 
 Beides ist standardmäßig aus. Ausgehende Mail (Kennzahlen-Links an Unternehmen, Hinweise auf Mitteilungen im Portal, Berichtsfreigaben) braucht `SMTP_HOST`
 und `SMTP_ABSENDER`; die Anbindung von Postfach und Kalender und jede Mail mit einmaligem Link brauchen zusätzlich `GEHEIMNIS_SCHLUESSEL`
-(`openssl rand -base64 32`). Die Verwaltung prüft den Stand unter „Konto, Mailversand“ (ohne Geheimnisse) und schickt eine Testmail an die eigene Adresse.
+(`openssl rand -base64 32`). Die Verwaltung prüft den Stand unter „Verwaltung, Mailversand“ (ohne Geheimnisse) und schickt eine Testmail an die eigene Adresse.
 Die App-Registrierungen bei Microsoft und Google (`POSTFACH_*`, nur Leserechte), IMAP, Schlüsselwechsel und die Hinweise zum Datenschutz stehen in
 `docs/sicherheit/Mail-und-Kalender.md`; alle Variablen mit Erläuterung in `.env.beispiel`.
 
@@ -107,14 +107,14 @@ Die API gehört hinter einen Reverse-Proxy (Caddy, nginx, Traefik oder der des H
 - **Logs:** eine JSON-Zeile je Ereignis auf der Standardausgabe (`docker compose logs -f api worker`), Mindeststufe `LOG_STUFE`.
   Anfragezeilen enthalten Anfrage-ID, Methode, Routenmuster, Status, Dauer in Millisekunden und die Benutzer-ID; keine Adressen,
   Namen, Beträge, Abfragezeichenfolgen oder Geheimnisse. Fehler werden ohne Abfrageparameter protokolliert.
-- **Gesundheit:** `GET /api/v1/gesundheit` ist ohne Anmeldung erreichbar. 200 heißt, die Datenbank antwortet; 503, sie antwortet nicht.
+- **Gesundheit:** `GET /api/v1/health` ist ohne Anmeldung erreichbar. 200 heißt, die Datenbank antwortet; 503, sie antwortet nicht.
   Zusätzlich: `worker.status` (`ok`, `ausgefallen` bei mehr als 30 Sekunden ohne Herzschlag, `unbekannt` ohne je einen Herzschlag),
   `warteschlange.wartend` und `aeltesterWartenderSekunden` (Verzug in pg-boss) sowie `ausgangskorb` (Aufträge, die der Worker noch
   nicht übernommen hat; wächst bei einem toten Worker). Ein Worker-Ausfall macht die API nicht unbereit.
 - **Metriken:** `GET /metriken` (Prometheus-Textformat, `Authorization: Bearer <METRIKEN_TOKEN>`). Ohne `METRIKEN_TOKEN` ist der
   Endpunkt aus. Anfragedauer als Histogramm je Methode, Routenmuster und Statusklasse, Datenbank-Verbindungen, Warteschlange,
   Ausgangskorb, Worker-Herzschlag.
-- **Betriebsstatus:** Verwaltung → Betrieb (`GET /api/v1/betrieb/status`, nur globale Verwalter): Datenbank, Migrationsstand, Alter des
+- **Betriebsstatus:** Verwaltung → Betrieb (`GET /api/v1/operations/status`, nur globale Verwalter): Datenbank, Migrationsstand, Alter des
   Worker-Herzschlags, Rückstände (Snapshots, Mail, KI-Auslesung, Registerbeobachtung), Schreibbarkeit der Dateiablage, SMTP eingerichtet ja oder
   nein, KI-Anbieter. `/metriken` führt Herzschlag-Alter und Rückstände (`carraway_rueckstand_*`) für Alarme.
 - **Container-Health:** `api` über die Gesundheitsabfrage, `worker` über seine Herzschlag-Datei. Docker startet unhealthy Container
@@ -134,7 +134,7 @@ Alle Wege laufen über die Anwendung und stehen im Änderungsprotokoll; sie brau
   Vertragsende; für die technische Wiederherstellung bleibt die Sicherung zuständig.
 - **API:** Die OpenAPI-Beschreibung (`/api/v1/openapi.json`) und eine Dokumentationsseite (`/api/v1/docs`, ohne Skripte und externe Dateien)
   sind ohne Anmeldung erreichbar; wer das nicht will, sperrt beide Pfade im Proxy. Schreibende Aufrufe nehmen `Idempotency-Key` an
-  (24 Stunden), `POST /api/v1/stapel` fasst bis zu 100 Operationen in einer Transaktion zusammen, `GET /api/v1/aenderungen` liefert
+  (24 Stunden), `POST /api/v1/stapel` fasst bis zu 100 Operationen in einer Transaktion zusammen, `GET /api/v1/changes` liefert
   Änderungen seit einem Zeitpunkt.
 - **Schriften:** Die Oberfläche liefert Instrument Sans und IBM Plex Mono selbst aus; beim Aufruf der Seite gehen keine Anfragen an Drittanbieter.
 
@@ -176,7 +176,7 @@ und eine eigene Adresse.
 cd carraway && git pull && cd deploy
 ./sicherung.sh                           # immer vorher sichern
 docker compose up -d --build             # baut das Image neu, migrate läuft vor api und worker
-docker compose ps && curl -s http://127.0.0.1:8787/api/v1/gesundheit
+docker compose ps && curl -s http://127.0.0.1:8787/api/v1/health
 ```
 
 ### Umstieg vom früheren Produktnamen
@@ -250,7 +250,7 @@ verschlüsselt); die Passwörter selbst sind gehasht und bleiben gültig.
 |---|---|
 | `docker compose` bricht mit „… fehlt“ ab | Pflichtvariable in `.env` fehlt (Namen siehe Meldung und `.env.beispiel`) |
 | `api` startet nicht: `BETTER_AUTH_SECRET … Pflicht` | Geheimnis zu kurz (mindestens 32 Zeichen) oder bei `https`-Adresse nicht gesetzt |
-| Anmeldung scheitert mit `ORIGIN_UNGUELTIG` | `APP_ORIGIN` entspricht nicht der Adresse im Browser (Schema, Host, Port) |
+| Anmeldung scheitert mit `origin_invalid` | `APP_ORIGIN` entspricht nicht der Adresse im Browser (Schema, Host, Port) |
 | viele Fehlversuche, Sperre für alle hinter dem Proxy | `PROXY_VERTRAUEN=1` fehlt, die API sieht nur die Adresse des Proxys |
 | `worker.status` ist `ausgefallen` oder `unbekannt` | `docker compose logs worker`; läuft der Dienst, prüfen, ob `migrate` erfolgreich war |
 | `ausgangskorb` wächst | Worker steht oder erreicht die Datenbank nicht; Aufträge gehen nicht verloren und werden nachgeholt |

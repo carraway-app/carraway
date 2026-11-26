@@ -24,6 +24,7 @@ export const kontaktimportBereichDe = {
       beziehungen: "Beziehungen",
       runden: "Finanzierungsrunden",
       rundenpositionen: "Positionen in Runden",
+      mandate: "Gremienmandate",
     },
     felder: "Welcher Wert gilt?",
     spalten: { feld: "Feld", ziel: "Bleibender Datensatz", quelle: "Zusammengeführter Datensatz", gilt: "Gilt" },

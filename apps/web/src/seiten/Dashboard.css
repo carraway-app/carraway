@@ -1,0 +1,21 @@
+/* Portfolio-Dashboard und Zielfonds: nur semantische Tokens; die Summe ist die eine hervorgehobene Reihe (--cw-chart-2), Fonds unterscheiden sich auch durch die Strichart. */
+.app-dashboard { display: flex; flex-direction: column; gap: var(--s-4); }
+.app-allokation { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--s-2); }
+.app-allokation__zeile { display: grid; grid-template-columns: minmax(8rem, 14rem) 1fr auto; align-items: center; gap: var(--s-3); }
+.app-allokation__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.app-allokation__spur { height: var(--s-3); border-radius: var(--r-s); background: var(--cw-surface-2); overflow: hidden; }
+.app-allokation__balken { display: block; height: 100%; border-radius: var(--r-s); background: var(--cw-chart-1); }
+.app-allokation__balken--erster { background: var(--cw-chart-2); }
+.app-allokation__wert { color: var(--cw-text-muted); font-size: var(--fs-klein); white-space: nowrap; }
+.app-dashboard__serie { stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; fill: none; }
+.app-dashboard__punkt { stroke: none; }
+.app-dashboard__serie--1 { stroke: var(--cw-chart-1); fill: var(--cw-chart-1); }
+.app-dashboard__serie--2 { stroke: var(--cw-chart-3); fill: var(--cw-chart-3); stroke-dasharray: 2 4; }
+.app-dashboard__serie--3 { stroke: var(--cw-chart-4); fill: var(--cw-chart-4); stroke-dasharray: 6 4; }
+.app-dashboard__serie--4 { stroke: var(--cw-chart-5); fill: var(--cw-chart-5); stroke-dasharray: 1 3; }
+.app-dashboard__serie--gesamt { stroke: var(--cw-chart-2); fill: var(--cw-chart-2); stroke-width: 2.5; }
+path.app-dashboard__serie { fill: none; }
+.app-zielfonds__formular { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: var(--s-2); align-items: end; }
+@media (max-width: 40rem) {
+  .app-allokation__zeile { grid-template-columns: 1fr; gap: var(--s-1); }
+}

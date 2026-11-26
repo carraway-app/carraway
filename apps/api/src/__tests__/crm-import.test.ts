@@ -90,7 +90,7 @@ describe("CRM-Import mit Spaltenzuordnung", () => {
     for (const z of [[{ spalte: 0, feld: "gibtsnicht" }], [{ spalte: 0, feld: "name" }, { spalte: 1, feld: "name" }], [{ spalte: 9, feld: "name" }], [{ spalte: 0, feld: "zusammengefuehrtIn" }]]) {
       const antwort = await post("/import/vorschau", { objekt: "organisation", csv: csvOrg, zuordnung: z });
       expect(antwort.status, JSON.stringify(z)).toBe(400);
-      expect((await json(antwort)).fehler.code).toBe("CRM_IMPORT_UNGUELTIG");
+      expect((await json(antwort)).error.code).toBe("crm_import_invalid");
     }
     expect((await post("/import/vorschau", { objekt: "organisation", csv: "nur kopf\n", zuordnung: [{ spalte: 0, feld: "name" }] })).status).toBe(400);
     expect((await post("/import/vorschau", { objekt: "organisation", csv: csvOrg, zuordnung: zuordnung(stufe) }, BET)).status).toBe(403);

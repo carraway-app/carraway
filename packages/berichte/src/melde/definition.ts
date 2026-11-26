@@ -14,7 +14,7 @@ const bezeichner = z.string().regex(BEZEICHNER, "Kleinbuchstaben, Ziffern und Un
 const text = z.strictObject({ de: z.string().trim().min(1).max(400), en: z.string().trim().min(1).max(400) });
 const dezimal = z.string().regex(/^-?\d{1,18}(\.\d{1,6})?$/, "Dezimalzahl mit Punkt erwartet");
 
-export const INSTRUMENTE = ["offene_beteiligung", "stille_beteiligung", "darlehen", "wandeldarlehen", "venture_debt", "gesellschafterdarlehen"] as const;
+export const INSTRUMENTE = ["offene_beteiligung", "stille_beteiligung", "darlehen", "wandeldarlehen", "venture_debt", "gesellschafterdarlehen", "safe", "optionsschein"] as const;
 export const BETEILIGUNG_STATUS = ["aktiv", "exit", "insolvent", "abgeschrieben"] as const;
 export const MITTELARTEN = ["foerdermittel", "kofinanzierung", "eigenmittel", "rueckflussmittel"] as const;
 /** Meldeart einer Mittelart des Fonds (Kategorie, nach der Definitionen filtern und gruppieren). */

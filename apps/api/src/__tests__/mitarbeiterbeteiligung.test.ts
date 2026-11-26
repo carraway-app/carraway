@@ -81,12 +81,12 @@ describe("Pools und Zuteilungen", () => {
     // Verkleinerung unter null und unter die Zuteilungen
     const negativ = await post(`${pfad}/${poolId}/aenderungen`, { anzahl: "-200000", datum: "2025-10-01" }, bearbeiterHalter);
     expect(negativ.status).toBe(409);
-    expect((await json(negativ)).fehler.code).toBe("POOL_NEGATIV");
+    expect((await json(negativ)).error.code).toBe("pool_negative");
     const unter = await post(`${pfad}/${poolId}/aenderungen`, { anzahl: "-100000", datum: "2025-10-01" }, bearbeiterHalter);
-    expect((await json(unter)).fehler.code).toBe("ZUTEILUNG_UEBER_POOL");
+    expect((await json(unter)).error.code).toBe("grant_exceeds_pool");
     // Zu viel zugeteilt vor der Aufstockung (100.000 − 60.000 frei), danach passt es
     const zuViel = await post(`${pfad}/${poolId}/zuteilungen`, { kategorie: "fuehrung", anzahl: "50000", zugeteiltAm: "2025-06-01" }, bearbeiterHalter);
-    expect((await json(zuViel)).fehler.code).toBe("ZUTEILUNG_UEBER_POOL");
+    expect((await json(zuViel)).error.code).toBe("grant_exceeds_pool");
     expect((await post(`${pfad}/${poolId}/zuteilungen`, { kategorie: "fuehrung", anzahl: "50000", zugeteiltAm: "2025-10-01" }, bearbeiterHalter)).status).toBe(201);
     // Verfallen braucht ein Datum; danach ist der Teil wieder frei
     expect((await patch(`${pfad}/${poolId}/zuteilungen/${z1}`, { status: "verfallen" }, bearbeiterHalter)).status).toBe(400);
@@ -99,7 +99,7 @@ describe("Pools und Zuteilungen", () => {
   it("Regel anteilig nur bei VSOP, Bezeichnung eindeutig, Rechte wie bei den Anteilsklassen", async () => {
     expect((await post(pfad, { ...esop, regel: "anteilig" }, bearbeiterHalter)).status).toBe(400);
     expect((await post(pfad, { ...esop, art: "vsop", bezeichnung: "VSOP", regel: "anteilig" }, bearbeiterHalter)).status).toBe(201);
-    expect((await json(await post(pfad, { ...esop, art: "vsop", bezeichnung: "VSOP" }, bearbeiterHalter))).fehler.code).toBe("MITARBEITERPOOL_NAME_VORHANDEN");
+    expect((await json(await post(pfad, { ...esop, art: "vsop", bezeichnung: "VSOP" }, bearbeiterHalter))).error.code).toBe("employee_pool_name_exists");
     expect((await post(pfad, esop, betrachterHalter)).status).toBe(403);
     expect((await post(pfad, esop, bearbeiterFremd)).status).toBe(403);
     expect((await get(pfad, bearbeiterFremd)).status).toBe(403);
@@ -158,33 +158,33 @@ describe("Austritte (Leaver)", () => {
     // Ohne Einheiten: alle übrigen (hier 20.000); danach ist nichts mehr frei
     const rest = await json(await post(austritte(poolId, z1), { art: "good_leaver", austrittAm: "2028-01-01" }, bearbeiterHalter));
     expect(rest.austritte.at(-1)).toMatchObject({ anzahl: "20000", gevestet: "bleiben" });
-    const code = async (antwort: Response) => (await json(antwort)).fehler?.felder?.[0]?.code;
-    expect(await code(await post(austritte(poolId, z1), { art: "good_leaver", austrittAm: "2028-01-01" }, bearbeiterHalter))).toBe("ueber_anzahl");
-    expect(await code(await post(austritte(poolId, z1), { art: "good_leaver", austrittAm: "2028-01-01", anzahl: "1" }, bearbeiterHalter))).toBe("ueber_anzahl");
+    const code = async (antwort: Response) => (await json(antwort)).error?.fields?.[0]?.code;
+    expect(await code(await post(austritte(poolId, z1), { art: "good_leaver", austrittAm: "2028-01-01" }, bearbeiterHalter))).toBe("exceeds_count");
+    expect(await code(await post(austritte(poolId, z1), { art: "good_leaver", austrittAm: "2028-01-01", anzahl: "1" }, bearbeiterHalter))).toBe("exceeds_count");
     // Ändern über die Anzahl hinaus geht nicht; die Zuteilung lässt sich nicht unter die Summe der Austritte kürzen
-    expect(await code(await patch(`${austritte(poolId, z1)}/${rest.austritte.at(-1).id}`, { anzahl: "20001" }, bearbeiterHalter))).toBe("ueber_anzahl");
-    expect(await code(await patch(`${pfad}/${poolId}/zuteilungen/${z1}`, { anzahl: "39999" }, bearbeiterHalter))).toBe("unter_austritten");
-    expect(await code(await patch(`${pfad}/${poolId}/zuteilungen/${z1}`, { zugeteiltAm: "2026-05-01" }, bearbeiterHalter))).toBe("nach_austritt");
-    expect(await code(await patch(`${pfad}/${poolId}/zuteilungen/${z1}`, { status: "ausgeuebt", statusAm: "2028-02-01" }, bearbeiterHalter))).toBe("ausgeuebt_mit_leaver");
+    expect(await code(await patch(`${austritte(poolId, z1)}/${rest.austritte.at(-1).id}`, { anzahl: "20001" }, bearbeiterHalter))).toBe("exceeds_count");
+    expect(await code(await patch(`${pfad}/${poolId}/zuteilungen/${z1}`, { anzahl: "39999" }, bearbeiterHalter))).toBe("below_leavers");
+    expect(await code(await patch(`${pfad}/${poolId}/zuteilungen/${z1}`, { zugeteiltAm: "2026-05-01" }, bearbeiterHalter))).toBe("after_leaving");
+    expect(await code(await patch(`${pfad}/${poolId}/zuteilungen/${z1}`, { status: "ausgeuebt", statusAm: "2028-02-01" }, bearbeiterHalter))).toBe("exercised_with_leaver");
   });
 
   it("prüft die Angaben: nicht vor der Zuteilung, Preis nur mit Rückkauf, nicht bei ausgeübten, Rechte, fremde Zuteilung", async () => {
     const { poolId, z1 } = await poolMitZuteilungen();
-    const code = async (koerper: object) => (await json(await post(austritte(poolId, z1), koerper, bearbeiterHalter))).fehler?.felder?.[0]?.code;
+    const code = async (koerper: object) => (await json(await post(austritte(poolId, z1), koerper, bearbeiterHalter))).error?.fields?.[0]?.code;
     expect((await post(austritte(poolId, z1), { austrittAm: "2026-01-01" }, bearbeiterHalter)).status).toBe(400);
-    expect(await code({ art: "bad_leaver", austrittAm: "2025-01-01" })).toBe("vor_zuteilung");
-    expect(await code({ art: "bad_leaver", austrittAm: "2026-01-01", anzahl: "40001" })).toBe("ueber_anzahl");
-    expect(await code({ art: "bad_leaver", austrittAm: "2026-01-01", gevestet: "verfallen", rueckkaufpreis: "1" })).toBe("preis_ohne_rueckkauf");
+    expect(await code({ art: "bad_leaver", austrittAm: "2025-01-01" })).toBe("before_grant");
+    expect(await code({ art: "bad_leaver", austrittAm: "2026-01-01", anzahl: "40001" })).toBe("exceeds_count");
+    expect(await code({ art: "bad_leaver", austrittAm: "2026-01-01", gevestet: "verfallen", rueckkaufpreis: "1" })).toBe("price_without_buyback");
     const ausgeuebt = await json(await post(`${pfad}/${poolId}/zuteilungen`, { kategorie: "sonstige", anzahl: "1000", zugeteiltAm: "2025-04-01", status: "ausgeuebt", statusAm: "2025-06-01" }, bearbeiterHalter));
-    expect((await json(await post(austritte(poolId, ausgeuebt.id), { art: "bad_leaver", austrittAm: "2025-05-01" }, bearbeiterHalter))).fehler.felder[0].code).toBe("ausgeuebt_mit_leaver");
+    expect((await json(await post(austritte(poolId, ausgeuebt.id), { art: "bad_leaver", austrittAm: "2025-05-01" }, bearbeiterHalter))).error.fields[0].code).toBe("exercised_with_leaver");
     expect((await post(austritte(poolId, z1), { art: "bad_leaver", austrittAm: "2026-01-01" }, betrachterHalter)).status).toBe(403);
     expect((await post(austritte(poolId, z1), { art: "bad_leaver", austrittAm: "2026-01-01" }, bearbeiterFremd)).status).toBe(403);
-    expect((await json(await post(austritte(poolId, "00000000-0000-4000-8000-0000000000ff"), { art: "bad_leaver", austrittAm: "2026-01-01" }, bearbeiterHalter))).fehler.code).toBe("ZUTEILUNG_NICHT_GEFUNDEN");
+    expect((await json(await post(austritte(poolId, "00000000-0000-4000-8000-0000000000ff"), { art: "bad_leaver", austrittAm: "2026-01-01" }, bearbeiterHalter))).error.code).toBe("grant_not_found");
     const neu = await json(await post(`${pfad}/${poolId}/zuteilungen`, { kategorie: "sonstige", anzahl: "1000", zugeteiltAm: "2025-04-01" }, bearbeiterHalter));
     const bad = await json(await post(austritte(poolId, neu.id), { art: "bad_leaver", austrittAm: "2025-06-01" }, bearbeiterHalter));
     expect(bad).toMatchObject({ austritte: [{ anzahl: "1000", gevestet: "verfallen" }], betroffen: "1000", gevestet: "0", verfallen: "1000", verbleibend: "0" });
     // Austritt einer anderen Zuteilung über diese Zuteilung: nicht gefunden
-    expect((await json(await patch(`${austritte(poolId, z1)}/${bad.austritte[0].id}`, { anzahl: "1" }, bearbeiterHalter))).fehler.code).toBe("AUSTRITT_NICHT_GEFUNDEN");
+    expect((await json(await patch(`${austritte(poolId, z1)}/${bad.austritte[0].id}`, { anzahl: "1" }, bearbeiterHalter))).error.code).toBe("leaver_not_found");
   });
 
   it("Bad Leaver: verfallene Einheiten zurück in den Pool (voll verwässert unverändert), Platz für neue Zuteilungen, nicht im Wasserfall", async () => {
@@ -193,11 +193,11 @@ describe("Austritte (Leaver)", () => {
     expect(angelegt.status).toBe(201);
     const austrittId = (await json(angelegt)).austritte[0].id as string;
     // Frei: vor dem Austritt 40.000, danach 80.000
-    expect((await json(await post(`${pfad}/${poolId}/zuteilungen`, { kategorie: "fuehrung", anzahl: "70000", zugeteiltAm: "2025-12-01" }, bearbeiterHalter))).fehler.code).toBe("ZUTEILUNG_UEBER_POOL");
+    expect((await json(await post(`${pfad}/${poolId}/zuteilungen`, { kategorie: "fuehrung", anzahl: "70000", zugeteiltAm: "2025-12-01" }, bearbeiterHalter))).error.code).toBe("grant_exceeds_pool");
     expect((await post(`${pfad}/${poolId}/zuteilungen`, { kategorie: "fuehrung", anzahl: "70000", zugeteiltAm: "2026-02-01" }, bearbeiterHalter)).status).toBe(201);
     // Den Austritt zurücknehmen oder verschieben geht nicht mehr: die Zuteilungen lägen über dem Pool
-    expect((await json(await entferne(`${austritte(poolId, z1)}/${austrittId}`, undefined, bearbeiterHalter))).fehler.code).toBe("ZUTEILUNG_UEBER_POOL");
-    expect((await json(await patch(`${austritte(poolId, z1)}/${austrittId}`, { austrittAm: "2026-03-01" }, bearbeiterHalter))).fehler.code).toBe("ZUTEILUNG_UEBER_POOL");
+    expect((await json(await entferne(`${austritte(poolId, z1)}/${austrittId}`, undefined, bearbeiterHalter))).error.code).toBe("grant_exceeds_pool");
+    expect((await json(await patch(`${austritte(poolId, z1)}/${austrittId}`, { austrittAm: "2026-03-01" }, bearbeiterHalter))).error.code).toBe("grant_exceeds_pool");
     const d = await json(await get(`/beteiligungen/${ID.eigen}/kapitaltabelle?stichtag=2026-01-15`, betrachterHalter));
     expect(d).toMatchObject({ anteileUnverwaessert: "1250000", anteileVollVerwaessert: "1350000" });
     expect(d.zeilen.find((z: { halter: { art: string } }) => z.halter.art === "pool_zugeteilt")).toMatchObject({ anteile: "20000" });
@@ -340,10 +340,10 @@ describe("Bereiche je Fonds", () => {
     await poolMitZuteilungen();
     const kontakteId = await legePersonAn(db, nurKontakte);
     const portfolioId = await legePersonAn(db, mitPortfolio);
-    const rolle = await json(await post("/rechte/rollen", { name: "Alles", bereiche: ["portfolio", "kontakte"] }));
+    const rolle = await json(await post("/permissions/roles", { name: "Alles", areas: ["portfolio", "contacts"] }));
     const gruppe = (name: string, bereiche: string[], mitglied: string) =>
-      post("/rechte/gruppen", { name, stufe: "bearbeiter", fondsBeschraenkt: true, bereicheJeFonds: true, fondsIds: [ID.fonds], fondsBereiche: { [ID.fonds]: bereiche }, rollenIds: [rolle.id], mitglieder: [mitglied] });
-    expect((await gruppe("Nur Kontakte", ["kontakte"], kontakteId)).status).toBe(201);
+      post("/permissions/groups", { name, level: "editor", fundsRestricted: true, areasPerFund: true, fundIds: [ID.fonds], fundAreas: { [ID.fonds]: bereiche }, roleIds: [rolle.id], memberIds: [mitglied] });
+    expect((await gruppe("Nur Kontakte", ["contacts"], kontakteId)).status).toBe(201);
     expect((await gruppe("Portfolio", ["portfolio"], portfolioId)).status).toBe(201);
     expect((await get(pfad, nurKontakte)).status).toBe(403);
     expect((await get(`/organisationen/${ID.orgA}/finanzierungsrunden`, nurKontakte)).status).toBe(403);
@@ -371,12 +371,12 @@ describe("Einzelne Änderungen eines Pools", () => {
     const { poolId } = await poolMitZuteilungen();
     const anlegen = await post(`${pfad}/${poolId}/aenderungen`, { anzahl: "1000", datum: "2026-01-01", rundeId: RB, basis: "pre_money" }, bearbeiterHalter);
     expect(anlegen.status).toBe(409);
-    expect((await json(anlegen)).fehler.code).toBe("POOL_AENDERUNG_BRUECKE");
+    expect((await json(anlegen)).error.code).toBe("pool_change_bridge");
     const neu = await post(pfad, { ...esop, bezeichnung: "ESOP B", rundeId: RB, basis: "post_money" }, bearbeiterHalter);
-    expect((await json(neu)).fehler.code).toBe("POOL_AENDERUNG_BRUECKE");
+    expect((await json(neu)).error.code).toBe("pool_change_bridge");
     const ok = await json(await post(`${pfad}/${poolId}/aenderungen`, { anzahl: "1000", datum: "2026-02-01" }, bearbeiterHalter));
     const ziel = await patch(aenderungPfad(poolId, ok.id), { rundeId: RB, basis: "post_money" }, bearbeiterHalter);
-    expect((await json(ziel)).fehler.code).toBe("POOL_AENDERUNG_BRUECKE");
+    expect((await json(ziel)).error.code).toBe("pool_change_bridge");
     expect((await verlauf(poolId)).find((a) => a.id === ok.id)?.rundeId).toBeNull();
   });
 
@@ -389,15 +389,15 @@ describe("Einzelne Änderungen eines Pools", () => {
     expect(await json(geaendert)).toMatchObject({ id: a.id, anzahl: "30000", datum: "2025-09-01", beschluss: "Nachtrag" });
     expect((await protokollZeilen(db, "pool_aenderung")).filter((z) => z.aktion === "aendern").length).toBe(1);
     // Negative Größe und Zuteilung über dem Pool werden abgelehnt, nichts ändert sich
-    expect((await json(await patch(aenderungPfad(poolId, a.id), { anzahl: "-150000" }, bearbeiterHalter))).fehler.code).toBe("POOL_NEGATIV");
-    expect((await json(await patch(aenderungPfad(poolId, a.id), { anzahl: "-50000" }, bearbeiterHalter))).fehler.code).toBe("ZUTEILUNG_UEBER_POOL");
+    expect((await json(await patch(aenderungPfad(poolId, a.id), { anzahl: "-150000" }, bearbeiterHalter))).error.code).toBe("pool_negative");
+    expect((await json(await patch(aenderungPfad(poolId, a.id), { anzahl: "-50000" }, bearbeiterHalter))).error.code).toBe("grant_exceeds_pool");
     // Datum vor die Zuteilung gezogen: Aufstockung zählt früher, passt
     expect((await patch(aenderungPfad(poolId, a.id), { datum: "2025-01-01" }, bearbeiterHalter)).status).toBe(200);
     expect((await verlauf(poolId)).find((x) => x.id === a.id)).toMatchObject({ anzahl: "30000", datum: "2025-01-01" });
     // Runde ohne Basis, leere Eingabe, fremde Änderung, unbekannte Änderung, Rechte
     expect((await patch(aenderungPfad(poolId, a.id), { rundeId: R2 }, bearbeiterHalter)).status).toBe(400);
     expect((await patch(aenderungPfad(poolId, a.id), {}, bearbeiterHalter)).status).toBe(400);
-    expect((await json(await patch(aenderungPfad(poolId, "00000000-0000-4000-8000-0000000000aa"), { anzahl: "1" }, bearbeiterHalter))).fehler.code).toBe("POOL_AENDERUNG_NICHT_GEFUNDEN");
+    expect((await json(await patch(aenderungPfad(poolId, "00000000-0000-4000-8000-0000000000aa"), { anzahl: "1" }, bearbeiterHalter))).error.code).toBe("pool_change_not_found");
     expect((await patch(aenderungPfad(poolId, a.id), { anzahl: "1" }, betrachterHalter)).status).toBe(403);
     expect((await patch(aenderungPfad(poolId, a.id), { anzahl: "1" }, bearbeiterFremd)).status).toBe(403);
   });
@@ -408,12 +408,12 @@ describe("Einzelne Änderungen eines Pools", () => {
     const a = await json(await post(`${pfad}/${poolId}/aenderungen`, { anzahl: "50000", datum: "2025-09-01" }, bearbeiterHalter));
     const b = await json(await post(`${pfad}/${poolId}/aenderungen`, { anzahl: "-50000", datum: "2025-10-01" }, bearbeiterHalter));
     // Ohne die Aufstockung blieben 100.000 minus 50.000 = 50.000 unter den 60.000 Zuteilungen
-    expect((await json(await entferne(aenderungPfad(poolId, a.id), undefined, bearbeiterHalter))).fehler.code).toBe("ZUTEILUNG_UEBER_POOL");
+    expect((await json(await entferne(aenderungPfad(poolId, a.id), undefined, bearbeiterHalter))).error.code).toBe("grant_exceeds_pool");
     expect((await entferne(aenderungPfad(poolId, b.id), undefined, betrachterHalter)).status).toBe(403);
     expect((await entferne(aenderungPfad(poolId, b.id), undefined, bearbeiterHalter)).status).toBe(204);
     expect((await entferne(aenderungPfad(poolId, a.id), undefined, bearbeiterHalter)).status).toBe(204);
     expect((await entferne(aenderungPfad(poolId, a.id), undefined, bearbeiterHalter)).status).toBe(404);
-    expect((await json(await entferne(aenderungPfad(poolId, erste.id), undefined, bearbeiterHalter))).fehler.code).toBe("POOL_LETZTE_AENDERUNG");
+    expect((await json(await entferne(aenderungPfad(poolId, erste.id), undefined, bearbeiterHalter))).error.code).toBe("pool_last_change");
     expect((await verlauf(poolId)).map((x) => x.id)).toEqual([erste.id]);
     expect((await protokollZeilen(db, "pool_aenderung")).filter((z) => z.aktion === "loeschen").length).toBe(2);
   });
@@ -429,7 +429,7 @@ describe("Einzelne Änderungen eines Pools", () => {
     const lose = await json(await post(`${pfad}/${poolId}/aenderungen`, { anzahl: "1000", datum: "2026-02-01" }, bearbeiterHalter));
     const zuAbgeschlossen = await patch(aenderungPfad(poolId, lose.id), { rundeId: R2, basis: "pre_money" }, bearbeiterHalter);
     expect(zuAbgeschlossen.status).toBe(409);
-    expect((await json(zuAbgeschlossen)).fehler.code).toBe("POOL_AENDERUNG_RUNDE_FEST");
+    expect((await json(zuAbgeschlossen)).error.code).toBe("pool_change_round_fixed");
     expect((await post(`${pfad}/${poolId}/aenderungen`, { anzahl: "1000", datum: "2025-09-01", rundeId: R2, basis: "post_money" }, bearbeiterHalter)).status).toBe(201);
     expect((await patch(aenderungPfad(poolId, lose.id), { rundeId: RE, basis: "pre_money" }, bearbeiterHalter)).status).toBe(200);
     // Zuordnung lösen: beide Felder zusammen
@@ -438,7 +438,7 @@ describe("Einzelne Änderungen eines Pools", () => {
     await db.update(s.finanzierungsrunde).set({ status: "abgeschlossen" }).where(sql`id = ${RE}`);
     for (const antwort of [await patch(aenderungPfad(poolId, a.id), { anzahl: "1" }, bearbeiterHalter), await entferne(aenderungPfad(poolId, a.id), undefined, bearbeiterHalter)]) {
       expect(antwort.status).toBe(409);
-      expect((await json(antwort)).fehler.code).toBe("POOL_AENDERUNG_RUNDE_FEST");
+      expect((await json(antwort)).error.code).toBe("pool_change_round_fixed");
     }
     // Wieder Entwurf: Zuordnung lösen und löschen gehen
     await db.update(s.finanzierungsrunde).set({ status: "entwurf" }).where(sql`id = ${RE}`);

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useSuspenseQuery } from "@tanstack/react-query";
-import { Auswahl, Button, CaretDownIcon, CaretUpIcon, Etikett, Feld, Hinweis, PlusIcon, Tabelle, Textbereich, XIcon } from "@carraway/ui";
+import { Auswahl, Button, Etikett, Feld, Hinweis, PlusIcon, SortierbareListe, Textbereich, XIcon } from "@carraway/ui";
 import { belegvorlagen, useBelegartAendern, useBelegartAnlegen, useBelegartLoeschen, useVorlageSetzen, type BelegArt, type BelegVorlageDaten } from "../api/buchhaltung";
 import { FehlerHinweis } from "../komponenten/FehlerHinweis";
 import { aufzaehlung, useSprache, useT } from "../i18n";
@@ -175,14 +175,6 @@ function VorlageEditor({ fondsId, vorlage, aenderbar }: { fondsId: string; vorla
   };
   const gewaehlt = new Set(liste.map((x) => x.schluessel));
   const frei = vorlage.katalog.filter((k) => !gewaehlt.has(k.schluessel));
-  const verschiebe = (i: number, richtung: -1 | 1) =>
-    setListe((alt) => {
-      const j = i + richtung;
-      if (j < 0 || j >= alt.length) return alt;
-      const neu = [...alt];
-      [neu[i], neu[j]] = [neu[j]!, neu[i]!];
-      return neu;
-    });
   function aendereFeld(schluessel: string, aenderung: Partial<Eintrag>) {
     setListe((alt) => alt.map((f) => f.schluessel === schluessel ? { ...f, ...aenderung } : f));
   }
@@ -195,54 +187,42 @@ function VorlageEditor({ fondsId, vorlage, aenderbar }: { fondsId: string; vorla
           {liste.length === 0 ? (
             <p className="app-leer-text">{e.vorlageNochKeine}</p>
           ) : (
-            <Tabelle
-              beschriftung={`${e.vorlageAufBeleg}: ${art}`}
-              zeilen={liste}
-              zeilenSchluessel={(z) => z.schluessel}
-              spalten={[
-                { schluessel: "nr", kopf: sp.nr, zahl: true, zelle: (z) => liste.indexOf(z) + 1 },
-                { schluessel: "feld", kopf: sp.feld, zelle: (z) => z.manuell && aenderbar ? (
-                  <div className="cw-formularraster">
-                    <Feld kompakt label={e.eigeneArt.feldDe} value={z.bezeichnungDe ?? ""} maxLength={100} onChange={(ev) => aendereFeld(z.schluessel, { bezeichnungDe: ev.target.value })} />
-                    <Feld kompakt label={e.eigeneArt.feldEn} value={z.bezeichnungEn ?? ""} maxLength={100} onChange={(ev) => aendereFeld(z.schluessel, { bezeichnungEn: ev.target.value })} />
-                  </div>
-                ) : name(z.schluessel) },
-                { schluessel: "typ", kopf: sp.typ, zelle: (z) => z.manuell && aenderbar ? (
-                  <Auswahl label={sp.typ} value={z.manuell} onChange={(ev) => aendereFeld(z.schluessel, { manuell: ev.target.value as Eintrag["manuell"] })}>
-                    {["text", "betrag", "datum"].map((typ) => <option key={typ} value={typ}>{aufzaehlung(e.vorlageTyp, typ)}</option>)}
-                  </Auswahl>
-                ) : aufzaehlung(e.vorlageTyp, z.manuell ?? katalog.get(z.schluessel)?.typ ?? "text") },
-                {
-                  schluessel: "pflicht",
-                  kopf: sp.pflicht,
-                  zelle: (z) => (
+            <SortierbareListe
+              className="app-vorlage__felder"
+              aria-label={`${e.vorlageAufBeleg}: ${art}`}
+              eintraege={liste}
+              schluessel={(z) => z.schluessel}
+              name={(z) => name(z.schluessel)}
+              onAendern={setListe}
+              texte={{ griff: e.vorlageGriff, hinweis: e.vorlageBedienung, aufgenommen: e.vorlageAufgenommen, verschoben: e.vorlageVerschoben, abgelegt: e.vorlageAbgelegt, abgebrochen: e.vorlageAbgebrochen }}
+              zeile={(z) => (
+                <div className="app-vorlage__feld">
+                  <span className="app-vorlage__nr">{liste.indexOf(z) + 1}</span>
+                  {z.manuell && aenderbar ? (
+                    <div className="cw-formularraster app-vorlage__eigen">
+                      <Feld kompakt label={e.eigeneArt.feldDe} value={z.bezeichnungDe ?? ""} maxLength={100} onChange={(ev) => aendereFeld(z.schluessel, { bezeichnungDe: ev.target.value })} />
+                      <Feld kompakt label={e.eigeneArt.feldEn} value={z.bezeichnungEn ?? ""} maxLength={100} onChange={(ev) => aendereFeld(z.schluessel, { bezeichnungEn: ev.target.value })} />
+                      <Auswahl label={sp.typ} value={z.manuell} onChange={(ev) => aendereFeld(z.schluessel, { manuell: ev.target.value as Eintrag["manuell"] })}>
+                        {["text", "betrag", "datum"].map((typ) => <option key={typ} value={typ}>{aufzaehlung(e.vorlageTyp, typ)}</option>)}
+                      </Auswahl>
+                    </div>
+                  ) : (
+                    <span className="app-vorlage__name">
+                      {name(z.schluessel)} <span className="app-leer-text">({aufzaehlung(e.vorlageTyp, z.manuell ?? katalog.get(z.schluessel)?.typ ?? "text")})</span>
+                    </span>
+                  )}
+                  <label className="app-haken">
                     <input
                       type="checkbox"
                       checked={z.pflicht}
                       aria-label={`${e.pflicht}: ${name(z.schluessel)}`}
                       onChange={(ev) => setListe((alt) => alt.map((x) => (x.schluessel === z.schluessel ? { ...x, pflicht: ev.target.checked } : x)))}
                     />
-                  ),
-                },
-                {
-                  schluessel: "reihenfolge",
-                  kopf: sp.reihenfolge,
-                  zelle: (z) => {
-                    const i = liste.indexOf(z);
-                    return (
-                      <span className="app-vorlage__knoepfe">
-                        <Button variante="ruhig" groesse="s" icon={<CaretUpIcon />} aria-label={e.vorlageNachOben(name(z.schluessel))} disabled={i === 0} onClick={() => verschiebe(i, -1)} />
-                        <Button variante="ruhig" groesse="s" icon={<CaretDownIcon />} aria-label={e.vorlageNachUnten(name(z.schluessel))} disabled={i === liste.length - 1} onClick={() => verschiebe(i, 1)} />
-                      </span>
-                    );
-                  },
-                },
-                {
-                  schluessel: "aktion",
-                  kopf: sp.aktion,
-                  zelle: (z) => <Button variante="ruhig" groesse="s" icon={<XIcon />} aria-label={e.vorlageEntfernen(name(z.schluessel))} onClick={() => setListe((alt) => alt.filter((x) => x.schluessel !== z.schluessel))} />,
-                },
-              ]}
+                    <span aria-hidden="true">{sp.pflicht}</span>
+                  </label>
+                  <Button variante="ruhig" groesse="s" icon={<XIcon />} aria-label={e.vorlageEntfernen(name(z.schluessel))} onClick={() => setListe((alt) => alt.filter((x) => x.schluessel !== z.schluessel))} />
+                </div>
+              )}
             />
           )}
         </div>

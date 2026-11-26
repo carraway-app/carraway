@@ -1,3 +1,4 @@
+import { alle } from "../erweiterung";
 import { ErwaehnenAuswahl, NotizText } from "./crm/Notiz";
 import { useState } from "react";
 import { Link } from "@tanstack/react-router";
@@ -232,6 +233,7 @@ function AnhaengeDialog({ aktivitaet, onSchliessen }: { aktivitaet: Aktivitaet; 
                   {a.uebernehmen}
                 </Button>
               ) : null}
+              {!fertig[x.id] && aktivitaet.sync?.richtung === "eingehend" && darf("verwalter") && alle("anhangAktion").map((Aktion, i) => <Aktion key={i} aktivitaetId={aktivitaet.id} anhangId={x.id} />)}
             </li>
           ))}
         </ul>

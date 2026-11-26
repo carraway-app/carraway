@@ -8,4 +8,6 @@ export const INSTRUMENT_BEZEICHNUNG: Record<(typeof instrumentArt.enumValues)[nu
   wandeldarlehen: "Wandeldarlehen",
   venture_debt: "Venture Debt",
   gesellschafterdarlehen: "Gesellschafterdarlehen",
+  safe: "SAFE",
+  optionsschein: "Optionsscheine",
 };

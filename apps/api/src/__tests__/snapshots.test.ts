@@ -105,7 +105,7 @@ describe("Wissensstand (?stand=)", () => {
   it("lehnt einen ungültigen Zeitstempel mit 400 ab", async () => {
     const antwort = await get(`/fonds/${ID.fonds}/uebersicht?stand=gestern`);
     expect(antwort.status).toBe(400);
-    expect((await json(antwort)).fehler.code).toBe("EINGABE_UNGUELTIG");
+    expect((await json(antwort)).error.code).toBe("invalid_input");
   });
 });
 
@@ -251,7 +251,7 @@ describe("Welche Stichtage gespeichert werden", () => {
   it("Neuberechnung für einen Stichtag mitten im Quartal wird mit 400 abgelehnt", async () => {
     const antwort = await post(`/fonds/${ID.fonds}/neuberechnen?stichtag=2025-08-17`);
     expect(antwort.status).toBe(400);
-    expect((await json(antwort)).fehler.code).toBe("EINGABE_UNGUELTIG");
+    expect((await json(antwort)).error.code).toBe("invalid_input");
     expect(await anzahl("snapshot_auftrag")).toBe(0);
   });
 
@@ -307,7 +307,7 @@ describe("POST /fonds/:id/neuberechnen", () => {
   it("unbekannter Fonds ist 404, ungültiger Stichtag 400", async () => {
     const fremd = await post("/fonds/00000000-0000-4000-8000-0000000000ff/neuberechnen");
     expect(fremd.status).toBe(404);
-    expect((await json(fremd)).fehler.code).toBe("FONDS_NICHT_GEFUNDEN");
+    expect((await json(fremd)).error.code).toBe("fund_not_found");
     const schlecht = await post(`/fonds/${ID.fonds}/neuberechnen?stichtag=morgen`);
     expect(schlecht.status).toBe(400);
     expect(await anzahl("snapshot_auftrag")).toBe(0);

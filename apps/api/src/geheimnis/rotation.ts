@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import type { Db } from "@carraway/db";
 import type { Schluesselring } from "./krypto";
 import { verifierAad, zugangAad } from "../postfach/zugang";
+import { geheimnisAad } from "../webhooks/zustellung";
 
 /**
  * Schlüsselwechsel: verschlüsselt alle ruhenden Geheimnisse mit dem aktuellen Schlüssel des Rings neu (Ablauf in `krypto.ts`). Werte, die schon mit
@@ -25,6 +26,7 @@ const ZIELE: Ziel[] = [
   { tabelle: "postfach_verbindung", spalte: "zugang_verschluesselt", aad: zugangAad },
   { tabelle: "mail_auftrag", spalte: "inhalt_verschluesselt", aad: (id) => `mail_auftrag:${id}` },
   { tabelle: "oauth_zustand", spalte: "verifier_verschluesselt", aad: verifierAad },
+  { tabelle: "webhook", spalte: "geheimnis_verschluesselt", aad: geheimnisAad },
 ];
 
 export async function rotiereGeheimnisse(db: Db, ring: Schluesselring): Promise<RotationsErgebnis> {

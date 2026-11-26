@@ -106,13 +106,13 @@ afterAll(async () => {
 
 describe("Allgemein", () => {
   it("Gesundheit meldet die Datenbank", async () => {
-    const antwort = await app.request("/api/v1/gesundheit");
+    const antwort = await app.request("/api/v1/health");
     expect(antwort.status).toBe(200);
-    expect(await json(antwort)).toMatchObject({ ok: true, datenbank: true, worker: { status: expect.any(String) } });
+    expect(await json(antwort)).toMatchObject({ ok: true, database: true, worker: { status: expect.any(String) } });
   });
 
   it("jede Antwort trägt Server-Timing", async () => {
-    for (const pfad of ["/api/v1/gesundheit", "/api/v1/fonds", "/api/v1/gibt-es-nicht", `/api/v1/fonds/${ID.f1}/uebersicht?stichtag=kaputt`]) {
+    for (const pfad of ["/api/v1/health", "/api/v1/fonds", "/api/v1/gibt-es-nicht", `/api/v1/fonds/${ID.f1}/uebersicht?stichtag=kaputt`]) {
       const antwort = await app.request(pfad);
       expect(antwort.headers.get("Server-Timing"), pfad).toMatch(/^app;dur=\d+(\.\d+)?$/);
     }
@@ -123,14 +123,14 @@ describe("Allgemein", () => {
       const antwort = await app.app.request(pfad);
       expect(antwort.status).toBe(404);
       expect(antwort.headers.get("content-type")).toContain("application/json");
-      expect(await json(antwort)).toEqual({ fehler: { code: "NICHT_GEFUNDEN", meldung: expect.any(String) } });
+      expect(await json(antwort)).toEqual({ error: { code: "not_found", message: expect.any(String) } });
     }
     const anonym = await app.request("/api/v1/gibt-es-nicht", { als: null });
     expect(anonym.status).toBe(401);
-    expect((await json(anonym)).fehler.code).toBe("NICHT_ANGEMELDET");
+    expect((await json(anonym)).error.code).toBe("not_authenticated");
     const angemeldet = await app.request("/api/v1/gibt-es-nicht");
     expect(angemeldet.status).toBe(403);
-    expect((await json(angemeldet)).fehler.code).toBe("KEINE_BERECHTIGUNG");
+    expect((await json(angemeldet)).error.code).toBe("forbidden");
   });
 
   it("statement_timeout gilt nur innerhalb der Transaktion", async () => {
@@ -286,27 +286,27 @@ describe("GET /fonds/:id/uebersicht", () => {
     for (const stichtag of ["2024-13-45", "morgen", "2024-02-30"]) {
       const antwort = await uebersicht(ID.f1, stichtag);
       expect(antwort.status, stichtag).toBe(400);
-      const { fehler } = await json(antwort);
-      expect(fehler.code).toBe("EINGABE_UNGUELTIG");
-      expect(fehler.felder).toEqual([expect.objectContaining({ feld: "stichtag", code: expect.any(String), meldung: expect.any(String) })]);
+      const { error: fehler } = await json(antwort);
+      expect(fehler.code).toBe("invalid_input");
+      expect(fehler.fields).toEqual([expect.objectContaining({ field: "stichtag", code: expect.any(String), message: expect.any(String) })]);
     }
   });
 
   it("sammelt Fehler mehrerer Felder in einer Antwort", async () => {
     const antwort = await app.request("/api/v1/fonds/keine-uuid/uebersicht?stichtag=morgen");
     expect(antwort.status).toBe(400);
-    const { fehler } = await json(antwort);
-    expect(fehler.felder.map((f: { feld: string }) => f.feld).sort()).toEqual(["id", "stichtag"]);
+    const { error: fehler } = await json(antwort);
+    expect(fehler.fields.map((f: { field: string }) => f.field).sort()).toEqual(["id", "stichtag"]);
 
     const liste = await app.request("/api/v1/organisationen?limit=500&art=unbekannt&cursor=xyz");
     expect(liste.status).toBe(400);
-    expect((await json(liste)).fehler.felder.map((f: { feld: string }) => f.feld).sort()).toEqual(["art", "cursor", "limit"]);
+    expect((await json(liste)).error.fields.map((f: { field: string }) => f.field).sort()).toEqual(["art", "cursor", "limit"]);
   });
 
   it("unbekannter Fonds: 404 mit Code", async () => {
     const antwort = await uebersicht(FREMD);
     expect(antwort.status).toBe(404);
-    expect((await json(antwort)).fehler.code).toBe("FONDS_NICHT_GEFUNDEN");
+    expect((await json(antwort)).error.code).toBe("fund_not_found");
   });
 });
 
@@ -377,7 +377,7 @@ describe("GET /organisationen/:id", () => {
   it("404 für unbekannte, 400 für ungültige Id", async () => {
     const unbekannt = await app.request(`/api/v1/organisationen/${FREMD}`);
     expect(unbekannt.status).toBe(404);
-    expect((await json(unbekannt)).fehler.code).toBe("ORGANISATION_NICHT_GEFUNDEN");
+    expect((await json(unbekannt)).error.code).toBe("organization_not_found");
     expect((await app.request("/api/v1/organisationen/abc")).status).toBe(400);
   });
 });

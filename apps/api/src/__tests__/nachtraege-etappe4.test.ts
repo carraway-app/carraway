@@ -34,9 +34,9 @@ beforeEach(async () => {
   await grundbestand(db);
   await db.insert(s.organisation).values({ id: KAEUFER, name: "Käufer Beispiel", art: "unternehmen" });
   // Buchwert 400.000: 500.000 investiert, 100.000 wertberichtigt; Bewertung 450.000
-  await post(`/beteiligungen/${b}/vorgaenge`, { art: "zusage", valuta: "2025-01-01", betrag: "1000000" });
-  await post(`/beteiligungen/${b}/vorgaenge`, { art: "auszahlung", valuta: "2025-02-01", betrag: "500000" });
-  await post(`/beteiligungen/${b}/vorgaenge`, { art: "wertberichtigung", valuta: "2025-12-31", betrag: "100000" });
+  await post(`/investments/${b}/transactions`, { type: "commitment", valueDate: "2025-01-01", amount: "1000000" });
+  await post(`/investments/${b}/transactions`, { type: "disbursement", valueDate: "2025-02-01", amount: "500000" });
+  await post(`/investments/${b}/transactions`, { type: "impairment", valueDate: "2025-12-31", amount: "100000" });
   await db.insert(s.bewertung).values({ beteiligungId: b, stichtag: "2025-12-31", wert: "450000.00", methode: "letzte_runde", status: "freigegeben" });
   await leereAuftraege(db);
 });
@@ -65,9 +65,9 @@ describe("Treuhandforderungen im NAV", () => {
 describe("Storno eines Verkaufs", () => {
   it("lehnt das Storno des Barzuflusses einzeln ab und verweist auf den ganzen Verkauf", async () => {
     const d = await json(await verkaufen(voll));
-    const antwort = await post(`/vorgaenge/${d.verkauf.rueckflussVorgangId}/storno`, { grund: "Versehen" }, "bearbeiter");
+    const antwort = await post(`/transactions/${d.verkauf.rueckflussVorgangId}/reverse`, { reason: "Versehen" }, "bearbeiter");
     expect(antwort.status).toBe(409);
-    expect((await json(antwort)).fehler).toMatchObject({ code: "VERKAUF_STORNO_UEBER_VERKAUF", verkaufId: d.verkauf.id });
+    expect((await json(antwort)).error).toMatchObject({ code: "sale_reversal_exceeds_sale", saleId: d.verkauf.id });
     expect(await summe(b, "rueckfluss")).toBe(540000);
   });
 
@@ -103,7 +103,7 @@ describe("Storno eines Verkaufs", () => {
     // zweites Storno und neuer Verkauf
     const nochmal = await post(`/verkaeufe/${d.verkauf.id}/storno`, { grund: "Nochmal" });
     expect(nochmal.status).toBe(409);
-    expect((await json(nochmal)).fehler.code).toBe("VERKAUF_BEREITS_STORNIERT");
+    expect((await json(nochmal)).error.code).toBe("sale_already_reversed");
     const neu = await verkaufen({ datum: "2026-06-30", kaufpreis: "700000", anteilVerkauft: 1 });
     expect(neu.status).toBe(201);
     expect((await json(neu)).ergebnis).toMatchObject({ buchwertVorher: "400000.00", buchwertAbgang: "400000.00" });
@@ -129,10 +129,10 @@ describe("Storno eines Verkaufs", () => {
     await post(`/forderungen/${d.forderung.id}/erfuellt`, { datum: "2027-06-30" }, "bearbeiter");
     expect(await summe(b, "rueckfluss")).toBe(590000);
     // Auf dem Verkäuferdarlehen wird getilgt: nicht mehr unbenutzt
-    await post(`/beteiligungen/${d.verkaeuferdarlehenBeteiligungId}/vorgaenge`, { art: "tilgung", valuta: "2027-01-01", betrag: "1000" }, "bearbeiter");
+    await post(`/investments/${d.verkaeuferdarlehenBeteiligungId}/transactions`, { type: "repayment", valueDate: "2027-01-01", amount: "1000" }, "bearbeiter");
     const genutzt = await post(`/verkaeufe/${d.verkauf.id}/storno`, { grund: "x" }, "bearbeiter");
     expect(genutzt.status).toBe(409);
-    expect((await json(genutzt)).fehler.code).toBe("VERKAUF_STORNO_DARLEHEN_GENUTZT");
+    expect((await json(genutzt)).error.code).toBe("sale_reversal_loan_used");
     expect(await summe(b, "rueckfluss")).toBe(590000);
   });
 
@@ -154,7 +154,7 @@ describe("Storno eines Verkaufs", () => {
     const zweiter = await json(await verkaufen({ datum: "2026-12-31", kaufpreis: "100000", anteilVerkauft: 0.5 }));
     const antwort = await post(`/verkaeufe/${erster.verkauf.id}/storno`, { grund: "x" });
     expect(antwort.status).toBe(409);
-    expect((await json(antwort)).fehler).toMatchObject({ code: "VERKAUF_STORNO_SPAETERER_VERKAUF", verkaufId: zweiter.verkauf.id });
+    expect((await json(antwort)).error).toMatchObject({ code: "sale_reversal_later_sale", verkaufId: zweiter.verkauf.id });
     expect((await post(`/verkaeufe/${zweiter.verkauf.id}/storno`, { grund: "y" })).status).toBe(201);
     expect((await post(`/verkaeufe/${erster.verkauf.id}/storno`, { grund: "z" })).status).toBe(201);
     expect(await anzahl(db, "verkauf", "storniert_am IS NOT NULL")).toBe(2);
@@ -183,20 +183,20 @@ describe("Verkaufsvorschau", () => {
     const vorschau = await post(`/beteiligungen/${b}/verkauf/vorschau`, zuViel);
     const buchung = await verkaufen(zuViel);
     expect(vorschau.status).toBe(409);
-    expect((await json(vorschau)).fehler.code).toBe("VERKAUF_UNGUELTIG");
-    expect((await json(buchung)).fehler.code).toBe("VERKAUF_UNGUELTIG");
+    expect((await json(vorschau)).error.code).toBe("sale_invalid");
+    expect((await json(buchung)).error.code).toBe("sale_invalid");
     expect((await post(`/beteiligungen/${b}/verkauf/vorschau`, { ...voll, anteilVerkauft: 2 })).status).toBe(400);
     expect((await post(`/beteiligungen/00000000-0000-4000-8000-0000000000ff/verkauf/vorschau`, voll)).status).toBe(404);
     await verkaufen({ datum: "2026-06-30", kaufpreis: "1000", anteilVerkauft: 1 });
-    expect((await json(await post(`/beteiligungen/${b}/verkauf/vorschau`, voll))).fehler.code).toBe("BETEILIGUNG_NICHT_AKTIV");
+    expect((await json(await post(`/beteiligungen/${b}/verkauf/vorschau`, voll))).error.code).toBe("investment_not_active");
   });
 });
 
 describe("Zinslauf: Hinweise, Codes, Abgrenzung", () => {
   const KONDITION = { gueltigAb: "2025-01-01", satzFix: "0.06", methode: "30E/360", zinsperiode: "jaehrlich", anker: "2026-01-01" };
   async function darlehen(kondition: object = KONDITION) {
-    await post(`/beteiligungen/${ID.darlehen}/vorgaenge`, { art: "zusage", valuta: "2025-01-01", betrag: "200000" });
-    await post(`/beteiligungen/${ID.darlehen}/vorgaenge`, { art: "auszahlung", valuta: "2025-01-01", betrag: "100000" });
+    await post(`/investments/${ID.darlehen}/transactions`, { type: "commitment", valueDate: "2025-01-01", amount: "200000" });
+    await post(`/investments/${ID.darlehen}/transactions`, { type: "disbursement", valueDate: "2025-01-01", amount: "100000" });
     await post(`/beteiligungen/${ID.darlehen}/konditionen`, kondition);
   }
 
@@ -208,7 +208,7 @@ describe("Zinslauf: Hinweise, Codes, Abgrenzung", () => {
     const gelesen = await json(await get(`/zinslaeufe/${lauf.id}`));
     expect(gelesen.hinweise).toEqual(lauf.hinweise);
     // Konditionen nachgetragen: der Hinweis entfällt
-    await post(`/beteiligungen/${ID.wandel}/vorgaenge`, { art: "zusage", valuta: "2025-01-01", betrag: "1000" });
+    await post(`/investments/${ID.wandel}/transactions`, { type: "commitment", valueDate: "2025-01-01", amount: "1000" });
     await post(`/beteiligungen/${ID.wandel}/konditionen`, KONDITION);
     expect((await json(await get(`/zinslaeufe/${lauf.id}`))).hinweise).toEqual({ ohneKonditionen: [], ohneKonditionenDetails: [] });
   });
@@ -229,7 +229,7 @@ describe("Zinslauf: Hinweise, Codes, Abgrenzung", () => {
   it("Fehler der Abgrenzung tragen einen Code und Parameter", async () => {
     await darlehen({ ...KONDITION, gewinnabhaengigSatz: "0.1", kappungSatz: "0.02" });
     const a = await json(await get(`/fonds/${ID.fonds}/abgrenzung?stichtag=2026-07-01`));
-    expect(a.darlehen[0]).toMatchObject({ fehlerCode: "BERECHNUNG_FEHLGESCHLAGEN", fehlerParams: { beteiligungId: ID.darlehen } });
+    expect(a.darlehen[0]).toMatchObject({ fehlerCode: "calculation_failed", fehlerParams: { beteiligungId: ID.darlehen } });
     expect(a.darlehen[0].fehlerParams.grund).toContain("Jahresüberschuss");
     expect(a.darlehen[0].fehler).toContain("Jahresüberschuss");
     await put(`/beteiligungen/${ID.darlehen}/jahresueberschuss/2025`, { betrag: "30000" });
@@ -241,7 +241,7 @@ describe("Zinslauf: Hinweise, Codes, Abgrenzung", () => {
 
 describe("Instrumentdaten mit Stichtag und Wissensstand, Runden", () => {
   it("schneidet Vorgänge, Konditionen und Verkäufe nach Stichtag und Erfassungszeitpunkt", async () => {
-    await post(`/beteiligungen/${b}/vorgaenge`, { art: "auszahlung", valuta: "2025-06-01", betrag: "100000" });
+    await post(`/investments/${b}/transactions`, { type: "disbursement", valueDate: "2025-06-01", amount: "100000" });
     const zwischen = new Date().toISOString();
     await new Promise((r) => setTimeout(r, 15));
     await verkaufen({ datum: "2026-06-30", kaufpreis: "300000", anteilVerkauft: 0.5 });
@@ -284,8 +284,8 @@ describe("Wandlung: Vorschau und Buchung prüfen den Cut-off gleich", () => {
   const eingabe = (cutoff: string) => ({ cutoff, zinsenWandeln: true, preisregel: { rundenpreisJeAnteil: "12.5", discount: "0.2" }, nennwertJeAnteil: "1", runde: { neu: RUNDE } });
 
   beforeEach(async () => {
-    await post(`/beteiligungen/${ID.wandel}/vorgaenge`, { art: "zusage", valuta: "2026-01-01", betrag: "200000" });
-    await post(`/beteiligungen/${ID.wandel}/vorgaenge`, { art: "auszahlung", valuta: "2026-01-01", betrag: "100000" });
+    await post(`/investments/${ID.wandel}/transactions`, { type: "commitment", valueDate: "2026-01-01", amount: "200000" });
+    await post(`/investments/${ID.wandel}/transactions`, { type: "disbursement", valueDate: "2026-01-01", amount: "100000" });
     await post(`/beteiligungen/${ID.wandel}/konditionen`, KONDITION);
   });
 
@@ -294,7 +294,7 @@ describe("Wandlung: Vorschau und Buchung prüfen den Cut-off gleich", () => {
     const buchung = await post(`/beteiligungen/${ID.wandel}/wandlung`, eingabe("2020-01-01"));
     expect(vorschau.status).toBe(400);
     expect(buchung.status).toBe(400);
-    expect((await json(vorschau)).fehler.felder).toEqual((await json(buchung)).fehler.felder);
+    expect((await json(vorschau)).error.fields).toEqual((await json(buchung)).error.fields);
 
     const morgen = new Date(Date.now() + 40 * 86_400_000).toISOString().slice(0, 10);
     const zukunft = await post(`/beteiligungen/${ID.wandel}/wandlung/vorschau`, eingabe(morgen));

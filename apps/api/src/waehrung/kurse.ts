@@ -53,11 +53,11 @@ export async function kursFuer(tx: Tx, von: string, nach: string, datum: string,
   return waehleKurs(kurse, von, nach, datum);
 }
 
-/** Wie `kursFuer`, aber eine Lücke ist ein Fehler: 409 `KURS_FEHLT` mit Paar, Tag und Grund. Es wird nie ein Kurs geraten. */
+/** Wie `kursFuer`, aber eine Lücke ist ein Fehler: 409 `rate_missing` mit Paar, Tag und Grund. Es wird nie ein Kurs geraten. */
 export async function verlangeKurs(tx: Tx, von: string, nach: string, datum: string, stand?: string): Promise<Umrechnungsfaktor> {
   const w = await kursFuer(tx, von, nach, datum, stand);
   if (!w.ok) {
-    throw new Fachfehler(409, "KURS_FEHLT", `Für ${w.luecke.von}/${w.luecke.nach} liegt zum ${datum} kein ausreichend aktueller Kurs vor.`, {
+    throw new Fachfehler(409, "rate_missing", `No sufficiently recent exchange rate is available for ${w.luecke.von}/${w.luecke.nach} as of ${datum}.`, {
       von: w.luecke.von,
       nach: w.luecke.nach,
       stichtag: datum,
@@ -80,15 +80,15 @@ export interface FestgehaltenerKurs {
 }
 
 /**
- * Hält den lokalen Betrag einer Zahlung oder Bewertung mit dem Kurs fest. Ohne Fondsbetrag rechnet sie zum Kurs des Tages aus der Tabelle (Lücke = 409 `KURS_FEHLT`);
+ * Hält den lokalen Betrag einer Zahlung oder Bewertung mit dem Kurs fest. Ohne Fondsbetrag rechnet sie zum Kurs des Tages aus der Tabelle (Lücke = 409 `rate_missing`);
  * mit Fondsbetrag gilt der gebuchte Betrag, der Kurs ist dann der daraus abgeleitete (Fondsbetrag ÷ lokaler Betrag). Der Fondsbetrag bleibt in beiden Fällen der gebuchte Betrag.
  */
 export async function haltKursFest(tx: Tx, e: { lokal: string; fonds: string | undefined; lokaleWaehrung: string; fondsWaehrung: string; datum: string }): Promise<FestgehaltenerKurs> {
   if (e.fonds !== undefined) {
     const lokal = new Decimal(e.lokal);
-    if (lokal.isZero()) throw new Fachfehler(400, "EINGABE_UNGUELTIG", "Die Eingabe ist ungültig.", { felder: [{ feld: "betragLokal", code: "null_nicht_erlaubt", meldung: "Der lokale Betrag darf nicht null sein" }] });
+    if (lokal.isZero()) throw new Fachfehler(400, "invalid_input", "The input is invalid.", { felder: [{ feld: "betragLokal", code: "zero_not_allowed", meldung: "The local amount must not be zero" }] });
     const kurs = new Decimal(e.fonds).div(lokal);
-    if (kurs.isNegative() || kurs.isZero()) throw new Fachfehler(400, "EINGABE_UNGUELTIG", "Die Eingabe ist ungültig.", { felder: [{ feld: "betragLokal", code: "vorzeichen", meldung: "Lokaler Betrag und Fondsbetrag brauchen dasselbe Vorzeichen" }] });
+    if (kurs.isNegative() || kurs.isZero()) throw new Fachfehler(400, "invalid_input", "The input is invalid.", { felder: [{ feld: "betragLokal", code: "invalid_sign", meldung: "Local amount and fund amount must have the same sign" }] });
     return { fonds: new Decimal(e.fonds).toFixed(2), kurs: kurs.toDecimalPlaces(12, Decimal.ROUND_HALF_UP).toFixed(), kursId: null };
   }
   // Fondswährung je lokaler Einheit: von lokal nach Fonds.

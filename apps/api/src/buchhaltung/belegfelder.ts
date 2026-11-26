@@ -184,6 +184,10 @@ const INSTRUMENT_TEXT: Record<string, string> = {
   stille_beteiligung: "Stille Beteiligung",
   darlehen: "Darlehen",
   wandeldarlehen: "Wandeldarlehen",
+  venture_debt: "Venture Debt",
+  gesellschafterdarlehen: "Gesellschafterdarlehen",
+  safe: "SAFE",
+  optionsschein: "Optionsscheine",
 };
 
 const dec = (w: string | number | null | undefined): string | null => (w === null || w === undefined ? null : new Decimal(w).toFixed(2));
@@ -209,7 +213,7 @@ export async function mittelherkunft(tx: Tx, fondsId: string, datum: string, bet
 
 async function beteiligungWerte(tx: Tx, beteiligungId: string): Promise<{ fondsId: string; werte: Record<string, string | null> }> {
   const [b] = await tx.select().from(beteiligung).where(eq(beteiligung.id, beteiligungId));
-  if (!b) throw new Fachfehler(404, "BETEILIGUNG_NICHT_GEFUNDEN", "Beteiligung nicht gefunden.");
+  if (!b) throw new Fachfehler(404, "investment_not_found", "Investment not found.");
   const [o] = await tx.select({ name: organisation.name }).from(organisation).where(eq(organisation.id, b.organisationId));
   const [fz] = await tx.select({ name: fonds.name }).from(fonds).where(eq(fonds.id, b.fondsId));
   const [k] = await tx.select().from(beteiligungBuchhaltung).where(eq(beteiligungBuchhaltung.beteiligungId, beteiligungId));
@@ -230,13 +234,13 @@ async function beteiligungWerte(tx: Tx, beteiligungId: string): Promise<{ fondsI
 }
 
 /**
- * Befüllt die Felder eines Belegs aus den Geschäftsdaten. Wirft 404 bei unbekanntem Bezug und 409 `BELEG_BEZUG_PASST_NICHT`, wenn
+ * Befüllt die Felder eines Belegs aus den Geschäftsdaten. Wirft 404 bei unbekanntem Bezug und 409 `voucher_reference_mismatch`, wenn
  * der Bezug nicht zur Art passt. Fehlende Angaben bleiben `null` (die Prüfung der Pflichtfelder macht der Aufrufer).
  */
 export async function sammleBelegdaten(tx: Tx, art: BelegArtName, bezugArt: BezugArt, bezugId: string): Promise<Belegdaten> {
-  if (!ERLAUBTER_BEZUG[art].includes(bezugArt)) throw new Fachfehler(409, "BELEG_BEZUG_PASST_NICHT", "Der Bezug passt nicht zur Art des Belegs.", { art, bezugArt, erlaubt: ERLAUBTER_BEZUG[art] });
+  if (!ERLAUBTER_BEZUG[art].includes(bezugArt)) throw new Fachfehler(409, "voucher_reference_mismatch", "The reference does not match the voucher type.", { art, bezugArt, erlaubt: ERLAUBTER_BEZUG[art] });
   const passt = (ok: boolean, grund: string) => {
-    if (!ok) throw new Fachfehler(409, "BELEG_BEZUG_PASST_NICHT", "Der Bezug passt nicht zur Art des Belegs.", { art, bezugArt, grund });
+    if (!ok) throw new Fachfehler(409, "voucher_reference_mismatch", "The reference does not match the voucher type.", { art, bezugArt, grund });
   };
   let beteiligungId: string | null = null;
   let datum: string;
@@ -247,7 +251,7 @@ export async function sammleBelegdaten(tx: Tx, art: BelegArtName, bezugArt: Bezu
 
   if (bezugArt === "beteiligung") {
     const daten = await ladeInstrumentdaten(tx, bezugId);
-    if (!daten) throw new Fachfehler(404, "BETEILIGUNG_NICHT_GEFUNDEN", "Beteiligung nicht gefunden.");
+    if (!daten) throw new Fachfehler(404, "investment_not_found", "Investment not found.");
     beteiligungId = bezugId;
     const [kond] = await tx.select().from(darlehenKondition).where(eq(darlehenKondition.beteiligungId, bezugId)).orderBy(desc(darlehenKondition.gueltigAb)).limit(1);
     datum = daten.beteiligung.erstinvestment;
@@ -255,7 +259,7 @@ export async function sammleBelegdaten(tx: Tx, art: BelegArtName, bezugArt: Bezu
     eigene = { erstinvestment: daten.beteiligung.erstinvestment, zusage: dec(daten.zustand.zusage), zinssatz: kond ? new Decimal(kond.satzFix).toString() : null, zinsmethode: kond?.methode ?? null, faellig_am: kond?.faelligAm ?? null };
   } else if (bezugArt === "vorgang") {
     const [v] = await tx.select().from(vorgang).where(eq(vorgang.id, bezugId));
-    if (!v) throw new Fachfehler(404, "VORGANG_NICHT_GEFUNDEN", "Vorgang nicht gefunden.");
+    if (!v) throw new Fachfehler(404, "transaction_not_found", "Transaction not found.");
     if (art !== "frei") passt(art === "auszahlung" ? v.art === "auszahlung" : v.art === "zins", "vorgangsart");
     beteiligungId = v.beteiligungId;
     datum = v.valuta;
@@ -267,7 +271,7 @@ export async function sammleBelegdaten(tx: Tx, art: BelegArtName, bezugArt: Bezu
     else eigene = { stichtag: v.valuta, anzahl_perioden: "1", summe_kapitalisiert: v.kapitalisiert ? dec(v.betrag) : "0.00", bemerkung: text(v.bemerkung) };
   } else if (bezugArt === "fonds_bewegung") {
     const [x] = await tx.select().from(fondsBewegung).where(eq(fondsBewegung.id, bezugId));
-    if (!x) throw new Fachfehler(404, "FONDSBEWEGUNG_NICHT_GEFUNDEN", "Fondsbewegung nicht gefunden.");
+    if (!x) throw new Fachfehler(404, "fund_movement_not_found", "Fund movement not found.");
     passt(art === "kapitalabruf" ? x.art === "abruf" : x.art === "ausschuettung", "bewegungsart");
     fondsId = x.fondsId;
     datum = x.valuta;
@@ -281,7 +285,7 @@ export async function sammleBelegdaten(tx: Tx, art: BelegArtName, bezugArt: Bezu
     eigene = { zeichnungskapital: dec(fz?.kapital), summe_bis_datum: dec(summe?.s ?? 0), bemerkung: text(x.bemerkung) };
   } else if (bezugArt === "zinslauf") {
     const [z] = await tx.select().from(zinslauf).where(eq(zinslauf.id, bezugId));
-    if (!z) throw new Fachfehler(404, "ZINSLAUF_NICHT_GEFUNDEN", "Zinslauf nicht gefunden.");
+    if (!z) throw new Fachfehler(404, "interest_run_not_found", "Interest run not found.");
     passt(z.status !== "verworfen", "verworfen");
     fondsId = z.fondsId;
     datum = z.stichtag;
@@ -295,7 +299,7 @@ export async function sammleBelegdaten(tx: Tx, art: BelegArtName, bezugArt: Bezu
     };
   } else if (bezugArt === "verkauf") {
     const [v] = await tx.select().from(verkauf).where(eq(verkauf.id, bezugId));
-    if (!v) throw new Fachfehler(404, "VERKAUF_NICHT_GEFUNDEN", "Verkauf nicht gefunden.");
+    if (!v) throw new Fachfehler(404, "sale_not_found", "Sale not found.");
     passt(v.storniertAm === null, "storniert");
     beteiligungId = v.beteiligungId;
     datum = v.datum;
@@ -313,7 +317,7 @@ export async function sammleBelegdaten(tx: Tx, art: BelegArtName, bezugArt: Bezu
     };
   } else {
     const [w] = await tx.select().from(wandlung).where(eq(wandlung.id, bezugId));
-    if (!w) throw new Fachfehler(404, "BETEILIGUNG_NICHT_GEFUNDEN", "Wandlung nicht gefunden.");
+    if (!w) throw new Fachfehler(404, "investment_not_found", "Conversion not found.");
     beteiligungId = w.darlehenBeteiligungId;
     datum = w.cutoff;
     betrag = dec(w.wandlungsbetrag);
@@ -360,15 +364,15 @@ export function setzeFeldwerte(vorlage: Vorlage, werte: Record<string, string | 
     const feld = felder.get(schluessel);
     const wert = roh?.trim() || null;
     if (!feld?.manuell || (wert !== null && !manuellerWert[feld.manuell].safeParse(wert).success)) {
-      throw new Fachfehler(400, "EINGABE_UNGUELTIG", "Die Eingabe ist ungültig.", { felder: [{ feld: `werte.${schluessel}`, code: "ungueltig", meldung: "Der Wert passt nicht zum Belegfeld." }] });
+      throw new Fachfehler(400, "invalid_input", "The input is invalid.", { felder: [{ feld: `werte.${schluessel}`, code: "ungueltig", meldung: "The value does not match the voucher field." }] });
     }
     werte[schluessel] = wert && feld.manuell === "betrag" ? new Decimal(wert).toFixed(2) : wert;
   }
 }
 
-/** Fehlende Pflichtfelder der Vorlage (`code`: `pflichtfeld_fehlt`). */
+/** Fehlende Pflichtfelder der Vorlage (`code`: `required_field_missing`). */
 export function pruefePflicht(vorlage: Vorlage, werte: Record<string, string | null>): { feld: string; code: string }[] {
-  return vorlage.felder.filter((fe) => fe.pflicht && (werte[fe.schluessel] === null || werte[fe.schluessel] === undefined || werte[fe.schluessel] === "")).map((fe) => ({ feld: fe.schluessel, code: "pflichtfeld_fehlt" }));
+  return vorlage.felder.filter((fe) => fe.pflicht && (werte[fe.schluessel] === null || werte[fe.schluessel] === undefined || werte[fe.schluessel] === "")).map((fe) => ({ feld: fe.schluessel, code: "required_field_missing" }));
 }
 
 /**

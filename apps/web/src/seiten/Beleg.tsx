@@ -98,7 +98,8 @@ function BelegInhalt({ id }: { id: string }) {
       setLokal(d.kommentarPflicht);
       return;
     }
-    stufe.mutate({ stufe: b.naechsteStufeName ?? "", ergebnis, ...(kommentar.trim() ? { kommentar: kommentar.trim() } : {}) }, { onSuccess: () => setKommentar("") });
+    if (!b.naechsteStufeName) return;
+    stufe.mutate({ stufe: b.naechsteStufeName, ergebnis, ...(kommentar.trim() ? { kommentar: kommentar.trim() } : {}) }, { onSuccess: () => setKommentar("") });
   }
 
   const schritte = [

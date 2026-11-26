@@ -90,7 +90,7 @@ export function BerichtDialog({ fondsId, stichtag, stand, onSchliessen }: { fond
     const stand = alsStand(werte.stand);
     // Der Wissensstand ist ein Zeitpunkt, der schon da war: ein Wert in der Zukunft geht gar nicht erst an die API.
     if (stand && new Date(stand).getTime() > Date.now()) {
-      setStandFehler(feldCodeText(t, "stand_in_zukunft"));
+      setStandFehler(feldCodeText(t, "knowledge_date_in_future"));
       return;
     }
     setStandFehler(undefined);

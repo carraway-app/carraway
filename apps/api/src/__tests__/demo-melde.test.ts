@@ -27,10 +27,10 @@ describe("Demo-Daten: Meldeläufe", () => {
     expect((await erzeugeDemoMeldelaeufe(db, STICHTAG_HEUTE)).laeufe).toBe(0);
 
     for (const f of fonds) {
-      const liste = (await get(`/meldelaeufe?fondsId=${f.id}`).then(json)).daten as { id: string; status: string; periodeKennung: string; fassung: number; erstelltVon: string }[];
+      const liste = (await get(`/reporting-runs?fondsId=${f.id}`).then(json)).daten as { id: string; status: string; periodeKennung: string; fassung: number; erstelltVon: string }[];
       expect(liste).toHaveLength(1);
       expect(liste[0]).toMatchObject({ status: "entwurf", periodeKennung: "2026-Q3", fassung: 1, erstelltVon: "system:demo" });
-      const l = await get(`/meldelaeufe/${liste[0]!.id}`).then(json);
+      const l = await get(`/reporting-runs/${liste[0]!.id}`).then(json);
       const wert = (k: string) => l.werte.find((w: { schluessel: string }) => w.schluessel === k)?.wert;
       // Gegenprobe gegen SQL: Auszahlungen kumuliert bis Ende des Quartals, ohne die Einlage aus einer Wandlung (kein Geldfluss)
       const { rows } = await db.execute<{ s: string }>(

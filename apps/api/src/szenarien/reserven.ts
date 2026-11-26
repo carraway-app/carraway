@@ -62,7 +62,7 @@ export async function geltendeReserven(tx: Tx, fondsId: string, stichtag: string
 async function waehleSzenario(tx: Tx, fondsId: string, szenarioId?: string): Promise<SzenarioZeile | undefined> {
   if (szenarioId) {
     const z = await ladeSzenario(tx, szenarioId);
-    if (z.fondsId !== fondsId) throw new Fachfehler(404, "SZENARIO_NICHT_GEFUNDEN", "Szenario nicht gefunden.");
+    if (z.fondsId !== fondsId) throw new Fachfehler(404, "scenario_not_found", "Scenario not found.");
     return z;
   }
   const [fest] = await tx.select().from(szenario).where(and(eq(szenario.fondsId, fondsId), eq(szenario.status, "festgeschrieben"))).orderBy(desc(szenario.festgeschriebenAm)).limit(1);

@@ -95,7 +95,7 @@ describe("Instrument: Anzeige", () => {
 describe("Vorgang erfassen", () => {
   it("meldet einen Invariantenfehler als Hinweis mit Beträgen", async () => {
     const api = spieleApi({
-      [`POST /api/v1/beteiligungen/${BET_ID}/vorgaenge`]: fehler(409, "AUSZAHLUNG_UEBER_ZUSAGE", { zusage: "1000000.00", investiert: "1000000.00" }),
+      [`POST /api/v1/investments/${BET_ID}/transactions`]: fehler(409, "disbursement_exceeds_commitment", { commitment: "1000000.00", invested: "1000000.00" }),
     });
     rendereApp(url);
     const nutzer = userEvent.setup();
@@ -108,17 +108,17 @@ describe("Vorgang erfassen", () => {
     const hinweis = await d.findByRole("alert");
     expect(hinweis.textContent).toContain("Die Auszahlungen würden die Zusage übersteigen");
     expect(schmal(hinweis.textContent)).toContain("Die Zusage beträgt 1.000.000 €, bisher ausgezahlt sind 1.000.000 €.");
-    const body = api.anfragen("POST", `/api/v1/beteiligungen/${BET_ID}/vorgaenge`)[0]!.koerper;
-    expect(body).toMatchObject({ art: "auszahlung", betrag: "50000", instrumentId: INSTR_ID });
+    const body = api.anfragen("POST", `/api/v1/investments/${BET_ID}/transactions`)[0]!.koerper;
+    expect(body).toMatchObject({ type: "disbursement", amount: "50000", instrumentId: INSTR_ID });
   });
 
   it("zeigt Feldfehler am Feld und den Buchwert nach dem Buchen", async () => {
     let versuche = 0;
     spieleApi({
-      [`POST /api/v1/beteiligungen/${BET_ID}/vorgaenge`]: () => {
+      [`POST /api/v1/investments/${BET_ID}/transactions`]: () => {
         versuche++;
         return versuche === 1
-          ? { status: 400, koerper: { fehler: { code: "EINGABE_UNGUELTIG", meldung: "x", felder: [{ feld: "betrag", code: "invalid_format", meldung: "x" }] } } }
+          ? { status: 400, koerper: { error: { code: "invalid_input", message: "x", fields: [{ field: "betrag", code: "invalid_format", message: "x" }] } } }
           : { status: 201, koerper: { vorgang: {}, buchwert: "1062000.00" } };
       },
     });
@@ -156,13 +156,13 @@ describe("Vorgang erfassen", () => {
     expect(knopf.getAttribute("aria-describedby")).toBe("tranche-gesperrt");
     await nutzer.selectOptions(d.getByLabelText("Tranche (optional)"), MS_ERFUELLT);
     expect((d.getByRole("button", { name: "Vorgang buchen" }) as HTMLButtonElement).disabled).toBe(false);
-    expect(api.anfragen("POST", `/api/v1/beteiligungen/${BET_ID}/vorgaenge`)).toHaveLength(0);
+    expect(api.anfragen("POST", `/api/v1/investments/${BET_ID}/transactions`)).toHaveLength(0);
   });
 });
 
 describe("Storno", () => {
   it("storniert mit Grund und Valuta nicht vor dem Original", async () => {
-    const api = spieleApi({ "POST /api/v1/vorgaenge/v4/storno": { status: 201, koerper: { storno: {}, original: {} } } });
+    const api = spieleApi({ "POST /api/v1/transactions/v4/reverse": { status: 201, koerper: { reversal: {}, original: {} } } });
     rendereApp(vorgaengeUrl);
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Auszahlung vom 31.07.2021 stornieren" }));
@@ -171,12 +171,12 @@ describe("Storno", () => {
     await nutzer.type(d.getByLabelText("Grund"), "Doppelt gebucht");
     await nutzer.click(d.getByRole("button", { name: "Stornieren" }));
     await screen.findByRole("heading", { level: 1 });
-    expect(api.anfragen("POST", "/api/v1/vorgaenge/v4/storno")[0]!.koerper).toEqual({ grund: "Doppelt gebucht" });
+    expect(api.anfragen("POST", "/api/v1/transactions/v4/reverse")[0]!.koerper).toEqual({ reason: "Doppelt gebucht" });
   });
 
   it("zeigt den Grund als Pflichtfeld und den Valutafehler am Feld; stornierte Zeilen haben keinen Knopf", async () => {
     spieleApi({
-      "POST /api/v1/vorgaenge/v4/storno": { status: 400, koerper: { fehler: { code: "EINGABE_UNGUELTIG", meldung: "x", felder: [{ feld: "valuta", code: "storno_vor_original", meldung: "x" }, { feld: "grund", code: "too_small", meldung: "x" }] } } },
+      "POST /api/v1/transactions/v4/reverse": { status: 400, koerper: { error: { code: "invalid_input", message: "x", fields: [{ field: "valueDate", code: "reversal_before_original", message: "x" }, { field: "reason", code: "too_small", message: "x" }] } } },
     });
     rendereApp(vorgaengeUrl);
     const nutzer = userEvent.setup();

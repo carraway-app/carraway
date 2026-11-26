@@ -1,3 +1,5 @@
+import { portfolioAnApi } from "../portfolio-vertrag";
+import { pruefePortfolio } from "../portfolio-pruefung";
 import { Hono } from "hono";
 import { z } from "zod";
 import type { Db } from "@carraway/db";
@@ -5,7 +7,6 @@ import { aktuellerAkteur } from "../anmeldung/akteur";
 import { ladeFundstellen } from "../dokumente/fundstellen";
 import { fehlerAntwort } from "../fehler";
 import { ladeBeteiligungDetail } from "../kennzahlen/beteiligung";
-import { pruefe } from "../pruefung";
 import { lese } from "../zeitlimit";
 import { berichteFuerBeteiligung } from "./berichte";
 import { beteiligungBewertungRouten } from "./bewertungen";
@@ -26,7 +27,7 @@ export function beteiligungRouten(db: Db) {
      * Detail einer Beteiligung zum Stichtag: Stammdaten, Organisation, Fonds, Deal, Vorgänge (Storno-Paare markiert),
      * Bewertungsverlauf, Finanzierungsrunden mit Positionen und Kennzahlen mit Herkunft.
      */
-    .get("/:id", pruefe("param", idSchema, { query: detailAbfrage }), pruefe("query", detailAbfrage), async (c) => {
+    .get("/:id", pruefePortfolio("param", idSchema, { query: detailAbfrage }), pruefePortfolio("query", detailAbfrage), async (c) => {
       const { id } = c.req.valid("param");
       const { stichtag, stand } = c.req.valid("query");
       const akteur = aktuellerAkteur(c);
@@ -36,10 +37,10 @@ export function beteiligungRouten(db: Db) {
         // Fundstellen (Dokument, Seite, Zitat) der Werte, nur zu Dokumenten, die die Person sehen darf.
         return { ...detail, fundstellen: await ladeFundstellen(tx, akteur, id, detail.organisation.id) };
       });
-      if (!ergebnis) return fehlerAntwort(c, 404, "BETEILIGUNG_NICHT_GEFUNDEN", "Beteiligung nicht gefunden.");
-      return c.json(ergebnis, 200);
+      if (!ergebnis) return fehlerAntwort(c, 404, "investment_not_found", "Investment not found.");
+      return c.json(portfolioAnApi(portfolioAnApi(ergebnis)), 200);
     })
-    .route("/:id/berichte", berichteFuerBeteiligung(db))
+    .route("/:id/reports", berichteFuerBeteiligung(db))
     .route("/:id", beteiligungBewertungRouten(db))
     .route("/:id", beteiligungKapitalRouten(db))
     .route("/:id", beteiligungKennzahlRouten(db))

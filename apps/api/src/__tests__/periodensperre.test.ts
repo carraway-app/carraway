@@ -19,11 +19,11 @@ const verwalter = person("verwalter-f1", { rollen: { [F1]: "verwalter" } });
 const freigeber = person("freigeber-f1", { rollen: { [F1]: "freigeber" } });
 
 const sperre = (gesperrtBis: string, grund?: string, als?: Testperson) => put(`/fonds/${F1}/periodensperre`, { gesperrtBis, ...(grund ? { grund } : {}) }, als);
-const gesperrt = async (antwort: Response, bis: string) => {
+const gesperrt = async (antwort: Response, bis: string, feld = "gesperrtBis") => {
   expect(antwort.status).toBe(409);
-  const { fehler } = await json(antwort);
-  expect(fehler.code).toBe("PERIODE_GESPERRT");
-  expect(fehler.gesperrtBis).toBe(bis);
+  const { error: fehler } = await json(antwort);
+  expect(fehler.code).toBe("period_locked");
+  expect(fehler[feld]).toBe(bis);
 };
 /** Fehler von Postgres mit SQLSTATE und Meldung. */
 const sqlFehler = async (abfrage: string, werte: unknown[] = []) => {
@@ -67,7 +67,7 @@ describe("Endpunkte GET und PUT /fonds/:id/periodensperre", () => {
     expect((await sperre("2025-12-31")).status).toBe(200);
     const ohneGrund = await sperre("2025-09-30");
     expect(ohneGrund.status).toBe(400);
-    expect((await json(ohneGrund)).fehler.felder[0]).toMatchObject({ feld: "grund", code: "grund_erforderlich" });
+    expect((await json(ohneGrund)).error.fields[0]).toMatchObject({ field: "grund", code: "reason_required" });
     expect((await get(`/fonds/${F1}/periodensperre`).then(json)).gesperrtBis).toBe("2025-12-31");
 
     const zurueck = await sperre("2025-09-30", "Korrektur einer Eingangsrechnung");
@@ -87,30 +87,30 @@ describe("Endpunkte GET und PUT /fonds/:id/periodensperre", () => {
   });
 });
 
-describe("Buchungswege in der API: 409 PERIODE_GESPERRT am und vor dem Sperrdatum", () => {
+describe("Buchungswege in der API: 409 period_locked am und vor dem Sperrdatum", () => {
   it("Vorgang: Valuta am Sperrdatum gesperrt, am Tag danach frei; andere Fonds bleiben frei", async () => {
     await sperre("2025-12-31");
     const vorher = await anzahl(db, "vorgang");
-    await gesperrt(await post(`/beteiligungen/${ID.eigen}/vorgaenge`, { art: "zusage", valuta: "2025-12-31", betrag: "1000" }), "2025-12-31");
-    await gesperrt(await post(`/beteiligungen/${ID.eigen}/vorgaenge`, { art: "rueckfluss", valuta: "2025-03-01", betrag: "1000" }), "2025-12-31");
+    await gesperrt(await post(`/investments/${ID.eigen}/transactions`, { type: "commitment", valueDate: "2025-12-31", amount: "1000" }), "2025-12-31", "lockedUntil");
+    await gesperrt(await post(`/investments/${ID.eigen}/transactions`, { type: "return_flow", valueDate: "2025-03-01", amount: "1000" }), "2025-12-31", "lockedUntil");
     expect(await anzahl(db, "vorgang")).toBe(vorher);
-    expect((await post(`/beteiligungen/${ID.eigen}/vorgaenge`, { art: "zusage", valuta: "2026-01-01", betrag: "1000" })).status).toBe(201);
-    expect((await post(`/beteiligungen/${B2}/vorgaenge`, { art: "zusage", valuta: "2025-03-01", betrag: "1000" })).status).toBe(201);
+    expect((await post(`/investments/${ID.eigen}/transactions`, { type: "commitment", valueDate: "2026-01-01", amount: "1000" })).status).toBe(201);
+    expect((await post(`/investments/${B2}/transactions`, { type: "commitment", valueDate: "2025-03-01", amount: "1000" })).status).toBe(201);
   });
 
   it("Storno: eine Valuta in der gesperrten Periode ist gesperrt, die Standardvaluta (heute) nicht", async () => {
-    const original = (await post(`/beteiligungen/${ID.eigen}/vorgaenge`, { art: "zusage", valuta: "2025-03-01", betrag: "1000" }).then(json)).vorgang.id;
+    const original = (await post(`/investments/${ID.eigen}/transactions`, { type: "commitment", valueDate: "2025-03-01", amount: "1000" }).then(json)).transaction.id;
     await sperre("2025-12-31");
-    await gesperrt(await post(`/vorgaenge/${original}/storno`, { grund: "Irrtum", valuta: "2025-06-01" }), "2025-12-31");
-    const frei = await post(`/vorgaenge/${original}/storno`, { grund: "Irrtum" });
+    await gesperrt(await post(`/transactions/${original}/reverse`, { reason: "Irrtum", valueDate: "2025-06-01" }), "2025-12-31", "lockedUntil");
+    const frei = await post(`/transactions/${original}/reverse`, { reason: "Irrtum" });
     expect(frei.status).toBe(201);
-    expect((await json(frei)).storno.valuta > "2025-12-31").toBe(true);
+    expect((await json(frei)).reversal.valueDate > "2025-12-31").toBe(true);
   });
 
   it("Verkauf, Kaufpreisanpassung, Forderung und Insolvenz", async () => {
     const b = ID.eigen;
-    await post(`/beteiligungen/${b}/vorgaenge`, { art: "zusage", valuta: "2025-01-01", betrag: "1000000" });
-    await post(`/beteiligungen/${b}/vorgaenge`, { art: "auszahlung", valuta: "2025-02-01", betrag: "500000" });
+    await post(`/investments/${b}/transactions`, { type: "commitment", valueDate: "2025-01-01", amount: "1000000" });
+    await post(`/investments/${b}/transactions`, { type: "disbursement", valueDate: "2025-02-01", amount: "500000" });
     await db.insert(s.bewertung).values({ beteiligungId: b, stichtag: "2025-12-31", wert: "450000.00", methode: "letzte_runde" });
     await leereAuftraege(db);
 
@@ -132,8 +132,8 @@ describe("Buchungswege in der API: 409 PERIODE_GESPERRT am und vor dem Sperrdatu
   });
 
   it("Zinslauf buchen: liegt eine Periode in der Sperre, bricht die Buchung ab und der Lauf bleibt freigegeben", async () => {
-    await post(`/beteiligungen/${ID.darlehen}/vorgaenge`, { art: "zusage", valuta: "2025-01-01", betrag: "200000" });
-    await post(`/beteiligungen/${ID.darlehen}/vorgaenge`, { art: "auszahlung", valuta: "2025-01-01", betrag: "100000" });
+    await post(`/investments/${ID.darlehen}/transactions`, { type: "commitment", valueDate: "2025-01-01", amount: "200000" });
+    await post(`/investments/${ID.darlehen}/transactions`, { type: "disbursement", valueDate: "2025-01-01", amount: "100000" });
     await post(`/beteiligungen/${ID.darlehen}/konditionen`, { gueltigAb: "2025-01-01", satzFix: "0.06", methode: "30E/360", zinsperiode: "jaehrlich", anker: "2026-01-01" });
     const lauf = await post("/zinslaeufe", { fondsId: F1, stichtag: "2027-01-01" }).then(json);
     expect(lauf.positionen.map((p: { bis: string }) => p.bis)).toEqual(["2026-01-01", "2027-01-01"]);
@@ -152,8 +152,8 @@ describe("Buchungswege in der API: 409 PERIODE_GESPERRT am und vor dem Sperrdatu
 
   it("Wandlung: der Stichtag (Cut-off) darf nicht in der Sperre liegen", async () => {
     const b = ID.wandel;
-    await post(`/beteiligungen/${b}/vorgaenge`, { art: "zusage", valuta: "2026-01-01", betrag: "200000" });
-    await post(`/beteiligungen/${b}/vorgaenge`, { art: "auszahlung", valuta: "2026-01-01", betrag: "100000" });
+    await post(`/investments/${b}/transactions`, { type: "commitment", valueDate: "2026-01-01", amount: "200000" });
+    await post(`/investments/${b}/transactions`, { type: "disbursement", valueDate: "2026-01-01", amount: "100000" });
     await post(`/beteiligungen/${b}/konditionen`, { gueltigAb: "2026-01-01", satzFix: "0.06", methode: "30E/360", zinsperiode: "jaehrlich", anker: "2027-01-01" });
     const eingabe = {
       cutoff: "2026-07-01",

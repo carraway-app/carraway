@@ -14,7 +14,7 @@ import { lese } from "../zeitlimit";
  */
 
 const aendern = z
-  .object({ sprache: z.enum(["de", "en"]).optional(), mailBerichtFreigegeben: z.boolean().optional(), mailRegisterEreignis: z.boolean().optional() })
+  .object({ language: z.enum(["de", "en"]).optional(), mailOnReportApproved: z.boolean().optional(), mailOnRegisterEvent: z.boolean().optional() })
   .strict()
   .refine(mindestensEins, MINDESTENS_EIN_FELD);
 
@@ -24,17 +24,18 @@ export const KALENDER_TOKEN_FORM = /^[A-Za-z0-9_-]{43}$/;
 export function einstellungenRouten(db: Db) {
   const lade = async (benutzerId: string) => {
     const [z] = await lese(db, (tx) => tx.select().from(benutzerEinstellung).where(eq(benutzerEinstellung.benutzerId, benutzerId)));
-    return { sprache: z?.sprache === "en" ? ("en" as const) : ("de" as const), mailBerichtFreigegeben: z?.mailBerichtFreigegeben ?? false, mailRegisterEreignis: z?.mailRegisterEreignis ?? false };
+    return { language: z?.sprache === "en" ? ("en" as const) : ("de" as const), mailOnReportApproved: z?.mailBerichtFreigegeben ?? false, mailOnRegisterEvent: z?.mailRegisterEreignis ?? false };
   };
   return new Hono()
     .get("/", async (c) => {
       const { id } = aktuellerAkteur(c);
       const k = c.get("mail");
-      return c.json({ ...(await lade(id)), mailVerfuegbar: Boolean(k?.konfig && k.ring) }, 200);
+      return c.json({ ...(await lade(id)), mailAvailable: Boolean(k?.konfig && k.ring) }, 200);
     })
     .put("/", pruefe("json", aendern), async (c) => {
       const { id } = aktuellerAkteur(c);
-      const werte = nurGesetzte(c.req.valid("json"));
+      const eingabe = c.req.valid("json");
+      const werte = nurGesetzte({ sprache: eingabe.language, mailBerichtFreigegeben: eingabe.mailOnReportApproved, mailRegisterEreignis: eingabe.mailOnRegisterEvent });
       await schreibe(db, c, async (tx, protokoll) => {
         const [vorher] = await tx.select().from(benutzerEinstellung).where(eq(benutzerEinstellung.benutzerId, id));
         const [nachher] = await tx
@@ -46,13 +47,13 @@ export function einstellungenRouten(db: Db) {
       });
       return c.json(await lade(id), 200);
     })
-    .get("/kalender-link", async (c) => {
+    .get("/calendar-link", async (c) => {
       const { id } = aktuellerAkteur(c);
       const [z] = await lese(db, (tx) => tx.select().from(kalenderToken).where(and(eq(kalenderToken.benutzerId, id), isNull(kalenderToken.widerrufenAm))));
-      return c.json({ aktiv: Boolean(z), erstelltAm: z?.erstelltAm.toISOString() ?? null, letzterZugriffAm: z?.letzterZugriffAm?.toISOString() ?? null }, 200);
+      return c.json({ active: Boolean(z), createdAt: z?.erstelltAm.toISOString() ?? null, lastAccessAt: z?.letzterZugriffAm?.toISOString() ?? null }, 200);
     })
     /** Erzeugt den Link (ersetzt einen bestehenden: der alte ist sofort ungültig). Das Token erscheint genau einmal, gespeichert wird nur der Hash. */
-    .post("/kalender-link", async (c) => {
+    .post("/calendar-link", async (c) => {
       const { id } = aktuellerAkteur(c);
       const token = randomBytes(32).toString("base64url");
       await schreibe(db, c, async (tx, protokoll) => {
@@ -61,10 +62,10 @@ export function einstellungenRouten(db: Db) {
         await protokoll(alt.length ? "neuer_link" : "anlegen", "kalender_token", neu!.id, null, { ersetzt: alt.length });
       });
       const basis = c.get("mail")?.appBasis ?? "";
-      const pfad = `/api/v1/kalender/${token}.ics`;
-      return c.json({ token, pfad, url: `${basis}${pfad}` }, 201);
+      const pfad = `/api/v1/calendar/${token}.ics`;
+      return c.json({ token, path: pfad, url: `${basis}${pfad}` }, 201);
     })
-    .delete("/kalender-link", async (c) => {
+    .delete("/calendar-link", async (c) => {
       const { id } = aktuellerAkteur(c);
       await schreibe(db, c, async (tx, protokoll) => {
         const alt = await tx.update(kalenderToken).set({ widerrufenAm: new Date() }).where(and(eq(kalenderToken.benutzerId, id), isNull(kalenderToken.widerrufenAm))).returning({ id: kalenderToken.id });

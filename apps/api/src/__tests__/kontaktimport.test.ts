@@ -101,12 +101,12 @@ describe("Vorschau", () => {
     expect(await anzahl(db, "aenderung", "tabelle = 'kontaktimport'")).toBe(0);
   });
 
-  it("meldet unlesbare Dateien mit 400 IMPORT_UNGUELTIG und ignoriert unbekannte Spalten", async () => {
+  it("meldet unlesbare Dateien mit 400 import_invalid und ignoriert unbekannte Spalten", async () => {
     expect((await vorschau("")).status).toBe(400);
     for (const roh of ["name;art\r\nA;unternehmen", `${KOPF}\r\n`, `${KOPF}\r\n"offen`]) {
       const a = await vorschau(Buffer.from(roh).toString("base64"));
       expect(a.status, roh).toBe(400);
-      expect((await json(a)).fehler.code).toBe("IMPORT_UNGUELTIG");
+      expect((await json(a)).error.code).toBe("import_invalid");
     }
     const zuGross = await vorschau(Buffer.alloc(2_100_000, "a").toString("base64"));
     expect(zuGross.status).toBe(400);
@@ -267,7 +267,7 @@ describe("Schutz vor Dekompressionsbomben (xlsx)", () => {
     expect(() => pruefeZip(bombe)).toThrowError(DateiFehler);
     const antwort = await uebernehmen(bombe.toString("base64"), [], "xlsx");
     expect(antwort.status).toBe(400);
-    expect((await json(antwort)).fehler).toMatchObject({ code: "IMPORT_UNGUELTIG", grund: "zu_gross_entpackt" });
+    expect((await json(antwort)).error).toMatchObject({ code: "import_invalid", grund: "zu_gross_entpackt" });
     expect((await vorschau(bombe.toString("base64"), "xlsx")).status).toBe(400);
   });
 

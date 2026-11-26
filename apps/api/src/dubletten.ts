@@ -41,7 +41,7 @@ export async function legeOrganisationAn(tx: Tx, protokoll: Protokollant, werte:
   if (!dubletteBestaetigt) {
     const kandidaten = await findeDubletten(tx, werte.name);
     if (kandidaten.length > 0) {
-      throw new Fachfehler(409, "DUBLETTE_MOEGLICH", "Es gibt bereits ähnliche Organisationen.", { kandidaten });
+      throw new Fachfehler(409, "possible_duplicate", "Similar organizations already exist.", { kandidaten });
     }
   }
   const [neu] = await tx.insert(organisation).values(werte).returning();

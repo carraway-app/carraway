@@ -62,7 +62,7 @@ export async function ladeRundentransaktionen(tx: Tx, akteur: Akteur, organisati
     if (![...grundlage].some((f) => hatRolle(akteur, f, "betrachter"))) {
       const { rows } = await tx.execute<{ runde_id: string; fonds_id: string }>(sql`SELECT p.runde_id, p.fonds_id FROM rundenposition p JOIN finanzierungsrunde r ON r.id = p.runde_id WHERE r.organisation_id = ${organisationId} AND p.fonds_id IS NOT NULL`);
       const erlaubt = new Set(rows.filter((r) => hatRolle(akteur, r.fonds_id, "betrachter")).map((r) => r.runde_id));
-      if (erlaubt.size === 0) throw new Fachfehler(403, "KEINE_BERECHTIGUNG", "Dafür fehlt die Berechtigung.");
+      if (erlaubt.size === 0) throw new Fachfehler(403, "forbidden", "Permission for this is missing.");
       runden = alleRunden.filter((r) => erlaubt.has(r.id));
     }
   }

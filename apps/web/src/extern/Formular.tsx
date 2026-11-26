@@ -128,6 +128,7 @@ export function ExternesFormular({ token, abrufer = standardAbrufer, startSprach
         const quelle = (quellen[k.schluessel] ?? "").trim();
         aus.push({
           schluessel: k.schluessel,
+          typ: k.typ,
           wert: g.wert,
           kommentar: anmerkung === "" ? null : anmerkung.slice(0, 1000),
           ...(istEsg(k, abfrage) ? { geschaetzt: geschaetzt[k.schluessel] === true, quellenangabe: quelle === "" ? null : quelle.slice(0, 500) } : {}),

@@ -30,7 +30,7 @@ export interface Option {
 }
 
 const optionSchema = z.object({
-  schluessel: z.string().regex(/^[a-z0-9][a-z0-9_]{0,39}$/, "Kleinbuchstaben, Ziffern und Unterstrich"),
+  schluessel: z.string().regex(/^[a-z0-9][a-z0-9_]{0,39}$/, "Lowercase letters, digits and underscores"),
   label: z.string().trim().min(1).max(80),
   farbe: z.enum(OPTIONSFARBEN).default("grau"),
 });
@@ -40,7 +40,7 @@ export const optionenSchema = (typ: FeldTyp): z.ZodType<Record<string, unknown>>
   if (typ === "auswahl" || typ === "mehrfachauswahl") {
     return z
       .object({ optionen: z.array(optionSchema).min(1).max(100) })
-      .refine((o) => new Set(o.optionen.map((x) => x.schluessel)).size === o.optionen.length, { message: "Optionsschlüssel müssen eindeutig sein", path: ["optionen"] });
+      .refine((o) => new Set(o.optionen.map((x) => x.schluessel)).size === o.optionen.length, { message: "Option keys must be unique", path: ["optionen"] });
   }
   if (typ === "verknuepfung") return z.object({ ziel: z.enum(OBJEKTE) });
   if (typ === "betrag") return z.object({ waehrung: z.string().regex(/^[A-Z]{3}$/).default("EUR") });
@@ -88,30 +88,30 @@ export function wertSchema(def: Pick<FeldDef, "typ" | "optionen">): z.ZodType<un
   const schluessel = ((def.optionen.optionen as Option[] | undefined) ?? []).map((o) => o.schluessel);
   switch (def.typ) {
     case "text":
-      return z.string().trim().min(1).max(500).refine(ohneNul, { message: "Ungültiges Zeichen" });
+      return z.string().trim().min(1).max(500).refine(ohneNul, { message: "Invalid character" });
     case "langtext":
-      return z.string().trim().min(1).max(20000).refine(ohneNul, { message: "Ungültiges Zeichen" });
+      return z.string().trim().min(1).max(20000).refine(ohneNul, { message: "Invalid character" });
     case "zahl":
-      return z.string().regex(DEZIMAL, "Dezimalzahl als Zeichenkette erwartet");
+      return z.string().regex(DEZIMAL, "Decimal number as string expected");
     case "betrag":
-      return z.string().regex(BETRAG, "Betrag mit höchstens zwei Nachkommastellen als Zeichenkette erwartet");
+      return z.string().regex(BETRAG, "Amount with at most two decimal places as string expected");
     case "datum":
       return z.iso.date();
     case "auswahl":
-      return z.string().refine((w) => schluessel.includes(w), { message: "Unbekannte Option" });
+      return z.string().refine((w) => schluessel.includes(w), { message: "Unknown option" });
     case "mehrfachauswahl":
       return z
-        .array(z.string().refine((w) => schluessel.includes(w), { message: "Unbekannte Option" }))
+        .array(z.string().refine((w) => schluessel.includes(w), { message: "Unknown option" }))
         .max(100)
-        .refine((a) => new Set(a).size === a.length, { message: "Doppelte Option" });
+        .refine((a) => new Set(a).size === a.length, { message: "Duplicate option" });
     case "kontrollkaestchen":
       return z.boolean();
     case "url":
-      return z.string().trim().max(500).refine(ohneNul).refine(istHttpUrl, { message: "Absolute URL mit http: oder https: erwartet" });
+      return z.string().trim().max(500).refine(ohneNul).refine(istHttpUrl, { message: "Expected an absolute URL with http: or https:" });
     case "email":
-      return z.string().trim().max(320).regex(EMAIL, "Ungültige E-Mail-Adresse");
+      return z.string().trim().max(320).regex(EMAIL, "Invalid email address");
     case "telefon":
-      return z.string().trim().regex(TELEFON, "Ungültige Telefonnummer");
+      return z.string().trim().regex(TELEFON, "Invalid phone number");
     case "benutzer":
     case "verknuepfung":
       return z.uuid();
@@ -135,7 +135,7 @@ export async function pruefeFelder(tx: Tx, c: Context, defs: FeldDef[], werte: R
   for (const [id, roh] of Object.entries(werte)) {
     const def = nachId.get(id);
     if (!def) {
-      fehler.push({ feld: id, code: "unknown_field", meldung: "Unbekanntes oder archiviertes Feld" });
+      fehler.push({ feld: id, code: "unknown_field", meldung: "Unknown or archived field" });
       continue;
     }
     if (roh === null) {
@@ -144,13 +144,13 @@ export async function pruefeFelder(tx: Tx, c: Context, defs: FeldDef[], werte: R
     }
     const ergebnis = wertSchema(def).safeParse(roh);
     if (!ergebnis.success) {
-      fehler.push({ feld: id, code: "invalid_value", meldung: ergebnis.error.issues[0]?.message ?? "Ungültiger Wert" });
+      fehler.push({ feld: id, code: "invalid_value", meldung: ergebnis.error.issues[0]?.message ?? "Invalid value" });
       continue;
     }
     geprueft[id] = ergebnis.data;
   }
   if (fehler.length === 0) fehler.push(...(await pruefeBezuege(tx, c, nachId, geprueft)));
-  if (fehler.length > 0) throw new Fachfehler(400, "FELDWERT_UNGUELTIG", "Mindestens ein Feldwert ist ungültig.", { felder: fehler });
+  if (fehler.length > 0) throw new Fachfehler(400, "field_value_invalid", "At least one field value is invalid.", { felder: fehler });
   return geprueft;
 }
 
@@ -172,7 +172,7 @@ async function pruefeBezuege(tx: Tx, c: Context, defs: Map<string, FeldDef>, wer
         ),
       );
     const da = new Set(rows.map((r) => r.id));
-    for (const [id, w] of nutzer) if (!da.has(w)) fehler.push({ feld: id, code: "unknown_user", meldung: "Aktive Person nicht gefunden" });
+    for (const [id, w] of nutzer) if (!da.has(w)) fehler.push({ feld: id, code: "unknown_user", meldung: "Active person not found" });
   }
   for (const [id, w] of Object.entries(werte)) {
     const def = defs.get(id);
@@ -183,7 +183,7 @@ async function pruefeBezuege(tx: Tx, c: Context, defs: Map<string, FeldDef>, wer
     // Archivierte und zusammengeführte Unternehmen und Kontakte sind für das CRM nicht mehr vorhanden (wie bei `ladeZeile`).
     const sichtbar = ziel === "deal" ? dealSichtbar(c) : ziel === "organisation" ? and(isNull(organisation.archiviertAm), isNull(organisation.zusammengefuehrtIn)) : and(isNull(person.archiviertAm), isNull(person.zusammengefuehrtIn));
     const [zeile] = await tx.select({ id: tabelle.id }).from(tabelle).where(and(eq(tabelle.id, w as string), ...(sichtbar ? [sichtbar] : [])));
-    if (!zeile) fehler.push({ feld: id, code: "unknown_record", meldung: "Datensatz nicht gefunden" });
+    if (!zeile) fehler.push({ feld: id, code: "unknown_record", meldung: "Record not found" });
   }
   return fehler;
 }

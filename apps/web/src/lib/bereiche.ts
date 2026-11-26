@@ -20,7 +20,7 @@ export const BEREICH_JE_ABSCHNITT: Record<string, Record<string, string>> = {
   // Persönliche Einstellungen (Seite für alle): das Postfach ordnet Mails Kontakten zu.
   einstellungen: { postfach: "kontakte" },
   // Fondsverwaltung: die Seite ist für alle da, einzelne Abschnitte nicht.
-  fondsverwaltung: { kapital: "finanzen", abgrenzung: "finanzen", dokumente: "dokumente", felder: "kontakte" },
+  fondsverwaltung: { gremien: "portfolio", kapital: "finanzen", abgrenzung: "finanzen", dokumente: "dokumente", felder: "kontakte" },
 };
 
 /** Bereich eines Abschnitts nach `BEREICH_JE_ABSCHNITT` oder nach dem Eintrag einer Erweiterung (Reiter von Fonds und Beteiligung); `undefined` ohne Beschränkung. */

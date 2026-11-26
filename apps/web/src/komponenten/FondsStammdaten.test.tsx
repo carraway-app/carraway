@@ -25,7 +25,7 @@ async function rendereStammdaten(fondsId?: string) {
 
 describe("Fondsstammdaten", () => {
   it("zeigt die Daten des Fonds für eine lesende Rolle", async () => {
-    spieleApi({ "/api/v1/ich": alsRolle("betrachter") });
+    spieleApi({ "/api/v1/me": alsRolle("betrachter") });
     await rendereStammdaten(FONDS_ID);
     expect(await screen.findByText(bestand.name)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Fonds bearbeiten" })).toBeNull();
@@ -34,7 +34,7 @@ describe("Fondsstammdaten", () => {
   it("legt ohne vorhandenen Fonds einen Fonds an und meldet dessen Kennung zurück", async () => {
     const neu = { ...bestand, name: "Neuer Fonds", kurzname: "NF", vintage: 2026, zeichnungskapital: "1200000.50", waehrung: "USD" };
     const api = spieleApi({
-      "/api/v1/ich": { koerper: { ...ichDaten, globalVerwalter: true, rollen: [] } },
+      "/api/v1/me": { koerper: { ...ichDaten, globalVerwalter: true, rollen: [] } },
       "/api/v1/fonds": { koerper: { daten: [] } },
       "POST /api/v1/fonds": { status: 201, koerper: neu },
     });
@@ -57,7 +57,7 @@ describe("Fondsstammdaten", () => {
   it("speichert nur bearbeitete Felder und lädt danach die Stammdaten neu", async () => {
     let aktuell = bestand;
     const api = spieleApi({
-      "/api/v1/ich": alsRolle("verwalter"),
+      "/api/v1/me": alsRolle("verwalter"),
       [detailPfad]: () => ({ koerper: aktuell }),
       [`PATCH ${detailPfad}`]: () => {
         aktuell = { ...bestand, name: "Geänderter Fonds" };
@@ -80,7 +80,7 @@ describe("Fondsstammdaten", () => {
 describe("Fondsstammdaten: Prüfung am Feld", () => {
   it("bietet die Währung als Auswahl und prüft das Zeichnungskapital beim Verlassen", async () => {
     spieleApi({
-      "/api/v1/ich": { koerper: { ...ichDaten, globalVerwalter: true, rollen: [] } },
+      "/api/v1/me": { koerper: { ...ichDaten, globalVerwalter: true, rollen: [] } },
       "/api/v1/fonds": { koerper: { daten: [] } },
     });
     await rendereStammdaten();
