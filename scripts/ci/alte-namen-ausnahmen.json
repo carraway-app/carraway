@@ -1,0 +1,22 @@
+[
+  {
+    "pfad": "scripts/ci/alte-namen.mjs",
+    "grund": "Die Prüfung selbst enthält das Suchmuster."
+  },
+  {
+    "pfad": "packages/db/drizzle/",
+    "grund": "Bestehende Migrationen werden nie geändert: Migration 0034 legt Meldevorlagen mit dem früheren Herausgeber an, Migration 0081 stellt ihn um. Beide müssen den alten Wert nennen."
+  },
+  {
+    "pfad": "deploy/README.md",
+    "grund": "Abschnitt „Umstieg vom früheren Produktnamen“: bestehende Installationen müssen die alten Namen (Datenbank, Rollen, Projekt, Volumes, Tabelle) kennen."
+  },
+  {
+    "pfad": "deploy/README.en.md",
+    "grund": "Englische Fassung desselben Abschnitts „Moving from the former product name“."
+  },
+  {
+    "pfad": "ee/excel-addin/src/start.ts",
+    "grund": "Ein im Add-in unter dem alten Speichernamen abgelegter Schlüssel wird weiter gelesen, damit ihn niemand neu eintragen muss."
+  }
+]

@@ -1,0 +1,81 @@
+{
+  "hinweis": "Alle Namen und Zahlen sind erfunden. wert = aktueller Wert der Beteiligung je Quartalsende (31.3., 30.6., 30.9., 31.12.), daten = [Wert, geschätzt].",
+  "faelle": [
+    {
+      "name": "fuenf_unternehmen",
+      "jahr": 2025,
+      "zusatz": ["esg_zus_hinweisgeberschutz"],
+      "beteiligungen": [
+        {
+          "id": "alpha", "name": "Alpha GmbH", "nace": "C",
+          "wert": ["1000000", "1000000", "1200000", "1200000"],
+          "daten": {
+            "esg_evic": ["20000000", false], "umsatz": ["5000000", false],
+            "esg_thg_scope1": ["100", false], "esg_thg_scope2": ["50", false], "esg_thg_scope3": ["400", false],
+            "esg_fossile_brennstoffe": ["nein", false], "esg_nicht_erneuerbare_energie_anteil": ["60", false], "esg_energieverbrauch_gwh": ["12", false],
+            "esg_biodiversitaet": ["ja", false], "esg_emissionen_wasser": ["3.5", false], "esg_gefaehrliche_abfaelle": ["8", false],
+            "esg_verstoesse_ungc": ["nein", false], "esg_prozesse_ungc_fehlen": ["nein", false], "esg_lohngefaelle_unbereinigt": ["12.5", false],
+            "esg_frauenanteil_leitung": ["40", false], "esg_umstrittene_waffen": ["nein", false], "esg_zus_hinweisgeberschutz": ["ja", false]
+          }
+        },
+        {
+          "id": "beta", "name": "Beta AG", "nace": "D",
+          "wert": ["500000", "500000", "500000", "0"],
+          "daten": {
+            "esg_evic": ["8000000", true], "umsatz": ["2000000", false],
+            "esg_thg_scope1": ["40", false], "esg_thg_scope2": ["10", false], "esg_thg_scope3": ["150", true],
+            "esg_fossile_brennstoffe": ["ja", false], "esg_nicht_erneuerbare_energie_anteil": ["80", false], "esg_energieverbrauch_gwh": ["30", true],
+            "esg_biodiversitaet": ["nein", false], "esg_emissionen_wasser": ["1", false], "esg_gefaehrliche_abfaelle": ["2", true],
+            "esg_verstoesse_ungc": ["nein", false], "esg_prozesse_ungc_fehlen": ["ja", false], "esg_lohngefaelle_unbereinigt": ["20", false],
+            "esg_frauenanteil_leitung": ["25", false], "esg_umstrittene_waffen": ["nein", false]
+          }
+        },
+        {
+          "id": "gamma", "name": "Gamma UG", "nace": "C",
+          "wert": ["0", "300000", "300000", "300000"],
+          "daten": {
+            "esg_frauenanteil_leitung": ["50", false], "esg_verstoesse_ungc": ["ja", false]
+          }
+        },
+        {
+          "id": "delta", "name": "Delta SE", "nace": "G",
+          "wert": ["200000", "200000", "200000", "200000"],
+          "daten": {
+            "esg_evic": ["0", false], "umsatz": ["1000000", false],
+            "esg_thg_scope1": ["10", false], "esg_thg_scope2": ["5", false], "esg_thg_scope3": ["20", false],
+            "esg_energieverbrauch_gwh": ["2", false], "esg_frauenanteil_leitung": ["30", false]
+          }
+        },
+        {
+          "id": "epsilon", "name": "Epsilon GmbH", "nace": null,
+          "wert": ["100000", "100000", "100000", "100000"],
+          "daten": {
+            "esg_evic": ["1000000", false], "umsatz": ["0", false],
+            "esg_thg_scope1": ["1", false], "esg_thg_scope2": ["1", false], "esg_thg_scope3": ["1", false],
+            "esg_energieverbrauch_gwh": ["1", false], "esg_fossile_brennstoffe": ["nein", false], "esg_frauenanteil_leitung": ["60", false]
+          }
+        }
+      ]
+    },
+    {
+      "name": "ohne_bestand",
+      "jahr": 2025,
+      "zusatz": [],
+      "beteiligungen": [
+        { "id": "leer", "name": "Leer GmbH", "nace": "C", "wert": ["0", "0", "0", "0"], "daten": { "esg_thg_scope1": ["5", false], "esg_evic": ["1000000", false] } }
+      ]
+    },
+    {
+      "name": "beteiligung_ueber_unternehmenswert",
+      "jahr": 2025,
+      "zusatz": [],
+      "beteiligungen": [
+        {
+          "id": "zu_gross", "name": "Zeta GmbH", "nace": "H",
+          "wert": ["2000000", "2000000", "2000000", "2000000"],
+          "daten": { "esg_evic": ["1000000", true], "umsatz": ["4000000", true], "esg_thg_scope1": ["10", false], "esg_thg_scope2": ["10", false], "esg_thg_scope3": ["10", false], "esg_energieverbrauch_gwh": ["8", false] }
+        }
+      ]
+    }
+  ]
+}

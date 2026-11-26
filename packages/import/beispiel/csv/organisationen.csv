@@ -1,0 +1,17 @@
+organisation_schluessel;name;art;sektor;ort;website;bestehende_id;dublette_bestaetigt
+ORG-0001;Velmo Capital;investor;;Münster;https://www.velmo-capital.example;;
+ORG-0002;Wimen Ventures;investor;;Hamburg;https://www.wimen-ventures.example;;
+ORG-0003;Silar Beteiligungen;investor;;Dresden;https://www.silar-beteiligungen.example;;
+ORG-0004;Ramen Partner;investor;;Karlsruhe;https://www.ramen-partner.example;;
+ORG-0005;Brobro Kapital;investor;;Münster;https://www.brobro-kapital.example;;
+ORG-0006;Kezimar;unternehmen;Industrie;Hamburg;https://www.kezimar.example;;
+ORG-0007;Samen Energie;unternehmen;Energie;Bremen;https://www.samen-energie.example;;
+ORG-0008;Velgry;unternehmen;Bildung;Hamburg;https://www.velgry.example;;
+ORG-0009;Mararkor Sensorik;unternehmen;Industrie;Köln;https://www.mararkor-sensorik.example;;
+ORG-0010;Mentaar Agrar;unternehmen;Landwirtschaft;Münster;https://www.mentaar-agrar.example;;
+ORG-0011;Chifibro;unternehmen;Logistik;Dresden;https://www.chifibro.example;;
+ORG-0012;Vekorqui;unternehmen;Energie;München;https://www.vekorqui.example;;
+ORG-0013;Chiveljo;unternehmen;Industrie;Hamburg;https://www.chiveljo.example;;
+ORG-0014;Luquiar;unternehmen;Landwirtschaft;Dresden;https://www.luquiar.example;;
+ORG-0015;Urdo Bildung;unternehmen;Bildung;Karlsruhe;https://www.urdo-bildung.example;;
+ORG-0016;Vemen Medizin;unternehmen;Gesundheit;Hamburg;https://www.vemen-medizin.example;;

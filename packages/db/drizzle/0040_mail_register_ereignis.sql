@@ -1,0 +1,1 @@
+ALTER TABLE "benutzer_einstellung" ADD COLUMN "mail_register_ereignis" boolean DEFAULT false NOT NULL;

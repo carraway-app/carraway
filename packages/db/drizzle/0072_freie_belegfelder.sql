@@ -1,0 +1,3 @@
+ALTER TYPE "public"."beleg_art" ADD VALUE 'frei';--> statement-breakpoint
+ALTER TABLE "beleg" ADD CONSTRAINT "beleg_frei_eigene_art" CHECK ("beleg"."art"::text <> 'frei' OR "beleg"."eigene_art_id" IS NOT NULL);--> statement-breakpoint
+ALTER TABLE "beleg_vorlage" ADD CONSTRAINT "beleg_vorlage_frei_eigene_art" CHECK ("beleg_vorlage"."art"::text <> 'frei' OR "beleg_vorlage"."eigene_art_id" IS NOT NULL);

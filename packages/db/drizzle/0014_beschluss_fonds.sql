@@ -1,0 +1,2 @@
+ALTER TABLE "beschluss" ADD COLUMN "fonds_id" uuid;--> statement-breakpoint
+ALTER TABLE "beschluss" ADD CONSTRAINT "beschluss_fonds_id_fonds_id_fk" FOREIGN KEY ("fonds_id") REFERENCES "public"."fonds"("id") ON DELETE no action ON UPDATE no action;

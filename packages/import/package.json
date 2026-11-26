@@ -1,0 +1,22 @@
+{
+  "name": "@carraway/import",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./beispiel": "./src/beispiel.ts"
+  },
+  "scripts": {
+    "beispiel": "tsx scripts/beispiel-erzeugen.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@carraway/rechenkern": "workspace:*",
+    "exceljs": "4.4.0"
+  },
+  "devDependencies": {
+    "@carraway/db": "workspace:*"
+  }
+}

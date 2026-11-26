@@ -1,0 +1,1 @@
+ALTER TYPE "public"."bericht_art" ADD VALUE 'szenariobericht';

@@ -1,0 +1,13 @@
+packages:
+  - apps/*
+  - packages/*
+  - ee/*
+
+allowBuilds:
+  esbuild: true
+  simple-git-hooks: false
+  tesseract.js: false
+
+overrides:
+  # exceljs 4.4.0 zieht über unzipper 0.10 das Paket binary/buffers ohne Lizenzangabe; unzipper 0.12 braucht beides nicht.
+  unzipper: ^0.12.5

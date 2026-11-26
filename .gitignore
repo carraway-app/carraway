@@ -1,0 +1,18 @@
+node_modules/
+.env
+.env.*
+!.env.example
+.DS_Store
+dist/
+build/
+coverage/
+.claude/worktrees/
+storage/
+!.env.beispiel
+ee/web/oeffentlich/excel-addin/
+deploy/mandanten/
+mandanten/
+
+# Python
+__pycache__/
+*.pyc

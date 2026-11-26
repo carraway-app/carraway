@@ -1,0 +1,40 @@
+/*
+ * Öffentliche Abfrageseite: einspaltig, große Eingabefelder (16 px gegen das Zoomen auf iOS, 44 px Höhe), Farben nur aus den Tokens von @carraway/ui.
+ */
+*, *::before, *::after { box-sizing: border-box; }
+body { margin: 0; background: var(--cw-bg); color: var(--cw-text); font-family: var(--font-sans); font-size: 16px; line-height: 1.5; }
+.extern { min-height: 100vh; max-width: 40rem; margin: 0 auto; padding: var(--s-2) var(--s-2) var(--s-6); }
+.extern__kopf { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--s-2); padding: var(--s-2) 0 var(--s-3); border-bottom: 1px solid var(--cw-line); }
+.extern__sprache { display: inline-flex; gap: var(--s-1); }
+.extern__sprache-knopf { min-height: 44px; min-width: 44px; padding: 0 var(--s-2); border: 1px solid var(--cw-line-strong); border-radius: var(--r-m); background: transparent; color: var(--cw-text); font: inherit; cursor: pointer; }
+.extern__sprache-knopf[aria-pressed="true"] { background: var(--cw-inverse); border-color: var(--cw-inverse); color: var(--cw-on-inverse); font-weight: 600; }
+.extern__sprache-knopf:focus-visible, .extern__eingabe:focus-visible, .extern input:focus-visible, .extern summary:focus-visible { outline: 2px solid var(--cw-focus); outline-offset: 2px; }
+.extern__haupt { padding-top: var(--s-3); }
+.extern__titel { margin: 0 0 var(--s-2); font-family: var(--font-anzeige, var(--font-sans)); font-size: 1.75rem; line-height: 1.2; overflow-wrap: anywhere; }
+.extern__frist { margin: var(--s-1) 0; }
+.extern__klein { margin: var(--s-1) 0; font-size: var(--fs-text); color: var(--cw-text-muted); }
+.extern__hinweis { padding: var(--s-2); border-radius: var(--r-m); background: var(--cw-surface); }
+.extern__feld { margin: var(--s-3) 0; padding: var(--s-2); border-radius: var(--r-l); background: var(--cw-surface); }
+.extern__feld--fehler { outline: 1px solid var(--cw-danger); }
+.extern__label, .extern__feld legend { display: block; margin-bottom: var(--s-1); font-weight: 600; }
+.extern__marke { font-weight: 400; color: var(--cw-text-muted); }
+.extern__eingabe { display: block; width: 100%; min-height: 44px; padding: var(--s-1) var(--s-2); border: 1px solid var(--cw-line-control); border-radius: var(--r-m); background: var(--cw-field); color: var(--cw-text); font: inherit; font-size: 16px; }
+textarea.extern__eingabe { min-height: 5rem; resize: vertical; }
+.extern fieldset { margin: 0; padding: 0; border: 0; min-width: 0; }
+.extern__radio { display: flex; align-items: center; gap: var(--s-1); min-height: 44px; }
+.extern__radio input { width: 22px; height: 22px; accent-color: var(--cw-primary); }
+.extern__feld-fehler { margin-top: var(--s-1); color: var(--cw-danger); font-size: var(--fs-text); }
+.extern__anmerkung { margin-top: var(--s-1); }
+.extern__anmerkung summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; color: var(--cw-text-muted); }
+.extern__aktionen { display: flex; flex-wrap: wrap; gap: var(--s-2); margin-top: var(--s-3); }
+.extern__aktionen .cw-button { flex: 1 1 12rem; }
+.extern__ok { margin-top: var(--s-2); color: var(--cw-text); }
+.extern__fehler { margin-top: var(--s-2); padding: var(--s-2); border-radius: var(--r-m); background: var(--cw-danger-tint); color: var(--cw-text); }
+.extern__fehler:empty { display: none; }
+.extern__lesen { margin: var(--s-3) 0 0; }
+.extern__lesen-zeile { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--s-1) var(--s-3); padding: var(--s-1) 0; border-bottom: 1px solid var(--cw-line); }
+.extern__lesen dt { color: var(--cw-text-muted); }
+.extern__lesen dd { margin: 0; font-variant-numeric: tabular-nums; text-align: right; overflow-wrap: anywhere; }
+@media (prefers-reduced-motion: reduce) { .extern * { transition: none !important; } }
+.extern__esg { margin-top: var(--s-2); }
+.extern__grundlage { white-space: nowrap; }

@@ -1,0 +1,163 @@
+.cw-dialog:has(> .app-suchpalette__eingabe) {
+  position: relative;
+  gap: 0;
+  width: min(640px, 100%);
+  height: min(33rem, calc(100dvh - 2 * var(--s-2)));
+  padding: 0;
+  overflow: hidden;
+  box-shadow: 0 18px 56px color-mix(in srgb, var(--cw-scrim), transparent 25%);
+}
+
+.cw-dialog:has(> .app-suchpalette__eingabe) > .cw-dialog__titel {
+  display: flex;
+  align-items: center;
+  min-height: var(--h-l);
+  padding-block: var(--s-0);
+  padding-inline: var(--s-3) calc(var(--h-l) + var(--s-2));
+  font-size: var(--fs-untertitel);
+  line-height: var(--lh-untertitel);
+}
+
+.app-suchpalette__schliessen {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-end: var(--s-1);
+  min-width: 44px;
+  min-height: 44px;
+}
+
+.app-suchpalette__eingabe {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--s-1);
+  margin: 0 var(--s-3);
+  padding-inline: var(--s-1h);
+  border: 1px solid var(--cw-line-control);
+  border-radius: var(--r-m);
+  background: var(--cw-field);
+  color: var(--cw-text-muted);
+}
+
+.app-suchpalette__eingabe:focus-within {
+  outline: 2px solid var(--cw-focus);
+  outline-offset: -1px;
+}
+
+.app-suchpalette__eingabe input {
+  flex: 1;
+  min-width: 0;
+  height: var(--h-l);
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--cw-text);
+  font: inherit;
+  font-size: max(1rem, var(--fs-text));
+}
+
+.app-suchpalette__eingabe input::placeholder {
+  color: var(--cw-text-muted);
+}
+
+.app-suchpalette__status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-0) var(--s-1);
+  padding: var(--s-1) var(--s-3) 0;
+  color: var(--cw-text-muted);
+  font-size: var(--fs-klein);
+}
+
+.app-suchpalette__status:has(> :only-child:empty) {
+  padding: 0;
+}
+
+.app-suchpalette__liste,
+.app-suchpalette__liste ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.app-suchpalette__liste {
+  flex: 1;
+  min-height: 0;
+  padding: var(--s-1) var(--s-2) var(--s-2);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.app-suchpalette__liste .app-gruppen-titel {
+  margin: var(--s-1) var(--s-1) var(--s-0);
+}
+
+.app-suchpalette__liste > li + li {
+  margin-top: var(--s-1);
+}
+
+.app-suchpalette__liste .app-auswahlliste__knopf {
+  flex-wrap: nowrap;
+  align-items: flex-start;
+  gap: var(--s-1);
+  padding: var(--s-1) var(--s-1h);
+  border: 0;
+  background: transparent;
+  overflow-wrap: anywhere;
+}
+
+.app-suchpalette__liste .app-auswahlliste__knopf > svg {
+  flex: none;
+  color: var(--cw-text-muted);
+}
+
+.app-suchpalette__liste .app-auswahlliste__knopf:hover,
+.app-suchpalette__liste .app-auswahlliste__knopf:focus-visible {
+  background: var(--cw-hover-raised);
+}
+
+.app-suchpalette__liste .app-auswahlliste__knopf:focus-visible {
+  outline-offset: -2px;
+}
+
+.app-suchpalette__zeile {
+  display: flex;
+  align-items: center;
+}
+
+.app-suchpalette__zeile > .app-auswahlliste__knopf {
+  min-width: 0;
+}
+
+.app-suchpalette__zeile > .app-schnell {
+  flex: none;
+}
+
+.app-suchpalette__info {
+  display: block;
+  margin-top: 2px;
+  color: var(--cw-text-muted);
+  font-size: var(--fs-klein);
+}
+
+.cw-dialog:has(> .app-suchpalette__eingabe) > .cw-dialog__fuss {
+  flex: none;
+  justify-content: flex-start;
+  padding: var(--s-1) var(--s-3);
+  border-top: 1px solid var(--cw-line);
+  color: var(--cw-text-muted);
+  font-size: var(--fs-klein);
+}
+
+@media (max-width: 480px) {
+  .app-suchpalette__zeile {
+    flex-wrap: wrap;
+  }
+
+  .app-suchpalette__zeile > .app-schnell {
+    margin-inline-start: var(--s-3);
+  }
+}

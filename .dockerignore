@@ -1,0 +1,15 @@
+# Nur der Quellbaum gehört in den Build-Kontext; installierte Pakete und Gebautes entstehen im Image.
+.git
+.claude
+.github
+**/node_modules
+**/dist
+**/storage
+**/coverage
+deploy/.env
+deploy/.env.*
+!deploy/.env.beispiel
+.env
+.env.*
+**/*.log
+**/.DS_Store

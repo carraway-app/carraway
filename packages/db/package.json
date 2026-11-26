@@ -1,0 +1,32 @@
+{
+  "name": "@carraway/db",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./demo": "./src/demo/index.ts",
+    "./schutz": "./src/schutz.ts",
+    "./migrationen": "./src/migrationen.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "generate": "drizzle-kit generate",
+    "setup": "tsx scripts/setup.ts",
+    "setup:test": "tsx scripts/setup.ts --nur-test",
+    "migrate": "tsx scripts/migrate.ts",
+    "seed": "tsx scripts/seed.ts",
+    "migrationen:pruefen": "tsx scripts/migrationen-pruefen.ts"
+  },
+  "dependencies": {
+    "@carraway/rechenkern": "workspace:*",
+    "better-auth": "1.7.18",
+    "drizzle-orm": "^0.45.4",
+    "pg": "^8.23.1"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.23.1",
+    "drizzle-kit": "^0.31.11"
+  }
+}

@@ -1,0 +1,2 @@
+CREATE UNIQUE INDEX "rundenposition_runde_vehikel_uq" ON "rundenposition" USING btree ("runde_id","vehikel_id") WHERE "rundenposition"."vehikel_id" IS NOT NULL;--> statement-breakpoint
+CREATE UNIQUE INDEX "rundenposition_runde_fonds_uq" ON "rundenposition" USING btree ("runde_id","fonds_id") WHERE "rundenposition"."fonds_id" IS NOT NULL;

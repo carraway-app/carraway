@@ -1,0 +1,76 @@
+name: CI
+
+# Öffentliche CI des Kerns: installieren, Lint, Typecheck, Build, Tests. Läuft auf GitHub-Runnern (ubuntu).
+# Diese Datei stammt aus scripts/oss/oeffentlich/ des privaten Repos und wird beim Export ersetzt.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions: {}
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PNPM_VERSION: "11.13.0"
+  NODE_VERSION: "24.22.2"
+  DATABASE_URL_TEST: postgres://carraway:carraway@localhost:5432/carraway_ci_test
+  DATABASE_URL_SUPERUSER: postgres://postgres:postgres@localhost:5432/postgres
+  TEST_DB_WORKERS: "3"
+
+jobs:
+  ci:
+    name: lint, typecheck, build, test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - name: Setup Node
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          package-manager-cache: false
+
+      - name: Install pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@${{ env.PNPM_VERSION }} --activate
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Migrationen geordnet
+        run: pnpm migrationen:pruefen
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Build
+        run: pnpm build
+
+      - name: Prepare test database
+        run: pnpm --filter @carraway/db setup:test
+
+      - name: Test
+        run: pnpm test

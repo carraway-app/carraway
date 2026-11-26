@@ -1,0 +1,335 @@
+/* CRM und Dealflow (Etappe 20): Tabelle, Board, Filter, Ansichten, Datensatzseiten. Lädt mit den Seiten, die es brauchen (nicht im Anfangsumfang). */
+
+/* Auswahl-Etiketten: Farbe der Option aus den Kategorie-Tokens (kein Orange, kein Akzent); der Text bleibt in der Textfarbe, die Farbe trägt Rand und eine leichte Fläche. Der gespeicherte Schlüssel `signal` zeigt Grün. */
+.app-chip { --farbe: var(--cw-kat-grau); display: inline-flex; align-items: center; max-width: 100%; padding: 0 var(--s-1); height: 22px; border: 1px solid color-mix(in srgb, var(--farbe) 55%, transparent); border-radius: var(--r-voll); background: color-mix(in srgb, var(--farbe) 14%, transparent); color: var(--cw-text); font-size: var(--fs-beschriftung); line-height: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.app-chip[data-farbe="signal"] { --farbe: var(--cw-kat-gruen); }
+.app-chip[data-farbe="blau"] { --farbe: var(--cw-kat-blau); }
+.app-chip[data-farbe="violett"] { --farbe: var(--cw-kat-violett); }
+.app-chip[data-farbe="tuerkis"] { --farbe: var(--cw-kat-tuerkis); }
+.app-chip[data-farbe="rose"] { --farbe: var(--cw-kat-rose); }
+.app-chip[data-farbe="sand"] { --farbe: var(--cw-kat-sand); }
+.app-chips { display: inline-flex; flex-wrap: nowrap; gap: var(--s-0); overflow: hidden; }
+
+/* Schnellaktionen: Mail, Telefon, Adressen */
+.app-schnell { position: relative; display: inline-flex; align-items: center; gap: var(--app-schnell-luecke, 2px); }
+.app-schnell[data-raster] { flex: none; flex-wrap: nowrap; }
+.app-schnell__platz { flex: none; width: var(--h-xs); height: var(--h-xs); pointer-events: none; }
+.app-schnell__knopf { display: inline-flex; align-items: center; justify-content: center; width: var(--h-xs); height: var(--h-xs); padding: 0; border: 0; border-radius: var(--r-m); background: transparent; color: var(--cw-text-muted); cursor: pointer; }
+.app-schnell__knopf:hover { background: var(--cw-hover); color: var(--cw-text); }
+.app-schnell__knopf:focus-visible { outline: 2px solid var(--cw-focus); outline-offset: -2px; }
+
+/* Seite */
+.app-crm { display: flex; flex-direction: column; gap: var(--s-2); }
+.app-crm__listenzeile { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--s-1) var(--s-2); }
+.app-crm__listenwahl { min-width: 220px; }
+.app-werkzeuge { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--s-1) var(--s-3); }
+.app-werkzeuge > .cw-hinweis { flex-basis: 100%; }
+.app-werkzeuge__zeile { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--s-1); }
+.app-werkzeuge__suche { flex: 1 1 240px; max-width: 360px; }
+.app-ansichten { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--s-1); }
+.app-ansichten__wahl { min-width: 220px; }
+.app-massen { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-1); padding: var(--s-1) var(--s-2); border-radius: var(--r-l); background: var(--cw-surface-2); }
+.app-massen__anzahl { font-weight: 600; }
+.app-massen__ergebnis { flex-basis: 100%; font-size: var(--fs-klein); color: var(--cw-text-muted); }
+.app-massen__ergebnis:empty { display: none; }
+
+/* Tabelle (Datengitter) */
+.app-gitter-aussen { border: 1px solid var(--cw-line); border-radius: var(--r-m); overflow: hidden; }
+.app-gitter { --app-schnell-luecke: 2px; --app-gitter-aktion: calc(5 * var(--h-xs) + 4 * var(--app-schnell-luecke) + 2 * var(--s-1)); position: relative; overflow: auto; overscroll-behavior-x: contain; }
+.app-gitter__scroll { display: flex; flex-direction: column; }
+.app-gitter__zeile { display: grid; align-items: center; border-bottom: 1px solid var(--cw-line); background: var(--cw-bg); }
+/* Die Auswahl ist eine deckende, neutrale Fläche (die klebenden Zellen erben den Grund der Zeile), dazu die Linie im Akzent an der ersten Zelle. */
+.app-gitter__zeile[data-gewaehlt] { background: var(--cw-selected); }
+.app-gitter__zeile[data-gewaehlt] > :first-child { box-shadow: inset 2px 0 0 var(--cw-accent); }
+.app-gitter__kopf { position: sticky; top: 0; z-index: 2; min-height: var(--zeile); background: var(--cw-surface); font-size: var(--fs-beschriftung); font-weight: 500; letter-spacing: 0.04em; color: var(--cw-text-muted); }
+.app-gitter__kopfzelle { position: relative; display: flex; align-items: center; min-width: 0; height: 100%; padding: 0 var(--s-1); }
+.app-gitter__sortieren { display: inline-flex; align-items: center; gap: var(--s-0); min-width: 0; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+span.app-gitter__sortieren { cursor: default; }
+.app-gitter__sortieren > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.app-gitter__sortieren:hover { color: var(--cw-text); }
+.app-gitter__sortieren:focus-visible { outline: 2px solid var(--cw-focus); outline-offset: 2px; }
+.app-gitter__griff { position: absolute; top: 0; right: 0; width: 8px; height: 100%; cursor: col-resize; }
+.app-gitter__griff:hover, .app-gitter__griff:focus-visible { background: var(--cw-line-strong); outline: none; }
+.app-gitter__griff:focus-visible { box-shadow: inset -2px 0 0 var(--cw-focus); }
+.app-gitter__auswahl { display: flex; align-items: center; justify-content: center; }
+/* Kopf, erste Spalte und Aktionsspalte kleben im einen Scrollbereich des Gitters (Zeilen und Kopf scrollen waagerecht gemeinsam); der Grund kommt von der Zeile. */
+.app-gitter .app-gitter__links, .app-gitter .app-gitter__rechts { position: sticky; z-index: 1; background: inherit; }
+.app-gitter__auswahl.app-gitter__links { left: 0; }
+.app-gitter__zelle.app-gitter__erste, .app-gitter__kopfzelle.app-gitter__erste { left: 40px; box-shadow: 1px 0 0 var(--cw-line); }
+.app-gitter__rechts { right: 0; box-shadow: -1px 0 0 var(--cw-line); }
+.app-gitter__kopf > .app-gitter__links, .app-gitter__kopf > .app-gitter__rechts { z-index: 3; }
+@media (max-width: 480px) {
+  .app-gitter__auswahl.app-gitter__links { position: static; }
+  .app-gitter__zelle.app-gitter__erste, .app-gitter__kopfzelle.app-gitter__erste { left: 0; }
+}
+.app-gitter__zelle { position: relative; display: flex; align-items: center; min-width: 0; height: 100%; padding: 0 var(--s-1); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: var(--fs-text); }
+.app-gitter__zelle > * { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.app-gitter__zelle:focus-visible, .app-gitter__zelle[data-aktiv]:focus-within { outline: 2px solid var(--cw-focus); outline-offset: -2px; }
+.app-gitter__zelle[aria-readonly="true"] { cursor: default; }
+.app-gitter__aktionen { display: flex; align-items: center; justify-content: flex-end; min-width: 0; padding: 0 var(--s-1); overflow: hidden; }
+.app-gitter__aktionen > * { opacity: 0.55; }
+.app-gitter__zeile:hover .app-gitter__aktionen > *, .app-gitter__zeile:focus-within .app-gitter__aktionen > * { opacity: 1; }
+.app-gitter__fuss { padding: var(--s-1) var(--s-2); border-top: 1px solid var(--cw-line); font-size: var(--fs-klein); color: var(--cw-text-muted); }
+.app-zelle__leer { color: var(--cw-text-subtle); }
+.app-zelle__name { font-weight: 600; }
+.app-zelleneingabe { width: 100%; height: calc(var(--zeile) - 6px); padding: 0 var(--s-1); border: 1px solid var(--cw-focus); border-radius: var(--r-s); background: var(--cw-field); color: var(--cw-text); font: inherit; }
+.app-zelleneingabe:focus-visible { outline: none; }
+.app-zellenmehrfach { position: absolute; left: 0; top: 100%; z-index: 5; display: flex; flex-direction: column; gap: var(--s-0); min-width: 200px; margin: 0; padding: var(--s-1); border: 1px solid var(--cw-line-strong); border-radius: var(--r-m); background: var(--cw-raised); }
+.app-zellenmehrfach label { display: flex; align-items: center; gap: var(--s-1); white-space: nowrap; }
+
+/* Filter, Spalten, Felder, Import */
+.app-fed { display: flex; flex-direction: column; gap: var(--s-2); }
+.app-fed__gruppe { display: flex; flex-direction: column; gap: var(--s-1); padding: var(--s-1); border: 1px solid var(--cw-line); border-radius: var(--r-m); }
+.app-fed__gruppe .app-fed__gruppe { margin-left: var(--s-2); }
+.app-fed__kopf { display: flex; align-items: center; justify-content: space-between; gap: var(--s-1); }
+.app-fed__bedingung { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(120px, 1fr) minmax(140px, 1.4fr) auto; align-items: center; gap: var(--s-1); }
+.app-fed__eingabe { height: var(--h-s); min-width: 0; width: 100%; padding: 0 var(--s-1h); border: 1px solid var(--cw-line-control); border-radius: var(--r-m); background: var(--cw-field); color: var(--cw-text); font: inherit; }
+.app-fed__eingabe:focus-visible { outline: 2px solid var(--cw-focus); outline-offset: 1px; }
+.app-fed__zwischen { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: var(--s-0); }
+.app-fed__optionen { display: flex; flex-wrap: wrap; gap: var(--s-1) var(--s-2); margin: 0; padding: 0; border: 0; }
+.app-fed__optionen label { display: inline-flex; align-items: center; gap: var(--s-0); }
+.app-fed__aktionen, .app-fed__fuss { display: flex; flex-wrap: wrap; gap: var(--s-1); }
+.app-spaltenliste { display: flex; flex-direction: column; gap: var(--s-0); margin: 0; padding: 0; list-style: none; }
+.app-spaltenliste li { display: flex; align-items: center; justify-content: space-between; gap: var(--s-1); min-height: var(--h-s); }
+.app-spaltenliste label { display: inline-flex; align-items: center; gap: var(--s-1); }
+.app-felderliste { display: flex; flex-direction: column; gap: var(--s-1); margin: 0 0 var(--s-2); padding: 0; list-style: none; }
+.app-felderliste li { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-1) var(--s-2); padding: var(--s-1) 0; border-bottom: 1px solid var(--cw-line); }
+.app-felderliste li[data-archiviert] .app-felderliste__name { color: var(--cw-text-subtle); text-decoration: line-through; }
+.app-felderliste__name { font-weight: 600; }
+.app-felderliste__knoepfe { margin-left: auto; display: inline-flex; gap: var(--s-0); }
+.app-optionszeile { display: grid; grid-template-columns: 1fr 140px auto; align-items: end; gap: var(--s-1); }
+.app-feldformular { margin-top: var(--s-2); padding-top: var(--s-2); border-top: 1px solid var(--cw-line); }
+.app-zuordnung { display: flex; flex-direction: column; gap: var(--s-1); margin: 0; padding: 0; list-style: none; }
+
+/* Board: Ergänzungen zu den Karten */
+.app-board__summe { margin: 0; font-size: var(--fs-klein); color: var(--cw-text-muted); }
+.app-board__spalte[data-ziel] { outline: 2px dashed var(--cw-accent); outline-offset: -2px; }
+.app-deal { width: 100%; }
+.app-deal[draggable="true"] { cursor: grab; }
+.app-deal[data-bewegt] { opacity: 0.55; }
+.app-deal__kopf { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--s-1); width: 100%; }
+.app-deal__griff { flex: none; display: inline-flex; align-items: center; justify-content: center; width: var(--h-xs); height: var(--h-xs); padding: 0; border: 0; border-radius: var(--r-m); background: transparent; color: var(--cw-text-muted); cursor: grab; }
+.app-deal__griff:hover { background: var(--cw-hover-raised); color: var(--cw-text); }
+.app-deal__griff:focus-visible { outline: 2px solid var(--cw-focus); outline-offset: -2px; }
+.app-deal__griff[aria-pressed="true"] { background: var(--cw-inverse); color: var(--cw-on-inverse); box-shadow: inset 0 -2px 0 var(--cw-accent); }
+
+/* Datensatzseite: Reiter links, Attribute rechts (nie gestapelte Abschnitte) */
+.app-datensatz { display: grid; grid-template-columns: minmax(0, 1fr) 320px; align-items: start; gap: var(--s-3); }
+.app-datensatz__haupt { min-width: 0; display: flex; flex-direction: column; gap: var(--s-2); }
+.app-attribute { position: sticky; top: calc(var(--umgebung-h, 0px) + var(--h-l)); display: flex; flex-direction: column; gap: var(--s-1); max-height: calc(100vh - var(--umgebung-h, 0px) - var(--h-l) - var(--s-3)); overflow-y: auto; padding: var(--s-2); border-radius: var(--r-xl); background: var(--cw-surface); }
+.app-attribute__kopf { display: flex; align-items: center; justify-content: space-between; gap: var(--s-1); }
+.app-attribute__kopf h2 { margin: 0; }
+.app-attribute__liste { display: flex; flex-direction: column; gap: var(--s-1); margin: 0; }
+.app-attribute__zeile { display: grid; grid-template-columns: 100px minmax(0, 1fr); gap: var(--s-1); align-items: start; }
+.app-attribute__zeile dt { font-size: var(--fs-beschriftung); color: var(--cw-text-muted); padding-top: 4px; }
+.app-attribute__zeile dd { margin: 0; min-width: 0; overflow-wrap: anywhere; font-size: var(--fs-text); }
+.app-attribute__wert { display: inline-flex; align-items: center; gap: var(--s-0); flex-wrap: wrap; }
+.app-attribute__bearbeiten { display: inline-flex; align-items: center; justify-content: center; width: var(--h-xs); height: var(--h-xs); padding: 0; border: 0; border-radius: var(--r-m); background: transparent; color: var(--cw-text-subtle); cursor: pointer; opacity: 0; }
+.app-attribute__zeile:hover .app-attribute__bearbeiten, .app-attribute__bearbeiten:focus-visible { opacity: 1; }
+.app-attribute__bearbeiten:hover { background: var(--cw-hover); color: var(--cw-text); }
+.app-attribute__bearbeiten:focus-visible { outline: 2px solid var(--cw-focus); outline-offset: -2px; }
+.app-attribute .app-zelleneingabe { height: var(--h-s); }
+.app-attribute .app-zellenmehrfach { position: static; }
+.app-aufgabenformular { display: grid; grid-template-columns: minmax(160px, 2fr) minmax(130px, 1fr) minmax(130px, 1fr) auto; align-items: end; gap: var(--s-1); margin-bottom: var(--s-2); }
+.app-aufgaben { display: flex; flex-direction: column; gap: var(--s-1); margin: 0; padding: 0; list-style: none; }
+.app-aufgaben li { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-1) var(--s-2); padding: var(--s-1) 0; border-bottom: 1px solid var(--cw-line); }
+.app-aufgaben label { display: inline-flex; align-items: center; gap: var(--s-1); }
+.app-aufgaben li[data-erledigt] .app-aufgaben__titel { color: var(--cw-text-subtle); text-decoration: line-through; }
+.app-verknuepfungen { display: flex; flex-direction: column; gap: var(--s-1); margin: 0 0 var(--s-2); padding: 0; list-style: none; }
+.app-verknuepfungen li { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-1) var(--s-2); }
+.app-erwaehnung { font-weight: 600; }
+
+@media (max-width: 1100px) {
+  .app-datensatz { grid-template-columns: minmax(0, 1fr); }
+  .app-attribute { position: static; max-height: none; }
+  .app-fed__bedingung { grid-template-columns: 1fr 1fr; }
+  .app-aufgabenformular { grid-template-columns: 1fr 1fr; }
+}
+
+/* Feinschliff (19b auf CRM): eine Werkzeugleiste je Ansicht, Tabelle und Board ohne Rahmen um den Rahmen, Beschriftungen neben dem Feld */
+.app-crm.app-karte { padding: 0; background: transparent; gap: var(--s-1h); }
+.app-crm__listenzeile, .app-werkzeuge, .app-werkzeuge__zeile, .app-ansichten { align-items: center; gap: var(--s-1); }
+.app-werkzeuge .cw-feld, .app-crm__listenzeile .cw-feld { flex-direction: row; align-items: center; gap: var(--s-1); }
+.app-werkzeuge .cw-feld__label, .app-crm__listenzeile .cw-feld__label { flex: none; margin: 0; color: var(--cw-text-muted); white-space: nowrap; }
+.app-werkzeuge .cw-feld__eingabe, .app-crm__listenzeile .cw-feld__eingabe { height: var(--h-xs); }
+.app-crm__listenwahl, .app-ansichten__wahl { min-width: 0; }
+.app-gitter { max-height: max(276px, calc(100vh - var(--umgebung-h, 0px) - 314px)); }
+.app-werkzeuge { flex-wrap: wrap; }
+.app-werkzeuge__zeile { flex: 1 1 auto; flex-wrap: nowrap; min-width: 0; }
+/* Das Suchfeld startet schmal und wächst mit dem Platz; seine Eingabe bestimmt die Grundbreite der Zeile, sonst bricht die Ansichtsleiste schon bei 1280 px um. */
+.app-werkzeuge__suche { flex: 1 1 120px; min-width: 120px; max-width: 240px; }
+.app-werkzeuge__suche .cw-feld__eingabe { flex: 1 1 auto; width: 80px; min-width: 0; }
+.app-ansichten { flex: 1 1 auto; flex-wrap: wrap; justify-content: flex-end; min-width: 0; }
+.app-crm__listenzeile .cw-button, .app-werkzeuge .cw-button { height: var(--h-xs); }
+.app-massen { padding: var(--s-0) var(--s-1h); }
+@media (max-width: 1200px) {
+  .app-werkzeuge, .app-werkzeuge__zeile, .app-ansichten { flex-wrap: wrap; }
+  .app-ansichten { margin-left: 0; }
+}
+@media (max-width: 700px) {
+  .app-werkzeuge .cw-feld, .app-crm__listenzeile .cw-feld { flex: 1 1 100%; }
+}
+
+/* Datensatzseiten: Karten einer Übersicht nebeneinander statt untereinander; die erste (Tabelle) nimmt die ganze Breite */
+.app-kartenraster { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); align-items: start; gap: var(--s-1h); }
+.app-kartenraster > .app-karte:first-child:nth-last-child(n+3) { grid-column: 1 / -1; }
+/* Attribute: Bearbeiten-Knopf liegt über der Zeile, damit lange Werte nicht umbrechen; Etiketten laufen mit */
+.app-attribute__zeile { position: relative; row-gap: 0; }
+.app-attribute__wert { flex-wrap: nowrap; min-width: 0; }
+.app-attribute__wert > a { min-width: 0; overflow-wrap: anywhere; }
+.app-attribute .app-chips { flex-wrap: wrap; min-width: 0; }
+.app-attribute__bearbeiten { position: absolute; right: 0; top: 0; background: var(--cw-surface); }
+.app-attribute__liste { gap: var(--s-1); }
+@media (max-width: 700px) {
+  .app-ansichten, .app-werkzeuge__zeile, .app-crm__listenzeile { width: 100%; }
+  .app-ansichten__wahl, .app-crm__listenwahl, .app-werkzeuge__suche { flex: 1 1 100%; max-width: none; }
+  .app-ansichten__wahl .cw-feld__eingabe, .app-crm__listenwahl .cw-feld__eingabe { flex: 1 1 auto; min-width: 0; width: 100%; }
+}
+
+/* Suchfeld mit Trefferliste (Combobox) und Zuständigkeit */
+.app-sucheingabe { display: flex; flex-direction: column; gap: var(--s-0); min-width: 200px; }
+.app-sucheingabe__feld { height: var(--h-s); padding: 0 var(--s-1); border: 1px solid var(--cw-line-control); border-radius: var(--r-s); background: var(--cw-field); color: var(--cw-text); font: inherit; }
+.app-sucheingabe__feld:focus-visible { outline: 2px solid var(--cw-focus); outline-offset: -1px; }
+.app-sucheingabe__liste { display: flex; flex-direction: column; max-height: 200px; margin: 0; padding: 0; overflow-y: auto; list-style: none; }
+.app-sucheingabe__treffer { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--s-1); padding: var(--s-0) var(--s-1); border-radius: var(--r-s); color: var(--cw-text); font-size: var(--fs-klein); cursor: pointer; }
+.app-sucheingabe__treffer[data-aktiv] { background: var(--cw-selected); }
+.app-sucheingabe__treffer:hover { background: var(--cw-hover-raised); }
+.app-zustaendig { display: inline-flex; align-items: center; height: var(--h-xs); padding: 0 var(--s-1); border: 1px solid var(--cw-line); border-radius: var(--r-voll); background: transparent; color: var(--cw-text-muted); font: inherit; font-size: var(--fs-klein); cursor: pointer; }
+.app-zustaendig:hover { border-color: var(--cw-line-strong); color: var(--cw-text); }
+.app-zustaendig:focus-visible { outline: 2px solid var(--cw-focus); outline-offset: 2px; }
+.app-aufgabenformular__wer { display: flex; flex-direction: column; gap: var(--s-0); align-items: flex-start; }
+.app-zellenanker { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; color: var(--cw-text); }
+.app-zellenpopover { position: fixed; z-index: 60; width: 280px; padding: var(--s-1h); border: 1px solid var(--cw-line-strong); border-radius: var(--r-m); background: var(--cw-raised); }
+
+/* Gruppierte Tabelle: je Gruppe eine aufklappbare Kopfzeile mit Anzahl und Summen, darunter die Zeilen */
+.app-gruppen { display: flex; flex-direction: column; gap: var(--s-1); }
+.app-gruppe-block { display: flex; flex-direction: column; gap: var(--s-0); min-width: 0; }
+.app-gruppe-block__kopf { margin: 0; font: inherit; }
+.app-gruppe-block__knopf { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-0) var(--s-2); width: 100%; min-height: var(--h-s); padding: 0 var(--s-1); border: 1px solid var(--cw-line); border-radius: var(--r-m); background: var(--cw-surface); color: var(--cw-text); font: inherit; font-size: var(--fs-klein); text-align: left; cursor: pointer; }
+.app-gruppe-block__knopf:hover { border-color: var(--cw-line-strong); }
+.app-gruppe-block__knopf:focus-visible { outline: 2px solid var(--cw-focus); outline-offset: 2px; }
+.app-gruppe-block__name { display: inline-flex; align-items: center; font-weight: 600; }
+.app-gruppe-block__anzahl { display: inline-flex; align-items: center; justify-content: center; min-width: var(--s-3); height: 20px; padding: 0 6px; border-radius: var(--r-voll); background: var(--cw-surface-2); color: var(--cw-text-muted); font-family: var(--font-mono); font-size: var(--fs-beschriftung); font-variant-numeric: tabular-nums; }
+.app-gruppe-block__summe { margin-left: auto; color: var(--cw-text-muted); font-family: var(--font-mono); font-size: var(--fs-beschriftung); font-variant-numeric: tabular-nums; }
+.app-gruppe-block__summe + .app-gruppe-block__summe { margin-left: 0; }
+
+/* Verbindungen zwischen Kontakten und Unternehmen: eine Tabelle mit Schnellaktionen, Rollen als Etiketten und Zeitraum */
+.app-verbindungen { display: flex; flex-direction: column; gap: var(--s-1); }
+.app-verbindungen__kopf { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--s-1); }
+.app-verbindungen__aktionen { display: inline-flex; flex-wrap: wrap; gap: var(--s-1); }
+.app-verbindungen .cw-button { height: var(--h-xs); }
+.app-verbindung__name { display: inline-flex; align-items: center; gap: var(--s-1); min-width: 0; }
+.app-verbindung__name > a:first-child { white-space: nowrap; }
+.app-verbindung__zeitraum { display: inline-flex; flex-wrap: nowrap; white-space: nowrap; align-items: center; gap: var(--s-0) var(--s-1); }
+.app-verbindung__doppelt { display: flex; flex-direction: column; gap: var(--s-1); }
+.app-verbindung__vorhanden { display: flex; flex-direction: column; gap: var(--s-1); list-style: none; margin: 0; padding: 0; }
+.app-verbindung__vorhanden li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--s-1); }
+.app-verbindung__vorhanden .cw-button { height: var(--h-xs); }
+.app-chip__entfernen { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; margin: 0 -4px 0 4px; padding: 0; border: 0; border-radius: var(--r-voll); background: transparent; color: inherit; cursor: pointer; }
+.app-chip__entfernen:hover { background: var(--cw-hover-raised); }
+.app-chip__entfernen:focus-visible { outline: 2px solid var(--cw-focus); outline-offset: 1px; }
+.app-chip__entfernen svg { width: 10px; height: 10px; }
+
+/* Vorschaukarte an Verweisen: klein, im Dokument eingehängt, folgt dem Verweis */
+.app-vorschau { position: fixed; z-index: 70; width: 280px; max-width: calc(100vw - 16px); padding: var(--s-1h); border: 1px solid var(--cw-line-strong); border-radius: var(--r-m); background: var(--cw-raised); display: flex; flex-direction: column; gap: var(--s-1); }
+.app-vorschau[data-bereit="false"] { visibility: hidden; }
+.app-vorschau__text { display: flex; flex-direction: column; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
+.app-vorschau__name { font-weight: 600; }
+.app-vorschau__zeile { font-size: var(--fs-klein); color: var(--cw-text-muted); }
+.app-vorschau__leer { margin: 0; }
+.app-attribute__bearbeiten--zweit { right: var(--h-xs); }
+
+/* Die Bedienelemente decken auf schmalen Geräten keine Datenspalten ab. */
+@media (max-width: 480px) {
+  .app-gitter .app-gitter__rechts { position: static; box-shadow: none; }
+  .app-gitter__aktionen > * { opacity: 1; }
+}
+
+.app-gitter__kopfzelle[data-zahl], .app-gitter__zelle[data-zahl] { justify-content: flex-end; text-align: right; }
+.app-gitter__kopfzelle[data-zahl] .app-gitter__sortieren { flex-direction: row-reverse; text-align: right; }
+.app-gitter__sortieren svg { flex: none; }
+
+.app-dealflow__segmente { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-1); }
+.app-pipeline-arbeitskopf, .app-pipeline-liste__navigation {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--s-1);
+}
+.app-pipeline-arbeitskopf h2 { margin: 0; }
+.app-pipeline-gruppen, .app-pipeline-liste, .app-pipeline-board {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+  gap: var(--s-1);
+}
+.app-pipeline-liste__navigation {
+  justify-content: flex-end;
+  color: var(--cw-text-muted);
+  font-size: var(--fs-klein);
+}
+.app-pipeline-liste__navigation > span { margin-inline-end: auto; }
+.app-pipeline-board > .app-board { position: relative; height: 64dvh; }
+.app-pipeline-gruppen .app-board { height: 50dvh; }
+.app-pipeline-board > .cw-button { justify-self: end; }
+.app-pipeline-gruppen .app-gruppe-block__kopf { margin: 0; }
+
+.app-board__titel > span:first-child, .app-deal__name, .app-deal__titel { min-width: 0; overflow-wrap: anywhere; }
+.app-board__summe { text-align: right; }
+.app-board__anlage-platz { flex: 0 0 var(--h-s); }
+
+
+.app-dealflow__arbeitsliste, .app-dealflow__rollengruppe { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s-1); min-width: 0; }
+.app-dealflow__arbeitsliste > h2, .app-dealflow__rollengruppe h3 { margin: 0; }
+.app-dealflow__rollengruppe + .app-dealflow__rollengruppe { margin-top: var(--s-1); }
+.app-dealflow__rollengruppe summary { padding: var(--s-0) var(--s-1); border-radius: var(--r-m); background: var(--cw-well); cursor: pointer; }
+.app-dealflow__rollengruppe summary:focus-visible { outline: 2px solid var(--cw-focus); outline-offset: -2px; }
+.app-dealflow__rollengruppe summary h3 { display: inline; }
+.app-dealflow__rollengruppe h3 span { margin-inline-start: var(--s-0); font-variant-numeric: tabular-nums; color: var(--cw-text-muted); }
+.app-dealflow__zeilenaktionen { display: flex; align-items: center; gap: var(--s-0); white-space: nowrap; }
+.app-dealflow__filter {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 12rem)) max-content;
+  align-items: end;
+  gap: var(--s-1);
+}
+.app-dealflow__filter > .cw-feld { min-width: 0; }
+.app-dealflow__felder {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
+  gap: var(--s-0) var(--s-1);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.app-dealflow__kontrollfeld { display: flex; align-items: center; gap: var(--s-1); min-height: var(--h-s); cursor: pointer; }
+.app-dealflow__kontrollfeld input { accent-color: var(--cw-accent); flex: none; inline-size: 1rem; block-size: 1rem; }
+.app-dealflow__bezugsname { margin: 0; color: var(--cw-text-muted); overflow-wrap: anywhere; }
+
+.app-dealflow .app-board { grid-auto-columns: minmax(244px, 1fr); }
+.app-dealflow .app-board__liste { padding: 1px; }
+:is(.app-dealflow, .app-dealflow__vorschau) .app-deal {
+  gap: var(--s-0);
+  padding: var(--s-1);
+  border-color: var(--cw-line-strong);
+  background: var(--cw-raised);
+}
+:is(.app-dealflow, .app-dealflow__vorschau) .app-deal__daten { grid-template-columns: minmax(0, 1fr); gap: var(--s-0); }
+:is(.app-dealflow, .app-dealflow__vorschau) .app-deal__daten dd { text-align: start; }
+:is(.app-dealflow, .app-dealflow__vorschau) .app-deal__daten > [data-zahl] { display: flex; justify-content: space-between; gap: var(--s-1); }
+:is(.app-dealflow, .app-dealflow__vorschau) .app-deal__daten > [data-zahl] dd { text-align: end; }
+.app-dealflow__karte-zuweisen { align-self: flex-end; }
+
+@media (max-width: 720px) {
+  .app-dealflow__filter { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .app-dealflow__filter > .cw-button { justify-self: start; }
+}
+@media (max-width: 420px) {
+  .app-dealflow__filter { grid-template-columns: minmax(0, 1fr); }
+}
+
+.app-dealflow__vorschau { display: grid; gap: var(--s-0); min-width: 0; }
+.app-dealflow__vorschau > h3, .app-dealflow__vorschau > p { margin: 0; }
+.app-dealflow__vorschau > .app-deal { max-width: 16rem; }

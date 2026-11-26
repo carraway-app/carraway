@@ -1,0 +1,1 @@
+ALTER TABLE "bericht" ADD COLUMN "konfiguration" jsonb DEFAULT '{}'::jsonb NOT NULL;

@@ -1,0 +1,13 @@
+{
+  "name": "carraway-laufzeitmodule",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Native Module und Pakete, die esbuild nicht in apps/api/dist bündeln kann und das Image deshalb mitbringt (Typst-Compiler; Texterkennung mit tesseract.js, Sprachdaten und Zeichenfläche für PDF-Seiten). Die Versionen müssen zu apps/api/package.json passen.",
+  "dependencies": {
+    "@myriaddreamin/typst-ts-node-compiler": "0.7.0",
+    "@napi-rs/canvas": "0.1.100",
+    "@tesseract.js-data/deu": "1.0.0",
+    "@tesseract.js-data/eng": "1.0.0",
+    "tesseract.js": "7.0.0"
+  }
+}

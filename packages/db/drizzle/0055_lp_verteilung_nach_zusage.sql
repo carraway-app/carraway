@@ -1,0 +1,1 @@
+ALTER TABLE "fonds" ADD COLUMN "lp_verteilung_nach_zusage" boolean DEFAULT false NOT NULL;

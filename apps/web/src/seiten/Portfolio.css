@@ -1,0 +1,115 @@
+.app-fondsleiste,
+.app-portfolio__bestand {
+  min-width: 0;
+}
+
+.app-portfolio__bestand {
+  display: grid;
+  gap: var(--s-1h);
+  padding: var(--s-2);
+  border-radius: var(--r-xl);
+  background: var(--cw-surface);
+  --tabelle-grund: var(--cw-surface);
+}
+
+.app-portfolio__tabellenkopf {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--s-1) var(--s-2);
+}
+
+.app-portfolio__aktionen {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-1);
+}
+
+.app-portfolio__tabellenkopf h2 {
+  margin: 0;
+  font: 650 18px/1.25 var(--font-display);
+}
+
+.app-portfolio__tabellenkopf .app-waehrungsleiste {
+  max-width: 100%;
+}
+
+.app-portfolio__tabellenkopf .app-waehrungsleiste__zeile .cw-feld {
+  width: min(100%, 15rem);
+}
+
+.app-portfolio__tabellenkopf .cw-segment {
+  padding: 2px;
+}
+
+.app-portfolio__tabellenkopf .cw-segment button {
+  font: 500 13px/1.2 var(--font-sans);
+}
+
+.app-portfolio__tabellenkopf .app-waehrungsleiste__info:empty {
+  display: none;
+}
+
+.app-portfolio__tabelle .cw-tabelle__name {
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--cw-text-muted) 45%, transparent);
+  text-underline-offset: 3px;
+  font-weight: 600;
+}
+
+@media (max-width: 807px) {
+  .app-portfolio .cw-kennzahlen { --kennzahl-spalten-schmal: 3; }
+  .app-portfolio .cw-kennzahl__wert {
+    font-size: 18px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+}
+
+@media (width < 600px) {
+  .app-portfolio__tabellenkopf h2 {
+    font-size: 17px;
+  }
+
+  .app-portfolio__tabelle {
+    width: max-content;
+    min-width: 100%;
+  }
+
+  .app-portfolio__tabelle :is(th, td) {
+    padding-inline: var(--s-1);
+  }
+
+  .app-portfolio__tabelle :is(th, td):first-child {
+    width: 144px;
+    max-width: 144px;
+    position: sticky;
+    left: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .app-portfolio__tabelle th:first-child {
+    z-index: 2;
+  }
+
+  .app-portfolio__tabelle td:first-child {
+    z-index: 1;
+    background: var(--cw-bg);
+  }
+
+  .app-portfolio__tabelle tr:hover td:first-child {
+    background: var(--cw-hover);
+  }
+
+  .app-portfolio__tabelle tr[aria-current="true"] td:first-child {
+    background: var(--cw-selected);
+  }
+}
+
+@media (pointer: coarse) {
+  .app-portfolio__tabellenkopf :is(.cw-segment button, select) {
+    min-height: 44px;
+  }
+}

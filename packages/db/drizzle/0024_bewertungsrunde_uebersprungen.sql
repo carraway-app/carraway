@@ -1,0 +1,1 @@
+ALTER TABLE "bewertungsrunde" ADD COLUMN "uebersprungen" jsonb DEFAULT '[]'::jsonb NOT NULL;

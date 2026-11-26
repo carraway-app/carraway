@@ -1,0 +1,351 @@
+import { eq, sql } from "drizzle-orm";
+import { extractText, getDocumentProxy } from "unpdf";
+import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import * as s from "@carraway/db";
+import type { Speicher } from "../berichte/speicher";
+import { json, leeren, oeffneTestdb } from "./hilfen";
+import { buchhaltungAufsetzen, mittelartenAufsetzen } from "./hilfen-buchhaltung";
+import { aufrufe, grundbestand, ID, protokollZeilen } from "./hilfen-instrumente";
+import { erstelleTestApp, legePersonAn, person, type Testperson } from "./hilfen-auth";
+import { vorgaengeEinfuegen } from "./instrument-hilfen";
+
+const { db, pool } = oeffneTestdb();
+
+/** Speicher im Arbeitsspeicher; `scheitern` lässt das nächste Schreiben fehlschlagen (Rücknahme der Nummer). */
+class TestSpeicher implements Speicher {
+  readonly dateien = new Map<string, Uint8Array>();
+  scheitern = false;
+  async schreibe(schluessel: string, daten: Uint8Array) {
+    if (this.scheitern) {
+      this.scheitern = false;
+      throw new Error("Speicher nicht erreichbar");
+    }
+    this.dateien.set(schluessel, daten);
+  }
+  async lese(schluessel: string) {
+    const d = this.dateien.get(schluessel);
+    if (!d) throw new Error("fehlt");
+    return d;
+  }
+}
+const speicher = new TestSpeicher();
+const t = erstelleTestApp(db, { speicher });
+const { get, post } = aufrufe(t);
+const F1 = ID.fonds;
+const F2 = ID.anderer;
+
+const erst = person("e14-erst", { rollen: { [F1]: "freigeber" } });
+const pruefer = person("e14-pruefer", { rollen: { [F1]: "freigeber" } });
+const freigeber = person("e14-freigeber", { rollen: { [F1]: "freigeber" } });
+const bearbeiter = person("e14-bearbeiter", { rollen: { [F1]: "bearbeiter" } });
+const betrachter = person("e14-betrachter", { rollen: { [F1]: "betrachter" } });
+const nurF2 = person("e14-nurf2", { rollen: { [F2]: "bearbeiter" } });
+const verwalter = person("e14-verwalter", { rollen: { [F1]: "verwalter" } });
+
+const anfrage = (methode: string, pfad: string, als: Testperson, body?: unknown) =>
+  t.request(pfad, { method: methode, als, headers: { "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+
+const text = async (bytes: Uint8Array) => (await extractText(await getDocumentProxy(new Uint8Array(bytes)), { mergePages: true })).text.toLowerCase();
+
+/** Zusage 200.000 und Auszahlung 100.000 am Darlehen; gibt die ID der Auszahlung zurück. */
+async function auszahlungAnlegen(betrag = "100000", valuta = "2026-03-31", beteiligungId: string = ID.darlehen): Promise<string> {
+  await post(`/beteiligungen/${beteiligungId}/vorgaenge`, { art: "zusage", valuta: "2026-01-01", betrag: "200000" });
+  const antwort = await post(`/beteiligungen/${beteiligungId}/vorgaenge`, { art: "auszahlung", valuta, betrag });
+  expect(antwort.status).toBe(201);
+  return (await json(antwort)).vorgang.id;
+}
+const belegAnlegen = async (body: object, als: Testperson = erst) => {
+  const antwort = await anfrage("POST", "/belege", als, { sprache: "de", ...body });
+  const k = await json(antwort);
+  return { antwort, beleg: k };
+};
+const stufe = (id: string, name: string, als: Testperson, ergebnis = "ok", kommentar?: string) => anfrage("POST", `/belege/${id}/stufe`, als, { stufe: name, ergebnis, ...(kommentar ? { kommentar } : {}) });
+
+beforeEach(async () => {
+  await grundbestand(db);
+  await buchhaltungAufsetzen(db, F1);
+  await mittelartenAufsetzen(db, F1);
+  for (const p of [erst, pruefer, freigeber, bearbeiter, betrachter, nurF2, verwalter]) await legePersonAn(db, p);
+  speicher.dateien.clear();
+});
+afterAll(async () => {
+  await leeren(db);
+  await pool.end();
+});
+
+describe("Beleg erzeugen und vorbefüllen", () => {
+  it("Auszahlung: Stammdaten, Schlüssel zur Buchhaltung, Beträge und Mittelherkunft aus den Geschäftsdaten", async () => {
+    const vorgangId = await auszahlungAnlegen();
+    await db.insert(s.foerderprogramm).values({ schluessel: "test_beleg", bezeichnung: "Programm Beispiel" }).onConflictDoNothing();
+    await anfrage("PUT", `/beteiligungen/${ID.darlehen}/buchhaltungsschluessel`, bearbeiter, { projektnummer: "P-100", vertragsnummer: "V-7", partnernummer: "PN-3", buchungskreis: "BK1", foerderprogramm: "test_beleg" });
+    const { antwort, beleg } = await belegAnlegen({ art: "auszahlung", bezugArt: "vorgang", bezugId: vorgangId });
+    expect(antwort.status).toBe(201);
+    expect(beleg).toMatchObject({ status: "entwurf", art: "auszahlung", fondsId: F1, beteiligungId: ID.darlehen, erstelltVon: await idDe(erst), befunde: [], belegnummer: null });
+    expect(beleg.daten.werte).toMatchObject({
+      fonds_name: "Testfonds Eins",
+      organisation_name: "Beta Beispiel",
+      instrument: "Darlehen",
+      projektnummer: "P-100",
+      vertragsnummer: "V-7",
+      partnernummer: "PN-3",
+      buchungskreis: "BK1",
+      foerderprogramm: "Programm Beispiel",
+      belegdatum: "2026-03-31",
+      betrag: "100000.00",
+      zusage: "200000.00",
+      ausgezahlt_gesamt: "100000.00",
+      offene_zusage: "100000.00",
+    });
+    // Mittelherkunft nach den Quoten am Belegdatum, cent-genau und summengleich
+    expect(beleg.daten.mittelherkunft.map((m: { schluessel: string; quote: string; betrag: string }) => [m.schluessel, m.quote, m.betrag])).toEqual([
+      ["eigenmittel", "0.400000", "40000.00"],
+      ["landesmittel", "0.600000", "60000.00"],
+    ]);
+    expect((await protokollZeilen(db, "beleg", "anlegen")).map((z) => z.akteur)).toEqual([await idDe(erst)]);
+  });
+
+  it("Mittelherkunft: Quoten zum Belegdatum und Rest-Cent nach dem größten Rest", async () => {
+    await db.delete(s.fondsMittelart);
+    await db.insert(s.fondsMittelart).values([
+      { fondsId: F1, schluessel: "a", bezeichnungDe: "A", bezeichnungEn: "A", quote: "0.333333", gueltigAb: "2020-01-01", gueltigBis: "2026-12-31" },
+      { fondsId: F1, schluessel: "b", bezeichnungDe: "B", bezeichnungEn: "B", quote: "0.333333", gueltigAb: "2020-01-01", gueltigBis: "2026-12-31" },
+      { fondsId: F1, schluessel: "c", bezeichnungDe: "C", bezeichnungEn: "C", quote: "0.333334", gueltigAb: "2020-01-01", gueltigBis: "2026-12-31" },
+      { fondsId: F1, schluessel: "neu", bezeichnungDe: "Neu", bezeichnungEn: "New", quote: "1.000000", gueltigAb: "2027-01-01" },
+    ]);
+    const vorgangId = await auszahlungAnlegen("100.01", "2026-03-31");
+    const { beleg } = await belegAnlegen({ art: "auszahlung", bezugArt: "vorgang", bezugId: vorgangId });
+    const teile = beleg.daten.mittelherkunft.map((m: { betrag: string }) => m.betrag);
+    expect(teile).toEqual(["33.34", "33.33", "33.34"]);
+    expect(teile.reduce((x: number, y: string) => x + Math.round(Number(y) * 100), 0)).toBe(10001);
+    const spaeter = await auszahlungAnlegen("500", "2027-06-30", ID.wandel);
+    const { beleg: zwei } = await belegAnlegen({ art: "auszahlung", bezugArt: "vorgang", bezugId: spaeter });
+    expect(zwei.daten.mittelherkunft.map((m: { schluessel: string; betrag: string }) => [m.schluessel, m.betrag])).toEqual([["neu", "500.00"]]);
+  });
+
+  it("fehlende Pflichtfelder sind Befunde, nicht stillschweigend leer; Freigabe ist gesperrt, bis sie behoben und der Beleg neu befüllt ist", async () => {
+    const vorgangId = await auszahlungAnlegen();
+    expect((await anfrage("PUT", `/fonds/${F1}/belegvorlagen/auszahlung`, freigeber, { felder: [{ schluessel: "organisation_name", abschnitt: "kopf", pflicht: true }, { schluessel: "betrag", abschnitt: "kopf", pflicht: true }, { schluessel: "projektnummer", abschnitt: "details", pflicht: true }, { schluessel: "foerderprogramm", abschnitt: "details", pflicht: true }], kopfDe: "Kopf", kopfEn: "", fussDe: "", fussEn: "" })).status).toBe(403);
+    expect((await anfrage("PUT", `/fonds/${F1}/belegvorlagen/auszahlung`, verwalter, { felder: [{ schluessel: "organisation_name", abschnitt: "kopf", pflicht: true }, { schluessel: "betrag", abschnitt: "kopf", pflicht: true }, { schluessel: "projektnummer", abschnitt: "details", pflicht: true }, { schluessel: "foerderprogramm", abschnitt: "details", pflicht: true }], kopfDe: "Kopf", kopfEn: "", fussDe: "", fussEn: "" })).status).toBe(200);
+    const { beleg } = await belegAnlegen({ art: "auszahlung", bezugArt: "vorgang", bezugId: vorgangId });
+    expect(beleg.befunde).toEqual([{ feld: "projektnummer", code: "pflichtfeld_fehlt" }, { feld: "foerderprogramm", code: "pflichtfeld_fehlt" }]);
+    expect(beleg.daten.werte.projektnummer).toBeNull();
+    const gesperrt = await stufe(beleg.id, "Prüfung", pruefer);
+    expect(gesperrt.status).toBe(409);
+    expect(await json(gesperrt)).toMatchObject({ fehler: { code: "BELEG_PFLICHTFELD_FEHLT", felder: ["projektnummer", "foerderprogramm"] } });
+    // Angaben nachtragen, neu befüllen: wer das tut, wird Urheber
+    await db.insert(s.foerderprogramm).values({ schluessel: "test_beleg", bezeichnung: "Programm Beispiel" }).onConflictDoNothing();
+    await anfrage("PUT", `/beteiligungen/${ID.darlehen}/buchhaltungsschluessel`, bearbeiter, { projektnummer: "P-1", foerderprogramm: "test_beleg" });
+    const neu = await json(await anfrage("POST", `/belege/${beleg.id}/neu-befuellen`, bearbeiter));
+    expect(neu).toMatchObject({ befunde: [], erstelltVon: await idDe(bearbeiter), status: "entwurf" });
+    expect(neu.daten.werte.projektnummer).toBe("P-1");
+    expect((await stufe(beleg.id, "Prüfung", pruefer)).status).toBe(200);
+  });
+
+  it("Bezug muss zur Art passen; ein zweiter Beleg zum selben Vorfall ist abgelehnt; Rechte am Fonds des Vorfalls", async () => {
+    const vorgangId = await auszahlungAnlegen();
+    const zusage = (await db.select().from(s.vorgang).where(eq(s.vorgang.art, "zusage")))[0]!;
+    for (const [art, bezugArt, bezugId] of [
+      ["verkauf", "vorgang", vorgangId],
+      ["auszahlung", "beteiligung", ID.darlehen],
+      ["auszahlung", "vorgang", zusage.id],
+      ["zinsbuchung", "vorgang", vorgangId],
+    ] as const) {
+      const r = await belegAnlegen({ art, bezugArt, bezugId });
+      expect(r.antwort.status, `${art}/${bezugArt}`).toBe(409);
+      expect(r.beleg.fehler.code).toBe("BELEG_BEZUG_PASST_NICHT");
+    }
+    expect((await belegAnlegen({ art: "auszahlung", bezugArt: "vorgang", bezugId: "00000000-0000-4000-8000-0000000000aa" })).antwort.status).toBe(404);
+    // Fremder, vorhandener Vorfall und nicht vorhandener antworten gleich, für jede Bezugsart (kein Hinweis auf Inhalt oder Zustand)
+    const [fb] = await db.insert(s.beteiligung).values({ fondsId: F2, organisationId: ID.orgA, instrument: "darlehen", erstinvestment: "2025-01-01" }).returning();
+    const [fv] = await vorgaengeEinfuegen(db, { beteiligungId: fb!.id, art: "zusage", valuta: "2025-01-01", betrag: "5.00" });
+    const [fl] = await db.insert(s.zinslauf).values({ fondsId: F2, stichtag: "2026-12-31", berechnetVon: "x", status: "verworfen" }).returning();
+    const leer = "00000000-0000-4000-8000-0000000000bb";
+    for (const [art, bezugArt, fremdId] of [["auszahlung", "vorgang", fv!.id], ["vertragsanlage", "beteiligung", fb!.id], ["zinsbuchung", "zinslauf", fl!.id], ["verkauf", "verkauf", leer], ["wandlung", "wandlung", leer]] as const) {
+      const a = await belegAnlegen({ art, bezugArt, bezugId: fremdId });
+      const b = await belegAnlegen({ art, bezugArt, bezugId: "00000000-0000-4000-8000-0000000000cc" });
+      expect(a.antwort.status, bezugArt).toBe(404);
+      expect(a.beleg, bezugArt).toEqual(b.beleg);
+      expect(a.beleg.fehler.code).toBe("BELEG_BEZUG_NICHT_GEFUNDEN");
+    }
+    const erster = await belegAnlegen({ art: "auszahlung", bezugArt: "vorgang", bezugId: vorgangId });
+    const doppelt = await belegAnlegen({ art: "auszahlung", bezugArt: "vorgang", bezugId: vorgangId }, bearbeiter);
+    expect(doppelt.antwort.status).toBe(409);
+    expect(doppelt.beleg.fehler).toMatchObject({ code: "BELEG_VORHANDEN", belegId: erster.beleg.id });
+    expect((await belegAnlegen({ art: "auszahlung", bezugArt: "vorgang", bezugId: vorgangId }, betrachter)).antwort.status).toBe(403); // keine Bearbeiterrolle irgendwo
+    expect((await belegAnlegen({ art: "auszahlung", bezugArt: "vorgang", bezugId: vorgangId }, nurF2)).antwort.status).toBe(404);
+  });
+
+  it("Vertragsanlage, Zinsbuchung (Zinslauf), Verkauf und Wandlung", async () => {
+    // Darlehen mit Konditionen: Vertragsanlage
+    await auszahlungAnlegen("100000", "2026-01-01");
+    await post(`/beteiligungen/${ID.darlehen}/konditionen`, { gueltigAb: "2026-01-01", satzFix: "0.06", methode: "30E/360", zinsperiode: "jaehrlich", anker: "2027-01-01", faelligAm: "2030-12-31" });
+    const anlage = (await belegAnlegen({ art: "vertragsanlage", bezugArt: "beteiligung", bezugId: ID.darlehen })).beleg;
+    expect(anlage.daten.werte).toMatchObject({ zusage: "200000.00", erstinvestment: "2025-01-01", zinssatz: "0.06", zinsmethode: "30E/360", faellig_am: "2030-12-31", betrag: "200000.00" });
+
+    // Zinslauf berechnen, prüfen, freigeben, buchen
+    const lauf = await json(await post("/zinslaeufe", { fondsId: F1, stichtag: "2027-01-01" }, "rechner"));
+    expect((await belegAnlegen({ art: "zinsbuchung", bezugArt: "zinslauf", bezugId: lauf.id })).beleg).toMatchObject({ daten: { betrag: "6000.00", werte: { anzahl_perioden: "1", stichtag: "2027-01-01" } } });
+    await post(`/zinslaeufe/${lauf.id}/pruefen`, {}, "a");
+    await post(`/zinslaeufe/${lauf.id}/freigeben`, {});
+    await post(`/zinslaeufe/${lauf.id}/buchen`, {}, "c");
+    // Zins-Vorgang als eigener Bezug
+    const zins = (await db.select().from(s.vorgang).where(eq(s.vorgang.art, "zins")))[0]!;
+    expect((await belegAnlegen({ art: "zinsbuchung", bezugArt: "vorgang", bezugId: zins.id })).beleg.daten.betrag).toBe("6000.00");
+    // verworfener Lauf: kein Beleg
+    const zweiter = await json(await post("/zinslaeufe", { fondsId: F1, stichtag: "2027-06-30" }, "rechner"));
+    await post(`/zinslaeufe/${zweiter.id}/verwerfen`, {}, "a");
+    expect((await belegAnlegen({ art: "zinsbuchung", bezugArt: "zinslauf", bezugId: zweiter.id })).antwort.status).toBe(409);
+
+    // Verkauf
+    await post(`/beteiligungen/${ID.eigen}/vorgaenge`, { art: "zusage", valuta: "2025-01-01", betrag: "1000000" });
+    await post(`/beteiligungen/${ID.eigen}/vorgaenge`, { art: "auszahlung", valuta: "2025-02-01", betrag: "500000" });
+    const verkauf = await json(await post(`/beteiligungen/${ID.eigen}/verkauf`, { datum: "2026-06-30", kaufpreis: "700000", kosten: "10000", anteilVerkauft: 1 }, "bearbeiter"));
+    const vb = (await belegAnlegen({ art: "verkauf", bezugArt: "verkauf", bezugId: verkauf.verkauf.id })).beleg;
+    expect(vb.daten.werte).toMatchObject({ kaufpreis: "700000.00", kosten: "10000.00", buchwert_abgang: "500000.00", erloes: "690000.00", ergebnis: "190000.00", barzufluss: "690000.00", anteil_verkauft: "1", organisation_name: "Alpha Beispiel", belegdatum: "2026-06-30" });
+    expect(vb.daten.betrag).toBe("690000.00");
+  });
+
+  it("Wandlung als Bezug", async () => {
+    await post(`/beteiligungen/${ID.wandel}/vorgaenge`, { art: "zusage", valuta: "2026-01-01", betrag: "200000" });
+    await post(`/beteiligungen/${ID.wandel}/vorgaenge`, { art: "auszahlung", valuta: "2026-01-01", betrag: "100000" });
+    await post(`/beteiligungen/${ID.wandel}/konditionen`, { gueltigAb: "2026-01-01", satzFix: "0.06", methode: "30E/360", zinsperiode: "jaehrlich", anker: "2027-01-01" });
+    const w = await json(await post(`/beteiligungen/${ID.wandel}/wandlung`, { cutoff: "2026-07-01", zinsenWandeln: true, preisregel: { rundenpreisJeAnteil: "12.5", discount: "0.2" }, nennwertJeAnteil: "1", runde: { neu: { bezeichnung: "Serie A", preMoney: "8000000", postMoney: "10000000", preisJeAnteil: "12.5", anteileGesamtNach: "800000" } } }, "bearbeiter"));
+    const b = (await belegAnlegen({ art: "wandlung", bezugArt: "wandlung", bezugId: w.wandlung.id })).beleg;
+    expect(b.daten.werte).toMatchObject({ wandlungsbetrag: "103000.00", anzahl_anteile: "10300", nominal: "10300.00", agio: "92700.00", spitzenbetrag: "0.00", zinsen_gebucht: "3000.00", organisation_name: "Gamma Beispiel" });
+    expect(b.daten.betrag).toBe("103000.00");
+  });
+});
+
+const idDe = async (p: Testperson) => (await db.select({ id: s.benutzer.id }).from(s.benutzer).where(eq(s.benutzer.email, p.email)))[0]!.id;
+
+describe("Stufen, Belegnummer und unveränderliche Datei", () => {
+  it("zwei Stufen durch zwei verschiedene Personen, beide verschieden vom Ersteller; die Freigabe vergibt die Nummer und speichert das PDF", async () => {
+    const vorgangId = await auszahlungAnlegen();
+    const { beleg } = await belegAnlegen({ art: "auszahlung", bezugArt: "vorgang", bezugId: vorgangId });
+    const id = beleg.id;
+    expect((await json(await stufe(id, "Prüfung", erst))).fehler.code).toBe("VIER_AUGEN_VERLETZT");
+    expect((await json(await stufe(id, "Freigabe", pruefer))).fehler.code).toBe("BELEG_STUFE_FALSCH");
+    expect((await stufe(id, "Prüfung", bearbeiter)).status).toBe(403); // Bearbeiter dürfen keine Stufe erteilen
+    const geprueft = await json(await stufe(id, "Prüfung", pruefer));
+    expect(geprueft).toMatchObject({ status: "geprueft", naechsteStufe: 1, belegnummer: null });
+    expect((await json(await stufe(id, "Freigabe", pruefer))).fehler.code).toBe("VIER_AUGEN_VERLETZT");
+    expect((await json(await stufe(id, "Freigabe", erst))).fehler.code).toBe("VIER_AUGEN_VERLETZT");
+    // Rückgabe verlangt einen Kommentar und nimmt die Prüfung zurück
+    expect((await stufe(id, "Freigabe", freigeber, "zurueck")).status).toBe(400);
+    expect(await json(await stufe(id, "Freigabe", freigeber, "zurueck", "Betrag prüfen"))).toMatchObject({ status: "entwurf", naechsteStufe: 0 });
+    expect((await stufe(id, "Prüfung", pruefer)).status).toBe(200);
+    const frei = await json(await stufe(id, "Freigabe", freigeber));
+    expect(frei).toMatchObject({ status: "freigegeben", belegnummer: "B-000001", belegnummerLfd: 1, naechsteStufe: 2, dateiName: "beleg-B-000001.pdf" });
+    expect(frei.dateiSha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(speicher.dateien.has(`belege/${id}/${frei.dateiSha256}.pdf`)).toBe(true);
+    expect((await protokollZeilen(db, "beleg")).map((z) => z.aktion)).toEqual(["anlegen", "pruefen", "zurueckgeben", "pruefen", "freigeben"]);
+
+    // Detail: Protokoll der Stufen mit Akteur, keine weitere Stufe
+    const detail = await json(await get(`/belege/${id}`, "a"));
+    expect(detail.protokoll.map((p: { stufe: string; ergebnis: string }) => `${p.stufe}:${p.ergebnis}`)).toEqual(["Prüfung:ok", "Freigabe:zurueck", "Prüfung:ok", "Freigabe:ok"]);
+    expect(detail.naechsteStufeName).toBeNull();
+    expect((await json(await stufe(id, "Freigabe", freigeber))).fehler.code).toBe("BELEG_STATUS_UNGUELTIG");
+  });
+
+  it("nach der Freigabe unveränderlich: Datenbank-Trigger, Neubefüllen abgelehnt, Datei mit Hash geprüft und im PDF die Nummer", async () => {
+    const vorgangId = await auszahlungAnlegen();
+    const { beleg } = await belegAnlegen({ art: "auszahlung", bezugArt: "vorgang", bezugId: vorgangId });
+    await stufe(beleg.id, "Prüfung", pruefer);
+    const frei = await json(await stufe(beleg.id, "Freigabe", freigeber));
+    await expect(db.update(s.beleg).set({ sprache: "en" }).where(eq(s.beleg.id, beleg.id))).rejects.toThrow();
+    await expect(db.delete(s.beleg).where(eq(s.beleg.id, beleg.id))).rejects.toThrow();
+    await expect(db.update(s.belegStufe).set({ kommentar: "x" }).where(eq(s.belegStufe.belegId, beleg.id))).rejects.toThrow();
+    await expect(db.delete(s.belegStufe).where(eq(s.belegStufe.belegId, beleg.id))).rejects.toThrow();
+    expect((await json(await anfrage("POST", `/belege/${beleg.id}/neu-befuellen`, bearbeiter))).fehler.code).toBe("BELEG_STATUS_UNGUELTIG");
+
+    const datei = await anfrage("GET", `/belege/${beleg.id}/datei`, betrachter);
+    expect(datei.status).toBe(200);
+    expect(datei.headers.get("content-type")).toBe("application/pdf");
+    expect(datei.headers.get("x-datei-sha256")).toBe(frei.dateiSha256);
+    const bytes = new Uint8Array(await datei.arrayBuffer());
+    expect(Buffer.from(bytes).subarray(0, 4).toString()).toBe("%PDF");
+    const inhalt = await text(bytes);
+    expect(inhalt).toContain("b-000001");
+    expect(inhalt).toContain("beta beispiel");
+    expect(inhalt).toContain("100.000,00");
+    expect(inhalt).toContain("landesmittel");
+    expect(inhalt).toContain("60.000,00");
+    expect(inhalt).not.toContain("entwurf");
+    expect((await protokollZeilen(db, "beleg", "gelesen")).length).toBe(1);
+    // gleicher Hash bei jedem Abruf
+    expect(new Uint8Array(await (await anfrage("GET", `/belege/${beleg.id}/datei`, betrachter)).arrayBuffer())).toEqual(bytes);
+    // verfälschte Datei im Speicher: 500 DATEI_BESCHAEDIGT
+    speicher.dateien.set(`belege/${beleg.id}/${frei.dateiSha256}.pdf`, Uint8Array.from([1, 2, 3]));
+    const kaputt = await anfrage("GET", `/belege/${beleg.id}/datei`, betrachter);
+    expect(kaputt.status).toBe(500);
+    expect((await json(kaputt)).fehler.code).toBe("DATEI_BESCHAEDIGT");
+  });
+
+  it("Entwurf als PDF mit Wasserzeichen, ohne Nummer, Englisch möglich", async () => {
+    const vorgangId = await auszahlungAnlegen();
+    const { beleg } = await belegAnlegen({ art: "auszahlung", bezugArt: "vorgang", bezugId: vorgangId, sprache: "en" });
+    const datei = await anfrage("GET", `/belege/${beleg.id}/datei`, betrachter);
+    const inhalt = await text(new Uint8Array(await datei.arrayBuffer()));
+    expect(inhalt).toContain("draft");
+    expect(inhalt).toContain("no number (draft)");
+    expect(inhalt).toContain("disbursement");
+    expect(inhalt).toContain("state funds");
+    expect(datei.headers.get("x-datei-sha256")).toBeNull();
+  });
+
+  it("lückenlos auch bei gleichzeitiger Freigabe: sechs Belege, sechs Nummern ohne Lücke und Doppelte", async () => {
+    await post(`/beteiligungen/${ID.darlehen}/vorgaenge`, { art: "zusage", valuta: "2026-01-01", betrag: "2000000" });
+    const ids: string[] = [];
+    for (let i = 1; i <= 6; i++) {
+      const v = await json(await post(`/beteiligungen/${ID.darlehen}/vorgaenge`, { art: "auszahlung", valuta: `2026-0${i}-15`, betrag: `${i}0000` }));
+      const { beleg } = await belegAnlegen({ art: "auszahlung", bezugArt: "vorgang", bezugId: v.vorgang.id });
+      expect((await stufe(beleg.id, "Prüfung", pruefer)).status).toBe(200);
+      ids.push(beleg.id);
+    }
+    const antworten = await Promise.all(ids.map((id) => stufe(id, "Freigabe", freigeber)));
+    expect(antworten.map((a) => a.status)).toEqual([200, 200, 200, 200, 200, 200]);
+    const nummern = (await Promise.all(antworten.map(json))).map((b) => b.belegnummerLfd as number).sort((a, b) => a - b);
+    expect(nummern).toEqual([1, 2, 3, 4, 5, 6]);
+    const zeilen = await db.select({ lfd: s.beleg.belegnummerLfd, nummer: s.beleg.belegnummer }).from(s.beleg);
+    expect(new Set(zeilen.map((z) => z.nummer)).size).toBe(6);
+    expect(zeilen.map((z) => z.nummer).sort()).toEqual(["B-000001", "B-000002", "B-000003", "B-000004", "B-000005", "B-000006"]);
+    const [kreis] = await db.select().from(s.belegNummernkreis).where(eq(s.belegNummernkreis.fondsId, F1));
+    expect(kreis!.letzte).toBe(6);
+    // die Datenbank erlaubt keine zweite gleiche Nummer im Fonds
+    await expect(db.execute(sql`INSERT INTO beleg (fonds_id, art, bezug_art, bezug_id, sprache, status, vorlage, daten, belegnummer, belegnummer_lfd, erstellt_von) VALUES (${F1}, 'auszahlung', 'vorgang', gen_random_uuid(), 'de', 'freigegeben', '{}', '{}', 'X', 3, 'x')`)).rejects.toThrow();
+  });
+
+  it("scheitert die Freigabe (Speicher), bleibt die Nummer frei; je Fonds eine eigene Folge mit eigenem Präfix", async () => {
+    const v1 = await auszahlungAnlegen();
+    const { beleg } = await belegAnlegen({ art: "auszahlung", bezugArt: "vorgang", bezugId: v1 });
+    await stufe(beleg.id, "Prüfung", pruefer);
+    speicher.scheitern = true;
+    expect((await stufe(beleg.id, "Freigabe", freigeber)).status).toBe(500);
+    expect((await db.select().from(s.beleg).where(eq(s.beleg.id, beleg.id)))[0]).toMatchObject({ status: "geprueft", belegnummer: null });
+    expect((await db.select().from(s.belegNummernkreis)).length).toBe(0);
+    expect((await json(await stufe(beleg.id, "Freigabe", freigeber))).belegnummer).toBe("B-000001");
+
+    // zweiter Fonds mit eigenem Präfix: beginnt bei 1
+    await db.insert(s.fondsBuchhaltung).values({ fondsId: F2, belegpraefix: "ZW", geaendertVon: "test" });
+    const [bet] = await db.insert(s.beteiligung).values({ fondsId: F2, organisationId: ID.orgA, instrument: "darlehen", erstinvestment: "2025-01-01" }).returning();
+    const v2 = await auszahlungAnlegen("500", "2026-03-31", bet!.id);
+    const f2 = person("e14-f2", { rollen: { [F2]: "freigeber" }, globalVerwalter: false });
+    const f2b = person("e14-f2b", { rollen: { [F2]: "freigeber" } });
+    const f2c = person("e14-f2c", { rollen: { [F2]: "freigeber" } });
+    for (const p of [f2, f2b, f2c]) await legePersonAn(db, p);
+    const { beleg: b2 } = await belegAnlegen({ art: "auszahlung", bezugArt: "vorgang", bezugId: v2 }, f2);
+    await stufe(b2.id, "Prüfung", f2b);
+    expect((await json(await stufe(b2.id, "Freigabe", f2c))).belegnummer).toBe("ZW-000001");
+  });
+
+  it("Liste: nur sichtbare Fonds, Filter nach Status und Art", async () => {
+    const v1 = await auszahlungAnlegen();
+    await belegAnlegen({ art: "auszahlung", bezugArt: "vorgang", bezugId: v1 });
+    const liste = await json(await anfrage("GET", `/belege?fondsId=${F1}`, betrachter));
+    expect(liste.daten).toHaveLength(1);
+    expect(liste.daten[0]).toMatchObject({ art: "auszahlung", status: "entwurf", betrag: "100000.00", datum: "2026-03-31", belegnummer: null });
+    expect((await json(await anfrage("GET", `/belege?fondsId=${F1}&status=freigegeben`, betrachter))).daten).toHaveLength(0);
+    expect((await anfrage("GET", `/belege?fondsId=${F1}`, nurF2)).status).toBe(403);
+    expect((await json(await anfrage("GET", "/belege", nurF2))).daten).toHaveLength(0);
+  });
+});

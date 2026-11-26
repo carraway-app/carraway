@@ -1,0 +1,273 @@
+{
+  "fuenf_unternehmen": {
+    "t1_01_scope1": {
+      "wert": "7.475000000000",
+      "abdeckung": "0.788906142167",
+      "schaetzanteil": "0.225694444444"
+    },
+    "t1_01_scope2": {
+      "wert": "3.318750000000",
+      "abdeckung": "0.788906142167",
+      "schaetzanteil": "0.225694444444"
+    },
+    "t1_01_scope3": {
+      "wert": "29.131250000000",
+      "abdeckung": "0.788906142167",
+      "schaetzanteil": "0.225694444444"
+    },
+    "t1_01_gesamt": {
+      "wert": "39.925000000000",
+      "abdeckung": "0.788906142167",
+      "schaetzanteil": "0.225694444444"
+    },
+    "t1_02": {
+      "wert": "19.998102139406",
+      "abdeckung": "0.788906142167",
+      "schaetzanteil": "0.225694444444"
+    },
+    "t1_03": {
+      "wert": "82.924430641822",
+      "abdeckung": "0.839458247067",
+      "schaetzanteil": "0.212848297214"
+    },
+    "t1_04": {
+      "wert": "18.331608005521",
+      "abdeckung": "0.788906142167",
+      "schaetzanteil": "0.000000000000"
+    },
+    "t1_05": {
+      "wert": "64.803921568627",
+      "abdeckung": "0.738354037267",
+      "schaetzanteil": "0.000000000000"
+    },
+    "t1_06_c": {
+      "wert": "2.400000000000",
+      "abdeckung": "0.842307692308",
+      "schaetzanteil": "0.000000000000"
+    },
+    "t1_06_d": {
+      "wert": "15.000000000000",
+      "abdeckung": "1.000000000000",
+      "schaetzanteil": "1.000000000000"
+    },
+    "t1_06_g": {
+      "wert": "2.000000000000",
+      "abdeckung": "1.000000000000",
+      "schaetzanteil": "0.000000000000"
+    },
+    "t1_07": {
+      "wert": "55.503795721187",
+      "abdeckung": "0.738354037267",
+      "schaetzanteil": "0.000000000000"
+    },
+    "t1_08": {
+      "wert": "0.120046152519",
+      "abdeckung": "0.738354037267",
+      "schaetzanteil": "0.240196078431"
+    },
+    "t1_09": {
+      "wert": "0.267844202899",
+      "abdeckung": "0.738354037267",
+      "schaetzanteil": "0.240196078431"
+    },
+    "t1_10": {
+      "wert": "10.998964803313",
+      "abdeckung": "0.848343685300",
+      "schaetzanteil": "0.000000000000"
+    },
+    "t1_11": {
+      "wert": "18.331608005521",
+      "abdeckung": "0.738354037267",
+      "schaetzanteil": "0.000000000000"
+    },
+    "t1_12": {
+      "wert": "14.301470588235",
+      "abdeckung": "0.738354037267",
+      "schaetzanteil": "0.000000000000"
+    },
+    "t1_13": {
+      "wert": "38.350155279503",
+      "abdeckung": "1.000000000000",
+      "schaetzanteil": "0.000000000000"
+    },
+    "t1_14": {
+      "wert": "0.000000000000",
+      "abdeckung": "0.738354037267",
+      "schaetzanteil": "0.000000000000"
+    },
+    "t3_06": {
+      "wert": "55.503795721187",
+      "abdeckung": "0.555037957212",
+      "schaetzanteil": "0.000000000000"
+    }
+  },
+  "ohne_bestand": {
+    "t1_01_scope1": {
+      "wert": null,
+      "abdeckung": null,
+      "schaetzanteil": null
+    },
+    "t1_01_scope2": {
+      "wert": null,
+      "abdeckung": null,
+      "schaetzanteil": null
+    },
+    "t1_01_scope3": {
+      "wert": null,
+      "abdeckung": null,
+      "schaetzanteil": null
+    },
+    "t1_01_gesamt": {
+      "wert": null,
+      "abdeckung": null,
+      "schaetzanteil": null
+    },
+    "t1_02": {
+      "wert": null,
+      "abdeckung": null,
+      "schaetzanteil": null
+    },
+    "t1_03": {
+      "wert": null,
+      "abdeckung": null,
+      "schaetzanteil": null
+    },
+    "t1_04": {
+      "wert": null,
+      "abdeckung": null,
+      "schaetzanteil": null
+    },
+    "t1_05": {
+      "wert": null,
+      "abdeckung": null,
+      "schaetzanteil": null
+    },
+    "t1_07": {
+      "wert": null,
+      "abdeckung": null,
+      "schaetzanteil": null
+    },
+    "t1_08": {
+      "wert": null,
+      "abdeckung": null,
+      "schaetzanteil": null
+    },
+    "t1_09": {
+      "wert": null,
+      "abdeckung": null,
+      "schaetzanteil": null
+    },
+    "t1_10": {
+      "wert": null,
+      "abdeckung": null,
+      "schaetzanteil": null
+    },
+    "t1_11": {
+      "wert": null,
+      "abdeckung": null,
+      "schaetzanteil": null
+    },
+    "t1_12": {
+      "wert": null,
+      "abdeckung": null,
+      "schaetzanteil": null
+    },
+    "t1_13": {
+      "wert": null,
+      "abdeckung": null,
+      "schaetzanteil": null
+    },
+    "t1_14": {
+      "wert": null,
+      "abdeckung": null,
+      "schaetzanteil": null
+    }
+  },
+  "beteiligung_ueber_unternehmenswert": {
+    "t1_01_scope1": {
+      "wert": "20.000000000000",
+      "abdeckung": "1.000000000000",
+      "schaetzanteil": "1.000000000000"
+    },
+    "t1_01_scope2": {
+      "wert": "20.000000000000",
+      "abdeckung": "1.000000000000",
+      "schaetzanteil": "1.000000000000"
+    },
+    "t1_01_scope3": {
+      "wert": "20.000000000000",
+      "abdeckung": "1.000000000000",
+      "schaetzanteil": "1.000000000000"
+    },
+    "t1_01_gesamt": {
+      "wert": "60.000000000000",
+      "abdeckung": "1.000000000000",
+      "schaetzanteil": "1.000000000000"
+    },
+    "t1_02": {
+      "wert": "30.000000000000",
+      "abdeckung": "1.000000000000",
+      "schaetzanteil": "1.000000000000"
+    },
+    "t1_03": {
+      "wert": "7.500000000000",
+      "abdeckung": "1.000000000000",
+      "schaetzanteil": "1.000000000000"
+    },
+    "t1_04": {
+      "wert": null,
+      "abdeckung": "0.000000000000",
+      "schaetzanteil": null
+    },
+    "t1_05": {
+      "wert": null,
+      "abdeckung": "0.000000000000",
+      "schaetzanteil": null
+    },
+    "t1_06_h": {
+      "wert": "2.000000000000",
+      "abdeckung": "1.000000000000",
+      "schaetzanteil": "1.000000000000"
+    },
+    "t1_07": {
+      "wert": null,
+      "abdeckung": "0.000000000000",
+      "schaetzanteil": null
+    },
+    "t1_08": {
+      "wert": null,
+      "abdeckung": "0.000000000000",
+      "schaetzanteil": null
+    },
+    "t1_09": {
+      "wert": null,
+      "abdeckung": "0.000000000000",
+      "schaetzanteil": null
+    },
+    "t1_10": {
+      "wert": null,
+      "abdeckung": "0.000000000000",
+      "schaetzanteil": null
+    },
+    "t1_11": {
+      "wert": null,
+      "abdeckung": "0.000000000000",
+      "schaetzanteil": null
+    },
+    "t1_12": {
+      "wert": null,
+      "abdeckung": "0.000000000000",
+      "schaetzanteil": null
+    },
+    "t1_13": {
+      "wert": null,
+      "abdeckung": "0.000000000000",
+      "schaetzanteil": null
+    },
+    "t1_14": {
+      "wert": null,
+      "abdeckung": "0.000000000000",
+      "schaetzanteil": null
+    }
+  }
+}

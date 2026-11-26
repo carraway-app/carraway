@@ -1,0 +1,185 @@
+# Carraway: ein Stack für einen Kunden (Postgres 18, Migration, API mit Oberfläche, Worker).
+#
+#   cp .env.beispiel .env        # und ausfüllen; der Stack startet ohne die Pflichtwerte nicht
+#   docker compose up -d --build
+#
+# Variante des Images (Open Core, docs/open-core.md): Selbsthoster bauen den Kern (`CARRAWAY_VARIANTE=kern`, Vorgabe). `voll` gibt es nur im
+# Hosting durch Rehlytics (Image aus der privaten Registry über `CARRAWAY_IMAGE`); ohne den Ordner ee/ bricht ein Bau mit `voll` ab.
+#
+# Alle Geheimnisse kommen aus der .env-Datei (oder der Umgebung), nirgends steht ein Standardwert: Fehlt eine Pflichtvariable,
+# bricht `docker compose` mit einer Meldung ab. Postgres ist nicht nach außen veröffentlicht; die API hört standardmäßig
+# nur auf 127.0.0.1 und gehört hinter einen Reverse-Proxy mit TLS (deploy/README.md).
+#
+# Rechte: Die Migration läuft mit der Eigentümerrolle, API und Worker mit der App-Rolle ohne DDL im Schema public.
+
+name: ${COMPOSE_PROJECT_NAME:-carraway}
+
+x-carraway: &carraway
+  image: ${CARRAWAY_IMAGE:-carraway:${CARRAWAY_VARIANTE:-kern}}
+  build:
+    context: ..
+    dockerfile: Dockerfile
+    args:
+      VARIANTE: ${CARRAWAY_VARIANTE:-kern}
+  read_only: true
+  tmpfs:
+    - /tmp
+  cap_drop: [ALL]
+  security_opt:
+    - no-new-privileges:true
+  init: true
+
+x-umgebung: &umgebung
+  CARRAWAY_UMGEBUNG: ${CARRAWAY_UMGEBUNG:?CARRAWAY_UMGEBUNG fehlt (demo, test oder echt)}
+  DATABASE_URL: postgres://${DB_NAME:-carraway}_app:${DB_APP_PASSWORT:?DB_APP_PASSWORT fehlt}@datenbank:5432/${DB_NAME:-carraway}
+  PGBOSS_SCHEMA_ANLEGEN: "0"
+  LOG_STUFE: ${LOG_STUFE:-info}
+  # KI-Auslesung (Etappe 13): standardmäßig aus, siehe docs/sicherheit/KI-Auslesung.md
+  KI_ANBIETER: ${KI_ANBIETER:-aus}
+  KI_MODELL: ${KI_MODELL:-}
+  KI_REGION: ${KI_REGION:-}
+  KI_ENDPOINT: ${KI_ENDPOINT:-}
+  KI_TIMEOUT_MS: ${KI_TIMEOUT_MS:-}
+  KI_BEDROCK_API_KEY: ${KI_BEDROCK_API_KEY:-}
+  KI_MISTRAL_API_KEY: ${KI_MISTRAL_API_KEY:-}
+  AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+  AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+  # Mail und Kalender (Etappe 17): standardmäßig aus, siehe docs/sicherheit/Mail-und-Kalender.md
+  SMTP_HOST: ${SMTP_HOST:-}
+  SMTP_PORT: ${SMTP_PORT:-}
+  SMTP_TLS: ${SMTP_TLS:-}
+  SMTP_BENUTZER: ${SMTP_BENUTZER:-}
+  SMTP_PASSWORT: ${SMTP_PASSWORT:-}
+  SMTP_PASSWORT_DATEI: ${SMTP_PASSWORT_DATEI:-}
+  SMTP_ABSENDER: ${SMTP_ABSENDER:-}
+  MAIL_LIMIT_PRO_STUNDE: ${MAIL_LIMIT_PRO_STUNDE:-}
+  GEHEIMNIS_SCHLUESSEL: ${GEHEIMNIS_SCHLUESSEL:-}
+  GEHEIMNIS_SCHLUESSEL_ALT: ${GEHEIMNIS_SCHLUESSEL_ALT:-}
+  POSTFACH_MICROSOFT_CLIENT_ID: ${POSTFACH_MICROSOFT_CLIENT_ID:-}
+  POSTFACH_MICROSOFT_CLIENT_SECRET: ${POSTFACH_MICROSOFT_CLIENT_SECRET:-}
+  POSTFACH_MICROSOFT_TENANT_ID: ${POSTFACH_MICROSOFT_TENANT_ID:-}
+  POSTFACH_GOOGLE_CLIENT_ID: ${POSTFACH_GOOGLE_CLIENT_ID:-}
+  POSTFACH_GOOGLE_CLIENT_SECRET: ${POSTFACH_GOOGLE_CLIENT_SECRET:-}
+  POSTFACH_IMAP: ${POSTFACH_IMAP:-}
+  POSTFACH_PRIVATE_ZIELE: ${POSTFACH_PRIVATE_ZIELE:-}
+  POSTFACH_INTERVALL_MINUTEN: ${POSTFACH_INTERVALL_MINUTEN:-}
+  # Tage, die die Datei eines gelöschten Dokuments in der Ablage bleibt, bevor der Worker sie entfernt (Standard 30).
+  DOKUMENT_AUFBEWAHRUNG_TAGE: ${DOKUMENT_AUFBEWAHRUNG_TAGE:-}
+  KAPITAL_SICHT: ${KAPITAL_SICHT:-}
+  # Lokale Texterkennung für Scans und Bilder (aus oder lokal; Standard aus), mit Seitengrenze und Zeitlimit je Dokument.
+  OCR: ${OCR:-aus}
+  OCR_MAX_SEITEN: ${OCR_MAX_SEITEN:-}
+  OCR_ZEITLIMIT_SEKUNDEN: ${OCR_ZEITLIMIT_SEKUNDEN:-}
+  OCR_MAX_MEGAPIXEL: ${OCR_MAX_MEGAPIXEL:-}
+
+services:
+  datenbank:
+    image: postgres:18-alpine@sha256:ff64c9e3bdf8e2120107d3559de8db314e8305f7e38c5105903c6295876738ff
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_ADMIN_BENUTZER:-carraway_admin}
+      POSTGRES_PASSWORD: ${DB_ADMIN_PASSWORT:?DB_ADMIN_PASSWORT fehlt}
+      POSTGRES_DB: postgres
+      DB_NAME: ${DB_NAME:-carraway}
+      DB_EIGENTUEMER_PASSWORT: ${DB_EIGENTUEMER_PASSWORT:?DB_EIGENTUEMER_PASSWORT fehlt}
+      DB_APP_PASSWORT: ${DB_APP_PASSWORT:?DB_APP_PASSWORT fehlt}
+    volumes:
+      # Postgres 18 legt das Datenverzeichnis unter /var/lib/postgresql/18/docker an; deshalb wird das Elternverzeichnis eingebunden.
+      - datenbank:/var/lib/postgresql
+      - ./sql/mandant.sql:/sql/mandant.sql:ro
+      - ./initdb/01-mandant.sh:/docker-entrypoint-initdb.d/01-mandant.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    shm_size: 256mb
+
+  migrate:
+    <<: *carraway
+    command: ["node", "dist/migrate.js"]
+    restart: "no"
+    environment:
+      CARRAWAY_UMGEBUNG: ${CARRAWAY_UMGEBUNG:?CARRAWAY_UMGEBUNG fehlt (demo, test oder echt)}
+      DATABASE_URL_EIGENTUEMER: postgres://${DB_NAME:-carraway}_eigentuemer:${DB_EIGENTUEMER_PASSWORT:?DB_EIGENTUEMER_PASSWORT fehlt}@datenbank:5432/${DB_NAME:-carraway}
+    healthcheck:
+      disable: true
+    depends_on:
+      datenbank:
+        condition: service_healthy
+
+  api:
+    <<: *carraway
+    restart: unless-stopped
+    ports:
+      - "${API_BIND:-127.0.0.1}:${API_PORT:-8787}:8787"
+    environment:
+      <<: *umgebung
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?BETTER_AUTH_SECRET fehlt (mindestens 32 Zeichen, z. B. openssl rand -base64 48)}
+      APP_ORIGIN: ${APP_ORIGIN:?APP_ORIGIN fehlt (öffentliche Adresse mit https://, ohne Pfad)}
+      WEB_AUSLIEFERN: "1"
+      PROXY_VERTRAUEN: ${PROXY_VERTRAUEN:-0}
+      ZWEI_FAKTOR_PFLICHT: ${ZWEI_FAKTOR_PFLICHT:-1}
+      REGISTRIERUNG_OFFEN: ${REGISTRIERUNG_OFFEN:-0}
+      METRIKEN_TOKEN: ${METRIKEN_TOKEN:-}
+      OIDC_MICROSOFT_CLIENT_ID: ${OIDC_MICROSOFT_CLIENT_ID:-}
+      OIDC_MICROSOFT_CLIENT_SECRET: ${OIDC_MICROSOFT_CLIENT_SECRET:-}
+      OIDC_MICROSOFT_TENANT_ID: ${OIDC_MICROSOFT_TENANT_ID:-}
+      OIDC_GOOGLE_CLIENT_ID: ${OIDC_GOOGLE_CLIENT_ID:-}
+      OIDC_GOOGLE_CLIENT_SECRET: ${OIDC_GOOGLE_CLIENT_SECRET:-}
+    volumes:
+      - speicher:/daten/speicher
+    depends_on:
+      datenbank:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  worker:
+    <<: *carraway
+    command: ["node", "dist/worker.js"]
+    restart: unless-stopped
+    # Obergrenze für den ganzen Prozess samt Texterkennung (Zeichenflächen und WebAssembly liegen außerhalb des JavaScript-Speichers).
+    mem_limit: ${WORKER_SPEICHER:-3g}
+    environment:
+      <<: *umgebung
+      NODE_OPTIONS: --max-old-space-size=1536
+      WORKER_INTERVALL_MS: ${WORKER_INTERVALL_MS:-2000}
+      WORKER_HERZSCHLAG_MS: ${WORKER_HERZSCHLAG_MS:-5000}
+    # Die Dateiablage braucht der Worker für den Aufbewahrungslauf gelöschter Dokumente.
+    volumes:
+      - speicher:/daten/speicher
+    # Gesund, solange der Worker seine Herzschlag-Datei in den letzten 30 Sekunden geschrieben hat.
+    healthcheck:
+      test: ["CMD", "node", "-e", "process.exit(Date.now()-require('node:fs').statSync('/tmp/carraway-worker-herzschlag').mtimeMs<30000?0:1)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    depends_on:
+      datenbank:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  # Nur für die Demo (`docker compose --profile demo-mail up -d`): fängt alle Mails ab, nichts verlässt den Rechner. Oberfläche unter http://127.0.0.1:8025.
+  # In .env: SMTP_HOST=mailpit, SMTP_PORT=1025, SMTP_TLS=keine, SMTP_ABSENDER=carraway@beispiel.example (keine Anmeldung, im Echtbestand ist TLS=keine verboten).
+  mailpit:
+    profiles: ["demo-mail"]
+    image: axllent/mailpit:v1.29.7@sha256:757f22b56c1da03570afdb3d259effe5091018008a81bbedc8158cee7e16fdbc
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - "127.0.0.1:${MAILPIT_WEB_PORT:-8025}:8025"
+    tmpfs:
+      - /tmp
+    environment:
+      MP_MAX_MESSAGES: "500"
+
+volumes:
+  datenbank:
+  speicher:

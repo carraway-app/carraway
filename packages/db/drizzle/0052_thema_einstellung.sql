@@ -1,0 +1,2 @@
+ALTER TABLE "benutzer_einstellung" ADD COLUMN "thema" text DEFAULT 'system' NOT NULL;--> statement-breakpoint
+ALTER TABLE "benutzer_einstellung" ADD CONSTRAINT "benutzer_einstellung_thema" CHECK ("benutzer_einstellung"."thema" IN ('system', 'hell', 'dunkel'));

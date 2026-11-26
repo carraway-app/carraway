@@ -1,0 +1,2756 @@
+{
+  "id": "756e7f93-07ae-4ae2-862f-60718f007e3f",
+  "prevId": "bc0f1bf1-6d48-4669-b445-5684f5e8b80a",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.aenderung": {
+      "name": "aenderung",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "am": {
+          "name": "am",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "akteur": {
+          "name": "akteur",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "aktion": {
+          "name": "aktion",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "tabelle": {
+          "name": "tabelle",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "datensatz_id": {
+          "name": "datensatz_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "vorher": {
+          "name": "vorher",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "nachher": {
+          "name": "nachher",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "aenderung_datensatz_idx": {
+          "name": "aenderung_datensatz_idx",
+          "columns": [
+            {
+              "expression": "tabelle",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "datensatz_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "am",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "aenderung_am_idx": {
+          "name": "aenderung_am_idx",
+          "columns": [
+            {
+              "expression": "am",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.aktivitaet": {
+      "name": "aktivitaet",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "art": {
+          "name": "art",
+          "type": "aktivitaet_art",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "datum": {
+          "name": "datum",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "titel": {
+          "name": "titel",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "notiz": {
+          "name": "notiz",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "organisation_id": {
+          "name": "organisation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "person_id": {
+          "name": "person_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "deal_id": {
+          "name": "deal_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "wiedervorlage": {
+          "name": "wiedervorlage",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "wiedervorlage_erledigt_am": {
+          "name": "wiedervorlage_erledigt_am",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "erstellt_am": {
+          "name": "erstellt_am",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "aktivitaet_wiedervorlage_idx": {
+          "name": "aktivitaet_wiedervorlage_idx",
+          "columns": [
+            {
+              "expression": "wiedervorlage",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "aktivitaet_deal_idx": {
+          "name": "aktivitaet_deal_idx",
+          "columns": [
+            {
+              "expression": "deal_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "aktivitaet_organisation_idx": {
+          "name": "aktivitaet_organisation_idx",
+          "columns": [
+            {
+              "expression": "organisation_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "aktivitaet_organisation_id_organisation_id_fk": {
+          "name": "aktivitaet_organisation_id_organisation_id_fk",
+          "tableFrom": "aktivitaet",
+          "tableTo": "organisation",
+          "columnsFrom": [
+            "organisation_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "aktivitaet_person_id_person_id_fk": {
+          "name": "aktivitaet_person_id_person_id_fk",
+          "tableFrom": "aktivitaet",
+          "tableTo": "person",
+          "columnsFrom": [
+            "person_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "aktivitaet_deal_id_deal_id_fk": {
+          "name": "aktivitaet_deal_id_deal_id_fk",
+          "tableFrom": "aktivitaet",
+          "tableTo": "deal",
+          "columnsFrom": [
+            "deal_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.beschluss": {
+      "name": "beschluss",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "deal_id": {
+          "name": "deal_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "gremium": {
+          "name": "gremium",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "datum": {
+          "name": "datum",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ergebnis": {
+          "name": "ergebnis",
+          "type": "beschluss_ergebnis",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "betrag": {
+          "name": "betrag",
+          "type": "numeric(18, 2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "auflagen": {
+          "name": "auflagen",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "protokoll": {
+          "name": "protokoll",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "erstellt_am": {
+          "name": "erstellt_am",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "beschluss_deal_idx": {
+          "name": "beschluss_deal_idx",
+          "columns": [
+            {
+              "expression": "deal_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "beschluss_deal_id_deal_id_fk": {
+          "name": "beschluss_deal_id_deal_id_fk",
+          "tableFrom": "beschluss",
+          "tableTo": "deal",
+          "columnsFrom": [
+            "deal_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.beteiligung": {
+      "name": "beteiligung",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "fonds_id": {
+          "name": "fonds_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "organisation_id": {
+          "name": "organisation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "deal_id": {
+          "name": "deal_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "instrument": {
+          "name": "instrument",
+          "type": "instrument",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "erstinvestment": {
+          "name": "erstinvestment",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "beteiligung_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'aktiv'"
+        },
+        "erstellt_am": {
+          "name": "erstellt_am",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "beteiligung_fonds_organisation_instrument_uq": {
+          "name": "beteiligung_fonds_organisation_instrument_uq",
+          "columns": [
+            {
+              "expression": "fonds_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "organisation_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "instrument",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "beteiligung_organisation_idx": {
+          "name": "beteiligung_organisation_idx",
+          "columns": [
+            {
+              "expression": "organisation_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "beteiligung_fonds_id_fonds_id_fk": {
+          "name": "beteiligung_fonds_id_fonds_id_fk",
+          "tableFrom": "beteiligung",
+          "tableTo": "fonds",
+          "columnsFrom": [
+            "fonds_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "beteiligung_organisation_id_organisation_id_fk": {
+          "name": "beteiligung_organisation_id_organisation_id_fk",
+          "tableFrom": "beteiligung",
+          "tableTo": "organisation",
+          "columnsFrom": [
+            "organisation_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "beteiligung_deal_id_deal_id_fk": {
+          "name": "beteiligung_deal_id_deal_id_fk",
+          "tableFrom": "beteiligung",
+          "tableTo": "deal",
+          "columnsFrom": [
+            "deal_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.bewertung": {
+      "name": "bewertung",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "beteiligung_id": {
+          "name": "beteiligung_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "stichtag": {
+          "name": "stichtag",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "wert": {
+          "name": "wert",
+          "type": "numeric(18, 2)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "methode": {
+          "name": "methode",
+          "type": "bewertung_methode",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "begruendung": {
+          "name": "begruendung",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "erfasst_am": {
+          "name": "erfasst_am",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "bewertung_beteiligung_stichtag_uq": {
+          "name": "bewertung_beteiligung_stichtag_uq",
+          "columns": [
+            {
+              "expression": "beteiligung_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "stichtag",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "bewertung_beteiligung_erfasst_idx": {
+          "name": "bewertung_beteiligung_erfasst_idx",
+          "columns": [
+            {
+              "expression": "beteiligung_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "erfasst_am",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "bewertung_beteiligung_id_beteiligung_id_fk": {
+          "name": "bewertung_beteiligung_id_beteiligung_id_fk",
+          "tableFrom": "bewertung",
+          "tableTo": "beteiligung",
+          "columnsFrom": [
+            "beteiligung_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.darlehen_kondition": {
+      "name": "darlehen_kondition",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "beteiligung_id": {
+          "name": "beteiligung_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "gueltig_ab": {
+          "name": "gueltig_ab",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "satz_fix": {
+          "name": "satz_fix",
+          "type": "numeric(10, 6)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "methode": {
+          "name": "methode",
+          "type": "zinsmethode",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "zinsperiode": {
+          "name": "zinsperiode",
+          "type": "zinsperiodenart",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "anker": {
+          "name": "anker",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "gewinnabhaengig_satz": {
+          "name": "gewinnabhaengig_satz",
+          "type": "numeric(10, 6)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "kappung_satz": {
+          "name": "kappung_satz",
+          "type": "numeric(10, 6)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "stundung_bis": {
+          "name": "stundung_bis",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "kapitalisieren": {
+          "name": "kapitalisieren",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "faellig_am": {
+          "name": "faellig_am",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "erfasst_am": {
+          "name": "erfasst_am",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "darlehen_kondition_beteiligung_ab_uq": {
+          "name": "darlehen_kondition_beteiligung_ab_uq",
+          "columns": [
+            {
+              "expression": "beteiligung_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "gueltig_ab",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "darlehen_kondition_beteiligung_id_beteiligung_id_fk": {
+          "name": "darlehen_kondition_beteiligung_id_beteiligung_id_fk",
+          "tableFrom": "darlehen_kondition",
+          "tableTo": "beteiligung",
+          "columnsFrom": [
+            "beteiligung_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "darlehen_kondition_satz_bereich": {
+          "name": "darlehen_kondition_satz_bereich",
+          "value": "\"darlehen_kondition\".\"satz_fix\" >= 0 AND \"darlehen_kondition\".\"satz_fix\" <= 1"
+        },
+        "darlehen_kondition_gewinn_paar": {
+          "name": "darlehen_kondition_gewinn_paar",
+          "value": "(\"darlehen_kondition\".\"gewinnabhaengig_satz\" IS NULL) = (\"darlehen_kondition\".\"kappung_satz\" IS NULL)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.deal": {
+      "name": "deal",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "organisation_id": {
+          "name": "organisation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "fonds_id": {
+          "name": "fonds_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "titel": {
+          "name": "titel",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "phase": {
+          "name": "phase",
+          "type": "deal_phase",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'anfrage'"
+        },
+        "status": {
+          "name": "status",
+          "type": "deal_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'offen'"
+        },
+        "quelle": {
+          "name": "quelle",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ticket": {
+          "name": "ticket",
+          "type": "numeric(18, 2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "betreuung": {
+          "name": "betreuung",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "absagegrund": {
+          "name": "absagegrund",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "erstellt_am": {
+          "name": "erstellt_am",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "aktualisiert_am": {
+          "name": "aktualisiert_am",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "deal_phase_status_idx": {
+          "name": "deal_phase_status_idx",
+          "columns": [
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "phase",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "deal_organisation_idx": {
+          "name": "deal_organisation_idx",
+          "columns": [
+            {
+              "expression": "organisation_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "deal_organisation_id_organisation_id_fk": {
+          "name": "deal_organisation_id_organisation_id_fk",
+          "tableFrom": "deal",
+          "tableTo": "organisation",
+          "columnsFrom": [
+            "organisation_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "deal_fonds_id_fonds_id_fk": {
+          "name": "deal_fonds_id_fonds_id_fk",
+          "tableFrom": "deal",
+          "tableTo": "fonds",
+          "columnsFrom": [
+            "fonds_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.deal_phasenwechsel": {
+      "name": "deal_phasenwechsel",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "deal_id": {
+          "name": "deal_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "von_phase": {
+          "name": "von_phase",
+          "type": "deal_phase",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "nach_phase": {
+          "name": "nach_phase",
+          "type": "deal_phase",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "am": {
+          "name": "am",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "bemerkung": {
+          "name": "bemerkung",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "erfasst_am": {
+          "name": "erfasst_am",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "deal_phasenwechsel_deal_idx": {
+          "name": "deal_phasenwechsel_deal_idx",
+          "columns": [
+            {
+              "expression": "deal_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "am",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "erfasst_am",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "deal_phasenwechsel_deal_id_deal_id_fk": {
+          "name": "deal_phasenwechsel_deal_id_deal_id_fk",
+          "tableFrom": "deal_phasenwechsel",
+          "tableTo": "deal",
+          "columnsFrom": [
+            "deal_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.finanzierungsrunde": {
+      "name": "finanzierungsrunde",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "organisation_id": {
+          "name": "organisation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "bezeichnung": {
+          "name": "bezeichnung",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "datum": {
+          "name": "datum",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "pre_money": {
+          "name": "pre_money",
+          "type": "numeric(18, 2)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "post_money": {
+          "name": "post_money",
+          "type": "numeric(18, 2)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "preis_je_anteil": {
+          "name": "preis_je_anteil",
+          "type": "numeric(18, 4)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "anteile_gesamt_nach": {
+          "name": "anteile_gesamt_nach",
+          "type": "numeric(18, 0)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "erstellt_am": {
+          "name": "erstellt_am",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "finanzierungsrunde_organisation_idx": {
+          "name": "finanzierungsrunde_organisation_idx",
+          "columns": [
+            {
+              "expression": "organisation_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "datum",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "finanzierungsrunde_organisation_id_organisation_id_fk": {
+          "name": "finanzierungsrunde_organisation_id_organisation_id_fk",
+          "tableFrom": "finanzierungsrunde",
+          "tableTo": "organisation",
+          "columnsFrom": [
+            "organisation_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.fonds": {
+      "name": "fonds",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "kurzname": {
+          "name": "kurzname",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "vintage": {
+          "name": "vintage",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "zeichnungskapital": {
+          "name": "zeichnungskapital",
+          "type": "numeric(18, 2)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "waehrung": {
+          "name": "waehrung",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'EUR'"
+        },
+        "erstellt_am": {
+          "name": "erstellt_am",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "fonds_kurzname_unique": {
+          "name": "fonds_kurzname_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "kurzname"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.fonds_bewegung": {
+      "name": "fonds_bewegung",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "fonds_id": {
+          "name": "fonds_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "art": {
+          "name": "art",
+          "type": "fonds_bewegung_art",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "valuta": {
+          "name": "valuta",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "betrag": {
+          "name": "betrag",
+          "type": "numeric(18, 2)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "bemerkung": {
+          "name": "bemerkung",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "erfasst_am": {
+          "name": "erfasst_am",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "fonds_bewegung_fonds_valuta_idx": {
+          "name": "fonds_bewegung_fonds_valuta_idx",
+          "columns": [
+            {
+              "expression": "fonds_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "valuta",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "fonds_bewegung_fonds_erfasst_idx": {
+          "name": "fonds_bewegung_fonds_erfasst_idx",
+          "columns": [
+            {
+              "expression": "fonds_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "erfasst_am",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "fonds_bewegung_fonds_id_fonds_id_fk": {
+          "name": "fonds_bewegung_fonds_id_fonds_id_fk",
+          "tableFrom": "fonds_bewegung",
+          "tableTo": "fonds",
+          "columnsFrom": [
+            "fonds_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.jahresueberschuss": {
+      "name": "jahresueberschuss",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "beteiligung_id": {
+          "name": "beteiligung_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "jahr": {
+          "name": "jahr",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "betrag": {
+          "name": "betrag",
+          "type": "numeric(18, 2)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "erfasst_am": {
+          "name": "erfasst_am",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "jahresueberschuss_beteiligung_jahr_uq": {
+          "name": "jahresueberschuss_beteiligung_jahr_uq",
+          "columns": [
+            {
+              "expression": "beteiligung_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "jahr",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "jahresueberschuss_beteiligung_id_beteiligung_id_fk": {
+          "name": "jahresueberschuss_beteiligung_id_beteiligung_id_fk",
+          "tableFrom": "jahresueberschuss",
+          "tableTo": "beteiligung",
+          "columnsFrom": [
+            "beteiligung_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.kennzahl_snapshot": {
+      "name": "kennzahl_snapshot",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "fonds_id": {
+          "name": "fonds_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "stichtag": {
+          "name": "stichtag",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "stand_bis": {
+          "name": "stand_bis",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "berechnet_am": {
+          "name": "berechnet_am",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "daten": {
+          "name": "daten",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "kennzahl_snapshot_fonds_stichtag_uq": {
+          "name": "kennzahl_snapshot_fonds_stichtag_uq",
+          "columns": [
+            {
+              "expression": "fonds_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "stichtag",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "kennzahl_snapshot_fonds_id_fonds_id_fk": {
+          "name": "kennzahl_snapshot_fonds_id_fonds_id_fk",
+          "tableFrom": "kennzahl_snapshot",
+          "tableTo": "fonds",
+          "columnsFrom": [
+            "fonds_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.meilenstein": {
+      "name": "meilenstein",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "beteiligung_id": {
+          "name": "beteiligung_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "bezeichnung": {
+          "name": "bezeichnung",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "bedingung": {
+          "name": "bedingung",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "frist": {
+          "name": "frist",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "betrag": {
+          "name": "betrag",
+          "type": "numeric(18, 2)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "erfuellt_am": {
+          "name": "erfuellt_am",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "nachweis": {
+          "name": "nachweis",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "erstellt_am": {
+          "name": "erstellt_am",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "meilenstein_beteiligung_idx": {
+          "name": "meilenstein_beteiligung_idx",
+          "columns": [
+            {
+              "expression": "beteiligung_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "meilenstein_beteiligung_id_beteiligung_id_fk": {
+          "name": "meilenstein_beteiligung_id_beteiligung_id_fk",
+          "tableFrom": "meilenstein",
+          "tableTo": "beteiligung",
+          "columnsFrom": [
+            "beteiligung_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "meilenstein_betrag_positiv": {
+          "name": "meilenstein_betrag_positiv",
+          "value": "\"meilenstein\".\"betrag\" > 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.organisation": {
+      "name": "organisation",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "art": {
+          "name": "art",
+          "type": "organisation_art",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "sektor": {
+          "name": "sektor",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ort": {
+          "name": "ort",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "website": {
+          "name": "website",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "erstellt_am": {
+          "name": "erstellt_am",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "organisation_name_idx": {
+          "name": "organisation_name_idx",
+          "columns": [
+            {
+              "expression": "name",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.person": {
+      "name": "person",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "vorname": {
+          "name": "vorname",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "nachname": {
+          "name": "nachname",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "email": {
+          "name": "email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "funktion": {
+          "name": "funktion",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "organisation_id": {
+          "name": "organisation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "erstellt_am": {
+          "name": "erstellt_am",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "person_organisation_idx": {
+          "name": "person_organisation_idx",
+          "columns": [
+            {
+              "expression": "organisation_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "person_organisation_id_organisation_id_fk": {
+          "name": "person_organisation_id_organisation_id_fk",
+          "tableFrom": "person",
+          "tableTo": "organisation",
+          "columnsFrom": [
+            "organisation_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.rundenposition": {
+      "name": "rundenposition",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "runde_id": {
+          "name": "runde_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "fonds_id": {
+          "name": "fonds_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "organisation_id": {
+          "name": "organisation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "betrag": {
+          "name": "betrag",
+          "type": "numeric(18, 2)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "anteile": {
+          "name": "anteile",
+          "type": "numeric(18, 0)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "rolle": {
+          "name": "rolle",
+          "type": "runden_rolle",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "rundenposition_runde_idx": {
+          "name": "rundenposition_runde_idx",
+          "columns": [
+            {
+              "expression": "runde_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "rundenposition_runde_id_finanzierungsrunde_id_fk": {
+          "name": "rundenposition_runde_id_finanzierungsrunde_id_fk",
+          "tableFrom": "rundenposition",
+          "tableTo": "finanzierungsrunde",
+          "columnsFrom": [
+            "runde_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "rundenposition_fonds_id_fonds_id_fk": {
+          "name": "rundenposition_fonds_id_fonds_id_fk",
+          "tableFrom": "rundenposition",
+          "tableTo": "fonds",
+          "columnsFrom": [
+            "fonds_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "rundenposition_organisation_id_organisation_id_fk": {
+          "name": "rundenposition_organisation_id_organisation_id_fk",
+          "tableFrom": "rundenposition",
+          "tableTo": "organisation",
+          "columnsFrom": [
+            "organisation_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "rundenposition_ein_investor": {
+          "name": "rundenposition_ein_investor",
+          "value": "(\"rundenposition\".\"fonds_id\" IS NULL) <> (\"rundenposition\".\"organisation_id\" IS NULL)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.snapshot_auftrag": {
+      "name": "snapshot_auftrag",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "fonds_id": {
+          "name": "fonds_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "stichtag": {
+          "name": "stichtag",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "angelegt_am": {
+          "name": "angelegt_am",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "snapshot_auftrag_alle_uq": {
+          "name": "snapshot_auftrag_alle_uq",
+          "columns": [
+            {
+              "expression": "fonds_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"snapshot_auftrag\".\"stichtag\" IS NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "snapshot_auftrag_stichtag_uq": {
+          "name": "snapshot_auftrag_stichtag_uq",
+          "columns": [
+            {
+              "expression": "fonds_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "stichtag",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"snapshot_auftrag\".\"stichtag\" IS NOT NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "snapshot_auftrag_fonds_id_fonds_id_fk": {
+          "name": "snapshot_auftrag_fonds_id_fonds_id_fk",
+          "tableFrom": "snapshot_auftrag",
+          "tableTo": "fonds",
+          "columnsFrom": [
+            "fonds_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.vorgang": {
+      "name": "vorgang",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "beteiligung_id": {
+          "name": "beteiligung_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "art": {
+          "name": "art",
+          "type": "vorgang_art",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "valuta": {
+          "name": "valuta",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "betrag": {
+          "name": "betrag",
+          "type": "numeric(18, 2)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "bemerkung": {
+          "name": "bemerkung",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "storniert_vorgang_id": {
+          "name": "storniert_vorgang_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "kapitalisiert": {
+          "name": "kapitalisiert",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "meilenstein_id": {
+          "name": "meilenstein_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "erfasst_am": {
+          "name": "erfasst_am",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "vorgang_beteiligung_valuta_idx": {
+          "name": "vorgang_beteiligung_valuta_idx",
+          "columns": [
+            {
+              "expression": "beteiligung_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "valuta",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "vorgang_beteiligung_erfasst_idx": {
+          "name": "vorgang_beteiligung_erfasst_idx",
+          "columns": [
+            {
+              "expression": "beteiligung_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "erfasst_am",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "vorgang_storno_uq": {
+          "name": "vorgang_storno_uq",
+          "columns": [
+            {
+              "expression": "storniert_vorgang_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "vorgang_beteiligung_id_beteiligung_id_fk": {
+          "name": "vorgang_beteiligung_id_beteiligung_id_fk",
+          "tableFrom": "vorgang",
+          "tableTo": "beteiligung",
+          "columnsFrom": [
+            "beteiligung_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "vorgang_storniert_vorgang_id_vorgang_id_fk": {
+          "name": "vorgang_storniert_vorgang_id_vorgang_id_fk",
+          "tableFrom": "vorgang",
+          "tableTo": "vorgang",
+          "columnsFrom": [
+            "storniert_vorgang_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "vorgang_meilenstein_id_meilenstein_id_fk": {
+          "name": "vorgang_meilenstein_id_meilenstein_id_fk",
+          "tableFrom": "vorgang",
+          "tableTo": "meilenstein",
+          "columnsFrom": [
+            "meilenstein_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.zinslauf": {
+      "name": "zinslauf",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "fonds_id": {
+          "name": "fonds_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "stichtag": {
+          "name": "stichtag",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "zinslauf_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'berechnet'"
+        },
+        "berechnet_von": {
+          "name": "berechnet_von",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "berechnet_am": {
+          "name": "berechnet_am",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "geprueft_von": {
+          "name": "geprueft_von",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "geprueft_am": {
+          "name": "geprueft_am",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "freigegeben_von": {
+          "name": "freigegeben_von",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "freigegeben_am": {
+          "name": "freigegeben_am",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "gebucht_von": {
+          "name": "gebucht_von",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "gebucht_am": {
+          "name": "gebucht_am",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "verworfen_von": {
+          "name": "verworfen_von",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "verworfen_am": {
+          "name": "verworfen_am",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "abgedeckt": {
+          "name": "abgedeckt",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
+        }
+      },
+      "indexes": {
+        "zinslauf_fonds_stichtag_idx": {
+          "name": "zinslauf_fonds_stichtag_idx",
+          "columns": [
+            {
+              "expression": "fonds_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "stichtag",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "berechnet_am",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "zinslauf_fonds_id_fonds_id_fk": {
+          "name": "zinslauf_fonds_id_fonds_id_fk",
+          "tableFrom": "zinslauf",
+          "tableTo": "fonds",
+          "columnsFrom": [
+            "fonds_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.zinslauf_position": {
+      "name": "zinslauf_position",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "zinslauf_id": {
+          "name": "zinslauf_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "beteiligung_id": {
+          "name": "beteiligung_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "kondition_id": {
+          "name": "kondition_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "von": {
+          "name": "von",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "bis": {
+          "name": "bis",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "faellig_am": {
+          "name": "faellig_am",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "gestundet": {
+          "name": "gestundet",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "betrag_fix": {
+          "name": "betrag_fix",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "betrag_gewinn": {
+          "name": "betrag_gewinn",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "betrag_gesamt": {
+          "name": "betrag_gesamt",
+          "type": "numeric",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "betrag_gebucht": {
+          "name": "betrag_gebucht",
+          "type": "numeric(18, 2)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "kapitalisiert": {
+          "name": "kapitalisiert",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "kapitalien": {
+          "name": "kapitalien",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "schritte": {
+          "name": "schritte",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "vorgang_id": {
+          "name": "vorgang_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "zinslauf_position_lauf_idx": {
+          "name": "zinslauf_position_lauf_idx",
+          "columns": [
+            {
+              "expression": "zinslauf_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "zinslauf_position_beteiligung_idx": {
+          "name": "zinslauf_position_beteiligung_idx",
+          "columns": [
+            {
+              "expression": "beteiligung_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "bis",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "zinslauf_position_zinslauf_id_zinslauf_id_fk": {
+          "name": "zinslauf_position_zinslauf_id_zinslauf_id_fk",
+          "tableFrom": "zinslauf_position",
+          "tableTo": "zinslauf",
+          "columnsFrom": [
+            "zinslauf_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "zinslauf_position_beteiligung_id_beteiligung_id_fk": {
+          "name": "zinslauf_position_beteiligung_id_beteiligung_id_fk",
+          "tableFrom": "zinslauf_position",
+          "tableTo": "beteiligung",
+          "columnsFrom": [
+            "beteiligung_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "zinslauf_position_kondition_id_darlehen_kondition_id_fk": {
+          "name": "zinslauf_position_kondition_id_darlehen_kondition_id_fk",
+          "tableFrom": "zinslauf_position",
+          "tableTo": "darlehen_kondition",
+          "columnsFrom": [
+            "kondition_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "zinslauf_position_vorgang_id_vorgang_id_fk": {
+          "name": "zinslauf_position_vorgang_id_vorgang_id_fk",
+          "tableFrom": "zinslauf_position",
+          "tableTo": "vorgang",
+          "columnsFrom": [
+            "vorgang_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.zinsperiode_gebucht": {
+      "name": "zinsperiode_gebucht",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "beteiligung_id": {
+          "name": "beteiligung_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "periode_bis": {
+          "name": "periode_bis",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "zinslauf_position_id": {
+          "name": "zinslauf_position_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "vorgang_id": {
+          "name": "vorgang_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "zinsperiode_gebucht_beteiligung_bis_uq": {
+          "name": "zinsperiode_gebucht_beteiligung_bis_uq",
+          "columns": [
+            {
+              "expression": "beteiligung_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "periode_bis",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "zinsperiode_gebucht_beteiligung_id_beteiligung_id_fk": {
+          "name": "zinsperiode_gebucht_beteiligung_id_beteiligung_id_fk",
+          "tableFrom": "zinsperiode_gebucht",
+          "tableTo": "beteiligung",
+          "columnsFrom": [
+            "beteiligung_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "zinsperiode_gebucht_zinslauf_position_id_zinslauf_position_id_fk": {
+          "name": "zinsperiode_gebucht_zinslauf_position_id_zinslauf_position_id_fk",
+          "tableFrom": "zinsperiode_gebucht",
+          "tableTo": "zinslauf_position",
+          "columnsFrom": [
+            "zinslauf_position_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "zinsperiode_gebucht_vorgang_id_vorgang_id_fk": {
+          "name": "zinsperiode_gebucht_vorgang_id_vorgang_id_fk",
+          "tableFrom": "zinsperiode_gebucht",
+          "tableTo": "vorgang",
+          "columnsFrom": [
+            "vorgang_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {
+    "public.aktivitaet_art": {
+      "name": "aktivitaet_art",
+      "schema": "public",
+      "values": [
+        "gespraech",
+        "termin",
+        "notiz",
+        "mail"
+      ]
+    },
+    "public.beschluss_ergebnis": {
+      "name": "beschluss_ergebnis",
+      "schema": "public",
+      "values": [
+        "zugestimmt",
+        "abgelehnt",
+        "vertagt"
+      ]
+    },
+    "public.beteiligung_status": {
+      "name": "beteiligung_status",
+      "schema": "public",
+      "values": [
+        "aktiv",
+        "exit",
+        "insolvent",
+        "abgeschrieben"
+      ]
+    },
+    "public.bewertung_methode": {
+      "name": "bewertung_methode",
+      "schema": "public",
+      "values": [
+        "anschaffungskosten",
+        "letzte_runde",
+        "multiplikator",
+        "dcf",
+        "sonstige"
+      ]
+    },
+    "public.deal_phase": {
+      "name": "deal_phase",
+      "schema": "public",
+      "values": [
+        "anfrage",
+        "erstgespraech",
+        "pruefung",
+        "due_diligence",
+        "investitionsausschuss",
+        "closing"
+      ]
+    },
+    "public.deal_status": {
+      "name": "deal_status",
+      "schema": "public",
+      "values": [
+        "offen",
+        "abgesagt",
+        "investiert"
+      ]
+    },
+    "public.fonds_bewegung_art": {
+      "name": "fonds_bewegung_art",
+      "schema": "public",
+      "values": [
+        "abruf",
+        "ausschuettung"
+      ]
+    },
+    "public.instrument": {
+      "name": "instrument",
+      "schema": "public",
+      "values": [
+        "offene_beteiligung",
+        "stille_beteiligung",
+        "darlehen",
+        "wandeldarlehen"
+      ]
+    },
+    "public.organisation_art": {
+      "name": "organisation_art",
+      "schema": "public",
+      "values": [
+        "unternehmen",
+        "investor",
+        "berater",
+        "sonstige"
+      ]
+    },
+    "public.runden_rolle": {
+      "name": "runden_rolle",
+      "schema": "public",
+      "values": [
+        "lead",
+        "co_lead",
+        "co"
+      ]
+    },
+    "public.vorgang_art": {
+      "name": "vorgang_art",
+      "schema": "public",
+      "values": [
+        "zusage",
+        "auszahlung",
+        "rueckfluss",
+        "zins",
+        "tilgung",
+        "wertberichtigung"
+      ]
+    },
+    "public.zinslauf_status": {
+      "name": "zinslauf_status",
+      "schema": "public",
+      "values": [
+        "berechnet",
+        "geprueft",
+        "freigegeben",
+        "gebucht",
+        "verworfen"
+      ]
+    },
+    "public.zinsmethode": {
+      "name": "zinsmethode",
+      "schema": "public",
+      "values": [
+        "30E/360",
+        "act/360",
+        "act/365",
+        "act/act"
+      ]
+    },
+    "public.zinsperiodenart": {
+      "name": "zinsperiodenart",
+      "schema": "public",
+      "values": [
+        "jaehrlich",
+        "quartalsweise",
+        "endfaellig"
+      ]
+    }
+  },
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}

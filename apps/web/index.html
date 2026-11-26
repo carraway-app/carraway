@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/svg+xml" sizes="any" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="description" content="Carraway: Dealflow und Portfolio-Management für Beteiligungsgesellschaften" />
+    <title>Carraway</title>
+    <!-- Thema vor dem ersten Anstrich: data-theme aus dem Merkzettel des Browsers (ohne Wert: system), Browserleiste aus --cw-bg. Logik und Schlüssel wie packages/ui/src/thema.ts. -->
+    <script>
+      (function () {
+        var wurzel = document.documentElement;
+        var thema = "system";
+        try {
+          var wert = localStorage.getItem("carraway.thema");
+          if (wert === "hell" || wert === "dunkel") thema = wert;
+        } catch (e) {}
+        wurzel.dataset.theme = thema;
+        var meta = document.createElement("meta");
+        meta.name = "theme-color";
+        document.head.appendChild(meta);
+        var farbe = function () {
+          var grund = getComputedStyle(wurzel).getPropertyValue("--cw-bg").trim();
+          if (grund) meta.content = grund;
+        };
+        document.addEventListener("DOMContentLoaded", farbe);
+        window.matchMedia("(prefers-color-scheme: light)").addEventListener("change", farbe);
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

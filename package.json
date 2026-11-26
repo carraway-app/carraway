@@ -1,0 +1,43 @@
+{
+  "name": "carraway",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.13.0",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --filter @carraway/api --filter @carraway/web dev",
+    "build": "pnpm -r build",
+    "lint": "eslint .",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r --workspace-concurrency=1 test",
+    "db:setup": "pnpm --filter @carraway/db run setup",
+    "db:migrate": "pnpm --filter @carraway/db migrate",
+    "db:seed": "pnpm --filter @carraway/db seed && pnpm --filter @carraway/api seed:melde",
+    "migrationen:pruefen": "pnpm --filter @carraway/db migrationen:pruefen",
+    "bundle:pruefen": "node scripts/ci/bundle-budget.mjs",
+    "namen:pruefen": "node scripts/ci/alte-namen.mjs",
+    "design:kontrast": "node scripts/design/kontrast.mjs",
+    "ops:sicherung-test": "tsx scripts/ops/sicherung-test.ts",
+    "ops:dateien-pruefen": "tsx scripts/ops/dateien-pruefen.ts"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@carraway/db": "workspace:*",
+    "@types/node": "^24.19.2",
+    "@types/pg": "^8.23.1",
+    "axe-core": "4.14.1",
+    "eslint": "^10.15.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.14.0",
+    "pg": "^8.23.1",
+    "playwright-core": "1.65.1",
+    "simple-git-hooks": "2.14.0",
+    "tsx": "^4.23.15",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.73.0",
+    "vitest": "^5.1.1"
+  }
+}

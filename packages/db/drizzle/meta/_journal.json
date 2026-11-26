@@ -1,0 +1,580 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1795179751717,
+      "tag": "0000_tan_baron_strucker",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1795179752108,
+      "tag": "0001_vorgang_unveraenderlich",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1795180791406,
+      "tag": "0002_aenderung_wiedervorlage",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1795180791791,
+      "tag": "0003_aenderung_dubletten",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1795181154095,
+      "tag": "0004_phasenwechsel_erfasst",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1795181652366,
+      "tag": "0005_finanzierungsrunden_snapshots",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1795181667205,
+      "tag": "0006_snapshot_auftrag_trigger",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1795183664046,
+      "tag": "0007_instrumente_konditionen_meilensteine",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1795184039554,
+      "tag": "0008_zinslauf",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1795184337984,
+      "tag": "0009_wandlung",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1795184611514,
+      "tag": "0010_verkauf",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1795185517268,
+      "tag": "0011_anmeldung_rechte",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1795185530252,
+      "tag": "0012_periodensperre_trigger",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1795187870943,
+      "tag": "0013_beschluss_erfasst_von_passwort_aendern",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1795188532087,
+      "tag": "0014_beschluss_fonds",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1795188592087,
+      "tag": "0015_bewertung_freigabe",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1795188652087,
+      "tag": "0016_verkauf_storno",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1795188712087,
+      "tag": "0017_berichte_investoren",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1795188772087,
+      "tag": "0018_bericht_vorlage_festhalten",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1795188832087,
+      "tag": "0019_periodensperre_bewertung_verwerfen",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1795191403361,
+      "tag": "0020_import_idempotenz",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1795191419041,
+      "tag": "0021_aenderung_fonds",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1795195268520,
+      "tag": "0022_kontakte_ausbau",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1795195328520,
+      "tag": "0023_kontakte_suche_indizes",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1795196949627,
+      "tag": "0024_bewertungsrunde_uebersprungen",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1795196980534,
+      "tag": "0025_anteilsklassen",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1795199358227,
+      "tag": "0026_import_befund_params",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1795199401900,
+      "tag": "0027_kennzahlen",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1795200334342,
+      "tag": "0028_investor_portal",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1795200783022,
+      "tag": "0029_bericht_variante",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1795201166336,
+      "tag": "0030_ledger",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1795201181995,
+      "tag": "0031_ledger_trigger",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1795202971192,
+      "tag": "0032_dokumente_ki",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1795204830937,
+      "tag": "0033_buchhaltung",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1795206547473,
+      "tag": "0034_meldewesen",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1795206984903,
+      "tag": "0035_melde_schluessel_vereinheitlichen",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1795208763268,
+      "tag": "0036_esg_sfdr",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1795209988585,
+      "tag": "0037_mail_kalender",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1795211544212,
+      "tag": "0038_register",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1795211545212,
+      "tag": "0039_szenarien",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1795211960462,
+      "tag": "0040_mail_register_ereignis",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1795213817276,
+      "tag": "0041_beleg_storno",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1795215567124,
+      "tag": "0042_journal_indizes",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1795219062666,
+      "tag": "0043_dokument_aufbewahrung",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1795222219019,
+      "tag": "0044_migrationsstand_lesbar",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1795225325096,
+      "tag": "0045_dokument_texterkennung",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1795226266352,
+      "tag": "0046_registerauszug_auslesung",
+      "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1795226506047,
+      "tag": "0047_szenariobericht",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1795227586827,
+      "tag": "0048_aktivitaet_sync_uebernahme",
+      "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1795234461156,
+      "tag": "0049_crm_objekte",
+      "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1795262076795,
+      "tag": "0050_zusatzfelder",
+      "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1795263070153,
+      "tag": "0051_waehrung",
+      "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1795269344945,
+      "tag": "0052_thema_einstellung",
+      "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1795274285237,
+      "tag": "0053_werte_schluessel",
+      "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1795275832052,
+      "tag": "0054_pseudonymisierung",
+      "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1795290464940,
+      "tag": "0055_lp_verteilung_nach_zusage",
+      "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1795425157601,
+      "tag": "0056_instrument_enums",
+      "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1795425229332,
+      "tag": "0057_instrument_struktur",
+      "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1795425341584,
+      "tag": "0058_instrument_daten",
+      "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1795428305051,
+      "tag": "0059_instrument_eindeutigkeit",
+      "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1795429248964,
+      "tag": "0060_verkauf_darlehen_instrument",
+      "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1795431250288,
+      "tag": "0061_buchungsquelle_ertraege",
+      "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1795437907255,
+      "tag": "0062_tranche_aus_zusage",
+      "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1795438823551,
+      "tag": "0063_deal_eingang_dealtyp",
+      "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1795473156340,
+      "tag": "0064_vorgang_runde_bruecke",
+      "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1795528177964,
+      "tag": "0065_rollen_gruppen",
+      "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1795546058637,
+      "tag": "0066_eigene_belegarten",
+      "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1795553774120,
+      "tag": "0067_vehikel",
+      "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1795557082046,
+      "tag": "0068_bereiche_je_fonds",
+      "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1795558581133,
+      "tag": "0069_mitarbeiterbeteiligung",
+      "breakpoints": true
+    },
+    {
+      "idx": 70,
+      "version": "7",
+      "when": 1795592986313,
+      "tag": "0070_adorable_speedball",
+      "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1795596628893,
+      "tag": "0071_leaver_regeln",
+      "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1795601459440,
+      "tag": "0072_freie_belegfelder",
+      "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1795609107210,
+      "tag": "0073_zuteilung_austritte",
+      "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1795614441336,
+      "tag": "0074_wandlungsparameter",
+      "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "7",
+      "when": 1795619148263,
+      "tag": "0075_weiteres_closing",
+      "breakpoints": true
+    },
+    {
+      "idx": 76,
+      "version": "7",
+      "when": 1795624400588,
+      "tag": "0076_bericht_berichtigung",
+      "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "7",
+      "when": 1795625115198,
+      "tag": "0077_fonds_nav",
+      "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1795626268237,
+      "tag": "0078_lp_zahlungen",
+      "breakpoints": true
+    },
+    {
+      "idx": 79,
+      "version": "7",
+      "when": 1795628992515,
+      "tag": "0079_closing_storno",
+      "breakpoints": true
+    },
+    {
+      "idx": 80,
+      "version": "7",
+      "when": 1795632549334,
+      "tag": "0080_lp_austritt",
+      "breakpoints": true
+    },
+    {
+      "idx": 81,
+      "version": "7",
+      "when": 1795649119496,
+      "tag": "0081_meldevorlagen_herausgeber",
+      "breakpoints": true
+    }
+  ]
+}
