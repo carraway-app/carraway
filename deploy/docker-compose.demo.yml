@@ -1,0 +1,15 @@
+# Local demo mail catcher. Set SMTP_HOST=mailpit, SMTP_PORT=1025 and SMTP_TLS=keine.
+services:
+  mailpit:
+    image: axllent/mailpit:v1.29.7@sha256:757f22b56c1da03570afdb3d259effe5091018008a81bbedc8158cee7e16fdbc
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - "127.0.0.1:${MAILPIT_WEB_PORT:-8025}:8025"
+    tmpfs:
+      - /tmp
+    environment:
+      MP_MAX_MESSAGES: "500"

@@ -1,7 +1,5 @@
 # Operating Carraway (self-hosting)
 
-German version: [README.md](README.md)
-
 This guide describes how to run Carraway on your own server: one Docker Compose stack per customer, or several customers on a
 shared Postgres instance with one database each.
 
@@ -9,10 +7,10 @@ shared Postgres instance with one database each.
 
 | Service | Purpose | Command in the image |
 |---|---|---|
-| `datenbank` | PostgreSQL 18, data in the `datenbank` volume | (Postgres image) |
-| `migrate` | one-shot: create or upgrade the database structure, then the container exits | `node dist/migrate.js` |
-| `api` | API under `/api/v1` and the web app from the same origin (`WEB_AUSLIEFERN=1`) | `node dist/server.js` |
-| `worker` | computes the KPI snapshots (pg-boss queue) and reports its heartbeat | `node dist/worker.js` |
+| `postgres` | PostgreSQL 18, data in the `datenbank` volume | (Postgres image) |
+| `carraway-migrate` | one-shot: create or upgrade the database structure, then the container exits | `./bootstrap.sh && node dist/migrate.js` |
+| `carraway` | API under `/api/v1` and the web app from the same origin (`WEB_AUSLIEFERN=1`) | `node dist/server.js` |
+| `carraway-worker` | computes the KPI snapshots (pg-boss queue) and reports its heartbeat | `node dist/worker.js` |
 
 All three roles run the same image (`Dockerfile` in the repository). Released report files live in the `speicher` volume.
 
@@ -27,18 +25,26 @@ All three roles run the same image (`Dockerfile` in the repository). Released re
 
 ```bash
 git clone <repository address> carraway && cd carraway/deploy
-cp .env.beispiel .env
+cp .env.example .env
 $EDITOR .env            # fill in the required values, hints are in the file
-docker compose up -d --build
-docker compose ps       # all services "healthy", migrate "exited (0)"
+docker compose up -d
+docker compose ps -a    # all services "healthy", carraway-migrate "exited (0)"
 ```
 
-The stack refuses to start if a required variable is missing (`docker compose` aborts and names the variable). There are no default
-passwords. To use a prebuilt image from your own registry instead of `--build`, set `CARRAWAY_IMAGE` in `.env`.
-The stack builds the core (`CARRAWAY_VARIANTE=kern`, default; `docs/open-core.md`). The extensions (Excel add-in, LP portal, ESG,
-single sign-on, AI) are only available in hosting by Rehlytics; their image is kept in a private registry only.
+The Compose file in each public release pulls its matching core image from GHCR. The published image supports **linux/amd64** only.
+Set `CARRAWAY_IMAGE` to override the image. For a local source build, add
+`COMPOSE_FILE=docker-compose.yml:docker-compose.build.yml` to `.env` on Linux or macOS and run `docker compose up -d --build`.
+Existing installations can keep their German environment variable names. A nonempty English setting takes precedence.
 
 Generate random values with `openssl rand -hex 24` (database passwords) and `openssl rand -base64 48` (`BETTER_AUTH_SECRET`).
+
+## Coolify
+
+1. In your project, add a **Public Repository** resource for `https://github.com/carraway-app/carraway`. Choose the **Docker Compose** build pack. Ignore “Dockerfile suggested”.
+2. Set **Base directory** to `/deploy` and **Compose file** to `/docker-compose.yml`. Save and load the Compose definition.
+3. Under **Environment Variables**, enter the required values from `.env.example`. Set `APP_ORIGIN` to the HTTPS address users enter in their browser. Under **Domains**, select **carraway**. If Coolify asks for an internal port, enter **8787** (or use `https://fund.example.org:8787` in a combined domain field). Restrict access until the first administrator completes setup.
+4. Select **Deploy**. The stack appears as one application. Open its **Deployments** and select the deployment log for image pulls or startup failures. In the application's **Logs**, select each service for its container output. Check `postgres` first, then `carraway-migrate` (exit code 0), then `carraway` and `carraway-worker`. If no containers were created, use the deployment log.
+5. Before updating, take a backup. Select the new release commit or image tag and **Redeploy**. A deploy webhook or automatic deployment on a Git push can trigger the same update. For a moving image tag, set the Compose **Custom Build Command** to `docker compose pull` so the redeploy fetches its current image. The migration runs before the application and worker start. [Coolify Docker Compose guide](https://coolify.io/docs/applications/builds/docker-compose)
 
 ### First administrator (`/einrichtung`)
 
@@ -47,9 +53,9 @@ then expose to the network:
 
 1. The stack only listens on `127.0.0.1:8787` (`API_BIND`). Open `http://localhost:8787/einrichtung` through an SSH tunnel
    (`ssh -L 8787:127.0.0.1:8787 server`). `APP_ORIGIN` must equal the address in the browser; for this step set
-   `APP_ORIGIN=http://localhost:8787` and switch it to the public address afterwards (`docker compose up -d api`).
+   `APP_ORIGIN=http://localhost:8787` and switch it to the public address afterwards (`docker compose up -d carraway`).
 2. Enter name, e-mail address and a password of at least 12 characters.
-3. Sign in. With `ZWEI_FAKTOR_PFLICHT=1` (default) the app guides you through setting up the authenticator app; store the backup
+3. Sign in. With `REQUIRE_TWO_FACTOR=1` (default) the app guides you through setting up the authenticator app; store the backup
    codes safely.
 4. Further people are created by the administration under "Verwaltung" (start password, to be changed at first sign-in), or they
    sign in with company sign-in (Entra ID/Google, `OIDC_*`) if they were created beforehand with the same address.
@@ -58,7 +64,7 @@ Afterwards `/einrichtung` answers `registration_closed`.
 
 ## Environments: demo, test, echt (production)
 
-`CARRAWAY_UMGEBUNG` labels the environment. The app shows a banner in `demo` and `test`, none in `echt`.
+`CARRAWAY_ENVIRONMENT` labels the environment. The app shows a banner in `demo` and `test`, none in `echt`.
 
 | Environment | Purpose | Notes |
 |---|---|---|
@@ -74,12 +80,12 @@ explicit `DATABASE_URL`.
 ## Mail and calendar
 
 Both are off by default. Outgoing mail (key-figure links to companies, notifications about notices in the portal, report releases) needs `SMTP_HOST` and
-`SMTP_ABSENDER`; connecting mailbox and calendar and every mail with a one-time link additionally need `GEHEIMNIS_SCHLUESSEL` (`openssl rand -base64 32`).
+`SMTP_FROM`; connecting mailbox and calendar and every mail with a one-time link additionally need `SECRET_KEY` (`openssl rand -base64 32`).
 Administrators check the status under "Account, Mail delivery" (no secrets) and send a test mail to their own address. App registrations at Microsoft and
-Google (`POSTFACH_*`, read-only), IMAP, key rotation and the privacy notes are described in `docs/sicherheit/Mail-und-Kalender.md` (German); all variables
-are explained in `.env.beispiel`.
+Google (`MAILBOX_*`, read-only), IMAP, key rotation and the privacy notes are described in `docs/security/mail-and-calendar.md`; all variables
+are explained in `.env.example`.
 
-For the demo there is a mail catcher: `docker compose --profile demo-mail up -d` starts `mailpit` (only on `127.0.0.1:8025`); in `.env`, `SMTP_HOST=mailpit`,
+For the demo there is a mail catcher: `docker compose -f docker-compose.yml -f docker-compose.demo.yml up -d` starts `mailpit` (only on `127.0.0.1:8025`); in `.env`, `SMTP_HOST=mailpit`,
 `SMTP_PORT=1025` and `SMTP_TLS=keine` point to it. Nothing leaves the machine. `pnpm --filter @carraway/api demo:postfach` creates invented mails and
 meetings for the demo person Vera (after `pnpm db:seed`, using the demo provider, no account needed).
 
@@ -90,7 +96,7 @@ Put the API behind a reverse proxy (Caddy, nginx, Traefik or your hosting provid
 - `APP_ORIGIN` is the public address with `https://`, without a path (several separated by commas). It determines cookies
   (`Secure`), the company sign-in callback and the allowed origins: state-changing requests with a foreign `Origin` are rejected.
   For `https://` addresses the API sends `Strict-Transport-Security`.
-- Set `PROXY_VERTRAUEN=1` only if the proxy sets or appends `X-Forwarded-For` itself. The API takes the **last** entry as the
+- Set `TRUST_PROXY=1` only if the proxy sets or appends `X-Forwarded-For` itself. The API takes the **last** entry as the
   client address (failed-attempt limit per address). The proxy must append the address rather than pass a client-supplied header
   through unchanged (nginx: `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`). Without a proxy keep `0`, otherwise
   anyone can forge the address.
@@ -104,20 +110,20 @@ Put the API behind a reverse proxy (Caddy, nginx, Traefik or your hosting provid
 
 ## Observability
 
-- **Logs:** one JSON line per event on standard output (`docker compose logs -f api worker`), minimum level `LOG_STUFE`. Request
+- **Logs:** one JSON line per event on standard output (`docker compose logs -f carraway carraway-worker`), minimum level `LOG_LEVEL`. Request
   lines carry request ID, method, route pattern, status, duration in milliseconds and the user ID; no addresses, names, amounts,
   query strings or secrets. Errors are logged without query parameters.
 - **Health:** `GET /api/v1/health` needs no sign-in. 200 means the database answers; 503 means it does not. In addition:
   `worker.status` (`ok`, `ausgefallen` after more than 30 seconds without heartbeat, `unbekannt` if there never was one),
   `warteschlange.wartend` and `aeltesterWartenderSekunden` (lag in pg-boss) and `ausgangskorb` (jobs the worker has not picked up
   yet; grows when the worker is dead). A worker outage does not make the API unready.
-- **Metrics:** `GET /metriken` (Prometheus text format, `Authorization: Bearer <METRIKEN_TOKEN>`). Without `METRIKEN_TOKEN` the
+- **Metrics:** `GET /metriken` (Prometheus text format, `Authorization: Bearer <METRICS_TOKEN>`). Without `METRICS_TOKEN` the
   endpoint is off. Request duration as a histogram per method, route pattern and status class, database connections, queue,
   outbox, worker heartbeat.
 - **Operating status:** Administration → Operations (`GET /api/v1/operations/status`, global administrators only): database, migration state, age of
   the worker heartbeat, backlogs (snapshots, mail, AI extraction, register monitoring), whether file storage is writable, SMTP configured yes or no,
   AI provider. `/metriken` carries heartbeat age and backlogs (`carraway_rueckstand_*`) for alerts.
-- **Container health:** `api` through the health request, `worker` through its heartbeat file. Docker does not restart unhealthy
+- **Container health:** `carraway` through the health request, `carraway-worker` through its heartbeat file. Docker does not restart unhealthy
   containers by itself; use monitoring (for example HetrixTools, Prometheus with alerts, `docker-autoheal`).
 
 ## Putting data in and taking it out
@@ -140,12 +146,12 @@ All routes run through the application and appear in the change log; none needs 
 
 ## Database privileges
 
-Two roles per tenant, created by `deploy/sql/mandant.sql` (on first start of the Compose stack and by `mandant-anlegen.sh`):
+Before schema migrations, `carraway-migrate` runs `deploy/sql/mandant.sql` as administrator. It creates missing roles and the database, preserves existing passwords, and reapplies privileges if setup was interrupted. Schema migrations run as the owner.
 
 | Role | Purpose | Privileges |
 |---|---|---|
 | `<db>_eigentuemer` | owns the database, runs migrations | everything (DDL) in the schemas `public` and `drizzle` |
-| `<db>_app` | runtime of API and worker | `SELECT`, `INSERT`, `UPDATE`, `DELETE` on tables in schema `public`, sequences; **no** `CREATE`, `ALTER`, `DROP`, `TRUNCATE`, no access to `drizzle` |
+| `<db>_app` | runtime of API and worker | `SELECT`, `INSERT`, `UPDATE`, `DELETE` on tables in schema `public`, sequences; **no** `CREATE`, `ALTER`, `DROP`, `TRUNCATE`, read-only access to the migration journal |
 
 Measured against the code and a run on a fresh database: the application needs no DDL in schema `public`. One exception:
 **pg-boss** (the queue) creates its tables and partitions in schema `pgboss` at runtime. That schema therefore belongs to the app
@@ -156,26 +162,27 @@ other roles on the same instance cannot enter the database.
 
 ## One database per customer on a shared Postgres instance
 
-If you run several customers on one instance (instead of one Compose stack each), create one database per customer:
+Create a private `provision.env` (mode 600) per tenant. Set `PGHOST`, `PGPORT`, `PGUSER` and `PGPASSWORD` for the database administrator, plus `DB_NAME` and the two role passwords `DB_OWNER_PASSWORD` and `DB_APP_PASSWORD`. Use the bootstrap script shipped in the release image:
 
-```bash
-export DATABASE_URL_SUPERUSER=postgres://admin@db.internal:5432/postgres   # password via PGPASSWORD or ~/.pgpass
-DB_HOST=db.internal deploy/mandant-anlegen.sh examplecustomer
-# creates mandanten/examplecustomer.env (mode 600) with DATABASE_URL_EIGENTUEMER and DATABASE_URL
-docker run --rm --env-file mandanten/examplecustomer.env -e CARRAWAY_UMGEBUNG=echt <image> node dist/migrate.js
+```sh
+docker run --rm --env-file provision.env <image> ./bootstrap.sh
 ```
 
-Then the customer's `api` and `worker` run with `DATABASE_URL` (only that, not `DATABASE_URL_EIGENTUEMER`) and
-`PGBOSS_SCHEMA_ANLEGEN=0`. The script generates the passwords (or use `EIGENTUEMER_PASSWORT` and `APP_PASSWORT`). It is repeatable;
-a second run resets the passwords. Give each customer its own `BETTER_AUTH_SECRET`, its own file storage and its own address.
+The database must be reachable from the container. Run `node dist/migrate.js` in the same image with `DATABASE_URL_OWNER` set to the owner's connection URL. Give the application and worker the `DATABASE_URL` for the app role and `PGBOSS_SCHEMA_ANLEGEN=0`. Keep admin credentials in the provisioning step. Use a separate `BETTER_AUTH_SECRET`, file store and address for each tenant.
 
 ## Updating
 
+The default tag `X.Y.Z` pins one release. For installations that should receive patches within a minor version, set `CARRAWAY_IMAGE=ghcr.io/carraway-app/carraway:X.Y` (recommended). Substitute the actual version numbers. `X` tracks the major version and `latest` follows stable releases across major versions. Reserve both for test instances.
+
+**Upgrading from the old service names.** Back up and run `docker compose down` with the **old** Compose file before changing releases. Keep the project name and both volumes. In Coolify, stop the existing resource and verify its persistent storage names before redeploying it. The new service names change container names and internal DNS. The volume keys `datenbank` and `speicher` still resolve to the same project-scoped volumes. Never use `down -v` during an upgrade.
+
 ```bash
-cd carraway && git pull && cd deploy
-./sicherung.sh                           # always back up first
-docker compose up -d --build             # rebuilds the image, migrate runs before api and worker
-docker compose ps && curl -s http://127.0.0.1:8787/api/v1/health
+cd carraway/deploy
+./sicherung.sh                    # while the current stack is running
+# On the first upgrade from the old service names: docker compose down
+git pull --ff-only
+docker compose pull && docker compose up -d
+docker compose ps -a && curl -fsS http://127.0.0.1:8787/api/v1/health
 ```
 
 ### Moving from the former product name
@@ -188,15 +195,15 @@ volumes and the roles are named differently:
 ```bash
 COMPOSE_PROJECT_NAME=fundament      # determines the volume names
 DB_NAME=fundament                   # roles fundament_app and fundament_eigentuemer
-DB_ADMIN_BENUTZER=fundament_admin
+DB_ADMIN_USER=fundament_admin
 CARRAWAY_IMAGE=fundament:kern       # only if the image was built and pinned under the old name
 ```
 
 Per-customer databases (`fundament_<kunde>`) keep their names; the tenant's `DB_NAME` or `DATABASE_URL` keeps pointing at them. Further
 changes when updating an existing installation:
 
-- Environment variables: `FUNDAMENT_UMGEBUNG` is now `CARRAWAY_UMGEBUNG`, `FUNDAMENT_IMAGE` is now `CARRAWAY_IMAGE`. The old names no longer
-  apply; rename them in `.env` before updating, otherwise `docker compose` aborts (`CARRAWAY_UMGEBUNG fehlt`).
+- Environment variables: `FUNDAMENT_UMGEBUNG` is now `CARRAWAY_ENVIRONMENT`, `FUNDAMENT_IMAGE` is now `CARRAWAY_IMAGE`. The old names no longer
+  apply; rename them in `.env` before updating, otherwise `docker compose` aborts.
 - Metrics at `/metriken`: the prefix `fundament_` is now `carraway_`. Adjust alert rules and dashboards.
 - The worker's heartbeat table is now `pgboss.carraway_herzschlag`, created by the worker itself. The old table `pgboss.fundament_herzschlag`
   stays behind and can be dropped: `DROP TABLE IF EXISTS pgboss.fundament_herzschlag;`.
@@ -207,15 +214,15 @@ changes when updating an existing installation:
   Replace; reload the manifest.
 - In the browser, language, theme and selected fund have to be chosen once more (the storage keys have new names).
 
-The migration is repeatable and runs on every `up` before `api` and `worker`. It has no downgrade: going back means restoring the
+The migration is repeatable and runs on every `up` before `carraway` and `carraway-worker`. It has no downgrade: going back means restoring the
 backup and starting the old image. Pin image versions by tag or digest so the way back is known. API and worker check at startup that
 the database has exactly the migrations the code knows and exit with a clear log line otherwise (an older image does not start
-against a newer database). Procedure and rollback rule: [docs/betrieb/README.md](../docs/betrieb/README.md) (German).
+against a newer database). Procedure and rollback rule: [docs/operations/README.md](../docs/operations/README.md).
 
 ## Backup and restore
 
 ```bash
-SICHERUNG_ZIEL=/mnt/backup ./sicherung.sh                 # database + file storage, checksums, 14 days retention
+BACKUP_DIR=/mnt/backup ./sicherung.sh                 # database + file storage, checksums, 14 days retention
 ./wiederherstellung.sh /mnt/backup/carraway-carraway-20261120-120000
 ```
 
@@ -225,17 +232,17 @@ storage: documents, reports, per-investor report versions, notices, receipts, bo
 recomputed.
 
 - Store backups on another medium and in another place than the data (another server, object storage, tape). Schedule with `cron`
-  or a systemd timer, for example daily at 02:00: `0 2 * * * cd /opt/carraway/deploy && SICHERUNG_ZIEL=/mnt/backup ./sicherung.sh`.
-- `SICHERUNG_AUFBEWAHREN_TAGE` (default 14) deletes older backups of this tenant; `0` never deletes.
-- Compose mode runs `pg_dump` inside the database container so client and server have the same version. Direct mode (`--direkt`,
+  or a systemd timer, for example daily at 02:00: `0 2 * * * cd /opt/carraway/deploy && BACKUP_DIR=/mnt/backup ./sicherung.sh`.
+- `BACKUP_RETENTION_DAYS` (default 14) deletes older backups of this tenant; `0` never deletes.
+- Compose mode runs `pg_dump` inside the database container so client and server have the same version. Direct mode requires Python 3 and a PostgreSQL client (`--direkt`,
   own instance) aborts if the client is older than the server.
-- Restore stops `api` and `worker`, recreates the database with the same roles and privileges, loads dump and files, and starts
+- Restore stops `carraway` and `carraway-worker`, recreates the database with the same roles and privileges, loads dump and files, and starts
   both again. It overwrites the current state and therefore asks first (`--ja` skips the question).
 - **Practise restoring:** once a quarter and after every larger change, restore a backup into an empty trial stack (different
   `COMPOSE_PROJECT_NAME`) and sign in. For the technique there is the automated test `pnpm ops:sicherung-test` in the repository
   (dump, restore into a fresh database, comparison of row counts and checksums of all tables and SHA-256 comparison of the files of every
   file kind); it runs in CI for every state of `main`. After a real restore, `pnpm ops:dateien-pruefen` checks database and file
-  storage against each other. Full runbook (German): [docs/betrieb/README.md](../docs/betrieb/README.md).
+  storage against each other. Full runbook: [docs/operations/README.md](../docs/operations/README.md).
 
 Not part of the backup and managed separately: the `.env` file (secrets) and the proxy configuration. Without the
 `BETTER_AUTH_SECRET` of the time of the backup, authenticator apps stay invalid (the TOTP secrets are encrypted with it);
@@ -245,9 +252,9 @@ passwords themselves are hashed and stay valid.
 
 | Observation | Cause and remedy |
 |---|---|
-| `docker compose` aborts with "… fehlt" | a required variable is missing in `.env` (name in the message and in `.env.beispiel`) |
-| `api` does not start: `BETTER_AUTH_SECRET … Pflicht` | secret too short (at least 32 characters) or not set for an `https` address |
+| `docker compose` reports a missing variable | a required variable is missing in `.env` (name in the message and in `.env.example`) |
+| `carraway` does not start: `BETTER_AUTH_SECRET … Pflicht` | secret too short (at least 32 characters) or not set for an `https` address |
 | sign-in fails with `origin_invalid` | `APP_ORIGIN` does not match the address in the browser (scheme, host, port) |
-| many failed attempts, lockout for everyone behind the proxy | `PROXY_VERTRAUEN=1` missing, the API only sees the proxy's address |
-| `worker.status` is `ausgefallen` or `unbekannt` | `docker compose logs worker`; if it runs, check that `migrate` succeeded |
+| many failed attempts, lockout for everyone behind the proxy | `TRUST_PROXY=1` missing, the API only sees the proxy's address |
+| `worker.status` is `ausgefallen` or `unbekannt` | `docker compose logs carraway-worker`; if it runs, check that `carraway-migrate` succeeded |
 | `ausgangskorb` grows | worker is stopped or cannot reach the database; jobs are not lost and are caught up |

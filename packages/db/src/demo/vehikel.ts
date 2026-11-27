@@ -10,7 +10,7 @@ const NAMEN = ["Fonds I", "Wachstumsfonds II", "Opportunity SPV"] as const;
 const ARTEN = ["fonds", "fonds", "spv"] as const;
 
 /**
- * Erfundene Vehikel der Demo-Investoren (docs/portfolio-modell.md, „Vehikel der Co-Investoren“). Ids und Werte sind aus dem Investor abgeleitet
+ * Erfundene Vehikel der Demo-Investoren (docs/portfolio-model.md, „Co-investor vehicles“). Ids und Werte sind aus dem Investor abgeleitet
  * und verbrauchen keine Zufallszahlen, damit alle übrigen Demo-Daten unverändert bleiben. Das erste Vehikel jedes Investors ist Standard.
  */
 export function erzeugeVehikel(investoren: readonly { id: string; name: string }[]): DemoVehikel[] {

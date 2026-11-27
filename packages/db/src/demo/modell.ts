@@ -7,7 +7,7 @@ import { vehikelFuer } from "./vehikel";
 import { abgeleiteteId, euro, plusTage, tagesnummer } from "./zufall";
 
 /**
- * Das Portfolio-Modell im Demo-Bestand (`docs/portfolio-modell.md`). Der Generator erzeugt je Beteiligung zuerst ein Hauptinstrument mit allen
+ * Das Portfolio-Modell im Demo-Bestand (`docs/portfolio-model.md`). Der Generator erzeugt je Beteiligung zuerst ein Hauptinstrument mit allen
  * Vorgängen und Runden aus den Tranchen aller Fonds; dieser Durchlauf richtet das Ergebnis nach dem Modell aus. Er läuft am Ende, mit eigenem
  * Zufallsstrom und abgeleiteten Ids, damit alle übrigen Demo-Daten unverändert bleiben:
  *

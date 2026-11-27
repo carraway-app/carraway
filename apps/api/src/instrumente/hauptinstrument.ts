@@ -3,7 +3,7 @@ import { beteiligung, INSTRUMENT_BEZEICHNUNG, instrument, type Db } from "@carra
 import type { Tx } from "../zeitlimit";
 
 /**
- * Übergang zum Portfolio-Modell (`docs/portfolio-modell.md`, Phase 1): Jede Beteiligung hat mindestens ein Instrument, jeder Vorgang,
+ * Übergang zum Portfolio-Modell (`docs/portfolio-model.md`, Phase 1): Jede Beteiligung hat mindestens ein Instrument, jeder Vorgang,
  * jede Kondition und Tranche gehört zu einem. Solange die API noch je Beteiligung rechnet, ist das Instrument das **Hauptinstrument**:
  * das erste aktive, sonst das zuletzt angelegte. Neue Beteiligungen legen es mit an, ältere Zeilen ohne Instrument (z. B. direkt
  * geschriebene) bekommen es beim ersten Zugriff.

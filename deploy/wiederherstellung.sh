@@ -1,18 +1,10 @@
 #!/usr/bin/env bash
-# Stellt eine Sicherung von deploy/sicherung.sh wieder her. ZERSTÖRT die aktuelle Datenbank und die Dateiablage des Mandanten.
-#
-#   deploy/wiederherstellung.sh sicherungen/carraway-carraway-20261120-120000
-#   deploy/wiederherstellung.sh <Sicherung> --env-datei /pfad/.env --ja     # ohne Rückfrage
-#
-# Compose-Stack (Standard): hält API und Worker an, legt die Datenbank mit denselben Rollen und Rechten neu an (wie beim
-# ersten Start), spielt den Dump ein, leert und füllt die Dateiablage und startet API und Worker wieder (die Migration läuft
-# dabei erneut und ist ohne Wirkung, wenn der Stand aktuell ist).
-#
-# Direkt-Modus (--direkt, eigene Postgres-Instanz): Die Zieldatenbank muss mit deploy/mandant-anlegen.sh angelegt und leer sein.
-#   DATABASE_URL_WIEDERHERSTELLUNG  Verbindung der Eigentümerrolle zur leeren Zieldatenbank
-#   EIGENTUEMER_ROLLE               Name der Eigentümerrolle (carraway_<kunde>_eigentuemer)
-#   SPEICHER_VERZEICHNIS            Dateiablage, wird geleert und neu gefüllt
-#   API und Worker vorher anhalten; danach Migration (dist/migrate.js) laufen lassen und beide wieder starten.
+# Restore a backup made by sicherung.sh. This replaces both the tenant database and its files.
+# Usage: wiederherstellung.sh <backup directory> [--env-datei path] [--ja] [--direkt]
+# Compose stops the application and worker, provisions the empty database, restores the
+# dump and files, then starts both services after migration.
+# In direct mode, stop the application first and prepare an empty target database.
+# Set DATABASE_URL_RESTORE, OWNER_ROLE and STORAGE_DIR. Run migrations before restarting.
 set -euo pipefail
 
 verzeichnis="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -25,7 +17,7 @@ while [[ $# -gt 0 ]]; do
     --direkt) modus="direkt"; shift ;;
     --env-datei) env_datei="${2:?--env-datei braucht einen Pfad}"; shift 2 ;;
     --ja) ja=1; shift ;;
-    -h|--help) sed -n '2,18p' "${BASH_SOURCE[0]}"; exit 0 ;;
+    -h|--help) sed -n '/^# /p' "${BASH_SOURCE[0]}"; exit 0 ;;
     -*) echo "Unbekannte Option: $1" >&2; exit 2 ;;
     *) sicherung="$1"; shift ;;
   esac
@@ -35,23 +27,20 @@ done
 echo "Prüfsummen ..."
 (cd "$sicherung" && if command -v sha256sum > /dev/null; then sha256sum -c SHA256SUMS; else shasum -a 256 -c SHA256SUMS; fi)
 
-env_wert() {
-  local name="$1" vorgabe="${2:-}" zeile
-  zeile="$(grep -E "^${name}=" "$env_datei" 2>/dev/null | tail -n1 || true)"
-  if [[ -n "$zeile" ]]; then printf '%s' "${zeile#*=}"; else printf '%s' "$vorgabe"; fi
-}
-
 if [[ "$modus" == "compose" ]]; then
   [[ -f "$env_datei" ]] || { echo "Datei $env_datei fehlt." >&2; exit 2; }
-  db="$(env_wert DB_NAME carraway)"
-  admin="$(env_wert DB_ADMIN_BENUTZER carraway_admin)"
-  dc() { docker compose --env-file "$env_datei" -f "${verzeichnis}/docker-compose.yml" "$@"; }
+  # Compose resolves COMPOSE_FILE relative to its working directory.
+  [[ "$env_datei" = /* ]] || env_datei="$PWD/$env_datei"
+  dc() (cd "$verzeichnis" && docker compose --env-file "$env_datei" "$@")
+  # Read the effective values from the database container, including Compose overrides and legacy settings.
+  admin="$(dc exec -T postgres printenv POSTGRES_USER)"
+  db="$(dc exec -T postgres printenv DB_NAME)"
   ziel_beschreibung="Datenbank ${db} und Dateiablage des Compose-Stacks"
 else
-  : "${DATABASE_URL_WIEDERHERSTELLUNG:?DATABASE_URL_WIEDERHERSTELLUNG fehlt}"
-  : "${EIGENTUEMER_ROLLE:?EIGENTUEMER_ROLLE fehlt}"
-  : "${SPEICHER_VERZEICHNIS:?SPEICHER_VERZEICHNIS fehlt}"
-  ziel_beschreibung="Datenbank $(psql "$DATABASE_URL_WIEDERHERSTELLUNG" -Atc 'select current_database()') und ${SPEICHER_VERZEICHNIS}"
+  export DATABASE_URL_RESTORE="${DATABASE_URL_RESTORE:-${DATABASE_URL_WIEDERHERSTELLUNG:?set DATABASE_URL_RESTORE}}"
+  export OWNER_ROLE="${OWNER_ROLE:-${EIGENTUEMER_ROLLE:?set OWNER_ROLE}}"
+  export STORAGE_DIR="${STORAGE_DIR:-${SPEICHER_VERZEICHNIS:?set STORAGE_DIR}}"
+  ziel_beschreibung="Datenbank $("$verzeichnis/pg-client.py" DATABASE_URL_RESTORE psql -Atc 'select current_database()') und ${STORAGE_DIR}"
 fi
 
 echo "ACHTUNG: überschreibt ${ziel_beschreibung} mit dem Stand aus ${sicherung}."
@@ -61,22 +50,23 @@ if (( ja == 0 )); then
 fi
 
 if [[ "$modus" == "compose" ]]; then
-  dc stop api worker
+  [[ "$db" =~ ^[A-Za-z0-9_-]+$ ]] || { echo "Invalid DB_NAME" >&2; exit 2; }
+  dc stop carraway carraway-worker
   echo "Datenbank neu anlegen ..."
-  dc exec -T datenbank psql -U "$admin" -d postgres -v ON_ERROR_STOP=1 -c "DROP DATABASE IF EXISTS \"${db}\" WITH (FORCE)"
-  dc exec -T datenbank sh /docker-entrypoint-initdb.d/01-mandant.sh
+  dc exec -T postgres psql -U "$admin" -d postgres -v ON_ERROR_STOP=1 -c "DROP DATABASE IF EXISTS \"${db}\" WITH (FORCE)"
+  dc run --rm --no-deps -T carraway-migrate ./bootstrap.sh
   echo "Dump einspielen ..."
-  dc exec -T datenbank pg_restore -U "$admin" -d "$db" --exit-on-error < "${sicherung}/datenbank.dump"
+  dc exec -T postgres pg_restore -U "$admin" -d "$db" --exit-on-error < "${sicherung}/datenbank.dump"
   echo "Dateiablage zurückspielen ..."
-  dc run --rm --no-deps -T --entrypoint sh api -c 'find /daten/speicher -mindepth 1 -delete && tar -xzf - -C /daten/speicher' < "${sicherung}/speicher.tar.gz"
-  dc up -d api worker
+  dc run --rm --no-deps -T --entrypoint sh carraway -c 'find /daten/speicher -mindepth 1 -delete && tar -xzf - -C /daten/speicher' < "${sicherung}/speicher.tar.gz"
+  dc up -d carraway carraway-worker
 else
   echo "Dump einspielen ..."
-  pg_restore -d "$DATABASE_URL_WIEDERHERSTELLUNG" --exit-on-error --no-owner --role="$EIGENTUEMER_ROLLE" "${sicherung}/datenbank.dump"
+  "$verzeichnis/pg-client.py" DATABASE_URL_RESTORE pg_restore --exit-on-error --no-owner --role="$OWNER_ROLE" "${sicherung}/datenbank.dump"
   echo "Dateiablage zurückspielen ..."
-  mkdir -p "$SPEICHER_VERZEICHNIS"
-  find "$SPEICHER_VERZEICHNIS" -mindepth 1 -delete
-  tar -xzf "${sicherung}/speicher.tar.gz" -C "$SPEICHER_VERZEICHNIS"
+  mkdir -p "$STORAGE_DIR"
+  find "$STORAGE_DIR" -mindepth 1 -delete
+  tar -xzf "${sicherung}/speicher.tar.gz" -C "$STORAGE_DIR"
 fi
 echo "Wiederherstellung fertig. Kontrolle: /api/v1/health, Verwaltung → Betrieb, eine Anmeldung, und die Dateien gegen die Datenbank:"
-echo "  DATABASE_URL=<Verbindung> SPEICHER_VERZEICHNIS=<Dateiablage> pnpm ops:dateien-pruefen   (Ablauf: docs/betrieb/README.md)"
+echo "  DATABASE_URL=<Verbindung> SPEICHER_VERZEICHNIS=<Dateiablage> pnpm ops:dateien-pruefen   (Ablauf: docs/operations/README.md)"

@@ -38,7 +38,7 @@ export const DEMO_ZUGAENGE: DemoZugang[] = [
     globalVerwalter: true,
     rolle: "verwalter",
     fonds: "alle",
-    beschreibung: "Verwalterin aller Fonds: Benutzer, Rollen, Periodensperre, API-Schlüssel",
+    beschreibung: "Admin on all funds: users, roles, period lock and API keys",
   },
   {
     name: "Frieda Beispiel",
@@ -49,7 +49,7 @@ export const DEMO_ZUGAENGE: DemoZugang[] = [
     globalVerwalter: false,
     rolle: "freigeber",
     fonds: "alle",
-    beschreibung: "Freigeberin: prüft und gibt frei (erste Person im Vier-Augen-Ablauf)",
+    beschreibung: "Approver: can review and approve (first person in the four-eyes workflow)",
   },
   {
     name: "Friedrich Beispiel",
@@ -60,7 +60,7 @@ export const DEMO_ZUGAENGE: DemoZugang[] = [
     globalVerwalter: false,
     rolle: "freigeber",
     fonds: "alle",
-    beschreibung: "Freigeber: zweite Person im Vier-Augen-Ablauf",
+    beschreibung: "Approver: second person in the four-eyes workflow",
   },
   {
     name: "Berta Beispiel",
@@ -71,7 +71,7 @@ export const DEMO_ZUGAENGE: DemoZugang[] = [
     globalVerwalter: false,
     rolle: "bearbeiter",
     fonds: "alle",
-    beschreibung: "Bearbeiterin: erfasst Daten, kann nichts freigeben",
+    beschreibung: "Editor: records data without approval rights",
   },
   {
     name: "Bernd Beispiel",
@@ -82,7 +82,7 @@ export const DEMO_ZUGAENGE: DemoZugang[] = [
     globalVerwalter: false,
     rolle: "betrachter",
     fonds: [1],
-    beschreibung: "Betrachter nur des ersten Fonds: sieht die anderen Fonds nicht",
+    beschreibung: "Viewer on the first fund only",
   },
   {
     name: "Rita Beispiel",
@@ -94,7 +94,7 @@ export const DEMO_ZUGAENGE: DemoZugang[] = [
     rolle: "betrachter",
     fonds: [],
     gruppe: "Relationship Management",
-    beschreibung: "Gruppe Relationship Management: pflegt Kontakte, sieht keine Finanzdaten, keine Deals und keine Buchhaltung",
+    beschreibung: "Relationship Management group: maintains contacts and has no access to finance, deals or accounting",
   },
   {
     name: "Carl Beispiel",
@@ -106,7 +106,7 @@ export const DEMO_ZUGAENGE: DemoZugang[] = [
     rolle: "betrachter",
     fonds: [2],
     gruppe: "Fondsmanagement und Controlling",
-    beschreibung: "Gruppe Fondsmanagement und Controlling (nur erster Fonds, Bearbeiter), dazu als Ausnahme Betrachter des zweiten Fonds",
+    beschreibung: "Fondsmanagement und Controlling group (editor on the first fund only), with a viewer override on the second fund",
   },
 ];
 
@@ -118,10 +118,10 @@ export const DEMO_ROLLEN: { name: string; beschreibung: string; bereiche: string
 ];
 
 /** Beispielgruppen: Stufe an den Fonds der Gruppe, Rollen und Fondszugriff (`fonds`: Nummern; ohne Angabe gilt die zentrale Einstellung). */
-export const DEMO_GRUPPEN: { name: string; beschreibung: string; stufe: (typeof s.fondsRolle.enumValues)[number]; rollen: string[]; fonds?: number[] }[] = [
-  { name: "Investmentmanagement", beschreibung: "Beteiligungen und Dealflow aller Fonds", stufe: "bearbeiter", rollen: ["Investments"] },
-  { name: "Fondsmanagement und Controlling", beschreibung: "Finanzen und Berichte des ersten Fonds", stufe: "bearbeiter", rollen: ["Finanzen und Berichte"], fonds: [1] },
-  { name: "Relationship Management", beschreibung: "Kontaktpflege ohne Finanzdaten", stufe: "bearbeiter", rollen: ["Kontakte"] },
+export const DEMO_GRUPPEN: { name: string; beschreibung: string; beschreibungEn: string; stufe: (typeof s.fondsRolle.enumValues)[number]; rollen: string[]; fonds?: number[] }[] = [
+  { name: "Investmentmanagement", beschreibung: "Beteiligungen und Dealflow aller Fonds", beschreibungEn: "Investments and dealflow across all funds", stufe: "bearbeiter", rollen: ["Investments"] },
+  { name: "Fondsmanagement und Controlling", beschreibung: "Finanzen und Berichte des ersten Fonds", beschreibungEn: "Finance and reports for the first fund", stufe: "bearbeiter", rollen: ["Finanzen und Berichte"], fonds: [1] },
+  { name: "Relationship Management", beschreibung: "Kontaktpflege ohne Finanzdaten", beschreibungEn: "Manage contacts without access to financial data", stufe: "bearbeiter", rollen: ["Kontakte"] },
 ];
 
 /** Investor-Zugang für das LP-Portal (Etappe 12): kein Fondsrecht, nur das eigene Kapitalkonto, Berichte und Mitteilungen. */
@@ -144,7 +144,7 @@ export const DEMO_INVESTOR_ZUGAENGE: DemoInvestorZugang[] = [
     totpGeheimnis: "OJXXK3TFNZ2GK4TSMVZGK3DFNZSWIZLT",
     wiederherstellungscodes: ["demo-port-0001", "demo-port-0002"],
     investorNr: 1,
-    beschreibung: "Investor-Zugang zum Portal: sieht nur das Konto des ersten Investors der Demo-Daten",
+    beschreibung: "Investor portal account: sees only the first demo investor’s account",
   },
   {
     name: "Ingo Beispiel",
@@ -153,7 +153,7 @@ export const DEMO_INVESTOR_ZUGAENGE: DemoInvestorZugang[] = [
     totpGeheimnis: "PFXGK5BAOBSXEYLSNFXHGZLTMVWGK3TF",
     wiederherstellungscodes: ["demo-port-0003", "demo-port-0004"],
     investorNr: 2,
-    beschreibung: "Investor-Zugang zum Portal: sieht nur das Konto des zweiten Investors der Demo-Daten",
+    beschreibung: "Investor portal account: sees only the second demo investor’s account",
   },
 ];
 
@@ -225,6 +225,7 @@ export async function schreibeDemoZugaenge(
 
 /** Markdown-Dokument mit allen Zugangsdaten (Inhalt ist deterministisch und liegt im Repository). */
 export function zugangsdokument(): string {
+  const stufen = { betrachter: "viewer", bearbeiter: "editor", freigeber: "approver", verwalter: "admin" };
   const zeilen = DEMO_ZUGAENGE.map(
     (z) =>
       `| ${z.name} | \`${z.email}\` | \`${z.passwort}\` | \`${z.totpGeheimnis}\` | ${z.beschreibung} |`,
@@ -232,56 +233,56 @@ export function zugangsdokument(): string {
   const investorZeilen = DEMO_INVESTOR_ZUGAENGE.map(
     (z) => `| ${z.name} | \`${z.email}\` | \`${z.passwort}\` | \`${z.totpGeheimnis}\` | ${z.beschreibung} |`,
   ).join("\n");
-  return `# Demo-Zugänge (nur lokale Entwicklung)
+  return `# Demo accounts (local development only)
 
-> **Nur für die lokale Entwicklung.** Alle Namen, Adressen, Passwörter und TOTP-Geheimnisse hier sind erfunden und
-> öffentlich. Sie schützen nichts und dürfen nie in einem Echtbestand, auf einem erreichbaren Server oder in einer
-> Kundenumgebung benutzt werden. Das Seed-Skript lehnt \`CARRAWAY_UMGEBUNG=echt\` ab.
+> **For local development only.** The names, addresses, passwords and TOTP secrets below are fictional and public.
+> They provide no protection and must never be used in production, on a reachable server or in a customer environment.
+> The seed script rejects \`CARRAWAY_UMGEBUNG=echt\`.
 >
-> Diese Datei wird vom Seed-Skript (\`pnpm db:seed\`) geschrieben; ändere sie nicht von Hand.
+> The seed script (\`pnpm db:seed\`) generates this file. Make changes in the generator.
 
-Anmelden mit Adresse und Passwort, danach den sechsstelligen Code aus einer Authenticator-App. Das Geheimnis wird dort
-als Schlüssel eingetragen (Base32, SHA-1, 6 Stellen, 30 Sekunden). Ohne App lässt sich der Code auf der Kommandozeile
-ausrechnen, z. B. mit \`oathtool --totp -b <Geheimnis>\`.
+Sign in with the email address and password, then enter the six-digit code from an authenticator app. Enter the secret
+as its key (Base32, SHA-1, 6 digits, 30 seconds). To calculate a code without an app, run, for example,
+\`oathtool --totp -b <secret>\`, substituting the TOTP secret.
 
-| Name | Adresse | Passwort | TOTP-Geheimnis | Rolle |
+| Name | Email | Password | TOTP secret | Role |
 |---|---|---|---|---|
 ${zeilen.join("\n")}
 
-Wiederherstellungscodes (je einmal gültig, statt des TOTP-Codes): ${DEMO_ZUGAENGE.map((z) => z.wiederherstellungscodes.map((c) => `\`${c}\``).join(", ")).join("; ")}.
+Recovery codes (each works once in place of a TOTP code): ${DEMO_ZUGAENGE.map((z) => z.wiederherstellungscodes.map((c) => `\`${c}\``).join(", ")).join("; ")}.
 
-## Vier-Augen-Ablauf ausprobieren
+## Try four-eyes approval
 
-1. Mit Berta (Bearbeiterin) einen Zinslauf berechnen.
-2. Mit Frieda (Freigeberin) prüfen.
-3. Mit Frieda freigeben: abgelehnt (\`four_eyes_violated\`), dieselbe Person darf nicht beides.
-4. Mit Friedrich (Freigeber) freigeben: gelingt.
+1. As Berta (editor), calculate an interest run.
+2. As Frieda (approver), review it.
+3. Try to approve as Frieda. The request is rejected (\`four_eyes_violated\`) because one person cannot both review and approve.
+4. Approve as Friedrich (approver). The request succeeds.
 
-Die Fondsrollen weist das Seed-Skript nach den Demo-Daten zu: Vera ist Verwalterin aller Fonds, Frieda und Friedrich sind
-Freigeber, Berta ist Bearbeiterin, Bernd sieht nur den ersten Fonds.
+The seed script assigns roles based on the demo data. Vera is an admin on all funds, Frieda and Friedrich are
+approvers, Berta is an editor and Bernd can see only the first fund.
 
-## Rollen und Gruppen ausprobieren
+## Try roles and groups
 
-Das Seed-Skript legt Beispielrollen und Nutzergruppen an (Verwaltung → Rollen und Gruppen, siehe \`docs/rechte-modell.md\`):
-${DEMO_GRUPPEN.map((g) => `- **${g.name}** (${g.beschreibung}): Stufe ${g.stufe}, Rollen ${g.rollen.join(", ")}${g.fonds ? `, nur Fonds ${g.fonds.join(", ")}` : ", Fonds nach zentraler Einstellung"}`).join("\n")}
+The seed script creates example roles and user groups (Administration → Roles and groups, see \`docs/permissions-model.md\`).
+${DEMO_GRUPPEN.map((g) => `- **${g.name}** (${g.beschreibungEn}): Level ${stufen[g.stufe]}, roles ${g.rollen.join(", ")}${g.fonds ? `, fund ${g.fonds.join(", ")} only` : ", funds follow the central setting"}`).join("\n")}
 
-Rita gehört zu Relationship Management und sieht nur Kontakte. Carl gehört zu Fondsmanagement und Controlling (erster Fonds) und hat als
-Ausnahme eine eigene Rolle Betrachter am zweiten Fonds. Alle übrigen Zugänge gehören zu keiner Gruppe und behalten alle Bereiche.
+Rita belongs to Relationship Management and sees only contacts. Carl belongs to Fondsmanagement und Controlling (first fund)
+and has a direct viewer override on the second fund. The other accounts belong to no group and keep all areas.
 
-## Zugänge zum LP-Portal
+## LP portal accounts
 
-Die beiden Investor-Zugänge haben keine Fondsrolle und sehen nur das Portal unter \`/portal\`: das eigene Kapitalkonto, freigegebene
-Berichte und die Mitteilungen zu Kapitalabrufen und Ausschüttungen. Alle internen Seiten und Routen sind für sie gesperrt. Anmelden wie oben
-(Passwort, danach der Code aus dem TOTP-Geheimnis); nach der Anmeldung führt die Oberfläche in das Portal.
+The two investor accounts have no fund role and only see the managed hosting portal at \`/portal\`. They see their own capital
+account, approved reports and capital call and distribution notices. All internal pages and routes are blocked. Sign in as above
+with the password and then the TOTP code. The interface takes the investor to the portal after sign-in.
 
-| Name | Adresse | Passwort | TOTP-Geheimnis | Sicht |
+| Name | Email | Password | TOTP secret | Access |
 |---|---|---|---|---|
 ${investorZeilen}
 
-Wiederherstellungscodes: ${DEMO_INVESTOR_ZUGAENGE.map((z) => z.wiederherstellungscodes.map((c) => `\`${c}\``).join(", ")).join("; ")}.
+Recovery codes: ${DEMO_INVESTOR_ZUGAENGE.map((z) => z.wiederherstellungscodes.map((c) => `\`${c}\``).join(", ")).join("; ")}.
 
-Die Mitteilungen erscheinen im Portal, sobald eine Freigeberin oder ein Freigeber sie zu einer Fondsbewegung freigibt
-(\`POST /api/v1/funds/:id/movements/:movementId/notices/approve\`, mit einer anderen Person als der, die die Bewegung erfasst hat).
+Notices appear in the portal once an approver approves them for a fund movement
+(\`POST /api/v1/funds/:id/movements/:movementId/notices/approve\`). The approver must be someone other than the person who recorded the movement.
 `;
 }
 

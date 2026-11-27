@@ -11,7 +11,7 @@ import { grundbestand, ID } from "./hilfen-instrumente";
 import { BEREICH_EN, erstelleTestApp, legePersonAn, person, type TestApp, type Testperson } from "./hilfen-auth";
 
 /**
- * Dokument-Verknüpfungen verlangen den Bereich des Ziels (docs/rechte-modell.md, „Ziele von Dokumenten“): Deals Dealflow, Beteiligungen,
+ * Dokument-Verknüpfungen verlangen den Bereich des Ziels (docs/permissions-model.md, „Document targets“): Deals Dealflow, Beteiligungen,
  * Vorgänge, Bewertungen und Finanzierungsrunden Portfolio, mit der Stufe an demselben Fonds wie die Stufe in Dokumente. Verknüpfen ohne den
  * Bereich: 403. Anzeigen: Ziele ohne Bereich bleiben unsichtbar (die Auslesung prüft dasselbe, siehe ee/api). Alle Personen und Daten sind erfunden.
  */

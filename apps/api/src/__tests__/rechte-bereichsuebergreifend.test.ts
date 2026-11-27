@@ -8,7 +8,7 @@ import { grundbestand, ID } from "./hilfen-instrumente";
 import { BEREICH_EN, erstelleTestApp, legePersonAn, person, type Testperson } from "./hilfen-auth";
 
 /**
- * Schreibwege, die Daten mehrerer Bereiche berühren, prüfen jeden betroffenen Bereich, nicht nur den der Route (docs/rechte-modell.md,
+ * Schreibwege, die Daten mehrerer Bereiche berühren, prüfen jeden betroffenen Bereich, nicht nur den der Route (docs/permissions-model.md,
  * „Bereichsübergreifende Schreibwege“). Je Weg: Wer einen Bereich nicht hat, schreibt und liest darüber keine Daten dieses Bereichs.
  * Alle Personen sind erfunden; Rechte nur über Gruppen (keine eigenen Fondsrollen).
  */

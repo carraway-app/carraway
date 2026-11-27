@@ -2,7 +2,7 @@ import type { FondsRolle } from "@carraway/db";
 import type { Methode } from "./tabelle";
 
 /**
- * Bereiche der Anwendung (Rechtemodell, docs/rechte-modell.md). Eine Rolle bündelt Bereiche; jede Route mit Fondsrolle gehört zu genau
+ * Bereiche der Anwendung (Rechtemodell, docs/permissions-model.md). Eine Rolle bündelt Bereiche; jede Route mit Fondsrolle gehört zu genau
  * einem Bereich (oder zu `allgemein`). Personen ohne Gruppe haben alle Bereiche, Personen in Gruppen nur die Bereiche ihrer Rollen.
  */
 export const BEREICHE = ["portfolio", "finanzen", "kennzahlen", "berichte", "meldewesen", "dealflow", "kontakte", "dokumente", "daten", "fondsverwaltung"] as const;

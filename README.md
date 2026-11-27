@@ -33,25 +33,24 @@ Carraway is an open-source, self-hosted platform for venture capital and private
 
 ## Quick start
 
-You need Docker with Compose 2.20 or later. To start a local instance, clone the repository and copy the Compose environment file.
+The released image supports **linux/amd64** only. You need Docker with Compose 2.20 or later. To start a local instance, clone the repository and copy the Compose environment file.
 
 ```sh
 git clone https://github.com/carraway-app/carraway.git carraway
 cd carraway/deploy
-cp .env.beispiel .env
+cp .env.example .env
 ```
 
 Edit `.env` and set the following values.
 
 | Setting | Value for a local instance |
 | --- | --- |
-| `CARRAWAY_UMGEBUNG` | `test` |
+| `CARRAWAY_ENVIRONMENT` | `test` |
 | `APP_ORIGIN` | `http://localhost:8787` |
 | `BETTER_AUTH_SECRET` | A random value from `openssl rand -base64 48` |
-| `DB_ADMIN_PASSWORT`, `DB_EIGENTUEMER_PASSWORT`, `DB_APP_PASSWORT` | A separate random value from `openssl rand -hex 24` for each |
-| `CARRAWAY_IMAGE` | `ghcr.io/carraway-app/carraway:<version>`, with a published [release](https://github.com/carraway-app/carraway/releases) tag such as `v1.2.3` written as `1.2.3` |
+| `DB_ADMIN_PASSWORD`, `DB_OWNER_PASSWORD`, `DB_APP_PASSWORD` | A separate random value from `openssl rand -hex 24` for each |
 
-Use the Compose files from the same Git tag as the image, then start the stack.
+The Compose file selects the image for this release. Set `CARRAWAY_IMAGE` only to override it.
 
 ```sh
 docker compose pull
@@ -59,7 +58,7 @@ docker compose up -d --no-build
 docker compose ps --all
 ```
 
-When `migrate` has exited with code 0 and the API is healthy, open [the local setup page](http://localhost:8787/einrichtung) and create the first administrator. Finish setup before exposing the instance to a network, since the first account gets administrator privileges. To build from source, leave `CARRAWAY_IMAGE` unset and run `docker compose up -d --build`.
+When `carraway-migrate` has exited with code 0 and the API is healthy, open [the local setup page](http://localhost:8787/einrichtung) and create the first administrator. Finish setup before exposing the instance to a network, since the first account gets administrator privileges. For a source build, run `docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build`.
 
 For a public deployment, follow the TLS and reverse proxy instructions in the [self-hosting guide](deploy/README.en.md).
 
@@ -74,14 +73,18 @@ This repository contains the AGPL-3.0 core for self-hosting, including the workf
 ## Documentation
 
 - [Self-hosting, configuration, backups, and upgrades](deploy/README.en.md)
-- [Portfolio model, instruments, and calculations](docs/portfolio-modell.md)
-- [Fund permissions and roles](docs/rechte-modell.md)
-- [Webhooks and live updates](docs/webhooks-und-live.md)
+- [Portfolio model, instruments, and calculations](docs/portfolio-model.md)
+- [Fund permissions and roles](docs/permissions-model.md)
+- [Webhooks and live updates](docs/webhooks-and-live.md)
 - OpenAPI reference on your instance at `/api/v1/docs` and the schema at `/api/v1/openapi.json`.
 
 ## Contributing
 
 See [Contributing](CONTRIBUTING.md) for local development, tests, and pull requests. Use the private reporting channels in the [security policy](SECURITY.md) for vulnerabilities.
+
+## Contact
+
+Questions about Carraway or managed hosting: [hello@carraway.vc](mailto:hello@carraway.vc). Report security issues as described in the [security policy](SECURITY.md).
 
 ## License
 

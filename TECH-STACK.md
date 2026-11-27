@@ -1,117 +1,115 @@
-# Carraway: Tech-Stack (Vorschlag)
+# Carraway technical stack
 
-Stand: 20.11.2026 · Status: entschieden, von Lennard am 20.11.2026 wie vorgeschlagen bestätigt (siehe [ENTSCHEIDUNGEN.md](ENTSCHEIDUNGEN.md))
+Status as of 20 November 2026. The proposed stack was accepted on that date.
 
-Leitfrage: Was ist für Carraway schnell, im Betrieb und in der Entwicklung, und was lässt sich mit vorhandenem Wissen sicher bauen? Performance hat Vorrang.
+The stack prioritises performance, ease of operation and development, and components that can be used reliably with existing experience.
 
-## Kurzfassung
+## Summary
 
-| Schicht | Vorschlag | Bekannt oder neu | Begründung in einem Satz |
+| Layer | Choice | Familiarity | Rationale |
 |---|---|---|---|
-| Sprache | TypeScript strict, Frontend und Backend | bekannt | ein Typensystem von der Datenbank bis zur Tabelle |
-| Frontend | React 19 als Single-Page-App mit Vite, TanStack Router, Query, Table, Virtual | React, Query, Table, Virtual bekannt; Vite und Router neu | angemeldete Fachanwendung: Seitenwechsel aus dem Cache statt Server-Rundreise |
-| Backend | Hono auf Node 24 als eigene API (REST mit OpenAPI) | Node bekannt, Hono neu | die API ist Produktbestandteil, nicht Nebenprodukt der Oberfläche |
-| Datenbank | PostgreSQL 18, Drizzle ORM SQL-first | Drizzle und Postgres bekannt, Version 18 neu (bisher 16) | Stichtagslogik mit Zeiträumen und temporalen Schlüsseln |
-| Rechenkern | eigenes Paket `rechenkern`, reine Funktionen, Dezimalarithmetik | neu | Zinsen, IRR, Wasserfall testbar und später austauschbar (Rust/WASM) |
-| Hintergrundjobs | pg-boss (Warteschlange in Postgres) | bekannt | Kennzahlen-Snapshots, Zinsläufe, Berichte laufen nicht im Seitenaufruf |
-| Anmeldung | Better Auth (Passwort, TOTP, OIDC für Entra ID und Google) | bekannt | 2FA und Firmenanmeldung abgedeckt |
-| Berichte | PDF mit Typst (Spike), Gotenberg als Rückfallebene; Excel mit exceljs | Typst neu, Gotenberg und exceljs bekannt | Typst verspricht deutlich schnellere PDFs als ein Headless-Browser (zu messen) |
-| Komponenten | Designsystem Carraway (`cw-…`) als React-Komponenten mit CSS aus Tokens | neu, Muster bekannt | eine Quelle für Farben, Raster und Bausteine |
-| Betrieb | Docker, Coolify, Server in Deutschland; CI nach der Arbeitsweise (Runner-Wahl) | bekannt | bestehende Infrastruktur, keine neue Plattform |
+| Language | Strict TypeScript for frontend and backend | Familiar | One type system from the database to the table UI. |
+| Frontend | React 19 single-page app with Vite, TanStack Router, Query, Table and Virtual | React, Query, Table and Virtual familiar. Vite and Router new. | Users navigate the authenticated application from the cache without a server round trip. |
+| Backend | Standalone REST API using Hono on Node 24, with OpenAPI | Node familiar, Hono new | The API is a product surface in its own right. |
+| Database | PostgreSQL 18, SQL-first Drizzle ORM | Drizzle and Postgres familiar, version 18 new (previously 16) | As-of queries with date ranges and temporal keys. |
+| Calculation engine | Standalone `rechenkern` package, pure functions and decimal arithmetic | New | Interest, IRR and waterfalls are testable and can later move to Rust/WASM. |
+| Background jobs | pg-boss (Postgres queue) | Familiar | Metric snapshots, interest runs and reports run outside page requests. |
+| Authentication | Better Auth (passwords, TOTP, OIDC for Entra ID and Google) | Familiar | Supports two-factor authentication and organisational sign-in. |
+| Reports | PDF with a Typst prototype and Gotenberg fallback. Excel with exceljs. | Typst new, Gotenberg and exceljs familiar | Typst could render PDFs substantially faster than a headless browser. Measure it. |
+| Components | Carraway design system (`cw-…`), React components with CSS from tokens | New implementation, familiar patterns | One source for colours, layout and components. |
+| Operations | Docker, Coolify, servers in Germany and CI with runner selection | Familiar | Uses existing infrastructure. |
 
-Der größte Schritt weg vom Bekannten ist die getrennte Oberfläche statt Next.js. Begründung unten.
+The separate frontend is the largest change from the established Next.js approach. The backend uses TypeScript. The calculation engine has an interface that can support a later Rust implementation if measurements warrant it.
 
-Rust: nicht als Backend für das MVP. Der Rechenkern bekommt eine Schnittstelle, die einen späteren Wechsel nach Rust erlaubt, falls Messungen es verlangen. Begründung unten.
+## Requirements that shape the stack
 
-## Anforderungen, die den Stack prägen
+Typical requirements for investment firms include the following.
 
-Typische Anforderungen von Beteiligungsgesellschaften (Details in [FEATURES.md](FEATURES.md)):
+- **Two time axes.** Separate business validity from recording time, support as-of reads and writes, and query changes since a timestamp.
+- **Complete API.** Read and write, transact across related objects, import idempotently with a business key, collect validation errors with field names, and return 404 instead of 401 for a wrong path.
+- **Server-side rules.** Enforce the four-eyes principle, period locks and audit logs in the database as well as the interface. Security tests call the API directly.
+- **Access.** Two-factor authentication for API users, technical users separate from people, API keys with permissions and expiry, stored only as hashes.
+- **Money.** Decimal arithmetic, interest conventions stored as data and explicit currency views for amounts.
+- **Data ownership.** Allow deployments to retain control of their data and provide a full export with calculation rules.
 
-- **Zwei Zeitachsen:** fachliche Gültigkeit und Erfassungszeit getrennt, Lesen und Schreiben mit Stichtag, Änderungsabfrage seit Zeitpunkt.
-- **Vollständige API:** lesen und schreiben, Transaktion über zusammenhängende Objekte, idempotente Übernahme mit fachlichem Schlüssel, Validierungsfehler gesammelt mit Feldnamen, 404 statt 401 bei falschem Pfad.
-- **Regeln auf dem Server:** Vier-Augen-Prinzip, Periodensperre und Änderungsprotokoll in der Datenbank durchgesetzt, nicht nur in der Oberfläche. Sicherheitsprüfungen testen das mit direkten API-Aufrufen.
-- **Zugänge:** Zwei-Faktor auch für die API; technische Benutzer getrennt von Personen; API-Schlüssel mit Rechten und Ablauf, nur als Hash gespeichert.
-- **Geld:** Dezimalarithmetik, Zinsmethoden als Daten, Beträge mit ausdrücklicher Währungssicht.
-- **Datenhaltung:** Daten sollen beim Kunden bleiben können; Vollexport samt Rechenregeln.
+## Performance characteristics
 
-## Was Performance hier heißt
+Typical datasets are modest: one to five funds, a few hundred investments and tens of thousands of payments. Calculations over them are inexpensive on a modern CPU in any of the languages considered. The main sources of latency are elsewhere.
 
-Die Datenmengen sind klein: 1 bis 5 Fonds, einige hundert Beteiligungen, einige zehntausend Zahlungen. Keine Rechnung darauf ist für eine moderne CPU teuer, in keiner Sprache. Langsam werden Fachanwendungen dieser Größe an anderen Stellen:
+1. **Calculating on reads.** Live views recalculate all periods on each page load and prefetch. In a comparable application, queries exceeding 10 seconds recalculated everything on each request and the planner repeated partial results thousands of times. Changing the queries and storing results brought them below a second.
+2. **Round trips.** Every click waits for server rendering and revalidation. Server actions also need rules to bring toggles and forms back to the correct state.
+3. **Large browser tables** without virtualisation.
+4. **Report generation** through a headless browser, taking seconds per PDF.
 
-1. **Rechnen beim Lesen.** Kennzahlen über alle Perioden live in Views gerechnet, auf jeder Seite und bei jedem Prefetch erneut. Aus eigener Erfahrung mit einer ähnlichen Fachanwendung: Abfragen von über 10 Sekunden lagen nicht an Sprache oder Datenmenge, sondern daran, dass bei jedem Seitenaufruf alles neu gerechnet wurde und der Abfrageplaner Teilergebnisse tausendfach wiederholte. Nach dem Umbau lagen sie unter einer Sekunde, plus gespeicherte Ergebnisse.
-2. **Rundreisen.** Jeder Klick wartet auf Server-Rendering und Revalidierung. Mit Server-Aktionen braucht es zusätzlich eigene Regeln, damit Schalter und Formulare danach den richtigen Stand zeigen.
-3. **Große Tabellen im Browser** ohne Virtualisierung.
-4. **Berichtserzeugung** über einen Headless-Browser (Sekunden je PDF).
+Optimise the data model and queries first, then the web architecture, then the backend language.
 
-Daraus folgt die Reihenfolge: Datenmodell und Abfragen zuerst, dann die Architektur der Oberfläche, die Sprache des Backends zuletzt.
+## Performance rules
 
-## Performance von Anfang an: die Regeln
+1. **Pages read, jobs calculate.** Save metrics, valuations and fund values as snapshots by as-of date, with links to inputs for calculation provenance. Recalculate in the background after changes. Page reads cannot trigger the expensive path. If a snapshot is stale, the UI says so and offers “Recalculate”.
+2. **Budgets as tests.** Use a reference dataset with 5 funds, 500 investments, 100,000 payments and 10 years of data. Target API response p95 below 100 ms, cached navigation below 50 ms, fund recalculation below 1 s and quarterly report PDF below 2 s. A CI job checks core queries against the dataset and fails when budgets are exceeded.
+3. **Query visibility.** Enable `pg_stat_statements`, set `statement_timeout` per request, include `Server-Timing` on every API response and keep `EXPLAIN` for core queries in the repository.
+4. **Cache-first web app.** Prefetch on link hover, apply optimistic updates, virtualise tables, split routes into bundles and avoid a CSS-in-JS runtime.
+5. **Short network paths.** Place API and database in the same German data centre. Use pooling, Brotli compression and HTTP/2.
 
-1. **Seiten lesen, Jobs rechnen.** Kennzahlen, Bewertungen und Fondswerte werden je Stichtag als Snapshot gespeichert, mit Verweis auf die Eingangsdaten (Grundlage für die Herkunft jeder Zahl). Gerechnet wird nach einer Änderung im Hintergrund. Eine Seite kann den teuren Pfad nicht auslösen. Ist ein Snapshot veraltet, sagt die Oberfläche das und bietet „Neu berechnen“.
-2. **Budgets als Tests.** Referenzdatensatz (5 Fonds, 500 Beteiligungen, 100.000 Zahlungen, 10 Jahre). Ziele: API-Antwort p95 unter 100 ms, Seitenwechsel aus dem Cache unter 50 ms, Neuberechnung eines Fonds unter 1 s, Quartalsbericht als PDF unter 2 s. Ein CI-Job prüft die Kernabfragen gegen den Datensatz und schlägt bei Überschreitung fehl.
-3. **Abfragen sichtbar machen.** `pg_stat_statements` an, `statement_timeout` je Anfrage, `Server-Timing`-Header in jeder API-Antwort, `EXPLAIN` für Kernabfragen im Repo.
-4. **Oberfläche aus dem Cache.** Prefetch beim Überfahren von Links, optimistische Änderungen, Tabellen virtualisiert, Routen in eigene Bundles geteilt, keine CSS-in-JS-Laufzeit.
-5. **Kurze Wege.** API und Datenbank im selben Rechenzentrum in Deutschland, Verbindungspool, Kompression (Brotli), HTTP/2.
+## Design rationale
 
-## Begründungen
+### Single-page app
 
-### Single-Page-App statt Next.js
+Earlier applications use Next.js. Carraway's separate frontend fits this application for several reasons.
 
-Die bisherigen eigenen Anwendungen laufen auf Next.js. Für Carraway spricht mehr für eine getrennte Oberfläche:
+- The app sits behind sign-in and needs no server rendering for search engines.
+- Selected funds, as-of dates and filters stay in the client cache. Navigation between the portfolio and an investment can use the cache.
+- External reads and writes, bulk import, full export and change queries all need the API. Using that same API for the web app exercises it and keeps it complete.
+- Static files plus an API container simplify self-hosting.
 
-- Alles liegt hinter der Anmeldung. Server-Rendering für Suchmaschinen bringt nichts.
-- Ausgewählte Fonds, Stichtage und Filter bleiben im Client-Cache. Ein Wechsel zwischen Portfolio und Beteiligung braucht keinen Server.
-- Die API muss es ohnehin geben: Lesen und Schreiben von außen, Massenimport, Vollexport und Änderungsabfrage gehören zu den Grundanforderungen. Baut die eigene Oberfläche auf derselben API, ist sie immer vollständig und getestet.
-- Selbst-Hosting wird einfacher: statische Dateien plus ein API-Container.
+The app retains React, TanStack Table, Query and Virtual, Zod, Vitest, Playwright and the existing component pattern.
 
-Was mitkommt aus dem Bekannten: React, TanStack Table, Query und Virtual, Zod, Vitest, Playwright, das Muster der Komponenten.
+### Hono on Node
 
-### Hono auf Node
+Hono is small and fast, runs on Node, Bun and Deno and generates OpenAPI from Zod schemas. Node 24 works with existing CI, projects and Docker tooling. Bun could start faster, but has yet to be run in these deployments. Hono supports switching later.
 
-Hono ist klein und schnell, läuft auf Node, Bun und Deno und erzeugt aus Zod-Schemas eine OpenAPI-Beschreibung. Node 24 bleibt, weil die bestehenden Projekte, CI und Docker-Bausteine darauf laufen. Bun wäre beim Start schneller, ist im Betrieb aber unbekannt; ein späterer Wechsel bleibt möglich, weil Hono auf beiden läuft.
+### PostgreSQL 18 and the data model
 
-### PostgreSQL 18 und das Datenmodell
+- **As-of dates and history.** Values have validity ranges (`daterange`). PostgreSQL 18 can enforce non-overlapping keys (`WITHOUT OVERLAPS`) and temporal foreign keys (`PERIOD`). Local and earlier deployments used version 16, and the application scaffold includes the upgrade. Every change also records its entry time so a report can be reproduced for any as-of date using what was known at the time.
+- **Append-only postings.** Correct payments, interest and valuations by reversing and recording them again.
+- **Amounts** use `numeric` without floating point.
+- **Tenancy proposal.** Use a separate database per installation. This simplifies explanation, backups and handing over data, and fits self-hosting. Within each database, roles govern access by fund.
+- **SQL-first Drizzle.** Define schemas in TypeScript and views, policies and constraints in SQL migrations.
 
-- **Stichtag und Historie:** Werte mit Gültigkeitszeitraum (`daterange`), PostgreSQL 18 kann Schlüssel ohne Überlappung (`WITHOUT OVERLAPS`) und zeitliche Fremdschlüssel (`PERIOD`) direkt prüfen. Lokal und in den bestehenden Projekten läuft bisher Version 16, ein Upgrade ist Teil des Gerüsts. Jede Änderung zusätzlich mit Erfassungszeitpunkt: So lässt sich jeder Bericht zu jedem Stichtag mit dem damaligen Wissensstand wieder erzeugen.
-- **Buchungen nur anhängen:** Zahlungen, Zinsen, Bewertungen werden nicht überschrieben, sondern storniert und neu erfasst.
-- **Beträge** als `numeric`, nie als Gleitkommazahl.
-- **Mandanten (Vorschlag):** je Kunde eine eigene Datenbank statt Zeilen-Sicherheit in einer gemeinsamen Datenbank. Das ist einfacher zu erklären, zu sichern und herauszugeben, und es passt zum Selbst-Hosting. Innerhalb einer Datenbank regeln Rollen den Zugriff je Fonds.
-- **Drizzle SQL-first** wie in den bestehenden Projekten: Schema in TypeScript, Views, Policies und Constraints als SQL-Migrationen.
+### Standalone calculation engine
 
-### Rechenkern als eigenes Paket
+Day-count conventions (30/360, act/360, act/365, act/act), interest runs with deferrals and caps, conversions with interest cut-offs, IRR, TVPI, DPI and exit waterfalls all use pure functions without database access. They use decimal arithmetic and tests based on independently worked reference examples. Each function returns its calculation steps with the result so the UI can explain its provenance.
 
-Zinsmethoden (30/360, act/360, act/365, act/act), Zinsläufe mit Stundung und Kappung, Wandlung mit Zins-Cutoff, IRR, TVPI, DPI, Exit-Wasserfall. Alles als reine Funktionen ohne Datenbankzugriff, mit Dezimalarithmetik und Referenzfällen als Tests (aus nachgerechneten Beispielen, nicht aus dem Code). Jede Funktion liefert neben dem Ergebnis die Rechenschritte für den Herkunftshinweis.
+The package is a candidate for Rust later, keeping the same interface and tests. It could use WebAssembly, including in the browser for what-if calculations, or a Node module.
 
-Das Paket ist die Stelle, an der Rust später sinnvoll werden kann: gleiche Schnittstelle, gleiche Tests, Einbindung per WebAssembly (dann auch im Browser für Was-wäre-wenn-Rechnungen) oder als Node-Modul.
+### Reports
 
-### Berichte
+- **Typst**, a free typesetting system written in Rust, produces PDFs deterministically from templates and data without a browser and works well with version control. A quarterly report prototype measures how much faster it is than HTML-to-PDF.
+- **Gotenberg** (HTML-to-PDF) is the familiar fallback.
+- **Excel** uses exceljs for exports and import templates.
+- Drafts are watermarked, approvals run in stages and approved reports are stored immutably.
 
-- **Typst** (freies Satzsystem, in Rust geschrieben) setzt PDF-Berichte aus Vorlagen und Daten ohne Browser, deterministisch und gut versionierbar. Wie viel schneller als HTML zu PDF, misst ein Spike mit einem Quartalsbericht in der ersten Woche.
-- **Gotenberg** (HTML zu PDF) als Rückfallebene, bekannt aus bestehenden Projekten.
-- **Excel** mit exceljs für Exporte und Importvorlagen.
-- Entwürfe mit Wasserzeichen, Freigabe in Stufen, freigegebene Berichte unveränderlich gespeichert.
+## Rust backend evaluation
 
-## Rust als Backend: Bewertung
-
-| Kriterium | TypeScript (Hono, Node) | Rust (Axum, SQLx) |
+| Criterion | TypeScript (Hono, Node) | Rust (Axum, SQLx) |
 |---|---|---|
-| Rechenleistung, Speicher | gut, für diese Datenmengen mehr als genug | sehr gut, kleinster Speicherbedarf |
-| Antwortzeit in der Praxis | bestimmt durch Datenbank und Netz | bestimmt durch Datenbank und Netz, Unterschied wenige Millisekunden |
-| Entwicklungstempo allein mit KI-Unterstützung | hoch, bekannte Muster aus drei Repos | spürbar langsamer: längere Kompilier- und Korrekturschleifen |
-| Bausteine | Better Auth, Drizzle, exceljs, Zod vorhanden und erprobt | Anmeldung mit 2FA und OIDC selbst zusammensetzen, Excel und PDF vorhanden, ORM schwächer |
-| Typen bis ins Frontend | direkt geteilt | über OpenAPI-Generator |
-| Korrektheit bei Geldbeträgen | Dezimalbibliothek nötig, Disziplin nötig | `rust_decimal`, Typsystem hilft stärker |
-| Betrieb | Container mit Node-Laufzeit, deutlich größer | einzelne Binärdatei, sehr kleiner Container (Größen zu messen) |
-| CI-Minuten | Minuten | Kompilieren kostet deutlich mehr, Cache nötig |
-| Open Source: Beitragende | großer Kreis | kleinerer Kreis |
+| Compute and memory | Good and ample for these datasets | Very good, lowest memory usage |
+| Real-world response time | Dominated by the database and network | Dominated by the database and network, with a difference of a few milliseconds |
+| Development speed for one developer with AI assistance | High, with familiar patterns from three repositories | Noticeably slower due to longer compile and correction cycles |
+| Building blocks | Better Auth, Drizzle, exceljs and Zod are available and proven | Assemble 2FA and OIDC authentication from components. Excel and PDF are available, ORM support is weaker. |
+| Types through the frontend | Shared directly | Through an OpenAPI generator |
+| Monetary correctness | Requires a decimal library and discipline | `rust_decimal` and stronger type-system support |
+| Operations | Container with Node runtime, substantially larger | Single executable, very small container (sizes to be measured) |
+| CI minutes | Minutes | Compilation is more expensive and needs caching |
+| Open-source contribution | Larger contributor pool | Smaller contributor pool |
 
-**Urteil:** Rust würde Carraway auf dem Server messbar schlanker machen, aber für Nutzerinnen und Nutzer kaum spürbar schneller, weil die Zeit in Datenbank, Netz und Oberfläche liegt. Gleichzeitig würde es den Demo-Kern bis Mitte Dezember gefährden und die erprobten Bausteine (Anmeldung, Migrationen, CI) entwerten. Performance entsteht hier durch das Datenmodell (Snapshots, Stichtage, Indizes) und die Oberfläche (Cache, Prefetch, Virtualisierung).
+Rust would measurably reduce server resource use but users would see little improvement because most time is spent in the database, network and web app. A Rust backend would also delay the core demo and require reworking established authentication, migration and CI components. The performance gains here come from the data model (snapshots, as-of dates, indexes) and the interface (cache, prefetch, virtualisation).
 
-**Rust kommt dort in Frage, wo Rechenzeit wirklich zählt:** im Rechenkern, sobald Szenarien, Wasserfälle über viele Anteilsklassen oder Simulationen dazukommen. Entscheidungspunkt: wenn der Referenzdatensatz das Budget für die Neuberechnung (unter 1 s je Fonds) reißt.
+**Consider Rust where computation matters**, in the calculation engine for scenarios, waterfalls across many share classes or simulations. Revisit the choice if the reference dataset exceeds the recalculation budget of less than 1 s per fund.
 
-## Offene Punkte
+## Open questions at the time of the proposal
 
-1. Typst gegen Gotenberg: Spike mit einem echten Berichtslayout.
-2. Datenbank je Kunde (Vorschlag) oder Schema je Kunde: endgültig mit dem Hosting-Modell.
-3. Lizenz (AGPL oder FSL) beeinflusst die Wahl der Abhängigkeiten: alle Bibliotheken auf Verträglichkeit prüfen.
-4. KI-Funktionen: nur mit Anbietern in der EU, je Mandant abschaltbar; Architektur folgt mit dem ersten KI-Feature.
+1. Typst versus Gotenberg. Prototype with a real report layout.
+2. One database per installation (proposed) or one schema per installation. Finalise with the hosting model.
+3. AGPL or FSL licensing affects dependency selection. Check compatibility for every library.
+4. AI features use only EU providers and can be disabled per installation. Define the architecture with the first AI feature.

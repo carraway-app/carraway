@@ -22,8 +22,8 @@ export async function migriere(url: string) {
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  // Migrationen laufen mit der Eigentümerrolle (`DATABASE_URL_EIGENTUEMER`), sonst mit `DATABASE_URL`; ohne ausdrückliche Adresse Abbruch.
-  const url = verlangeDatenbankUrl(["DATABASE_URL_EIGENTUEMER", "DATABASE_URL"], "Migration");
+  // Migrationen laufen mit der Eigentümerrolle (`DATABASE_URL_OWNER`, früher `DATABASE_URL_EIGENTUEMER`), sonst mit `DATABASE_URL`; ohne ausdrückliche Adresse Abbruch.
+  const url = verlangeDatenbankUrl(["DATABASE_URL_OWNER", "DATABASE_URL_EIGENTUEMER", "DATABASE_URL"], "Migration");
   await migriere(url);
   console.log("Migrationen angewendet.");
 }

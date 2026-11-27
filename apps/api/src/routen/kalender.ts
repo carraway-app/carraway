@@ -109,7 +109,7 @@ export function kalenderOeffentlichRouten(db: Db, konfig: Pick<Konfiguration, "e
       const fonds = (await tx.select({ f: wirksameFondsrolle.fondsId }).from(wirksameFondsrolle).where(eq(wirksameFondsrolle.benutzerId, t.benutzerId))).map((r) => r.f);
       // Ohne jede Rolle (und nicht global) sieht die Person kein CRM und damit auch keine Wiedervorlagen.
       if (!t.global && fonds.length === 0) return { tokenId: t.id, zeilen: [] };
-      // Wiedervorlagen gehören zum Bereich Kontakte, Deals zu Dealflow (docs/rechte-modell.md): ohne Kontakte bleibt der Kalender leer, ohne Dealflow fehlen die Wiedervorlagen an Deals.
+      // Wiedervorlagen gehören zum Bereich Kontakte, Deals zu Dealflow (docs/permissions-model.md): ohne Kontakte bleibt der Kalender leer, ohne Dealflow fehlen die Wiedervorlagen an Deals.
       const { rows: bereiche } = await tx.execute<{ kontakte: boolean; dealflow: boolean }>(sql`SELECT ${hatBereichSql(t.benutzerId, "kontakte")} AS kontakte, ${hatBereichSql(t.benutzerId, "dealflow")} AS dealflow`);
       if (!bereiche[0]?.kontakte) return { tokenId: t.id, zeilen: [] };
       // Bereiche je Fonds: Wiedervorlagen an Deals eines Fonds nur, wenn die Person dort den Dealflow sieht.

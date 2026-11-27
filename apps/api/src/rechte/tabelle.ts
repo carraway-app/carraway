@@ -71,7 +71,7 @@ export interface Regel {
   leseTransport?: boolean;
   /**
    * Bereich der Anwendung (nur bei `rolle`): Personen in Nutzergruppen brauchen ihn zusätzlich zur Fondsrolle, siehe `bereiche.ts` und
-   * docs/rechte-modell.md. Ohne Angabe in der Zeile gilt die Zuordnung nach Pfadmuster aus `bereiche.ts`.
+   * docs/permissions-model.md. Ohne Angabe in der Zeile gilt die Zuordnung nach Pfadmuster aus `bereiche.ts`.
    */
   bereich?: RegelBereich;
   /**
@@ -136,7 +136,7 @@ const ROH: Regel[] = [
   global("POST", "/users"),
   global("PATCH", "/users/:id"),
   global("POST", "/users/:id/invitation"),
-  // Rollen, Nutzergruppen und Fondszugriff (Rechtemodell, docs/rechte-modell.md): nur globale Verwalter. Wirksame Rechte einer Person zur Kontrolle.
+  // Rollen, Nutzergruppen und Fondszugriff (Rechtemodell, docs/permissions-model.md): nur globale Verwalter. Wirksame Rechte einer Person zur Kontrolle.
   global("GET", "/users/:id/permissions"),
   global("GET", "/permissions"),
   global("PUT", "/permissions/settings"),

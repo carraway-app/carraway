@@ -12,7 +12,7 @@ import type { Tx } from "../zeitlimit";
  * Bewertung, Fonds, Deal mit Fonds), zu den Fonds, die eine Beteiligung am Unternehmen halten (Organisation, Finanzierungsrunde), oder zu
  * keinem Fonds (Deal vor der Zuordnung: genügt die Rolle irgendwo). Organisationen ohne Beteiligung sehen nur globale Verwalter.
  *
- * Ziele eines anderen Bereichs verlangen zusätzlich diesen Bereich (`ZIEL_BEREICH`, docs/rechte-modell.md): Deals Dealflow, Beteiligungen,
+ * Ziele eines anderen Bereichs verlangen zusätzlich diesen Bereich (`ZIEL_BEREICH`, docs/permissions-model.md): Deals Dealflow, Beteiligungen,
  * Vorgänge, Bewertungen und Finanzierungsrunden Portfolio, jeweils mit der Stufe an demselben Fonds wie die Stufe der Route. Schreiben ohne
  * den Bereich am Ziel antwortet mit 403, beim Lesen bleibt ein solches Ziel unsichtbar.
  */

@@ -2,7 +2,7 @@
 
 ## Reporting a vulnerability
 
-Use [GitHub Private Vulnerability Reporting](https://github.com/carraway-app/carraway/security/advisories/new) if the form is available, or email [lennard@rehlytics.net](mailto:lennard@rehlytics.net). Keep vulnerability details out of public issues and pull requests.
+Use [GitHub Private Vulnerability Reporting](https://github.com/carraway-app/carraway/security/advisories/new) if the form is available, or email [security@carraway.vc](mailto:security@carraway.vc). Keep vulnerability details out of public issues and pull requests.
 
 Include the affected version or commit, the deployment method and relevant settings, the impact, and enough detail to verify the report using fictional data. Mention any known public disclosure. Remove credentials and personal data from logs, screenshots, and other attachments.
 

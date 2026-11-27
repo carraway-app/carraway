@@ -3,7 +3,7 @@
  *
  * Das lokale Entwicklungsgeheimnis gilt nur, solange `CARRAWAY_UMGEBUNG` nicht `echt` ist und `BETTER_AUTH_SECRET`
  * fehlt. Es ist öffentlich und schützt nichts: Es sorgt dafür, dass die TOTP-Geheimnisse der Demo-Zugänge
- * (`demo-zugaenge.md`) mit dem lokalen Server zusammenpassen, weil Better Auth sie mit diesem Geheimnis verschlüsselt.
+ * (`demo-accounts.md`) mit dem lokalen Server zusammenpassen, weil Better Auth sie mit diesem Geheimnis verschlüsselt.
  */
 export const LOKALES_ENTWICKLUNGSGEHEIMNIS = "carraway-nur-lokale-entwicklung-nicht-geheim-0123456789";
 

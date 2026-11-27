@@ -1,10 +1,10 @@
 /**
- * Hilfsmittel für die Probe von Sicherung und Wiederherstellung gegen einen laufenden Compose-Stack (Ablauf: docs/betrieb/README.md,
+ * Hilfsmittel für die Probe von Sicherung und Wiederherstellung gegen einen laufenden Compose-Stack (Ablauf: docs/operations/README.md,
  * Abschnitt „Probe mit Docker Compose“). Der Stack muss Demo-Daten haben (`pnpm db:seed`) und darf nur erfundene Inhalte tragen.
  *
  *   tsx scripts/ops/compose-sicherung-probe.ts anlegen <Datenbankadresse> <Verzeichnis>
  *       legt je Dateiart eine erfundene Datei samt Zeile an; die Dateien liegen danach im Verzeichnis und gehören in die Dateiablage
- *       (`tar -c -C <Verzeichnis> . | docker compose exec -T api tar -x -C /daten/speicher`)
+ *       (`tar -c -C <Verzeichnis> . | docker compose exec -T carraway tar -x -C /daten/speicher`)
  *   tsx scripts/ops/compose-sicherung-probe.ts abbild <Datenbankadresse> <Datei.json>
  *       schreibt Zeilenzahl und Prüfsumme je Tabelle, Spaltenstand, Trigger und Migrationen
  *   tsx scripts/ops/compose-sicherung-probe.ts vergleichen <vorher.json> <nachher.json>

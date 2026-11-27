@@ -3,7 +3,7 @@
  * Produkt): Client-ID und Geheimnis kommen aus der Umgebung und sind getrennt von denen der Anmeldung (`OIDC_*`), weil sie andere
  * Berechtigungen (nur Lesen von Mail und Kalender) verlangen. Die Endpunkte sind überschreibbar (Tests und Demo gegen einen Fake).
  *
- * Alle Clients sind dünne HTTP-Aufrufe ohne SDK und ohne Prüfung gegen die echten Dienste (siehe docs/sicherheit/Mail-und-Kalender.md).
+ * Alle Clients sind dünne HTTP-Aufrufe ohne SDK und ohne Prüfung gegen die echten Dienste (siehe docs/security/mail-and-calendar.md).
  */
 
 export interface OAuthAnbieter {

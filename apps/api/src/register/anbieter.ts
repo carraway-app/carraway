@@ -3,7 +3,7 @@ import { z } from "zod";
 import { eintragWerte, ereignisWerte, REGISTERARTEN, type EintragWerte, type EreignisWerte } from "./typen";
 
 /**
- * Schnittstelle zu einer Quelle für Registerdaten. Carraway ruft Registerportale nicht automatisiert ab (siehe `docs/register/zugang.md`);
+ * Schnittstelle zu einer Quelle für Registerdaten. Carraway ruft Registerportale nicht automatisiert ab (siehe `docs/register/access.md`);
  * ein Anbieter ist eine lizenzierte Schnittstelle, die ein Betreiber ausdrücklich einrichtet. Mitgeliefert ist nur der Testanbieter.
  */
 

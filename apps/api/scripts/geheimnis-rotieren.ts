@@ -5,7 +5,7 @@ import { rotiereGeheimnisse } from "../src/geheimnis/rotation";
 
 /**
  * Verschlüsselt alle ruhenden Geheimnisse (Postfach-Zugänge, Mailinhalte im Ausgangskorb, OAuth-Zustände) mit dem aktuellen `GEHEIMNIS_SCHLUESSEL` neu.
- * Vorher den bisherigen Schlüssel in `GEHEIMNIS_SCHLUESSEL_ALT` eintragen. Ablauf: docs/sicherheit/Mail-und-Kalender.md.
+ * Vorher den bisherigen Schlüssel in `GEHEIMNIS_SCHLUESSEL_ALT` eintragen. Ablauf: docs/security/mail-and-calendar.md.
  */
 const ring = ladeSchluesselring(process.env, process.env.CARRAWAY_UMGEBUNG ?? "demo");
 if (!ring) throw new Error("GEHEIMNIS_SCHLUESSEL ist nicht gesetzt.");

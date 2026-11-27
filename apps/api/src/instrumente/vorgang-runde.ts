@@ -5,7 +5,7 @@ import type { Protokollant } from "../schreiben";
 import type { Tx } from "../zeitlimit";
 
 /**
- * Zuordnung eines Vorgangs zu einer Finanzierungsrunde des Unternehmens (Tabelle `vorgang_runde`, `docs/portfolio-modell.md`, Abschnitt
+ * Zuordnung eines Vorgangs zu einer Finanzierungsrunde des Unternehmens (Tabelle `vorgang_runde`, `docs/portfolio-model.md`, Abschnitt
  * „Vorgänge je Runde“). Der Vorgang ist unveränderlich, die Zuordnung nicht; jede Änderung steht im Änderungsprotokoll. Fehlt die Zeile,
  * gehört der Vorgang keiner Runde.
  */

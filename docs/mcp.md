@@ -1,19 +1,19 @@
-# Carraway mit einem KI-Client verbinden
+# Connect Carraway to an AI client
 
-Im Managed Hosting kann ein KI-Client Fonds, Kennzahlen und weitere Geschäftsdaten über das Model Context Protocol (MCP) lesen. Die Adresse lautet `https://<Hosting-Domain>/api/v1/mcp`. Der Client braucht Unterstützung für **Streamable HTTP** und einen frei konfigurierbaren `Authorization`-Header.
+With managed hosting, an AI client can read funds, metrics and other business data through the Model Context Protocol (MCP). The endpoint is `https://<hosting-domain>/api/v1/mcp`. The client must support **Streamable HTTP** and allow a custom `Authorization` header.
 
-## Einrichtung
+## Setup
 
-1. In der Schlüsselverwaltung einen eigenen API-Schlüssel für diesen Client anlegen. Für die gewünschten Fonds genügt jeweils die Berechtigung `read`. Der Zugang läuft bis zum eingestellten Ablaufdatum und lässt sich über die Schlüsselverwaltung widerrufen.
-2. Im KI-Client einen HTTP-MCP-Server anlegen und die HTTPS-Adresse der eigenen Carraway-Installation eintragen. Den Header `Authorization: Bearer <API-Schlüssel>` über die Geheimnisverwaltung des Clients setzen. Den Klartextschlüssel ausschließlich dort eingeben.
-3. Verbinden und die Werkzeugliste laden. Mit `list_funds` prüfen, welche Fonds der Schlüssel sieht. Anschließend etwa `get_fund_metric` mit einer zurückgegebenen `fundId`, `metric: "nav"` und einem Stichtag wie `asOf: "2026-06-30"` aufrufen. Das Ergebnis enthält Wert, Währung und die Rechenschritte zu diesem Stichtag.
+1. Create a dedicated API key for the client in key management. The `read` permission is sufficient for each fund the client needs. The key works until its configured expiry date and can be revoked in key management.
+2. Add an HTTP MCP server in the AI client and enter the HTTPS address of your Carraway installation. Set `Authorization: Bearer <API key>` in the client's secret store. Enter the plaintext key only there.
+3. Connect and load the tools. Use `list_funds` to see which funds the key can access. Then call, for example, `get_fund_metric` with a returned `fundId`, `metric: "nav"` and an as-of date such as `asOf: "2026-06-30"`. The result contains the value, currency and calculation steps for that date.
 
-Beispiel für die **editorverwaltete** MCP-Konfiguration von VS Code (`mcp.json`). Die Platzhalter-Domain durch die eigene Hosting-Domain ersetzen. Beim Start fragt der Editor den Schlüssel verdeckt ab. Für den Copilot-Harness gilt dessen eigenes Konfigurationsformat mit Umgebungsvariablen. [MCP-Konfigurationsreferenz für VS Code](https://code.visualstudio.com/docs/agents/reference/mcp-configuration)
+The following example uses the **editor-managed** MCP configuration in VS Code (`mcp.json`). Replace the placeholder domain with your own hosting domain. At startup, the editor prompts for the key and masks it. The Copilot harness uses its own configuration format with environment variables. [VS Code MCP configuration reference](https://code.visualstudio.com/docs/agents/reference/mcp-configuration)
 
 ```json
 {
   "inputs": [
-    { "id": "carrawayKey", "type": "promptString", "description": "Carraway-API-Schlüssel", "password": true }
+    { "id": "carrawayKey", "type": "promptString", "description": "Carraway API key", "password": true }
   ],
   "servers": {
     "carraway": {
@@ -25,35 +25,35 @@ Beispiel für die **editorverwaltete** MCP-Konfiguration von VS Code (`mcp.json`
 }
 ```
 
-## Werkzeuge
+## Tools
 
-| Werkzeug | Ergebnis und Parameter |
+| Tool | Result and parameters |
 |---|---|
-| `list_funds` | Sichtbare Fonds mit ID, Name, Kurzname und Währung. |
-| `get_fund_metric` | Ein Wert für `fundId` und `metric` (`nav`, `tvpi`, `dpi`, `rvpi` oder `irr`) mit Einheit und Rechenschritten. Ein fehlender Wert bleibt `null`. |
-| `get_portfolio` | Konsolidierte Summen der sichtbaren Fonds in Hauswährung und eine Seite der einzelnen Fonds. Die Summen beziehen sich auf das gesamte sichtbare Portfolio. |
-| `list_investments` | Beteiligungen eines Fonds mit ID, Unternehmen, Zusage, investiertem Kapital, Rückflüssen und Multiple. |
-| `list_transactions` | Vorgänge einer `investmentId` mit Wertstellung, Betrag und Stornokennzeichen. |
-| `get_cap_table` | Unverwässerte und voll verwässerte Gesamtzahl der Anteile sowie eine Seite der zulässigen Positionen für eine `investmentId`. |
-| `search_records` | Rangfolge zu `q` (2 bis 100 Zeichen) für den gewählten `type` aus `deals`, `people`, `organizations` und `documents`. Dokumenttreffer enthalten Dateiname, Seite und Textausschnitt. |
-| `list_changes` | Änderungen seit `since` oder ab `cursor` mit Zeitpunkt, Aktion, Tabellenkennung, Datensatz- und Fonds-ID. Tabellen- und Aktionskennungen stammen wie bei `GET /changes` aus dem Änderungsprotokoll. |
+| `list_funds` | Visible funds with ID, name, short name and currency. |
+| `get_fund_metric` | One value for `fundId` and `metric` (`nav`, `tvpi`, `dpi`, `rvpi` or `irr`), with its unit and calculation steps. A missing value remains `null`. |
+| `get_portfolio` | Consolidated totals for visible funds in home currency and one page of individual funds. Totals cover the entire visible portfolio. |
+| `list_investments` | A fund's investments with ID, company, commitment, invested capital, proceeds and multiple. |
+| `list_transactions` | Transactions for an `investmentId`, with value date, amount and reversal flag. |
+| `get_cap_table` | Undiluted and fully diluted share totals and one page of permitted positions for an `investmentId`. |
+| `search_records` | Ranked results for `q` (2 to 100 characters) and the selected `type` from `deals`, `people`, `organizations` and `documents`. Document results include file name, page and a text snippet. |
+| `list_changes` | Changes since `since` or from `cursor`, with timestamp, action, table identifier, record ID and fund ID. As with `GET /changes`, table and action identifiers come from the audit log. |
 
-Die Fondskennzahlen, das Portfolio, Beteiligungen und Vorgänge akzeptieren einen Stichtag `asOf` und einen optionalen Wissensstand `knowledgeDate` (ISO-Zeitpunkt mit Zeitzone). Beim Cap Table lässt sich der Stichtag angeben.
+Fund metrics, the portfolio, investments and transactions accept an as-of date (`asOf`) and an optional knowledge date (`knowledgeDate`, an ISO timestamp with timezone). The cap table accepts an as-of date.
 
-Listen liefern standardmäßig zehn und höchstens zwanzig Zeilen. Für die nächste Seite den zurückgegebenen `nextCursor` unverändert als `cursor` mit denselben Filtern senden. Bei `list_changes` dient der Cursor auch nach der letzten Seite zum späteren Weiterlesen. Die Suche liefert die besten Treffer bis zum angegebenen `limit`. Für weitere Treffer den Suchbegriff präzisieren.
+Lists return 10 rows by default and at most 20. For the next page, send the returned `nextCursor` unchanged as `cursor` with the same filters. For `list_changes`, keep the cursor even after the last page to resume later. Search returns the best matches up to `limit`. Refine the search term to find other matches.
 
-## Rechte und Grenzen
+## Permissions and limits
 
-Jeder Werkzeugaufruf durchläuft mit dem aktuellen API-Schlüssel die Rechteprüfung der jeweiligen HTTP-Route einschließlich Fonds, Bereichen und Sichtbarkeit verknüpfter Datensätze. Die erste Version bietet ausschließlich Lesezugriffe. Schreibaktionen erfordern eine Vorschau und eine Bestätigung durch eine Person, die nachweisbar für genau diese Änderung gilt.
+Each tool call uses the current API key and passes the permission checks of the corresponding HTTP route, including fund access, areas and visibility of linked records. The first version is read-only. A write action would require a preview and a human confirmation verifiably tied to that specific change.
 
-Dokumentausschnitte, Namen und Rechentexte stammen aus Geschäftsdaten und können fremde Anweisungen enthalten. Der Client soll sie als Daten behandeln. Alle Werkzeuge lesen von fest vorgegebenen API-Routen. Schlüsselverwaltung, Dateidownload und beliebige Zieladressen gehören nicht zum Werkzeugangebot. Der Client und sein KI-Anbieter erhalten die abgerufenen Daten entsprechend der Client-Konfiguration.
+Document snippets, names and calculation descriptions come from business data and may include instructions from other parties. Clients should treat them as data. Every tool reads from a fixed set of API routes. The tools exclude key management, file downloads and arbitrary destinations. The client and its AI provider receive the retrieved data according to the client's configuration.
 
-Pro Schlüssel und API-Prozess gelten 60 Transportanfragen pro Minute. Bei HTTP 429 nennt `Retry-After` die Wartezeit in Sekunden. Jede POST-Anfrage enthält eine einzelne JSON-RPC-Nachricht mit höchstens 16 KiB. Ein Werkzeugergebnis ist auf 64 KiB begrenzt, eine intern gelesene HTTP-Antwort auf 4 MiB. Bei `result_too_large` den Umfang der Abfrage eingrenzen oder die HTTP-API direkt verwenden.
+The limit is 60 transport requests per minute per key and API process. On HTTP 429, `Retry-After` gives the wait in seconds. Each POST request carries a single JSON-RPC message of up to 16 KiB. A tool result is limited to 64 KiB and an internally read HTTP response to 4 MiB. On `result_too_large`, narrow the query or use the HTTP API directly.
 
-Der Transport arbeitet ohne Sitzung. Für jede Anfrage gilt der Bearer-Schlüssel erneut. HTTP 401 bedeutet fehlende oder ungültige Anmeldung. Bei HTTP 403 die Fondsfreigabe sowie Host und Origin prüfen. Der Reverse-Proxy muss den öffentlichen `Host` einschließlich eines abweichenden Ports durchreichen. Ein mitgesendeter `Origin` muss genau in `APP_ORIGIN` stehen. Native Clients können den Origin weglassen. GET und DELETE am Transport antworten für berechtigte Clients mit 405. Einzelaufrufe verwenden weder den HTTP-Stapel noch einen `Idempotency-Key`.
+The transport is stateless. Each request must supply the bearer key. HTTP 401 means authentication is missing or invalid. On HTTP 403, check fund permissions, host and origin. The reverse proxy must forward the public `Host`, including any non-default port. If supplied, the `Origin` must be listed exactly in `APP_ORIGIN`. Native clients can omit it. GET and DELETE on the transport return 405 to authorised clients. Individual calls use neither the HTTP batch endpoint nor an `Idempotency-Key`.
 
-Das Zugriffsprotokoll erfasst Routenmuster, Status, Laufzeit und technische Kennungen. Argumente, Suchtexte, Antwortinhalte und der Bearer-Schlüssel werden nicht protokolliert.
+The access log records route patterns, status codes, durations and technical identifiers. It omits arguments, search text, response bodies and bearer keys.
 
 ## SDK
 
-Die Hosting-API verwendet `@modelcontextprotocol/server` 2.4.0 aus dem offiziellen TypeScript-SDK. Das Paket nennt Apache-2.0. Seine Lizenzdatei weist während der Umlizenzierung auf weiterhin MIT-lizenzierte Beiträge hin. [TypeScript-SDK und Lizenz](https://github.com/modelcontextprotocol/typescript-sdk)
+The hosting API uses `@modelcontextprotocol/server` 2.4.0 from the official TypeScript SDK. The package lists Apache-2.0. Its licence file notes that some contributions remain under MIT while relicensing is in progress. [TypeScript SDK and licence](https://github.com/modelcontextprotocol/typescript-sdk)

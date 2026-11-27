@@ -14,7 +14,7 @@ import { ladeBuchwertabgangJeInstrument } from "./verkaeufe";
 import { berechneZustand, buchwertVon, istDarlehensartig, ladeVorgaenge, offenesKapital, sperreBeteiligung, vorgaengeDesInstruments, type BeteiligungZeile } from "./zustand";
 
 /**
- * Instrumente einer Beteiligung (`docs/portfolio-modell.md`): lesen, anlegen, ändern, dem Vorgang das richtige Instrument zuordnen und den
+ * Instrumente einer Beteiligung (`docs/portfolio-model.md`): lesen, anlegen, ändern, dem Vorgang das richtige Instrument zuordnen und den
  * Spiegel `beteiligung.instrument` / `instrument_felder` (das Hauptinstrument) nachführen, solange Excel, öffentliche API und Import ihn noch lesen.
  */
 

@@ -1,19 +1,19 @@
 # @carraway/ui
 
-React-Komponenten des Designsystems Carraway (Quelle: `design/README.md`, `design/tokens.json`; die Klassen stehen in `src/styles/komponenten.css`). Das Paket wird als Quelltext von einer Vite-Anwendung eingebunden, es gibt keinen Build.
+React components for the Carraway design system (see `design/README.md` and `design/tokens.json`). The classes live in `src/styles/komponenten.css`. Vite applications consume the package as source. The package has no build step.
 
-## Einbinden
+## Use the package
 
 ```ts
 import "@carraway/ui/styles.css";
 import { Button, Seitenkopf, UiSprache } from "@carraway/ui";
 ```
 
-Die Schriften liefert das Paket selbst mit (`@font-face` in `src/styles/schriften.css`, Dateien in `src/schriften`). Die Anwendung braucht keinen Link im `<head>` und lädt nichts von Drittanbietern.
+The package ships its own fonts (`@font-face` in `src/styles/schriften.css`, files in `src/schriften`). The application needs no link in `<head>` and fetches nothing from third parties.
 
-## Sprache
+## Language
 
-Deutsch ist Quelle und Standard, Englisch ist britisches Englisch. Die Komponenten enthalten keine festen Texte: sichtbarer Text kommt über Props, eingebaute Texte (Beschriftungen für Screenreader, Standardtexte, Statusnamen) stehen in `src/texte.ts` mit `de` und `en`. Ein Test schlägt fehl, wenn ein Schlüssel nur in einer Sprache existiert.
+German is the source and default language. The English locale uses British English. Components receive visible text through props. Built-in copy (screen reader labels, defaults and status names) lives in `src/texte.ts` under `de` and `en`. A test fails if a key exists in only one language.
 
 ```tsx
 <UiSprache sprache="en">
@@ -21,9 +21,9 @@ Deutsch ist Quelle und Standard, Englisch ist britisches Englisch. Die Komponent
 </UiSprache>
 ```
 
-Ohne `UiSprache` gilt `de`. Die Formatierer nehmen die Sprache als zweites Argument:
+Without `UiSprache`, the default is `de`. The formatters take the language as their second argument.
 
-| Funktion | `de` | `en` |
+| Function | `de` | `en` |
 |---|---|---|
 | `formatBetrag(12400000, sprache)` | `12.400.000 €` | `€12,400,000` |
 | `formatBetrag(12400000, sprache, { kompakt: true })` | `12,4 Mio. €` | `€12.4m` |
@@ -31,35 +31,33 @@ Ohne `UiSprache` gilt `de`. Die Formatierer nehmen die Sprache als zweites Argum
 | `formatProzent(8.4, sprache)` | `8,4 %` | `8.4%` |
 | `formatDatum("2026-09-30", sprache)` | `30.09.2026` | `30/09/2026` |
 
-Daten (Namen, Eingaben) werden nie übersetzt. Komponenten, die formatieren (`Delta`, `Herkunft`), lesen die Sprache aus dem Kontext.
+Data such as names and user input stays in its original language. Components that format values (`Delta`, `Herkunft`) read the language from context.
 
-## Komponenten
+## Components
 
-`Button`, `ButtonLink`, `IconButton` (nur Symbol verlangt `aria-label`), `Feld`, `Segment`, `Status`, `Delta`, `Kennzahl`, `KennzahlenReihe`, `Herkunft` (zeigt `Rechenschritt[]` aus `@carraway/rechenkern`), `Initiale`, `Tabelle` (dicht, stehender Kopf, Laden, leerer Zustand, Zeilenmenü), `NavLeiste` (Gruppen, Zeichen, schmal), `Tabs` und `UnterTabs`, `Menue`, `Seitenpanel`, `Dialog`, `Werkzeugleiste`, `Fakten`, `Hinweis`, `Etikett`, `Leer`, `Seitenkopf`, `Logo` und die Zeichen (`<Name>Icon`, Phosphor Light).
+`Button`, `ButtonLink`, `IconButton` (an icon-only button needs `aria-label`), `Feld`, `Segment`, `Status`, `Delta`, `Kennzahl`, `KennzahlenReihe`, `Herkunft` (shows `Rechenschritt[]` from `@carraway/rechenkern`), `Initiale`, `Tabelle` (compact, sticky header, loading and empty states, row menu), `NavLeiste` (groups, icons, narrow layout), `Tabs` and `UnterTabs`, `Menue`, `Seitenpanel`, `Dialog`, `Werkzeugleiste`, `Fakten`, `Hinweis`, `Etikett`, `Leer`, `Seitenkopf`, `Logo` and the icons (`<Name>Icon`, Phosphor Light).
 
-Alle geben `className` und die nativen Props weiter. Die CSS-Klassen tragen den Präfix `cw-`.
+All components forward `className` and native props. CSS classes use the `cw-` prefix.
 
-## Zeichen
+## Icons
 
-Alle Zeichen kommen aus `src/icons.tsx` (Phosphor, Gewichtung Light); direkte Importe aus `@phosphor-icons/react` verbietet ESLint. Die Dateien in `src/icons` erzeugt `scripts/icons.ts` und enthalten nur die Gewichtung Light, je Zeichen eine Datei, damit jeder Einstieg nur seine Zeichen trägt. Neues Zeichen: in `scripts/icons.ts` ergänzen und
+All icons come from `src/icons.tsx` (Phosphor, Light weight). ESLint disallows direct imports from `@phosphor-icons/react`. The `scripts/icons.ts` script generates the files in `src/icons`, one file per icon in Light weight only, so each entry point includes just the icons it uses. To add an icon, add it to `scripts/icons.ts` and run the following command.
 
 ```sh
 pnpm --filter @carraway/ui icons
 ```
 
-ausführen.
-
 ## Tokens
 
-`src/styles/tokens.css` wird aus `design/tokens.json` erzeugt und eingecheckt. Nach Änderungen an den Tokens:
+The generated file `src/styles/tokens.css` is checked in and comes from `design/tokens.json`. After changing the tokens, run the following command.
 
 ```sh
 pnpm --filter @carraway/ui tokens
 ```
 
-Der Test `src/tokens.test.ts` schlägt fehl, wenn die Datei nicht zu `tokens.json` passt.
+The test `src/tokens.test.ts` fails if the file differs from the output for `tokens.json`.
 
-## Befehle
+## Commands
 
 ```sh
 pnpm --filter @carraway/ui typecheck

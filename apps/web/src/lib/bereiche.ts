@@ -2,7 +2,7 @@ import { alle } from "../erweiterung";
 import { useRechte } from "./rechte";
 
 /**
- * Bereich je Abschnitt einer Seite (Rechtemodell, docs/rechte-modell.md), an einer Stelle. Schlüssel: Seite, dann Kennung des Eintrags im
+ * Bereich je Abschnitt einer Seite (Rechtemodell, docs/permissions-model.md), an einer Stelle. Schlüssel: Seite, dann Kennung des Eintrags im
  * Inhaltsverzeichnis. Die Bereiche sind die der API (`apps/api/src/rechte/bereiche.ts`): Wer den Bereich nicht hat, bekäme dort 403, darum
  * erscheint der Abschnitt gar nicht erst. Ohne Eintrag gehört der Abschnitt zum Bereich der Seite selbst und ist immer sichtbar.
  */

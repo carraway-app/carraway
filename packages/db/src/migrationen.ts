@@ -134,7 +134,7 @@ export function beschreibeAbgleich(abgleich: Migrationsabgleich): string | null 
   if (abgleich.unbekannt.length > 0) {
     teile.push(
       `Die Datenbank enthält ${abgleich.unbekannt.length} Migration(en), die der Code nicht kennt (Hash ${abgleich.unbekannt.map((m) => m.hash.slice(0, 12)).join(", ")}). ` +
-        `Der Code ist älter als die Datenbank; Rückschritte gibt es nur über die Wiederherstellung einer Sicherung (docs/betrieb/).`,
+        `Der Code ist älter als die Datenbank; Rückschritte gibt es nur über die Wiederherstellung einer Sicherung (docs/operations/).`,
     );
   }
   return teile.length === 0 ? null : teile.join(" ");

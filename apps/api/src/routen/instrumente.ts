@@ -22,7 +22,7 @@ import { betragEingabe, idParam, mindestensEins, MINDESTENS_EIN_FELD, optionaler
 import { lese } from "../zeitlimit";
 
 /**
- * Instrumente und Tranchen (`docs/portfolio-modell.md`). Lesen: Instrumente einer Beteiligung mit Zusage, Ausgezahltem, offener Zusage, offenem Kapital und
+ * Instrumente und Tranchen (`docs/portfolio-model.md`). Lesen: Instrumente einer Beteiligung mit Zusage, Ausgezahltem, offener Zusage, offenem Kapital und
  * Tranchen mit Stand. Schreiben: Instrument anlegen und ändern, Tranchen anlegen (optional mit der fehlenden Zusage in einem Schritt), ändern, erfüllen.
  * Der Status eines Instruments folgt den Abläufen (Wandlung, Verkauf, Insolvenz); es gibt keine eigene Statusroute.
  */

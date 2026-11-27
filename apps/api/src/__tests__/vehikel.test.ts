@@ -5,7 +5,7 @@ import { erstelleTestApp, legePersonAn, person } from "./hilfen-auth";
 import { leeren, oeffneTestdb } from "./hilfen";
 import { aufrufe, grundbestand, ID, json, protokollZeilen } from "./hilfen-instrumente";
 
-/** Vehikel der Co-Investoren (docs/portfolio-modell.md, „Vehikel der Co-Investoren“): Anlegen, Auswahl, Positionen, Kapitaltabelle, Sichtbarkeit. */
+/** Vehikel der Co-Investoren (docs/portfolio-model.md, „Co-investor vehicles“): Anlegen, Auswahl, Positionen, Kapitaltabelle, Sichtbarkeit. */
 
 const { db, pool } = oeffneTestdb();
 const { get, post, patch, delete: loesche } = aufrufe(erstelleTestApp(db));

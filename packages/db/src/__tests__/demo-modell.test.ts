@@ -5,7 +5,7 @@ import { erzeugeDemodaten, schreibeDemoPortfolio, schreibeDemodaten, type Demoda
 import { TESTDB_URL, cent } from "./hilfen";
 
 /**
- * Konsistenz des Demo-Portfolios mit dem Portfolio-Modell (`docs/portfolio-modell.md`): Instrumente, Zusagen, Tranchen, Runden und Wandlungen
+ * Konsistenz des Demo-Portfolios mit dem Portfolio-Modell (`docs/portfolio-model.md`): Instrumente, Zusagen, Tranchen, Runden und Wandlungen
  * des Generators folgen den Regeln der API. Die Prüfungen laufen für mehrere Seeds und für den großen Umfang.
  */
 

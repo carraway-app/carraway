@@ -7,7 +7,7 @@ import { ladeOrganisation, type Protokollant } from "../schreiben";
 import type { Tx } from "../zeitlimit";
 
 /**
- * Vehikel der Co-Investoren (docs/portfolio-modell.md, „Vehikel der Co-Investoren“): Ein Vehikel ist der Fonds oder die Gesellschaft eines Investors,
+ * Vehikel der Co-Investoren (docs/portfolio-model.md, „Co-investor vehicles“): Ein Vehikel ist der Fonds oder die Gesellschaft eines Investors,
  * die tatsächlich investiert. Positionen Dritter hängen an einem Vehikel; der Investor ist der des Vehikels.
  */
 

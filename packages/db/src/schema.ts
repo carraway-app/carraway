@@ -457,7 +457,7 @@ export const gremienmandat = pgTable(
 export const instrumentStatus = pgEnum("instrument_status", ["aktiv", "gewandelt", "getilgt", "verkauft", "abgeschrieben"]);
 
 /**
- * Instrument einer Beteiligung (Portfolio-Modell, `docs/portfolio-modell.md`): Eigenkapital, stille Beteiligung, Darlehen und so weiter.
+ * Instrument einer Beteiligung (Portfolio-Modell, `docs/portfolio-model.md`): Eigenkapital, stille Beteiligung, Darlehen und so weiter.
  * Eine Beteiligung (Fonds × Unternehmen) kann mehrere Instrumente haben, auch mehrere derselben Art. Konditionen, Tranchen,
  * Vorgänge, Zinsläufe, Wandlung und Verkauf hängen am Instrument.
  */
@@ -723,8 +723,7 @@ export const vehikelArt = pgEnum("vehikel_art", ["fonds", "gesellschaft", "spv",
 export const vehikelStatus = pgEnum("vehikel_status", ["aktiv", "in_liquidation", "aufgeloest"]);
 
 /**
- * Investitionsvehikel eines Co-Investors: der Fonds oder die Gesellschaft, die tatsächlich investiert (docs/portfolio-modell.md, „Vehikel der
- * Co-Investoren“). Jedes Vehikel gehört genau einem Investor (Organisation). Höchstens ein Standard-Vehikel je Investor; es nimmt Positionen auf,
+ * Investitionsvehikel eines Co-Investors: der Fonds oder die Gesellschaft, die tatsächlich investiert (docs/portfolio-model.md, „Co-investor vehicles“). Jedes Vehikel gehört genau einem Investor (Organisation). Höchstens ein Standard-Vehikel je Investor; es nimmt Positionen auf,
  * die nur den Investor nennen (Datenübernahme, ältere Aufrufe).
  */
 export const vehikel = pgTable(
@@ -1428,7 +1427,7 @@ export const fondsrolle = pgTable(
   (t) => [primaryKey({ columns: [t.benutzerId, t.fondsId] }), index("fondsrolle_fonds_idx").on(t.fondsId)],
 );
 
-// Rollen und Nutzergruppen (Rechtemodell, siehe docs/rechte-modell.md) ---------------------------------------------------
+// Rollen und Nutzergruppen (Rechtemodell, siehe docs/permissions-model.md) ---------------------------------------------------
 // Eine Rolle bündelt Bereiche der Anwendung (Portfolio, Kontakte, Finanzen …). Eine Gruppe verbindet Personen mit Rollen, einer Stufe
 // (betrachter … verwalter) und einem Fondszugriff. Die Fondsrolle einer Person (`fondsrolle`) bleibt die Ausnahme je Fonds und gilt vor der Gruppe.
 
@@ -1518,7 +1517,7 @@ export const wirksameFondsrolle = pgView("wirksame_fondsrolle", {
 }).existing();
 
 /**
- * Wirksame Stufe je Person, Fonds und Bereich (Sicht, angelegt in Migration 0068, docs/rechte-modell.md „Auflösung“).
+ * Wirksame Stufe je Person, Fonds und Bereich (Sicht, angelegt in Migration 0068, docs/permissions-model.md „Resolve effective permissions“).
  * `bereich` leer: alle Bereiche (Person ohne Gruppe, nur eigene Fondsrollen). Globale Verwalter stehen hier nicht.
  */
 export const wirksamesBereichsrecht = pgView("wirksames_bereichsrecht", {

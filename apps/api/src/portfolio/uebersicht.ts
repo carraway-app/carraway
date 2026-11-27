@@ -28,7 +28,7 @@ import type { Tx } from "../zeitlimit";
  * die Summen ohne Doppelzählung (Anteile eines Fonds an einem anderen sichtbaren Fonds) und die Allokation rechnet der Rechenkern (`dachfonds.ts`,
  * `allokation.ts`).
  *
- * Umrechnung in die Hauswährung (Regeln wie `docs/waehrung.md`): Zahlungen (Einzahlungen, Ausschüttungen, Abrufe der Zielfonds) zum Kurs ihrer Valuta,
+ * Umrechnung in die Hauswährung (Regeln wie `docs/currency.md`): Zahlungen (Einzahlungen, Ausschüttungen, Abrufe der Zielfonds) zum Kurs ihrer Valuta,
  * Bestände (Zusagen, NAV, Werte) zum Kurs des Stichtags. Fehlt ein Kurs, ist der Betrag eine Lücke, und jede Summe mit ihm auch.
  */
 

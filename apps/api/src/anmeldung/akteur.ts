@@ -72,7 +72,7 @@ export function aktuellerAkteur(c: Context): Akteur {
 }
 
 /**
- * Akteur mit den Stufen eines Bereichs (Bereiche je Fonds, docs/rechte-modell.md): `rollen` und `stufeOhneFonds` gelten danach nur für diesen
+ * Akteur mit den Stufen eines Bereichs (Bereiche je Fonds, docs/permissions-model.md): `rollen` und `stufeOhneFonds` gelten danach nur für diesen
  * Bereich. `rechtePruefung` legt so den Akteur jeder Anfrage auf den Bereich ihrer Route fest; damit filtern `sichtbareFonds`, `hatRolle` und
  * alle Listen in den Handlern nach Fonds und Bereich. `alle` verlangt jeden Bereich (kleinste Stufe je Fonds), `allgemein` ändert nichts.
  */

@@ -11,7 +11,7 @@ import { lese } from "../zeitlimit";
 
 /**
  * Anteilsübertragungen zwischen Gesellschaftern eines Unternehmens (Issue 151, `kapital/uebertragung.ts`). Neue Route, darum schon nach den Konventionen der
- * englischen API (`docs/api-glossar.md`): Pfad `share-transfers`, Felder englisch; der Mount-Punkt `/organisationen` wird mit seinem Bereich umbenannt.
+ * englischen API (`docs/api-glossary.md`): Pfad `share-transfers`, Felder englisch; der Mount-Punkt `/organisationen` wird mit seinem Bereich umbenannt.
  * Die Berechtigungstabelle verlangt die Mindestrolle irgendwo; die Handler prüfen wie bei den Runden (Rechtsgrundlage am Unternehmen ohne den Käuferfonds,
  * bearbeiter an jedem beteiligten eigenen Fonds).
  */

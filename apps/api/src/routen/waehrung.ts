@@ -14,7 +14,7 @@ import { feldArray } from "../crm/felder";
 
 /**
  * Währungen (Etappe 21): Kurstabelle (nur anhängend, Korrektur als neuer Eintrag), Kursimport aus einer Datei (kein Abruf aus dem Netz), lokale Währung einer
- * Beteiligung und die Währungssicht auf Beteiligung und Fonds. Regeln und Rechenwege: `docs/waehrung.md`, Rechenkern `waehrung.ts`.
+ * Beteiligung und die Währungssicht auf Beteiligung und Fonds. Regeln und Rechenwege: `docs/currency.md`, Rechenkern `waehrung.ts`.
  */
 
 const code = z.string().regex(/^[A-Z]{3}$/, "Three-letter currency code in uppercase (ISO 4217) expected");

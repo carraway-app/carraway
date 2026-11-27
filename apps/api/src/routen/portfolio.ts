@@ -17,7 +17,7 @@ import { lese, type Tx } from "../zeitlimit";
 
 /**
  * Manager-Profil (Hauswährung, Summen über alle sichtbaren Fonds), Portfolio-Dashboard und Zielfonds eines Dachfonds. Die Routen sind englisch
- * (docs/api-glossar.md); die Rechnung steht in `portfolio/uebersicht.ts`, `kennzahlen/zielfonds.ts` und im Rechenkern (`dachfonds.ts`, `allokation.ts`).
+ * (docs/api-glossary.md); die Rechnung steht in `portfolio/uebersicht.ts`, `kennzahlen/zielfonds.ts` und im Rechenkern (`dachfonds.ts`, `allokation.ts`).
  */
 
 const code = z.string().regex(/^[A-Z]{3}$/, "Three-letter currency code in uppercase (ISO 4217) expected");

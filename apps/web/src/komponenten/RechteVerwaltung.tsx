@@ -21,7 +21,7 @@ import { ROLLEN, type FondsRolle } from "../lib/rechte";
 import { FehlerHinweis } from "./FehlerHinweis";
 
 /**
- * Verwaltung → Rollen und Gruppen (Rechtemodell, docs/rechte-modell.md): zentraler Fondszugriff, Rollen (Bündel von Bereichen) und
+ * Verwaltung → Rollen und Gruppen (Rechtemodell, docs/permissions-model.md): zentraler Fondszugriff, Rollen (Bündel von Bereichen) und
  * Nutzergruppen (Personen, Stufe, Fondszugriff, Rollen, auf Wunsch Bereiche je Fonds). Rollen begrenzen auf Wunsch die Stufe je Bereich. Die Ausnahme je Person und Fonds pflegt „Rollen je Fonds“. Die API prüft jede Anfrage selbst.
  */
 export default function RechteVerwaltung() {

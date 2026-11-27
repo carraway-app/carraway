@@ -8,7 +8,7 @@ import { verwandteFonds } from "./runden";
 import type { Tx } from "../zeitlimit";
 
 /**
- * Alle Fondsvorgänge eines Unternehmens, nach Finanzierungsrunde gruppiert (Historie je Runde, `docs/portfolio-modell.md`, Abschnitt „Vorgänge je Runde“).
+ * Alle Fondsvorgänge eines Unternehmens, nach Finanzierungsrunde gruppiert (Historie je Runde, `docs/portfolio-model.md`, Abschnitt „Round transactions and bridge rounds“).
  * Runden sieht, wer sie auch in der Rundenliste sähe; Vorgänge nur aus Fonds, an denen die Person mindestens Betrachter ist (ein Unternehmen kann in
  * mehreren Fonds liegen).
  */

@@ -8,7 +8,7 @@
 #   node dist/server.js    API; mit WEB_AUSLIEFERN=1 liefert sie auch die Oberfläche aus (ein Ursprung)
 #   node dist/worker.js    Worker (Kennzahlen-Snapshots, KI-Auslesung, Mailversand, Postfach-Abgleich; pg-boss)
 #   node dist/migrate.js   einmalige Migrationen, danach beendet sich der Container
-#   node dist/geheimnis-rotieren.js   Schlüsselwechsel für gespeicherte Zugangsdaten (docs/sicherheit/Mail-und-Kalender.md)
+#   node dist/geheimnis-rotieren.js   Schlüsselwechsel für gespeicherte Zugangsdaten (docs/security/mail-and-calendar.md)
 #
 # Node exakt wie in .github/workflows/ci.yml (NODE_VERSION) und pnpm wie dort (PNPM_VERSION), damit Bau und CI auf
 # derselben Laufzeit laufen. Tag plus Digest: der Tag sagt, was es ist, der Digest sorgt dafür, dass ein Neubau genau
@@ -16,7 +16,7 @@
 #
 # Gebaut wird auf dem offiziellen Node-Image mit Alpine; zur Laufzeit kommt nur die Node-Binärdatei desselben Images auf
 # ein nacktes Alpine (statt des ganzen Node-Images mit npm und Yarn). Das hält das Image bei rund 340 MB entpackt
-# (davon Node 128, Laufzeitmodule 149; gemessen in docs/betrieb/README.md). Alle nativen Module (Typst, Zeichenfläche) werden im Node-Alpine-Image installiert und passen damit zur musl-Laufzeit.
+# (davon Node 128, Laufzeitmodule 149; gemessen in docs/operations/README.md). Alle nativen Module (Typst, Zeichenfläche) werden im Node-Alpine-Image installiert und passen damit zur musl-Laufzeit.
 ARG NODE_IMAGE=node:24.22.2-alpine@sha256:a34ab6d7f6f4813f4d0c5469d74685604b962fbdbf5793a7bc7b4998ecb867c8
 # Gleiche Alpine-Version wie im Node-Image (3.24.x), damit libstdc++ zur Binärdatei passt.
 ARG ALPINE_IMAGE=alpine:3.24@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
@@ -62,7 +62,7 @@ WORKDIR /app
 
 # libstdc++ braucht Node; `apk upgrade` zieht die Sicherheitskorrekturen seit dem Erscheinen des Basis-Images nach.
 RUN apk upgrade --no-cache \
-    && apk add --no-cache libstdc++ \
+    && apk add --no-cache libstdc++ postgresql18-client \
     && addgroup -S -g 10001 carraway \
     && adduser -S -u 10001 -G carraway -h /app -s /sbin/nologin carraway \
     && mkdir -p /daten/speicher \
@@ -79,6 +79,8 @@ COPY --from=laufzeitmodule /laufzeit/node_modules ./node_modules
 COPY --from=bauen /ausgabe/api ./dist
 COPY --from=bauen /ausgabe/web ./web
 COPY --from=bauen /app/packages/db/drizzle ./drizzle
+COPY deploy/bootstrap.sh ./bootstrap.sh
+COPY deploy/sql ./sql
 
 # Berichtsdateien, die freigegeben wurden (siehe apps/api/src/berichte/speicher.ts); gehört in die Sicherung.
 VOLUME ["/daten/speicher"]

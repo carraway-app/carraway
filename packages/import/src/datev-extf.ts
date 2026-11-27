@@ -6,7 +6,7 @@ import { Decimal } from "@carraway/rechenkern";
  * STAND DER PRÜFUNG: Anzahl, Reihenfolge und Grenzen der Felder (31 Kopffelder, 125 Spalten, Belegdatum `TTMM`, Belegfeld 1 bis 36
  * Zeichen aus `A-Z a-z 0-9 $ & % * + - /`, Buchungstext bis 60 Zeichen) sind gegen eine öffentliche Open-Source-Umsetzung samt
  * Beispieldatei abgeglichen, nicht gegen die Seiten von DATEV (nicht abrufbar) und nicht gegen einen echten Import. Die Schreibweise
- * einzelner Überschriften in Zeile 2 und der Schlüssel der Kontenrahmen im Kopf sind offen. Einzelheiten: docs/buchhaltung/datev-extf.md.
+ * einzelner Überschriften in Zeile 2 und der Schlüssel der Kontenrahmen im Kopf sind offen. Einzelheiten: docs/accounting/datev-extf.md.
  *
  * Format: Windows-1252, Semikolon, Dezimalkomma ohne Tausendertrenner, Zeilenende CR LF, Textfelder in Anführungszeichen. Zeile 1 ist
  * die Kopfzeile mit 31 Feldern, Zeile 2 die Spaltenüberschriften (125 Felder), danach eine Zeile je Buchung, alle Zeilen in voller Breite.

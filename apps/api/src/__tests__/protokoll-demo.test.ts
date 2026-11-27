@@ -98,7 +98,7 @@ describe("Demo-Zugänge und Seed", () => {
   const rufe = (cookie: string, methode: string, pfad: string) =>
     t.app.request(`/api/v1${pfad}`, { method: methode, headers: jsonKopf(cookie), ...(methode === "GET" ? {} : { body: "{}" }) });
 
-  it("alle Zugänge aus demo-zugaenge.md melden sich mit Passwort und TOTP-Code an und haben die beschriebenen Rechte", async () => {
+  it("alle Zugänge aus demo-accounts.md melden sich mit Passwort und TOTP-Code an und haben die beschriebenen Rechte", async () => {
     const fonds = (await db.select({ id: s.fonds.id }).from(s.fonds).orderBy(s.fonds.vintage, s.fonds.name)).map((f) => f.id);
     await schreibeDemoZugaenge(db, fonds);
     const cookies = new Map<string, string>();
@@ -140,11 +140,11 @@ describe("Demo-Zugänge und Seed", () => {
     expect(await einsetzen()).toBe(401);
   });
 
-  it("demo-zugaenge.md entspricht dem, was das Seed-Skript schreibt, und trägt den Hinweis auf die lokale Entwicklung", () => {
-    const datei = readFileSync(fileURLToPath(new URL("../../../../packages/db/demo-zugaenge.md", import.meta.url)), "utf8");
+  it("demo-accounts.md entspricht dem, was das Seed-Skript schreibt, und trägt den Hinweis auf die lokale Entwicklung", () => {
+    const datei = readFileSync(fileURLToPath(new URL("../../../../packages/db/demo-accounts.md", import.meta.url)), "utf8");
     expect(datei).toBe(zugangsdokument());
-    expect(datei).toMatch(/Nur für die lokale Entwicklung/);
-    expect(datei).toMatch(/erfunden/);
+    expect(datei).toMatch(/For local development only/);
+    expect(datei).toMatch(/fictional/);
   });
 
   it("das Seed-Skript lehnt CARRAWAY_UMGEBUNG=echt ab, bevor es die Datenbank anfasst", () => {

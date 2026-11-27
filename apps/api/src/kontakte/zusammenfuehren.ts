@@ -277,7 +277,7 @@ const geloescht = (tabelle: string, zeilen: { id: string }[]): Protokollzeile[] 
   zeilen.map((z) => ({ aktion: "zusammenfuehren_entfallen", tabelle, datensatzId: z.id, vorher: z, nachher: null }));
 
 /**
- * Vehikel der Quelle ziehen zum Ziel (docs/portfolio-modell.md, „Vehikel der Co-Investoren“). Hat das Ziel schon ein Vehikel gleichen Namens, wandern die
+ * Vehikel der Quelle ziehen zum Ziel (docs/portfolio-model.md, „Co-investor vehicles“). Hat das Ziel schon ein Vehikel gleichen Namens, wandern die
  * Positionen dorthin und das Vehikel der Quelle entfällt; hat das Ziel schon ein Standard-Vehikel, verliert das der Quelle das Kennzeichen. Liefert die Zahl
  * der Positionen an Vehikeln der Quelle.
  */

@@ -5,7 +5,7 @@ import type { Tx } from "../zeitlimit";
 
 /**
  * Währungssicht der Berichte (Nacharbeiten 9). Ein Bericht hat die Fondswährung (Standard), die lokale Währung je Beteiligung oder eine gewählte Vergleichswährung
- * (`docs/waehrung.md`). Die Sicht gilt für die Spalten Investiert, Rückflüsse (Erlös) und Bewertung; die übrigen Beträge und alle Kennzahlen bleiben in der Fondswährung.
+ * (`docs/currency.md`). Die Sicht gilt für die Spalten Investiert, Rückflüsse (Erlös) und Bewertung; die übrigen Beträge und alle Kennzahlen bleiben in der Fondswährung.
  * Sie wird beim Anlegen des Berichts in `bericht.parameter.waehrung` festgehalten, wie die Vorlage. Die Rechnung ist die der Währungssicht der Oberfläche
  * (`waehrung/sicht.ts`): gleiche Kurse, gleiche Regeln, Lücke statt geschätztem Kurs, Kurs höchstens sieben Tage alt.
  */

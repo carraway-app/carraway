@@ -10,7 +10,7 @@ import { grundbestand, ID } from "./hilfen-instrumente";
 import { erstelleTestApp, legePersonAn, person, type Testperson } from "./hilfen-auth";
 
 /**
- * Bereiche je Fonds und Stufe je Bereich (docs/rechte-modell.md, „Bereiche je Fonds“). Belegt: bestehende Gruppen und Rollen behalten exakt
+ * Bereiche je Fonds und Stufe je Bereich (docs/permissions-model.md, „Areas per fund and levels per area“). Belegt: bestehende Gruppen und Rollen behalten exakt
  * ihre Rechte (Vergleich mit der Auflösung vor der Erweiterung), und Kombinationen aus Gruppen, Ausnahmen und Gruppen ohne Fonds erweitern
  * keine Rechte. Alle Daten sind erfunden.
  */

@@ -30,6 +30,6 @@ try {
 } finally {
   await pool.end();
 }
-writeFileSync(fileURLToPath(new URL("../demo-zugaenge.md", import.meta.url)), zugangsdokument());
+writeFileSync(fileURLToPath(new URL("../demo-accounts.md", import.meta.url)), zugangsdokument());
 for (const [name, zeilen] of Object.entries(daten)) console.log(`${name.padEnd(20)} ${zeilen.length}`);
-console.log("Demo-Zugänge: packages/db/demo-zugaenge.md (nur lokale Entwicklung)");
+console.log("Demo-Zugänge: packages/db/demo-accounts.md (nur lokale Entwicklung)");

@@ -207,7 +207,7 @@ export const useSperreSetzen = (fondsId: string) =>
     invalidiert: () => [[...verwaltung, "sperre", fondsId]],
   });
 
-// Rollen, Nutzergruppen und Fondszugriff (Rechtemodell, docs/rechte-modell.md) ------------------------------------------
+// Rollen, Nutzergruppen und Fondszugriff (Rechtemodell, docs/permissions-model.md) ------------------------------------------
 
 const ladeRechteStand = async () => rechteStandAbbilden(await auspacken(api.api.v1.permissions.$get()));
 export type RechteStand = Awaited<ReturnType<typeof ladeRechteStand>>;

@@ -12,7 +12,7 @@ import { idParam, ladeOrganisation, MINDESTENS_EIN_FELD, mindestensEins, schreib
 import { lese } from "../zeitlimit";
 
 /**
- * Vehikel der Co-Investoren (docs/portfolio-modell.md, „Vehikel der Co-Investoren“): Auswahlliste für Runden- und Positionsdialoge, Vehikel eines Investors
+ * Vehikel der Co-Investoren (docs/portfolio-model.md, „Co-investor vehicles“): Auswahlliste für Runden- und Positionsdialoge, Vehikel eines Investors
  * mit ihren Positionen, Anlegen, Ändern und Löschen. Vehikel sind Kontaktdaten; die Positionen je Vehikel folgen den Rechten der Rundenliste.
  */
 

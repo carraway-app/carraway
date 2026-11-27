@@ -1,7 +1,7 @@
 // Prüft gegen einen laufenden Stack (Image oder Compose), dass die lokale Texterkennung im Worker arbeitet:
 // lädt ein gescanntes PDF (nur Bild, keine Textebene) über die API hoch und wartet, bis der erkannte Text erscheint.
 //   node scripts/ops/ocr-image-pruefen.mjs --pdf <scan.pdf> [--basis http://127.0.0.1:8790] [--erwartet "Rechnung 4711"] [--frist 120]
-// Voraussetzung: Stack mit `OCR=lokal` und Demo-Daten (`pnpm db:seed`); gemeldet wird (über `api-anmeldung.mjs`) mit der Verwalterin aus packages/db/demo-zugaenge.md.
+// Voraussetzung: Stack mit `OCR=lokal` und Demo-Daten (`pnpm db:seed`); gemeldet wird (über `api-anmeldung.mjs`) mit der Verwalterin aus packages/db/demo-accounts.md.
 // Die Datei ist ein erfundenes Beispiel; es werden keine echten Daten gelesen oder gesendet.
 import fs from "node:fs";
 import { meldeAn } from "./api-anmeldung.mjs";

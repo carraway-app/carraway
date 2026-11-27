@@ -1,26 +1,14 @@
 #!/usr/bin/env bash
-# Sicherung eines Carraway-Mandanten: Datenbank (pg_dump, Custom-Format) und Dateiablage (freigegebene Berichte und hochgeladene Dokumente),
-# mit Zeitstempel, Prüfsummen und Aufbewahrungsfrist.
-#
-#   deploy/sicherung.sh                       # Compose-Stack (Standard), Einstellungen aus deploy/.env
-#   deploy/sicherung.sh --env-datei /pfad/.env
-#   DATABASE_URL_SICHERUNG=postgres://... SPEICHER_VERZEICHNIS=/daten/speicher deploy/sicherung.sh --direkt
-#
-# Ergebnis: <SICHERUNG_ZIEL>/carraway-<datenbank>-<JJJJMMTT-HHMMSS>/ mit datenbank.dump, speicher.tar.gz, SHA256SUMS, INFO.txt.
-# Reihenfolge und Stand: Erst die Datenbank (ein Schnappschuss, den pg_dump konsistent zieht), danach die Dateiablage. Dateien werden nur
-# neu geschrieben, nie verändert, und liegen vor der Zeile, die auf sie zeigt; zu jeder Zeile im Dump gibt es die Datei im
-# später gezogenen Archiv. Das Archiv kann mehr Dateien enthalten als der Dump Zeilen (Aufträge zwischen beiden Schritten); die
-# schaden nicht. Einzige Ausnahme: Löscht der Aufbewahrungslauf zwischen beiden Schritten die Datei eines Dokuments, dessen
-# Frist abgelaufen war, ist die Zeile im Dump noch „gelöscht“, die Datei fehlt; nach der Wiederherstellung stellt der nächste
-# Lauf den Zustand „endgültig gelöscht“ her. Beide Zeitpunkte stehen in INFO.txt. Nach jeder Wiederherstellung `pnpm ops:dateien-pruefen`.
-# Die Schemas `public` und `drizzle` kommen in die Sicherung. Das Schema `pgboss` (Warteschlange) nicht: Es hält nur flüchtige
-# Aufträge; Kennzahlen-Snapshots lassen sich neu berechnen (POST /api/v1/funds/:id/recalculate).
-#
-# Umgebungsvariablen:
-#   SICHERUNG_ZIEL               Verzeichnis für die Sicherungen (Vorgabe ./sicherungen). Gehört auf ein anderes Medium als die Daten.
-#   SICHERUNG_AUFBEWAHREN_TAGE   Sicherungen dieses Mandanten, die älter sind, werden gelöscht (Vorgabe 14; 0 = nie löschen).
-#   Direkt-Modus: DATABASE_URL_SICHERUNG (Eigentümer- oder Superuser-Verbindung), SPEICHER_VERZEICHNIS. Der Client `pg_dump`
-#   muss mindestens so neu sein wie der Server; sonst bricht das Skript ab.
+# Back up the tenant database and file storage with checksums and a retention policy.
+# Usage: sicherung.sh [--env-datei path] [--direkt]
+# BACKUP_DIR defaults to ./sicherungen. Use separate storage for backups.
+# BACKUP_RETENTION_DAYS defaults to 14. Set it to 0 to retain all backups.
+# In direct mode, set DATABASE_URL_BACKUP and STORAGE_DIR and install matching pg_dump.
+# Direct PostgreSQL URLs are passed via the environment and require Python 3.
+# The database snapshot precedes the file archive. Files are immutable, so the archive
+# may contain extra files written after the snapshot. A concurrent retention run can
+# remove expired documents. After restore run pnpm ops:dateien-pruefen.
+# The dump excludes the transient pg-boss queue.
 set -euo pipefail
 
 verzeichnis="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -30,49 +18,45 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --direkt) modus="direkt"; shift ;;
     --env-datei) env_datei="${2:?--env-datei braucht einen Pfad}"; shift 2 ;;
-    -h|--help) sed -n '2,23p' "${BASH_SOURCE[0]}"; exit 0 ;;
+    -h|--help) sed -n '/^# /p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) echo "Unbekannte Option: $1" >&2; exit 2 ;;
   esac
 done
 
-ziel="${SICHERUNG_ZIEL:-./sicherungen}"
-tage="${SICHERUNG_AUFBEWAHREN_TAGE:-14}"
+ziel="${BACKUP_DIR:-${SICHERUNG_ZIEL:-./sicherungen}}"
+tage="${BACKUP_RETENTION_DAYS:-${SICHERUNG_AUFBEWAHREN_TAGE:-14}}"
 [[ "$tage" =~ ^[0-9]+$ ]] || { echo "SICHERUNG_AUFBEWAHREN_TAGE muss eine Zahl sein." >&2; exit 2; }
-
-# Wert einer Variablen aus der .env-Datei lesen, ohne die Datei als Shell-Skript auszuführen.
-env_wert() {
-  local name="$1" vorgabe="${2:-}" zeile
-  zeile="$(grep -E "^${name}=" "$env_datei" 2>/dev/null | tail -n1 || true)"
-  if [[ -n "$zeile" ]]; then printf '%s' "${zeile#*=}"; else printf '%s' "$vorgabe"; fi
-}
 
 umask 077
 zeitstempel="$(date -u +%Y%m%d-%H%M%S)"
 
 if [[ "$modus" == "compose" ]]; then
   [[ -f "$env_datei" ]] || { echo "Datei $env_datei fehlt (--env-datei oder deploy/.env anlegen)." >&2; exit 2; }
-  db="$(env_wert DB_NAME carraway)"
-  admin="$(env_wert DB_ADMIN_BENUTZER carraway_admin)"
-  dc() { docker compose --env-file "$env_datei" -f "${verzeichnis}/docker-compose.yml" "$@"; }
-  dump_befehl() { dc exec -T datenbank pg_dump -U "$admin" -d "$db" -Fc --exclude-schema=pgboss; }
+  # Compose resolves COMPOSE_FILE relative to its working directory.
+  [[ "$env_datei" = /* ]] || env_datei="$PWD/$env_datei"
+  dc() (cd "$verzeichnis" && docker compose --env-file "$env_datei" "$@")
+  # Read the effective values from the database container, including Compose overrides and legacy settings.
+  admin="$(dc exec -T postgres printenv POSTGRES_USER)"
+  db="$(dc exec -T postgres printenv DB_NAME)"
+  dump_befehl() { dc exec -T postgres pg_dump -U "$admin" -d "$db" -Fc --exclude-schema=pgboss; }
   speicher_befehl() {
-    if dc exec -T api true 2>/dev/null; then dc exec -T api tar -czf - -C /daten/speicher .
-    else dc run --rm --no-deps -T --entrypoint tar api -czf - -C /daten/speicher .; fi
+    if dc exec -T carraway true 2>/dev/null; then dc exec -T carraway tar -czf - -C /daten/speicher .
+    else dc run --rm --no-deps -T --entrypoint tar carraway -czf - -C /daten/speicher .; fi
   }
-  server_info() { dc exec -T datenbank psql -U "$admin" -d "$db" -Atc 'show server_version'; }
+  server_info() { dc exec -T postgres psql -U "$admin" -d "$db" -Atc 'show server_version'; }
 else
-  : "${DATABASE_URL_SICHERUNG:?DATABASE_URL_SICHERUNG fehlt}"
-  : "${SPEICHER_VERZEICHNIS:?SPEICHER_VERZEICHNIS fehlt}"
-  db="$(psql "$DATABASE_URL_SICHERUNG" -Atc 'select current_database()')"
-  server_haupt="$(psql "$DATABASE_URL_SICHERUNG" -Atc 'show server_version_num' | cut -c1-2)"
+  export DATABASE_URL_BACKUP="${DATABASE_URL_BACKUP:-${DATABASE_URL_SICHERUNG:?set DATABASE_URL_BACKUP}}"
+  export STORAGE_DIR="${STORAGE_DIR:-${SPEICHER_VERZEICHNIS:?set STORAGE_DIR}}"
+  db="$("$verzeichnis/pg-client.py" DATABASE_URL_BACKUP psql -Atc 'select current_database()')"
+  server_haupt="$("$verzeichnis/pg-client.py" DATABASE_URL_BACKUP psql -Atc 'show server_version_num' | cut -c1-2)"
   client_haupt="$(pg_dump --version | sed -E 's/[^0-9]*([0-9]+).*/\1/')"
   if (( client_haupt < server_haupt )); then
     echo "pg_dump ${client_haupt} ist älter als der Server ${server_haupt}: Sicherung abgebrochen (Client aktualisieren oder den Compose-Modus nutzen)." >&2
     exit 1
   fi
-  dump_befehl() { pg_dump "$DATABASE_URL_SICHERUNG" -Fc --exclude-schema=pgboss; }
-  speicher_befehl() { tar -czf - -C "$SPEICHER_VERZEICHNIS" .; }
-  server_info() { psql "$DATABASE_URL_SICHERUNG" -Atc 'show server_version'; }
+  dump_befehl() { "$verzeichnis/pg-client.py" DATABASE_URL_BACKUP pg_dump -Fc --exclude-schema=pgboss; }
+  speicher_befehl() { tar -czf - -C "$STORAGE_DIR" .; }
+  server_info() { "$verzeichnis/pg-client.py" DATABASE_URL_BACKUP psql -Atc 'show server_version'; }
 fi
 
 name="carraway-${db}-${zeitstempel}"
@@ -87,9 +71,9 @@ zeit_datenbank="$(date -u +%Y%m%d-%H%M%S)"
 echo "Sicherung ${name}: Dateiablage ..."
 speicher_befehl > "${ablage}/speicher.tar.gz"
 zeit_speicher="$(date -u +%Y%m%d-%H%M%S)"
-# Kontrolle: Der Dump muss sich lesen lassen, die Archivdatei entpacken.
+# Verify the dump and archive before publishing the backup.
 if [[ "$modus" == "compose" ]]; then
-  dc exec -T datenbank pg_restore -l < "${ablage}/datenbank.dump" > /dev/null
+  dc exec -T postgres pg_restore -l < "${ablage}/datenbank.dump" > /dev/null
 else
   pg_restore -l "${ablage}/datenbank.dump" > /dev/null
 fi
@@ -100,7 +84,7 @@ Mandant (Datenbank): ${db}
 Erstellt (UTC): ${zeitstempel}
 Datenbank gezogen (UTC, Ende von pg_dump): ${zeit_datenbank}
 Dateiablage gezogen (UTC, Ende von tar): ${zeit_speicher}
-Reihenfolge: erst Datenbank, dann Dateiablage (siehe docs/betrieb/README.md)
+Reihenfolge: erst Datenbank, dann Dateiablage (siehe docs/operations/README.md)
 Postgres-Server: $(server_info)
 Modus: ${modus}
 Inhalt: datenbank.dump (pg_dump -Fc, Schemas public und drizzle), speicher.tar.gz (Dateiablage: Dokumente, Berichte, Berichtsfassungen, Mitteilungen, Belege, Buchungsexporte, Meldedateien)

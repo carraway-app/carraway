@@ -1,66 +1,65 @@
-# Open Core: Kern und Erweiterungen
+# Open core: core and extensions
 
-Carraway besteht aus einem **Kern** unter der GNU Affero General Public License 3.0 (`LICENSE`) und **Erweiterungen** unter einer geschlossenen Lizenz
-(`ee/LICENSE`). Beide liegen in diesem Repo; aus ihm entstehen zwei Builds:
+Carraway consists of a **core** under the GNU Affero General Public License 3.0 (`LICENSE`) and **extensions** under a proprietary licence
+(`ee/LICENSE`). The source repository produces two builds.
 
-- **Kern**: alles außer `ee/`. Baut, testet und läuft ohne den Ordner `ee/`; das ist der Stand für Selbsthoster.
-- **Voll**: Kern plus alle Erweiterungen, nur im Hosting durch Rehlytics (siehe „Einstiege und Images“).
+- **Core** includes everything outside `ee/` and builds, tests and runs without that directory. This is the build for self-hosting.
+- **Full** includes the core and every extension, available only through Rehlytics managed hosting. See [Entry points and images](#entry-points-and-images).
 
-Der Kern importiert nie aus `ee/`. Erweiterungen melden sich über **Erweiterungspunkte** an, die der Kern bereitstellt.
+The core never imports from `ee/`. Extensions register through **extension points** provided by the core.
 
-## Was zum Kern gehört, was eine Erweiterung ist
+## Features in the core and extensions
 
-| Kern | Erweiterung (`ee/`) |
+| Core | Extension (`ee/`) |
 |---|---|
-| Dealflow, Kontakte, Akten und Dokumente | Excel-Add-in: persönliche Werteschlüssel, Manifest, Werte-Schnittstelle und geprüfte Übernahme (`/excel`, `/values`, `/value-keys`), Reiter „Excel“ der Einstellungen |
-| Kapital und Journal, Zeichnungen, Closings und Zusageänderungen der Investoren | LP-Portal: Zugang der Investoren (`/portal`), Investor-Benutzer (`/investors`), Zugänge an den Investoren eines Fonds (`…/investor-access/access`) |
-| Bewertungen und Kennzahlen, Kennzahlenabfragen mit Link | ESG und SFDR: Fragebögen, PAI-Indikatoren, Einordnung nach Art. 6/8/9, PAI-Erklärung als Berichtsart |
-| Berichte mit Freigabe, PDF- und Excel-Export | Single Sign-On mit Microsoft Entra ID oder Google |
-| HTTP-API mit Webhooks und Live-Aktualisierung, Import, Vollexport | KI-Funktionen: die Auslesung von Dokumenten, die Ergänzung von Kontakten aus Signaturen und Websites und alle künftigen KI-Funktionen |
-| Zwei-Faktor, Rollen und Gruppen, Änderungsprotokoll | MCP-Server mit Lesewerkzeugen für KI-Clients unter `/api/v1/mcp` |
-| Postfach- und Kalenderanbindung, lokale Texterkennung (OCR, keine KI), Betrieb | |
+| Dealflow, contacts, records and documents | Excel add-in: personal value keys, manifest, values API and reviewed imports (`/excel`, `/values`, `/value-keys`), Excel tab in settings |
+| Capital and journal, subscriptions, closings and investor commitment changes | LP portal: investor access (`/portal`), investor users (`/investors`) and access management for fund investors (`…/investor-access/access`) |
+| Valuations and metrics, link-based metric requests | ESG and SFDR: questionnaires, PAI indicators, Article 6/8/9 classification and PAI statement report type |
+| Reports with approval, PDF and Excel export | Single sign-on with Microsoft Entra ID or Google |
+| HTTP API with webhooks and live updates, import and full export | AI features: document extraction, contact enrichment from signatures and websites, and future AI features |
+| Two-factor authentication, roles and groups, audit log | [MCP server](mcp.md) with read tools for AI clients at `/api/v1/mcp` |
+| Mailbox and calendar integration, local non-AI text recognition (OCR), operations | |
 
-## Aufbau im Repo
+## Repository layout
 
-| Ordner | Paket | Inhalt |
+| Directory | Package | Contents |
 |---|---|---|
-| `apps/api` | `@carraway/api` | API des Kerns; Einstieg „Kern“: `src/server.ts`, `src/worker.ts` |
-| `apps/web` | `@carraway/web` | Oberfläche des Kerns; Einstieg „Kern“: `src/main.tsx` |
-| `ee/api` | `@carraway/ee-api` | Erweiterungen der API; Einstieg „Voll“: `src/server.ts`, `src/worker.ts` |
-| `ee/web` | `@carraway/ee-web` | Erweiterungen der Oberfläche; Einstieg „Voll“: `src/main.tsx` (gleiche `index.html` und öffentliche Dateien wie `apps/web`) |
-| `ee/excel-addin` | `@carraway/excel-addin` | Dateien des Excel-Add-ins, gebaut nach `ee/web/oeffentlich/excel-addin/` |
+| `apps/api` | `@carraway/api` | Core API. Core entry points `src/server.ts` and `src/worker.ts`. |
+| `apps/web` | `@carraway/web` | Core web app. Core entry point `src/main.tsx`. |
+| `ee/api` | `@carraway/ee-api` | API extensions. Full entry points `src/server.ts` and `src/worker.ts`. |
+| `ee/web` | `@carraway/ee-web` | Web app extensions. Full entry point `src/main.tsx` (same `index.html` and public files as `apps/web`). |
+| `ee/excel-addin` | `@carraway/excel-addin` | Excel add-in files, built into `ee/web/oeffentlich/excel-addin/`. |
 
-Pakete in `ee/` nutzen den Kern über Paketnamen mit Pfad, zum Beispiel `@carraway/api/rechte/tabelle` oder `@carraway/web/i18n`.
+Packages in `ee/` use the core through package names with subpaths, for example `@carraway/api/rechte/tabelle` or `@carraway/web/i18n`.
 
-## Erweiterungspunkte
+## Extension points
 
-**API** (`apps/api/src/erweiterung.ts`, Typ `ApiErweiterung`; übergeben an `erstelleApp`, `starteServer` und `starteWorker`):
+**API** (`apps/api/src/erweiterung.ts`, type `ApiErweiterung`, passed to `erstelleApp`, `starteServer` and `starteWorker`)
 
-- `routen`: zusätzliche Hono-Routen unter `/api/v1`, eingehängt hinter denen des Kerns
-- `regeln`: Einträge der Berechtigungstabelle für diese Routen (Bausteine aus `rechte/tabelle.ts`, Bereich am besten in der Zeile); das
-  Regelwerk einer Anwendung besteht aus den Regeln des Kerns plus denen der Erweiterungen
-- `apiAnfrage` im Routenkontext: interner Aufruf der HTTP-App mit Anmeldung, Rechteprüfung und Zugriffsprotokoll
-- `anmeldeanbieter`: Anbieter für Better Auth (Single Sign-On); `GET /environment` nennt sie
-- `berichtsarten`: Berichtsarten mit Datei, Kontrollbericht, Freitexten und Vorgaben beim Anlegen (`berichte/arten.ts`)
-- `betrieb`: Angaben im Betriebsstatus unter `erweiterungen.<name>`
-- `anhaenge` im Routenkontext: ein Anhang aus dem eigenen Postfach kann mit Größenbegrenzung, Typprüfung und einer Aktion in der Schreibtransaktion als Dokument übernommen werden
-- `postfachMails`: wird im Abgleich der Postfächer nach dem Speichern neuer eingehender Mails bekannter Personen aufgerufen (Text nur über einen Rückruf, nicht gespeichert; Fehler halten den Abgleich nicht auf)
-- `warteschlangen`, `worker`, `verteilen`: Warteschlangen, Arbeiter und Verteilschritte im Worker (pg-boss)
+- `routen` adds Hono routes under `/api/v1`, mounted after the core routes.
+- `regeln` adds permission table entries for those routes using the building blocks in `rechte/tabelle.ts`. Prefer specifying the area in the row. The application's rules combine core and extension entries.
+- `apiAnfrage` in the route context calls the HTTP application internally with authentication, permission checks and access logging.
+- `anmeldeanbieter` registers Better Auth providers for single sign-on. `GET /environment` lists them.
+- `berichtsarten` adds report types with files, control reports, free-text fields and creation defaults (`berichte/arten.ts`).
+- `betrieb` adds operational status under `erweiterungen.<name>`.
+- `anhaenge` in the route context imports an attachment from the user's own mailbox as a document, with a size limit, type validation and an action inside the write transaction.
+- `postfachMails` runs during mailbox sync after newly arrived mail from known people is saved. Text is available through a callback and isn't stored. Errors leave sync running.
+- `warteschlangen`, `worker` and `verteilen` add queues, workers and dispatch steps to the worker (pg-boss).
 
-**Oberfläche** (`apps/web/src/erweiterung.ts`, Typ `WebErweiterung`; angemeldet mit `meldeErweiterungAn`):
+**Web app** (`apps/web/src/erweiterung.ts`, type `WebErweiterung`, registered with `meldeErweiterungAn`)
 
-- `routen`: Routen an der Wurzel oder im Fondsrahmen (`/fonds/$fondsId/…`); die Typen der Adressen kennen nur den Kern
-- `texte`: eigene Textbereiche, geladen mit den Seiten, die sie brauchen
-- `fondsReiter`, `beteiligungReiter`, `einstellungenReiter`, `verwaltungBereiche`: Einträge in den Inhaltsverzeichnissen
-- `datensatzErgaenzung` (Abschnitt auf der Seite einer Person oder eines Unternehmens), `postfachEinstellungen` (Karte unter Postfach und Kalender), `fondsInvestoren`, `dokumentAktion`, `anhangAktion`, `berichtsarten`, `anmeldung`, `betriebZeilen`: Bausteine an festen Stellen der Seiten des Kerns
-- `einstiege`: weitere Einstiege neben der Anwendung (das LP-Portal unter `/portal` mit eigenem Router)
+- `routen` adds routes at the root or in the fund layout (`/fonds/$fondsId/…`). URL types cover the core only.
+- `texte` adds translation namespaces that load with the pages that need them.
+- `fondsReiter`, `beteiligungReiter`, `einstellungenReiter` and `verwaltungBereiche` add entries to navigation lists.
+- `datensatzErgaenzung` (section on a person or company page), `postfachEinstellungen` (card under Mailbox and calendar), `fondsInvestoren`, `dokumentAktion`, `anhangAktion`, `berichtsarten`, `anmeldung` and `betriebZeilen` add components in predefined places on core pages.
+- `einstiege` adds entry points alongside the main application, such as the LP portal at `/portal` with its own router.
 
-Ohne angemeldete Erweiterung zeigt der Kern keinen ihrer Einträge: keine toten Menüpunkte, keine Knöpfe ohne Ziel.
+The core displays menu items and buttons for registered extensions only.
 
-## Eine Erweiterung anmelden
+## Register an extension
 
-1. Code in `ee/api/src/<name>/` und `ee/web/src/<name>/` anlegen; den Kern nur über `@carraway/api/…` bzw. `@carraway/web/…` nutzen.
-2. API: eine Funktion, die `ApiErweiterung` liefert, mit Routen und den Regeln dazu:
+1. Add code under `ee/api/src/<name>/` and `ee/web/src/<name>/`. Access the core only through `@carraway/api/…` and `@carraway/web/…`.
+2. For the API, create a function returning `ApiErweiterung` with its routes and rules.
 
    ```ts
    export function beispielErweiterung(): ApiErweiterung {
@@ -72,70 +71,50 @@ Ohne angemeldete Erweiterung zeigt der Kern keinen ihrer Einträge: keine toten 
    }
    ```
 
-   und in `vollErweiterungen` (`ee/api/src/index.ts`) aufnehmen. Den Typ für den Client der Oberfläche ergänzt `ee/api/src/typ.ts`.
-3. Oberfläche: ein `WebErweiterung`-Objekt in `ee/web/src/erweiterungen.tsx`; Bausteine träge laden (`traege`), damit der Start klein bleibt.
-4. Tests in `ee/api/src/__tests__/` (Hilfen aus `hilfen-voll.ts` bauen die Anwendung „Voll“) und neben den Bausteinen in `ee/web/src/`.
+   Add it to `vollErweiterungen` (`ee/api/src/index.ts`). Extend the client type for the web app in `ee/api/src/typ.ts`.
+3. For the web app, add a `WebErweiterung` object in `ee/web/src/erweiterungen.tsx`. Lazy-load components (`traege`) to keep the startup bundle small.
+4. Put tests in `ee/api/src/__tests__/` (helpers from `hilfen-voll.ts` build the full application) and beside the components under `ee/web/src/`.
 
-## Einstiege und Images
+## Entry points and images
 
-| | Kern | Voll |
+| | Core | Full |
 |---|---|---|
 | API | `apps/api/src/server.ts` | `ee/api/src/server.ts` |
 | Worker | `apps/api/src/worker.ts` | `ee/api/src/worker.ts` |
-| Oberfläche | `apps/web` (`pnpm --filter @carraway/web build`) | `ee/web` (`pnpm --filter @carraway/ee-web build`) |
-| Image | `docker build --build-arg VARIANTE=kern .` | `docker build --build-arg VARIANTE=voll .` (nur im privaten Repo) |
+| Web app | `apps/web` (`pnpm --filter @carraway/web build`) | `ee/web` (`pnpm --filter @carraway/ee-web build`) |
+| Image | `docker build --build-arg VARIANTE=kern .` | `docker build --build-arg VARIANTE=voll .` (private repository only) |
 
-`deploy/docker-compose.yml` baut den Kern (`CARRAWAY_VARIANTE`, Vorgabe `kern`). **„Voll“ gibt es nur im Hosting durch Rehlytics:** Das Image
-entsteht aus dem privaten Repo und liegt nur in einer privaten Registry; es wird nie öffentlich veröffentlicht. Für Selbsthoster ist „Voll“
-keine Option:
+The public Compose stack pulls the release's core image. A local source build additionally uses `deploy/docker-compose.build.yml`. **The full build is exclusive to Rehlytics managed hosting.**
+It is built from the private repository and distributed only through a private registry.
 
-- Das öffentliche Repo enthält `ee/` nicht. Ein Bau mit `VARIANTE=voll` bricht dann ab (`Dockerfile`), die Skripte `dev:voll` finden keine Pakete.
-- Die Einstiege des Kerns übergeben keine Erweiterungen (`starteServer()`, `starteWorker()`, `apps/web/src/main.tsx`); keine Umgebungsvariable
-  und kein dynamischer Import lädt zur Laufzeit eine nach. Die Bündel des Kerns enthalten keinen Code aus `ee/`, und die Importregel verhindert,
-  dass sich das ändert.
+- The public repository excludes `ee/`. Building with `VARIANTE=voll` fails in the `Dockerfile`, and the `dev:voll` scripts cannot find the required packages.
+- The core entry points (`starteServer()`, `starteWorker()`, `apps/web/src/main.tsx`) pass no extensions. Environment variables and dynamic imports cannot load them at runtime. Core bundles contain no `ee/` code and the import rule enforces this.
 
-## Datenbank: gemeinsames Schema
+## Database schema
 
-Tabellen, die nur Erweiterungen brauchen (`werte_schluessel`, `excel_uebernahme`, `investor_benutzer`, `investor_zugang`, `auslesung`, `fonds_offenlegung` und die
-ESG-Datenpunkte als Kennzahlen), bleiben im gemeinsamen Schema `packages/db`; die Migrationen bleiben eine lineare Folge. Getrennt ist nur der Code.
+Tables used only by extensions (`werte_schluessel`, `excel_uebernahme`, `investor_benutzer`, `investor_zugang`, `auslesung`, `fonds_offenlegung` and ESG data points stored as metrics) remain in the shared `packages/db` schema. Migrations remain a single linear sequence, while the code is separate.
 
-Begründung: Getrennte Migrationsreihen bräuchten eine zweite Journal-Datei, eine feste Reihenfolge zwischen den Reihen und Fremdschlüssel über die
-Grenze hinweg (Investor-Zugänge hängen an Benutzern und Organisationen, Auslesungen an Dokumenten). Ein Wechsel von „Kern“ zu „Voll“ und zurück
-wäre dann eine Migration statt ein anderes Image. Die Tabellen im Kern bleiben leer, solange keine Erweiterung sie füllt. Wo der Kern sie liest,
-hält er sich an die Regeln des gemeinsamen Schemas: Er erkennt Investor-Benutzer und sperrt sie für alle internen Routen (403 `portal_only`), und
-ein Werteschlüssel (`cww_`) öffnet nie eine Route außerhalb von `/values/`.
+Separate migration sequences would need a second journal, a fixed order between sequences and cross-schema references. Investor access depends on users and organisations, and extractions depend on documents. Moving between core and full would then need a migration instead of a different image. Tables stay empty in core unless an extension populates them. Where the core reads them, it follows the shared schema rules. It recognises investor users and denies them internal routes (403 `portal_only`). A value key (`cww_`) cannot open any route outside `/values/`.
 
-## Prüfungen
+## Checks
 
-- **Importregel** (`eslint.config.mjs`): In `apps/`, `packages/` und `scripts/` ist jeder Import aus `ee/` ein Fehler, über Paketnamen
-  (`@carraway/ee-*`, `@carraway/excel-addin`) wie über relative Pfade, auch dynamisch (`import(…)`). `scripts/ci/importregel.mjs` prüft mit
-  absichtlichen Verstößen, dass die Regel greift.
-- **Kern allein** (CI-Job `kern-allein`): `scripts/ci/kern-kopie.sh` legt eine Kopie ohne `ee/` an und installiert sie; darin laufen Lint,
-  Typecheck, Build, Budget der Oberfläche, die Tests der Oberfläche und eine Auswahl der API-Tests. Lokal genauso:
+- **Import rule** (`eslint.config.mjs`). Any import from `ee/` in `apps/`, `packages/` or `scripts/` is an error, including package imports (`@carraway/ee-*`, `@carraway/excel-addin`), relative paths and dynamic imports (`import(…)`). `scripts/ci/importregel.mjs` verifies the rule with deliberate violations.
+- **Core-only** (CI job `kern-allein`). `scripts/ci/kern-kopie.sh` makes and installs a copy without `ee/`. It runs lint, type checks, builds, the web bundle budget and web app tests, and selected API tests. The corresponding local commands are:
 
   ```sh
   bash scripts/ci/kern-kopie.sh /tmp/kern-kopie
   cd /tmp/kern-kopie && pnpm typecheck && pnpm build && pnpm --filter @carraway/web test
   ```
 
-- **Voll**: Typecheck, Build, Budget (`node scripts/ci/bundle-budget.mjs --voll`) und Tests von `ee/` laufen im gewöhnlichen CI-Lauf mit.
-- Die Berechtigungstabelle wird in beiden Builds vollständig geprüft: `apps/api/src/__tests__/rechte.test.ts` (Kern) und
-  `ee/api/src/__tests__/rechte-voll.test.ts` (Voll).
+- **Full.** Regular CI includes type checks, builds, the bundle budget (`node scripts/ci/bundle-budget.mjs --voll`) and `ee/` tests.
+- Both builds test the full permission table in `apps/api/src/__tests__/rechte.test.ts` (core) and `ee/api/src/__tests__/rechte-voll.test.ts` (full).
 
-## Öffentliches Repo
+## Public repository
 
-Der Kern erscheint je Release als **eine Momentaufnahme in einem Commit** („Release vX.Y.Z“) in einem öffentlichen Repo, ohne Historie und ohne `ee/`.
-Das Hosting-Image „Voll“ entsteht weiter nur aus dem privaten Repo.
+Each release publishes the core as **one snapshot commit** (“Release vX.Y.Z”) in a public repository, without history or `ee/`. The full hosting image is still built only from the private repository.
 
-- **Was exportiert wird, bestimmt eine Allowlist** (`scripts/oss/erlaubt.txt`) mit harten Ausschlüssen (`scripts/oss/ausgeschlossen.txt`, darunter `ee/`,
-  interne Pläne und Arbeitsunterlagen, Werkzeuge für Kundendaten und die CI des privaten Repos). Neue Dateien bleiben privat, bis sie eingetragen sind.
-- **Verweise auf `ee/` im Kern bleiben stehen**, soweit sie nichts brechen: die Paketliste `ee/*` in `pnpm-workspace.yaml`, die Importregel in
-  `eslint.config.mjs`, der Schalter `VARIANTE` im `Dockerfile` (ein Bau mit `voll` bricht im öffentlichen Repo mit einer klaren Meldung ab), diese Seite.
-  Damit ist öffentlich erkennbar, dass es eine Voll-Variante nur im Hosting gibt. Das Skript `dev:voll` und die Seiten nur zu Erweiterungen
-  (z. B. `docs/excel.md`) gehören nicht zum Export.
-- **Lockdatei:** `pnpm-lock.yaml` wird unverändert exportiert. `pnpm install --frozen-lockfile` klappt ohne `ee/`, weil pnpm die Einträge fehlender
-  Arbeitsbereiche übergeht und der Kern keine andere Version braucht (geprüft im Probelauf, ebenso im CI-Job „Kern allein“).
-- **Eine Regel für Export und CI:** `scripts/ci/kern-kopie.sh` (CI-Job „Kern allein“) wählt die Dateien mit demselben Code wie der Export
-  (`node scripts/oss/export.ts --kopie <Ordner>`). Was dort grün ist, ist der Stand, der veröffentlicht würde.
-- Den Ablauf eines Releases, den Export mit seinen Prüfungen und die Übernahme von Beiträgen aus dem öffentlichen Repo beschreibt `docs/releases.md`
-  (nur im privaten Repo).
+- **The allowlist controls exports** (`scripts/oss/erlaubt.txt`). Hard exclusions (`scripts/oss/ausgeschlossen.txt`) cover `ee/`, internal plans and working documents, tools for customer data and private CI. New files stay private until listed.
+- **Harmless references to `ee/` stay in the core.** These include `ee/*` in `pnpm-workspace.yaml`, the import rule in `eslint.config.mjs`, the `VARIANTE` switch in the `Dockerfile` (a public build with `voll` fails with an explicit error), and this page. They describe the managed hosting build. The export omits `dev:voll` and extension-only pages such as `docs/excel.md` and the internal AI extraction guide.
+- **Lockfile.** `pnpm-lock.yaml` is exported unchanged. `pnpm install --frozen-lockfile` succeeds without `ee/` because pnpm skips missing workspace entries and core needs no other version. The export rehearsal and the core-only CI job verify this.
+- **Shared export and CI selection.** `scripts/ci/kern-kopie.sh` (core-only CI job) selects the same files as the export (`node scripts/oss/export.ts --kopie <directory>`). It checks the exact file set that would be published.
+- `docs/releases.md` in the private repository describes the release procedure, export checks and how to bring back contributions from the public repository.

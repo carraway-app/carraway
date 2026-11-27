@@ -21,7 +21,7 @@ import { hauswaehrung } from "../manager/profil";
 
 /**
  * Währungssicht auf Beteiligungen und Fonds (Etappe 21). Die gebuchten Beträge stehen in der Fondswährung; hier kommen die lokale Währung der Beteiligung und eine
- * wählbare Vergleichswährung dazu. Regeln (Rechenkern `waehrung.ts`, `docs/waehrung.md`):
+ * wählbare Vergleichswährung dazu. Regeln (Rechenkern `waehrung.ts`, `docs/currency.md`):
  *
  * - **Kosten** (Auszahlungen, Rückflüsse, Tilgungen, gezahlte Zinsen, Dividenden) zum Kurs der Valuta, ein gebuchter lokaler Betrag gilt vor jeder Umrechnung.
  * - **Zeitwert** (Bewertung, offene Forderungen) zum Kurs des Bewertungsstichtags; Forderungen zum Kurs des Stichtags der Ansicht.

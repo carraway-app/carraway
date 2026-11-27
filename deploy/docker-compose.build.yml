@@ -1,0 +1,14 @@
+# Build one image for all three application services on the local architecture.
+x-local: &local
+  image: ${CARRAWAY_IMAGE:-carraway:kern}
+  pull_policy: never
+
+services:
+  carraway-migrate:
+    <<: *local
+    build:
+      context: ..
+      args:
+        VARIANTE: kern
+  carraway: *local
+  carraway-worker: *local

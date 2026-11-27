@@ -4,7 +4,7 @@ import type { Tx } from "../zeitlimit";
 import { stufenJeBereichAnApi } from "./api-namen";
 import { BEREICHE, hoehereStufe, istBereich, niedrigereStufe, type Bereich } from "./bereiche";
 
-/** Wirksame Rechte einer Person aus eigenen Fondsrollen, Gruppen und Rollen (docs/rechte-modell.md, „Auflösung“). */
+/** Wirksame Rechte einer Person aus eigenen Fondsrollen, Gruppen und Rollen (docs/permissions-model.md, „Resolve effective permissions“). */
 export interface WirksameRechte {
   /** Stufe je Fonds über alle Bereiche: die eigene Fondsrolle, sonst die höchste Stufe der Gruppen, deren Fondszugriff den Fonds umfasst. */
   rollen: Map<string, FondsRolle>;

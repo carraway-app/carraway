@@ -5,7 +5,7 @@ import { erstelleDb } from "../index";
 import { TESTDB_URL } from "./hilfen";
 
 /**
- * Datenmigration der Vehikel (docs/portfolio-modell.md, „Vehikel der Co-Investoren“): Der Test baut in einer Transaktion den Zustand vor der Migration
+ * Datenmigration der Vehikel (docs/portfolio-model.md, „Co-investor vehicles“): Der Test baut in einer Transaktion den Zustand vor der Migration
  * nach (Positionen Dritter mit `organisation_id`, ohne Vehikel), spielt die Überführung aus der Migrationsdatei ab und rollt am Ende zurück.
  */
 

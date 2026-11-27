@@ -1,16 +1,16 @@
 // Anmeldung an der API eines laufenden Stacks mit der Demo-Verwalterin (Adresse, Passwort und Geheimnis des zweiten Faktors aus
-// packages/db/demo-zugaenge.md, erfunden und öffentlich); für die Probeskripte in scripts/ops. Nur für Demo- und Testbestände.
+// packages/db/demo-accounts.md, erfunden und öffentlich); für die Probeskripte in scripts/ops. Nur für Demo- und Testbestände.
 import { createHmac } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
 function zugang() {
   const zeile = fs
-    .readFileSync(path.resolve("packages/db/demo-zugaenge.md"), "utf8")
+    .readFileSync(path.resolve("packages/db/demo-accounts.md"), "utf8")
     .split("\n")
     .map((z) => /^\| Vera Beispiel \| `([^`]+)` \| `([^`]+)` \| `([^`]+)` \|/.exec(z))
     .find(Boolean);
-  if (!zeile) throw new Error("Zugang der Verwalterin nicht in packages/db/demo-zugaenge.md gefunden (erst pnpm db:seed).");
+  if (!zeile) throw new Error("Zugang der Verwalterin nicht in packages/db/demo-accounts.md gefunden (erst pnpm db:seed).");
   return { email: zeile[1], passwort: zeile[2], geheimnis: zeile[3] };
 }
 

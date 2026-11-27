@@ -163,7 +163,7 @@ const gruppeAuszug = (g: GruppeZeile) => ({
 });
 
 /**
- * Rollen, Nutzergruppen und die zentrale Einstellung „Fonds offen“ (Rechtemodell, docs/rechte-modell.md). Nur globale Verwalter
+ * Rollen, Nutzergruppen und die zentrale Einstellung „Fonds offen“ (Rechtemodell, docs/permissions-model.md). Nur globale Verwalter
  * (Berechtigungstabelle). Jede Änderung steht im Änderungsprotokoll.
  */
 export function rechteRouten(db: Db) {
