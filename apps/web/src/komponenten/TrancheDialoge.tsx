@@ -71,10 +71,10 @@ export function TrancheAnlegenDialog({ instrumente, instrumentId, onSchliessen }
             </option>
           ))}
         </Auswahl>
-        <Feld label={f.bezeichnung} autoComplete="off" placeholder={f.vorschlag(nummer)} {...feld("bezeichnung")} fehler={fehler("bezeichnung")} />
+        <Feld label={f.bezeichnung} placeholder={f.vorschlag(nummer)} {...feld("bezeichnung")} fehler={fehler("bezeichnung")} />
         <BetragFeld label={f.betrag} required {...feld("betrag", fehler("betrag"))} />
         <Feld label={f.geplantAm} type="date" {...feld("geplantAm", fehler("geplantAm"))} />
-        <Feld label={f.bedingung} autoComplete="off" {...feld("bedingung")} fehler={fehler("bedingung")} />
+        <Feld label={f.bedingung} {...feld("bedingung")} fehler={fehler("bedingung")} />
         {fehlt > 0 && instrument ? (
           <>
             <JaNein label={f.erhoehen} wert={erhoehen} onWahl={setErhoehen} ja={f.ja} nein={f.nein} />
@@ -116,10 +116,10 @@ export function TrancheBearbeitenDialog({ tranche, onSchliessen }: { tranche: Tr
         }}
       >
         <FehlerHinweis fehler={aendern.error} bekannt={TRANCHE_FELDER} />
-        <Feld label={f.bezeichnung} autoComplete="off" {...feld("bezeichnung")} fehler={fehler("bezeichnung")} />
+        <Feld label={f.bezeichnung} {...feld("bezeichnung")} fehler={fehler("bezeichnung")} />
         <BetragFeld label={f.betrag} required {...feld("betrag", fehler("betrag"))} />
         <Feld label={f.geplantAm} type="date" {...feld("geplantAm", fehler("geplantAm"))} />
-        <Feld label={f.bedingung} autoComplete="off" {...feld("bedingung")} fehler={fehler("bedingung")} />
+        <Feld label={f.bedingung} {...feld("bedingung")} fehler={fehler("bedingung")} />
         <div>
           <Button type="submit" disabled={aendern.isPending}>
             {f.speichern}
@@ -248,7 +248,7 @@ export function InstrumentAnlegenDialog({ beteiligungId, organisationId, onSchli
             </option>
           ))}
         </Auswahl>
-        <Feld label={f.bezeichnung} hilfe={f.bezeichnungHilfe} autoComplete="off" disabled={angelegt !== null} {...feld("bezeichnung")} fehler={fehler("bezeichnung")} />
+        <Feld label={f.bezeichnung} hilfe={f.bezeichnungHilfe} disabled={angelegt !== null} {...feld("bezeichnung")} fehler={fehler("bezeichnung")} />
         <Auswahl label={f.runde} disabled={angelegt !== null} {...feld("rundeId")} value={rundeId} fehler={fehler("rundeId")}>
           <option value="">{f.keineRunde}</option>
           {rundenAngebot.map((r) => (
@@ -273,7 +273,7 @@ export function InstrumentAnlegenDialog({ beteiligungId, organisationId, onSchli
           <p className="app-leer-text">{f.zusageHilfe}</p>
           <BetragFeld label={f.betrag} {...feld("betrag")} />
           <Feld label={f.geplantAm} type="date" {...feld("geplantAm")} />
-          <Feld label={f.bedingung} autoComplete="off" {...feld("bedingung")} />
+          <Feld label={f.bedingung} {...feld("bedingung")} />
         </fieldset>
         <div>
           <Button type="submit" disabled={anlegen.isPending || tranche.isPending}>
@@ -367,7 +367,7 @@ export function InstrumentBearbeitenDialog({ instrument, organisationId, artGesp
             </option>
           ))}
         </Auswahl>
-        <Feld label={f.bezeichnungName} autoComplete="off" {...feld("bezeichnung")} fehler={fehler("bezeichnung")} />
+        <Feld label={f.bezeichnungName} {...feld("bezeichnung")} fehler={fehler("bezeichnung")} />
         <Auswahl label={f.runde} {...feld("rundeId")} value={rundeId} fehler={fehler("rundeId")}>
           <option value="">{f.keineRunde}</option>
           {rundenAngebot.map((r) => (

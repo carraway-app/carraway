@@ -652,6 +652,62 @@
       "when": 1795725739348,
       "tag": "0092_darlehensabgang_verzicht",
       "breakpoints": true
+    },
+    {
+      "idx": 93,
+      "version": "7",
+      "when": 1795738755833,
+      "tag": "0093_provider_connections",
+      "breakpoints": true
+    },
+    {
+      "idx": 94,
+      "version": "7",
+      "when": 1795740325192,
+      "tag": "0094_data_providers",
+      "breakpoints": true
+    },
+    {
+      "idx": 95,
+      "version": "7",
+      "when": 1795742862245,
+      "tag": "0095_provider_run_skips",
+      "breakpoints": true
+    },
+    {
+      "idx": 96,
+      "version": "7",
+      "when": 1795743919685,
+      "tag": "0096_provider_review",
+      "breakpoints": true
+    },
+    {
+      "idx": 97,
+      "version": "7",
+      "when": 1795806363573,
+      "tag": "0097_mitarbeiter_erfassung",
+      "breakpoints": true
+    },
+    {
+      "idx": 98,
+      "version": "7",
+      "when": 1795806635188,
+      "tag": "0098_bereich_einzelzuteilungen",
+      "breakpoints": true
+    },
+    {
+      "idx": 99,
+      "version": "7",
+      "when": 1795807194995,
+      "tag": "0099_pool_aenderung_dokument",
+      "breakpoints": true
+    },
+    {
+      "idx": 100,
+      "version": "7",
+      "when": 1795813229434,
+      "tag": "0100_idempotenz_einmalige_antworten",
+      "breakpoints": true
     }
   ]
 }

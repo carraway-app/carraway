@@ -2,11 +2,12 @@ import { pruefeFonds } from "../fonds-pruefung";
 import { fondsAnApi } from "../fonds-vertrag";
 import { Hono } from "hono";
 import { z } from "zod";
-import { fonds, fondsZeichnung, snapshotAuftrag, type Db } from "@carraway/db";
-import { and, asc, eq, sum } from "drizzle-orm";
+import { fonds, snapshotAuftrag, type Db } from "@carraway/db";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { Fachfehler, fehlerAntwort } from "../fehler";
 import { abgerufen, sperreFonds } from "../instrumente/fondsbewegung";
 import { pruefeStichtag } from "../instrumente/stichtag";
+import { bewerteZusagen } from "../instrumente/zusagen";
 import { berechneAbgrenzung, ladeZinskontexte } from "../instrumente/zinsen";
 import { ladeZinsansicht } from "../instrumente/zinsansicht";
 import { berechneFondsUebersicht, uebersichtFuerAnsicht, standardStichtag } from "../kennzahlen/fonds";
@@ -21,6 +22,7 @@ import { heute, ladeFonds, mindestensEins, MINDESTENS_EIN_FELD, schreibe, textEi
 import { hatPostgresCode } from "../szenarien/konstanten";
 import { lese } from "../zeitlimit";
 import { periodensperreRouten } from "./periodensperre";
+import { pruefeNeuesZeichnungskapital } from "./investoren";
 import { rollenRouten } from "./benutzer";
 import { fondsBewertungRouten } from "./bewertungen";
 import { fondsKennzahlRouten } from "./kennzahlen";
@@ -63,12 +65,22 @@ export function fondsRouten(db: Db) {
       const { changedSince: geaendertSeit } = liesAbfrage(c, fondsListenAbfrage);
       const zeilen = await lese(db, (tx) =>
         tx
-          .select(stammFelder)
+          .select({
+            ...stammFelder,
+            nachZusage: fonds.lpVerteilungNachZusage,
+            abgedeckt: sql<string>`(SELECT coalesce(sum(z.zusage), 0)::text FROM fonds_zeichnung z WHERE z.fonds_id = "fonds"."id")`,
+            anzahl: sql<number>`(SELECT count(*)::int FROM fonds_zeichnung z WHERE z.fonds_id = "fonds"."id")`,
+          })
           .from(fonds)
           .where(and(fondsSichtbar(c, fonds.id), geaendertSeitBedingung("fonds", fonds.id, fonds.erstelltAm, geaendertSeit)))
           .orderBy(asc(fonds.vintage), asc(fonds.name)),
       );
-      return c.json(fondsAnApi({ daten: zeilen }), 200);
+      // Abdeckung des Zeichnungskapitals durch die LP-Zusagen (Issue #275): Hinweis auf der Fondsseite, solange sie unvollständig ist.
+      const daten = zeilen.map(({ nachZusage, abgedeckt, anzahl, ...stamm }) => {
+        const stand = bewerteZusagen(stamm.zeichnungskapital, abgedeckt, anzahl, nachZusage);
+        return { ...stamm, abgedeckt: stand.abgedeckt, zusagenVollstaendig: stand.vollstaendig };
+      });
+      return c.json(fondsAnApi({ daten }), 200);
     })
     .post("/", pruefeFonds("json", fondsAnlage), async (c) => {
       const eingabe = c.req.valid("json");
@@ -94,10 +106,7 @@ export function fondsRouten(db: Db) {
             if ((await abgerufen(tx, id)).greaterThan(eingabe.zeichnungskapital)) {
               throw new Fachfehler(409, "subscribed_capital_below_calls", "The subscribed capital is below the amounts already called.");
             }
-            const [zeichnung] = await tx.select({ summe: sum(fondsZeichnung.zusage) }).from(fondsZeichnung).where(eq(fondsZeichnung.fondsId, id));
-            if (zeichnung?.summe != null && !new Decimal(zeichnung.summe).eq(eingabe.zeichnungskapital)) {
-              throw new Fachfehler(409, "lp_commitments_capital_mismatch", "The subscribed capital must equal the sum of the recorded commitments.");
-            }
+            await pruefeNeuesZeichnungskapital(tx, protokoll, vorher, eingabe.zeichnungskapital, aktuellerAkteur(c).globalVerwalter);
           }
           const [zeile] = await tx.update(fonds).set(eingabe).where(eq(fonds.id, id)).returning(stammFelder);
           if (!zeile) throw new Error("Fonds konnte nicht aktualisiert werden.");

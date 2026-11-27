@@ -6,13 +6,15 @@ Exakte Brüche, Monate über einen Kalender-Zähler statt über Differenzen. All
 
   Volle Monate  Ab `von` wird Monat für Monat weitergezählt; ein Monat ist voll, wenn `bis` den gleichen Tag des Folgemonats erreicht
                 (gibt es den Tag nicht, das Monatsende).
-  Vesting       vor dem Cliff 0, danach abgerundet(Anzahl × min(1, Monate ÷ Dauer)); Dauer 0 = alles.
+  Vesting       vor dem Cliff 0, danach abgerundet(Anzahl × min(1, M ÷ Dauer)) mit M = volle Monate abgerundet auf ein Vielfaches
+                des Takts (1, 3, 6 oder 12 Monate, Standard 1); Dauer 0 = alles.
   Exit          gevestet + abgerundet(ungevestet × Beschleunigung).
   Austritte     je Austritt i ab A_i: gB_i = gevestet(B_i, A_i) friert ein, B_i − gB_i verfällt; gB_i bleibt, verfällt oder wird
                 zurückgekauft (Betrag = gB_i × Preis, ohne Preis der Basispreis); Σ B_i ≤ Anzahl. Die übrigen Anzahl − Σ B_i (Austritte bis
                 zum Stichtag) vesten weiter (eine Abrundung).
   Pool          Größe = Σ Änderungen bis Stichtag; ausstehend = Zuteilungen bis Stichtag ohne verfallen/ausgeübt (ab deren Datum);
                 frei = max(0, Größe − ausstehend − ausgeübt).
+  Grob          ausstehend = min(vergeben, max(0, Größe)), frei = max(0, Größe − ausstehend).
   Runde         Preis = Pre-Money ÷ (Anteile vorher + Pool vorher + Aufstockung Pre-Money); neue Anteile = abgerundet(Volumen ÷ Preis).
 """
 from fractions import Fraction as F
@@ -35,7 +37,7 @@ def volle_monate(von, bis):
     return n
 
 
-def gevestet(anzahl, beginn, cliff, dauer, stichtag):
+def gevestet(anzahl, beginn, cliff, dauer, stichtag, takt=1):
     if date.fromisoformat(stichtag) < date.fromisoformat(beginn):
         return 0
     if dauer == 0:
@@ -43,7 +45,8 @@ def gevestet(anzahl, beginn, cliff, dauer, stichtag):
     m = volle_monate(beginn, stichtag)
     if m < cliff:
         return 0
-    return floor(F(anzahl) * min(F(1), F(m, dauer)))
+    stufen = (m // takt) * takt
+    return floor(F(anzahl) * min(F(1), F(stufen, dauer)))
 
 
 def beim_exit(anzahl, beginn, cliff, dauer, beschleunigung, exitdatum):
@@ -68,6 +71,11 @@ def aufteilung(anzahl, beginn, cliff, dauer, stichtag, austritte=(), basispreis=
             verf, rk = verf + b - gb, rk + gb
             betrag += gb * F(preis if preis is not None else basispreis)
     return g, uebrige - gu, verf, rk, betrag
+
+
+def pool_grob(groesse, vergeben):
+    aus = min(vergeben, max(0, groesse))
+    return aus, max(0, groesse - aus)
 
 
 def runde(pre, volumen, vorher, pool, auf_pre=0, auf_post=0):
@@ -104,6 +112,11 @@ if __name__ == "__main__":
     print("mehrere vor dem zweiten", aufteilung(100000, "2024-01-15", 12, 48, "2025-06-30", mehrere, basispreis=2))
     print("mehrere vor allen", aufteilung(100000, "2024-01-15", 12, 48, "2025-03-09", mehrere, basispreis=2))
     print("alle ausgeschieden", aufteilung(30000, "2024-01-15", 12, 48, "2027-01-15", [("2026-07-31", 20000, "bleiben", None), ("2025-11-20", 10000, "rueckkauf", None)], basispreis=2))
+    # Takt: 48.000 ab 15.01.2024, 48 Monate, Cliff 12; Stichtag 14.10.2026 = 32 volle Monate
+    for takt in [1, 3, 6, 12]:
+        print("takt", takt, gevestet(48000, "2024-01-15", 12, 48, "2026-10-14", takt))
+    print("takt 12 am Cliff", gevestet(48000, "2024-01-15", 12, 48, "2025-01-15", 12))
+    print("grob", pool_grob(100000, 60000), pool_grob(50000, 60000), pool_grob(-10, 5))
     # Runde: 9 Mio Pre-Money, 3 Mio Volumen, 1 Mio Anteile, 50.000 Pool, Aufstockung im Pre-Money um 100.000
     preis, neu, voll, anteil = runde("9000000", "3000000", "1000000", "50000", "100000")
     print("runde pre preis", preis, float(preis), "neu", neu, "voll", voll, "anteil", float(anteil))

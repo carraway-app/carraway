@@ -2,17 +2,18 @@ import { Bereichskopf } from "../komponenten/Bereichskopf";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { getRouteApi } from "@tanstack/react-router";
-import { Auswahl, Button, Fakten, Feld, Hinweis, Seitenpanel, Tabelle, formatBetrag, formatDatum, type TabelleSpalte } from "@carraway/ui";
+import { Button, Fakten, Feld, Hinweis, Seitenpanel, Tabelle, formatBetrag, formatDatum, type TabelleSpalte } from "@carraway/ui";
 import { fondsUebersicht } from "../api/abfragen";
 import { heuteIso } from "../api/datum";
 import { fondsReserven, useReserveSetzen, type ReservenDaten } from "../api/szenarien";
+import { BeteiligungsWahl } from "../komponenten/BeteiligungsWahl";
 import { FehlerHinweis } from "../komponenten/FehlerHinweis";
 import { Rechenweg } from "../komponenten/Rechenweg";
 import { Skelettzeilen } from "../komponenten/Skelett";
 import { useSprache, useT } from "../i18n";
 import { useRechte } from "../lib/rechte";
 
-const route = getRouteApi("/fonds/$fondsId/reserven");
+const route = getRouteApi("/funds/$fundId/reserves");
 
 type Zeile = ReservenDaten["reserven"][number];
 
@@ -24,7 +25,7 @@ export function ReservenSeite() {
   const t = useT();
   const z = t.szenarien.reservenSeite;
   const sprache = useSprache();
-  const { fondsId } = route.useParams();
+  const { fundId: fondsId } = route.useParams();
   const { data, error, isPending } = useQuery(fondsReserven(fondsId));
   const uebersicht = useQuery(fondsUebersicht(fondsId));
   const { darf } = useRechte();
@@ -35,6 +36,8 @@ export function ReservenSeite() {
   const [bemerkung, setBemerkung] = useState("");
   const setzen = useReserveSetzen(fondsId, beteiligungId);
   const aktive = (uebersicht.data?.beteiligungen ?? []).filter((b) => b.status === "aktiv");
+  // Die Suche kennt nur den Fonds, nicht den Status: Nicht aktive Beteiligungen stehen dort nicht zur Wahl.
+  const beendete = new Set((uebersicht.data?.beteiligungen ?? []).filter((b) => b.status !== "aktiv").map((b) => b.id));
 
   const spalten: TabelleSpalte<Zeile>[] = [
     { schluessel: "unternehmen", kopf: z.spalten.unternehmen, zelle: (r) => r.organisation },
@@ -112,14 +115,7 @@ export function ReservenSeite() {
           }}
         >
           <FehlerHinweis fehler={setzen.error} />
-          <Auswahl label={z.felder.beteiligung} value={beteiligungId} onChange={(e) => setBeteiligungId(e.target.value)} required>
-            <option value="">–</option>
-            {aktive.map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.organisation.name}
-              </option>
-            ))}
-          </Auswahl>
+          <BeteiligungsWahl label={z.felder.beteiligung} fondsId={fondsId} beteiligungen={aktive} ausschliessen={beendete} wert={beteiligungId} onWahl={setBeteiligungId} leerOption="–" required />
           <Feld label={z.felder.betrag} value={betrag} inputMode="decimal" onChange={(e) => setBetrag(e.target.value)} zahl required />
           <Feld label={z.felder.gueltigAb} type="date" value={gueltigAb} onChange={(e) => setGueltigAb(e.target.value)} required />
           <Feld label={z.felder.bemerkung} value={bemerkung} onChange={(e) => setBemerkung(e.target.value)} />

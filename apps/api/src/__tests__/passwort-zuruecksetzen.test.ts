@@ -102,7 +102,7 @@ describe("Passwort vergessen", () => {
     const [mail] = await versende();
     const token = tokenAus(mail!.text);
     expect(token.length).toBeGreaterThanOrEqual(30);
-    expect(mail!.text).toContain(`${TESTORIGIN}/passwort-setzen#token=${token}`);
+    expect(mail!.text).toContain(`${TESTORIGIN}/set-password#token=${token}`);
     expect(mail!.betreff).toBe("Reset your password");
     expect(mail!.text).toContain("30 minutes");
     expect(mail!.text).toContain("second factor");

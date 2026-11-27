@@ -44,7 +44,7 @@ export function NaechsteTermine({ filter, mitBezug = false }: { filter: TermineF
                         {x.deal.titel}
                       </Link>
                     ) : x.organisation ? (
-                      <Link to="/organisationen/$id" params={{ id: x.organisation.id }}>
+                      <Link to="/organizations/$id" params={{ id: x.organisation.id }}>
                         {x.organisation.name}
                       </Link>
                     ) : null}

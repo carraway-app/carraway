@@ -4,7 +4,7 @@ import { eintragWerte, ereignisWerte, REGISTERARTEN, type EintragWerte, type Ere
 
 /**
  * Schnittstelle zu einer Quelle für Registerdaten. Carraway ruft Registerportale nicht automatisiert ab (siehe `docs/register/access.md`);
- * ein Anbieter ist eine lizenzierte Schnittstelle, die ein Betreiber ausdrücklich einrichtet. Mitgeliefert ist nur der Testanbieter.
+ * ein Anbieter ist eine lizenzierte Schnittstelle, die ein Betreiber ausdrücklich einrichtet. Der Testanbieter nutzt diese Schnittstelle, authentifizierte Adapter registrieren sich unter data-providers/.
  */
 
 export interface RegisterReferenz {

@@ -12,6 +12,7 @@ import { useBereich } from "../lib/rechte";
 import { Seitenpanel } from "@carraway/ui";
 import { DublettenBestaetigung, DublettenHinweis, kandidatenAus } from "./Dubletten";
 import { FehlerHinweis } from "./FehlerHinweis";
+import { VorschlagFeld } from "./Suchfeld";
 import { textOderNichts, textOderNull, useFormular } from "./formular";
 
 export const ORGANISATION_ARTEN = ["unternehmen", "investor", "berater", "sonstige"] as const satisfies readonly OrganisationArt[];
@@ -21,10 +22,13 @@ const FELDER = ["name", "art", "sektor", "ort", "website"];
 /** Die gemeinsamen Eingabefelder einer Organisation; `fehler` ist der Fehler der letzten Anfrage. */
 export function OrganisationFelder({
   feld,
+  setze,
   fehler,
   onName,
 }: {
   feld: ReturnType<typeof useFormular<{ name: string; art: string; sektor: string; ort: string; website: string }>>["feld"];
+  /** Setzt Sektor oder Ort aus einem Vorschlag. */
+  setze: (name: "sektor" | "ort", wert: string) => void;
   fehler: unknown;
   onName?: () => void;
 }) {
@@ -35,7 +39,6 @@ export function OrganisationFelder({
     <>
       <Feld
         label={f.name}
-        autoComplete="off"
         {...name}
         onChange={(e) => {
           name.onChange(e);
@@ -50,19 +53,30 @@ export function OrganisationFelder({
           </option>
         ))}
       </Auswahl>
-      <Feld label={f.sektor} {...feld("sektor")} fehler={feldText(t, fehler, "sektor")} />
-      <Feld label={f.ort} {...feld("ort")} fehler={feldText(t, fehler, "ort")} />
+      {/* Sektor und Ort mit Vorschlägen aus den erfassten Werten, damit keine Schreibvarianten entstehen. */}
+      <VorschlagFeld label={f.sektor} name="sektor" feld="sektor" value={feld("sektor").value} onChange={(wert) => setze("sektor", wert)} fehler={feldText(t, fehler, "sektor")} />
+      <VorschlagFeld label={f.ort} name="ort" feld="ort" value={feld("ort").value} onChange={(wert) => setze("ort", wert)} fehler={feldText(t, fehler, "ort")} />
       <Feld label={f.website} type="url" inputMode="url" {...feld("website")} fehler={feldText(t, fehler, "website")} />
     </>
   );
 }
 
-/** „Neue Organisation“ mit Dublettenhinweis beim Tippen und ausdrücklicher Bestätigung nach 409. */
-export function OrganisationNeuDialog({ onSchliessen, namensvorschlag = "" }: { onSchliessen: () => void; namensvorschlag?: string }) {
+/**
+ * „Neue Organisation“ mit Dublettenhinweis beim Tippen und ausdrücklicher Bestätigung nach 409. Mit `onAngelegt` (z. B. „Neu anlegen“ aus
+ * einem Suchfeld) übernimmt der Aufrufer die neue Organisation, statt zu ihrer Seite zu wechseln; `art` gibt die Art vor.
+ */
+export function OrganisationNeuDialog({ onSchliessen, namensvorschlag = "", art = "unternehmen", onAngelegt }: {
+  onSchliessen: () => void;
+  namensvorschlag?: string;
+  art?: OrganisationArt;
+  onAngelegt?: (neu: { id: string; name: string; art: OrganisationArt; ort: string | null }) => void;
+}) {
   const t = useT();
   const navigate = useNavigate();
   const anlegen = useOrganisationAnlegen();
-  const { werte, feld } = useFormular({ name: namensvorschlag, art: "unternehmen", sektor: "", ort: "", website: "" });
+  const { werte, setWerte, feld } = useFormular({ name: namensvorschlag, art: art as string, sektor: "", ort: "", website: "" });
+  const uebernehmen = (k: { id: string; name: string; art: OrganisationArt; ort?: string | null }) =>
+    onAngelegt ? onAngelegt({ id: k.id, name: k.name, art: k.art, ort: k.ort ?? null }) : void navigate({ to: "/organizations/$id", params: { id: k.id } });
   const kandidaten = kandidatenAus(anlegen.error);
 
   function senden(bestaetigt: boolean) {
@@ -75,7 +89,7 @@ export function OrganisationNeuDialog({ onSchliessen, namensvorschlag = "" }: { 
         website: textOderNichts(werte.website),
         ...(bestaetigt ? { dubletteBestaetigt: true } : {}),
       },
-      { onSuccess: (neu) => void navigate({ to: "/organisationen/$id", params: { id: neu.id } }) },
+      { onSuccess: (neu) => uebernehmen(neu) },
     );
   }
 
@@ -95,12 +109,12 @@ export function OrganisationNeuDialog({ onSchliessen, namensvorschlag = "" }: { 
             kandidaten={kandidaten}
             laeuft={anlegen.isPending}
             onBestaetigen={() => senden(true)}
-            onVerwenden={(k) => void navigate({ to: "/organisationen/$id", params: { id: k.id } })}
+            onVerwenden={(k) => (onAngelegt ? uebernehmen({ id: k.id, name: k.name, art: werte.art as OrganisationArt }) : void navigate({ to: "/organizations/$id", params: { id: k.id } }))}
           />
         ) : (
           <FehlerHinweis fehler={anlegen.error} bekannt={FELDER} />
         )}
-        <OrganisationFelder feld={feld} fehler={anlegen.error} onName={() => anlegen.error instanceof ApiFehler && anlegen.reset()} />
+        <OrganisationFelder feld={feld} setze={(name, wert) => setWerte((alt) => ({ ...alt, [name]: wert }))} fehler={anlegen.error} onName={() => anlegen.error instanceof ApiFehler && anlegen.reset()} />
         {kandidaten ? null : <DublettenHinweis name={werte.name} />}
         <div>
           <Button type="submit" disabled={anlegen.isPending}>
@@ -131,7 +145,7 @@ export function OrganisationBearbeitenDialog({ organisation, onSchliessen }: { o
   const [nace, setNace] = useState(nace0);
   const rechtsform0 = organisation.rechtsform ?? "";
   const [rechtsform, setRechtsform] = useState(rechtsform0);
-  const { werte, feld } = useFormular({
+  const { werte, setWerte, feld } = useFormular({
     name: organisation.name,
     art: organisation.art as string,
     sektor: organisation.sektor ?? "",
@@ -171,21 +185,20 @@ export function OrganisationBearbeitenDialog({ organisation, onSchliessen }: { o
         }}
       >
         <FehlerHinweis fehler={aendern.error ?? meldedatenSetzen.error} bekannt={[...FELDER, "rechtsform", "naceAbschnitt", "sitzland", "region"]} />
-        <OrganisationFelder feld={feld} fehler={aendern.error} />
-        <Feld label={t.organisationForm.rechtsform} hilfe={t.organisationForm.rechtsformHilfe} autoComplete="off" value={rechtsform} onChange={(e) => setRechtsform(e.target.value)} fehler={feldText(t, aendern.error, "rechtsform")} />
+        <OrganisationFelder feld={feld} setze={(name, wert) => setWerte((alt) => ({ ...alt, [name]: wert }))} fehler={aendern.error} />
+        <Feld label={t.organisationForm.rechtsform} hilfe={t.organisationForm.rechtsformHilfe} value={rechtsform} onChange={(e) => setRechtsform(e.target.value)} fehler={feldText(t, aendern.error, "rechtsform")} />
         {mitMeldedaten ? (
           <>
             <Feld
               label={t.foerderSchluessel.felder.sitzland}
               hilfe={t.foerderSchluessel.sitzlandHilfe}
-              autoComplete="off"
               maxLength={2}
               disabled={meldedaten.isPending}
               value={landWert}
               onChange={(e) => setLand(e.target.value.toUpperCase())}
               fehler={feldText(t, meldedatenSetzen.error, "sitzland")}
             />
-            <Feld label={t.foerderSchluessel.felder.region} autoComplete="off" disabled={meldedaten.isPending} value={regionWert} onChange={(e) => setRegion(e.target.value)} fehler={feldText(t, meldedatenSetzen.error, "region")} />
+            <Feld label={t.foerderSchluessel.felder.region} disabled={meldedaten.isPending} value={regionWert} onChange={(e) => setRegion(e.target.value)} fehler={feldText(t, meldedatenSetzen.error, "region")} />
           </>
         ) : null}
         <Auswahl label={t.organisationForm.nace} hilfe={t.organisationForm.naceHilfe} value={nace} onChange={(e) => setNace(e.target.value)} fehler={feldText(t, aendern.error, "naceAbschnitt")}>

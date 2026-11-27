@@ -43,7 +43,7 @@ export function PasswortVergessenSeite() {
           <p className="app-leer-text">{v.einleitung}</p>
           <form className="app-formular" onSubmit={senden} noValidate>
             <FehlerHinweis fehler={fehler} />
-            <Feld label={t.anmeldung.email} name="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username" required autoFocus />
+            <Feld zugang label={t.anmeldung.email} name="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username" required autoFocus />
             <Button type="submit" disabled={laeuft || email.trim() === ""}>
               {laeuft ? t.anmeldung.laeuft : v.senden}
             </Button>
@@ -51,7 +51,7 @@ export function PasswortVergessenSeite() {
         </>
       )}
       <p className="app-leer-text app-auth__fuss">
-        <Link to="/anmelden" search={{}}>
+        <Link to="/sign-in" search={{}}>
           {v.zurAnmeldung}
         </Link>
       </p>

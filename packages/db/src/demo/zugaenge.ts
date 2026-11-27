@@ -112,7 +112,7 @@ export const DEMO_ZUGAENGE: DemoZugang[] = [
 
 /** Beispielrollen des Rechtemodells (Bündel von Bereichen, Schlüssel wie `BEREICHE` der API). */
 export const DEMO_ROLLEN: { name: string; beschreibung: string; bereiche: string[] }[] = [
-  { name: "Investments", beschreibung: "Portfolio, Dealflow, Kontakte, Kennzahlen und Dokumente", bereiche: ["portfolio", "dealflow", "kontakte", "kennzahlen", "dokumente"] },
+  { name: "Investments", beschreibung: "Portfolio, Einzelzuteilungen, Dealflow, Kontakte, Kennzahlen und Dokumente", bereiche: ["portfolio", "einzelzuteilungen", "dealflow", "kontakte", "kennzahlen", "dokumente"] },
   { name: "Finanzen und Berichte", beschreibung: "Portfolio, Finanzen, Berichte, Meldewesen und Kennzahlen", bereiche: ["portfolio", "finanzen", "berichte", "meldewesen", "kennzahlen"] },
   { name: "Kontakte", beschreibung: "Nur Kontakte: keine Finanzdaten", bereiche: ["kontakte"] },
 ];

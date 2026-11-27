@@ -69,7 +69,7 @@ describe("Zielfonds eines Dachfonds", () => {
         },
       },
     });
-    rendereApp(`/fonds/${FONDS_ID}/zielfonds`);
+    rendereApp(`/funds/${FONDS_ID}/target-funds`);
     expect(await screen.findByRole("button", { name: "Fremder Zielfonds" })).toBeTruthy();
     const sammel = screen.getByRole("cell", { name: "Zielfonds" }).closest("tr")!;
     expect(sammel.textContent).toContain("150");

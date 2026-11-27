@@ -1,7 +1,7 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeAll, describe, expect, it } from "vitest";
-import { alsRolle, BET_ID, FONDS_ID, ORG_A, ORG_B, fehler, fondsDaten, hauptInstrument, instrumentDaten, instrumentZeile, rendereApp, spieleApi, trancheZeile } from "../test/hilfen";
+import { alsRolle, BET_ID, FONDS_ID, uebersichtDaten, ORG_A, ORG_B, fehler, fondsDaten, hauptInstrument, instrumentDaten, instrumentZeile, rendereApp, spieleApi, trancheZeile, waehleFonds, zeilenAktion } from "../test/hilfen";
 import { de } from "../i18n/de";
 import { en } from "../i18n/en";
 
@@ -86,7 +86,7 @@ describe("Finanzierungsrunden an der Beteiligung", () => {
         runde("r1", "abgeschlossen"),
       ]),
     );
-    rendereApp(`/beteiligungen/${BET_ID}?tab=finanzierung`);
+    rendereApp(`/investments/${BET_ID}?tab=financing`);
     const nutzer = userEvent.setup();
     const abschnitt = within(await screen.findByRole("region", { name: de.finanzierungsrunden.titel }));
     // Liste links: beide Runden mit Status; Standard ist die neueste abgeschlossene
@@ -115,7 +115,7 @@ describe("Finanzierungsrunden an der Beteiligung", () => {
   it("Englisch: Überschrift, Status und Prüfsatz", async () => {
     localStorage.setItem("carraway.sprache", "en");
     spieleApi(MIT_RUNDEN([runde("r2", "entwurf", { pruefung: { ...pruefungGruen, abweichungen: [{ code: "KEINE_POSITIONEN", schwere: "fehler", werte: {} }], schliessbar: false } })]));
-    rendereApp(`/beteiligungen/${BET_ID}?tab=finanzierung`);
+    rendereApp(`/investments/${BET_ID}?tab=financing`);
     const abschnitt = within(await screen.findByRole("region", { name: en.finanzierungsrunden.titel }));
     expect((await abschnitt.findByRole("tab", { name: /Serie B/ })).textContent).toContain("Draft");
     expect(abschnitt.getByText("The round has no positions yet.")).toBeTruthy();
@@ -123,7 +123,7 @@ describe("Finanzierungsrunden an der Beteiligung", () => {
 
   it("Betrachter sehen keine Schaltflächen zum Anlegen, Abschließen oder Wiedereröffnen; Bearbeiter kein Wiedereröffnen", async () => {
     spieleApi({ "/api/v1/me": alsRolle("betrachter"), ...MIT_RUNDEN([runde("r2", "entwurf"), runde("r1", "abgeschlossen")]) });
-    const erste = rendereApp(`/beteiligungen/${BET_ID}?tab=finanzierung`);
+    const erste = rendereApp(`/investments/${BET_ID}?tab=financing`);
     const a1 = within(await screen.findByRole("region", { name: de.finanzierungsrunden.titel }));
     await a1.findByRole("tab", { name: /Serie A/ });
     expect(a1.queryByRole("button", { name: "Neue Runde" })).toBeNull();
@@ -131,7 +131,7 @@ describe("Finanzierungsrunden an der Beteiligung", () => {
     expect(a1.queryByRole("button", { name: "Wieder öffnen" })).toBeNull();
     erste.unmount();
     spieleApi({ "/api/v1/me": alsRolle("bearbeiter"), ...MIT_RUNDEN([runde("r2", "entwurf"), runde("r1", "abgeschlossen")]) });
-    rendereApp(`/beteiligungen/${BET_ID}?tab=finanzierung`);
+    rendereApp(`/investments/${BET_ID}?tab=financing`);
     const a2 = within(await screen.findByRole("region", { name: de.finanzierungsrunden.titel }));
     await a2.findByRole("tab", { name: /Serie A/ });
     expect(a2.getByRole("button", { name: "Neue Runde" })).toBeTruthy();
@@ -148,7 +148,7 @@ describe("Finanzierungsrunden an der Beteiligung", () => {
       },
       [`POST ${RUNDEN}`]: { status: 201, koerper: runde("neu", "entwurf") },
     });
-    rendereApp(`/beteiligungen/${BET_ID}?tab=finanzierung`);
+    rendereApp(`/investments/${BET_ID}?tab=financing`);
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Neue Runde" }));
     const d = dialog();
@@ -187,7 +187,7 @@ describe("Finanzierungsrunden an der Beteiligung", () => {
       [`POST ${RUNDEN}/vorschau`]: { koerper: { postMoney: "10000000.00", anteileGesamtNach: "1000000", pruefung: pruefungGruen, dubletten: [dublette, { ...dublette, id: "r-e", bezeichnung: "Entwurf", gleichesDatum: false }] } },
       [`POST ${RUNDEN}`]: { status: 201, koerper: { ...runde("neu", "entwurf"), dubletten: [dublette] } },
     });
-    rendereApp(`/beteiligungen/${BET_ID}?tab=finanzierung`);
+    rendereApp(`/investments/${BET_ID}?tab=financing`);
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Neue Runde" }));
     const d = dialog();
@@ -219,7 +219,7 @@ describe("Finanzierungsrunden an der Beteiligung", () => {
       },
       "POST /api/v1/organisationen/neu-org/vehikel": { status: 201, koerper: { id: "neu-v", investorId: "neu-org", name: "Beta Seedfonds I", art: "fonds", auflagejahr: null, status: "aktiv", standard: true } },
     });
-    rendereApp(`/beteiligungen/${BET_ID}?tab=finanzierung`);
+    rendereApp(`/investments/${BET_ID}?tab=financing`);
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Neue Runde" }));
     const d = dialog();
@@ -248,7 +248,7 @@ describe("Finanzierungsrunden an der Beteiligung", () => {
       }),
       "/api/v1/suche": { koerper: { organisationen: [{ id: "org-ohne", name: "Beta Ohne Vehikel", art: "investor", ort: null }], personen: [], deals: [], beteiligungen: [], dokumente: [] } },
     });
-    rendereApp(`/beteiligungen/${BET_ID}?tab=finanzierung`);
+    rendereApp(`/investments/${BET_ID}?tab=financing`);
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Neue Runde" }));
     const d = dialog();
@@ -291,7 +291,7 @@ describe("Finanzierungsrunden an der Beteiligung", () => {
           : { koerper: { runde: runde("r2", "abgeschlossen"), buchungen: [{ positionId: "r2-p1", fondsId: FONDS_ID, beteiligungId: BET_ID, beteiligungAngelegt: false, vorgangIds: ["v1", "v2"] }], anfrage: anfrage.koerper } };
       },
     });
-    rendereApp(`/beteiligungen/${BET_ID}?tab=finanzierung`);
+    rendereApp(`/investments/${BET_ID}?tab=financing`);
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Runde abschließen" }));
     const d = dialog();
@@ -319,7 +319,7 @@ describe("Finanzierungsrunden an der Beteiligung", () => {
         return versuch === 1 ? fehler(409, "round_commitment_exists", {}) : { koerper: { runde: runde("r2", "abgeschlossen"), buchungen: [{ positionId: "r2-p1", fondsId: FONDS_ID, beteiligungId: BET_ID, beteiligungAngelegt: false, instrumentId: "i9", instrumentAngelegt: true, trancheId: null, vorgangIds: [] }] } };
       },
     });
-    rendereApp(`/beteiligungen/${BET_ID}?tab=finanzierung`);
+    rendereApp(`/investments/${BET_ID}?tab=financing`);
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Runde abschließen" }));
     const d = dialog();
@@ -340,10 +340,10 @@ describe("Finanzierungsrunden an der Beteiligung", () => {
 
   it("zeigt in der Runde bei der Position des eigenen Fonds den Verweis auf das Instrument", async () => {
     spieleApi(MIT_RUNDEN([runde("r1", "abgeschlossen", { positionen: [position("r1-p1", "fonds", "Beispielfonds I", { instrumentId: "i9", beteiligungId: BET_ID }), position("r1-p2", "organisation", "Beta Medizin")] })]));
-    rendereApp(`/beteiligungen/${BET_ID}?tab=finanzierung`);
+    rendereApp(`/investments/${BET_ID}?tab=financing`);
     const link = await screen.findByRole("link", { name: "Instrument von Beispielfonds I öffnen" });
-    expect(link.getAttribute("href")).toContain("unter=instrumente");
-    expect(link.getAttribute("href")).toContain(`/beteiligungen/${BET_ID}`);
+    expect(link.getAttribute("href")).toContain("subtab=instruments");
+    expect(link.getAttribute("href")).toContain(`/investments/${BET_ID}`);
   });
 
   it("Zahlung eines Co-Investors erfassen und Wiedereröffnen mit Begründung (Verwalter)", async () => {
@@ -352,9 +352,9 @@ describe("Finanzierungsrunden an der Beteiligung", () => {
       "POST /api/v1/rundenpositionen/r1-p2/zahlungen": { status: 201, koerper: { zahlung: {}, zusage: "500000.00", gezahlt: "300000.00", offen: "200000.00", daten: [] } },
       "POST /api/v1/finanzierungsrunden/r1/wiedereroeffnen": { koerper: runde("r1", "entwurf") },
     });
-    rendereApp(`/beteiligungen/${BET_ID}?tab=finanzierung`);
+    rendereApp(`/investments/${BET_ID}?tab=financing`);
     const nutzer = userEvent.setup();
-    await nutzer.click(await screen.findByRole("button", { name: "Zahlung erfassen: Beta Medizin" }));
+    await nutzer.click((await zeilenAktion("Zahlung erfassen: Beta Medizin"))!);
     let d = dialog();
     await nutzer.type(d.getByLabelText("Betrag"), "200000");
     await nutzer.click(d.getByRole("button", { name: "Erfassen" }));
@@ -373,7 +373,7 @@ describe("Finanzierungsrunden an der Beteiligung", () => {
 describe("Rundenentwürfe bearbeiten und Runden an der Organisation", () => {
   it("Entwurf bearbeiten: nur geänderte Felder gehen an die API, ein geleertes Post-Money leitet wieder ab; Abgeschlossene bieten es nicht an", async () => {
     const api = spieleApi({ ...MIT_RUNDEN([runde("r2", "entwurf"), runde("r1", "abgeschlossen")]), "PATCH /api/v1/finanzierungsrunden/r2": { koerper: runde("r2", "entwurf") } });
-    rendereApp(`/beteiligungen/${BET_ID}?tab=finanzierung`);
+    rendereApp(`/investments/${BET_ID}?tab=financing`);
     const nutzer = userEvent.setup();
     const abschnitt = within(await screen.findByRole("region", { name: de.finanzierungsrunden.titel }));
     await abschnitt.findByRole("tab", { name: /Serie A/ });
@@ -400,14 +400,15 @@ describe("Rundenentwürfe bearbeiten und Runden an der Organisation", () => {
       "DELETE /api/v1/finanzierungsrunden/r2/positionen/r2-p2": { koerper: runde("r2", "entwurf") },
       "POST /api/v1/finanzierungsrunden/r2/positionen": { status: 201, koerper: runde("r2", "entwurf") },
     });
-    rendereApp(`/beteiligungen/${BET_ID}?tab=finanzierung`);
+    rendereApp(`/investments/${BET_ID}?tab=financing`);
     const nutzer = userEvent.setup();
     const abschnitt = within(await screen.findByRole("region", { name: de.finanzierungsrunden.titel }));
     // Abgeschlossene Runden haben keine Positionsaktionen
     await abschnitt.findByRole("tab", { name: /Serie A/ });
-    expect(abschnitt.queryByRole("button", { name: /Position von .* ändern/ })).toBeNull();
+    expect(await zeilenAktion(/Position von .* ändern/)).toBeNull();
+    await nutzer.keyboard("{Escape}");
     await nutzer.click(abschnitt.getByRole("tab", { name: /Serie B/ }));
-    await nutzer.click(await abschnitt.findByRole("button", { name: "Position von Beta Medizin ändern" }));
+    await nutzer.click((await zeilenAktion("Position von Beta Medizin ändern"))!);
     let d = dialog();
     const betrag = d.getByLabelText("Zusage");
     await nutzer.clear(betrag);
@@ -417,9 +418,10 @@ describe("Rundenentwürfe bearbeiten und Runden an der Organisation", () => {
     expect(api.anfragen("PATCH", "/api/v1/finanzierungsrunden/r2/positionen/r2-p2")[0]!.koerper).toEqual({ betrag: "600000", anteile: "50000", rolle: "co", anteilsklasseId: null });
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
 
-    await nutzer.click(abschnitt.getByRole("button", { name: "Position von Beta Medizin entfernen" }));
+    await nutzer.click((await zeilenAktion("Position von Beta Medizin entfernen"))!);
     await waitFor(() => expect(api.anfragen("DELETE", "/api/v1/finanzierungsrunden/r2/positionen/r2-p2")).toHaveLength(1));
-    expect(abschnitt.getAllByRole("button", { name: /Position von .* ändern/ })).toHaveLength(2); // die zwei Positionen des Entwurfs
+    // die zwei Positionen des Entwurfs haben je ein Zeilenmenü
+    await waitFor(() => expect(within(screen.getByRole("region", { name: /^Positionen der Runde Serie B/ })).getAllByRole("button", { name: "Weitere Aktionen" })).toHaveLength(2));
 
     await nutzer.click(abschnitt.getByRole("button", { name: "Position hinzufügen" }));
     d = dialog();
@@ -432,7 +434,7 @@ describe("Rundenentwürfe bearbeiten und Runden an der Organisation", () => {
 
   it("die Organisationsseite zeigt dieselbe Liste mit Details wie die Beteiligung, ohne Knopf für Felder", async () => {
     spieleApi(MIT_RUNDEN([runde("r2", "entwurf"), runde("r1", "abgeschlossen")]));
-    rendereApp(`/organisationen/${ORG_A}?tab=runden`);
+    rendereApp(`/organizations/${ORG_A}?tab=rounds`);
     const abschnitt = within(await screen.findByRole("region", { name: de.finanzierungsrunden.titel }));
     const liste = within(await abschnitt.findByRole("tablist", { name: "Runden" }));
     expect(liste.getAllByRole("tab")).toHaveLength(2);
@@ -444,7 +446,7 @@ describe("Rundenentwürfe bearbeiten und Runden an der Organisation", () => {
 
   it("die Organisationsseite bietet die Runden mit Fondswahl an; eine 403 der Liste zeigt eine leere Liste statt eines Fehlers", async () => {
     spieleApi({ [RUNDEN]: fehler(403, "forbidden") });
-    rendereApp(`/organisationen/${ORG_A}?tab=runden`);
+    rendereApp(`/organizations/${ORG_A}?tab=rounds`);
     const abschnitt = within(await screen.findByRole("region", { name: de.finanzierungsrunden.titel }));
     expect(await screen.findByLabelText(de.finanzierungsrunden.fondswahl)).toBeTruthy();
     expect(await abschnitt.findByText(de.finanzierungsrunden.keine)).toBeTruthy();
@@ -488,7 +490,7 @@ const journalAntwort = (daten: unknown[], extra: Record<string, unknown> = {}) =
 });
 
 describe("Journal", () => {
-  const url = `/fonds/${FONDS_ID}/journal`;
+  const url = `/funds/${FONDS_ID}/journal`;
 
   it("zeigt Zeilen mit Kassenwirkung, Storno-Verknüpfung und Herkunft, dazu die Summen; die Navigation führt hierher", async () => {
     spieleApi({
@@ -559,8 +561,8 @@ describe("Journal", () => {
     expect(within(zeilen[2]!).queryByText(/^Beleg [A-Z]-/)).toBeNull();
     const kapitalbewegung = within(zeilen[2]!).getByRole("link", { name: de.journal.kapitalbewegungOeffnen("Abruf") });
     const ziel = new URL(kapitalbewegung.getAttribute("href")!, "http://x");
-    expect(ziel.pathname).toBe("/fonds");
-    expect(Object.fromEntries(ziel.searchParams)).toEqual({ fondsId: FONDS_ID, tab: "kapital", bewegungId });
+    expect(ziel.pathname).toBe("/funds");
+    expect(Object.fromEntries(ziel.searchParams)).toEqual({ fundId: FONDS_ID, tab: "capital", movementId: bewegungId });
     const ausloeser = within(zeilen[2]!).getByRole("button", { name: /Aktionen für Abruf/ });
     const nutzer = userEvent.setup();
     ausloeser.focus();
@@ -594,7 +596,7 @@ describe("Journal", () => {
 
   it("Filter stehen in der URL und gehen als Abfrage an die API; Export-Links tragen Filter und Sprache", async () => {
     const api = spieleApi({ [JOURNAL]: { koerper: journalAntwort([journalZeile("j1")]) } });
-    const { router } = rendereApp(`${url}?typ=auszahlung&von=2026-01-01&bewertungen=1`);
+    const { router } = rendereApp(`${url}?type=disbursement&from=2026-01-01&valuations=1`);
     await screen.findByRole("table", { name: "Journal des Fonds" });
     const letzte = api.anfragen("GET", JOURNAL).at(-1)!;
     expect(Object.fromEntries(letzte.query)).toMatchObject({ typ: "auszahlung", von: "2026-01-01", bewertungen: "1", limit: "100" });
@@ -610,7 +612,7 @@ describe("Journal", () => {
 
   it("lässt leere Filterergebnisse am Tabellenkopf exportieren", async () => {
     spieleApi({ [JOURNAL]: { koerper: journalAntwort([]) } });
-    rendereApp(`${url}?bis=2026-01-01`);
+    rendereApp(`${url}?to=2026-01-01`);
     const buchungen = within(await screen.findByRole("region", { name: "Buchungen" }));
     expect(await buchungen.findByText(de.journal.keineGefiltert)).toBeTruthy();
     expect(buchungen.queryByRole("table")).toBeNull();
@@ -625,7 +627,7 @@ describe("Journal", () => {
 
   it("meldet einen umgekehrten Zeitraum am Datumsfeld und wartet auf eine Korrektur", async () => {
     const api = spieleApi({ [JOURNAL]: { koerper: journalAntwort([]) } });
-    rendereApp(`${url}?von=2026-02-02&bis=2026-01-01`);
+    rendereApp(`${url}?from=2026-02-02&to=2026-01-01`);
     expect(await screen.findByText(de.journal.filter.zeitraumUngueltig)).toBeTruthy();
     expect(screen.queryByRole("link", { name: "CSV" })).toBeNull();
     expect(api.anfragen("GET", JOURNAL)).toHaveLength(0);
@@ -634,7 +636,7 @@ describe("Journal", () => {
   it("setzt leere Filter zurück und behält den früheren Wissensstand", async () => {
     spieleApi({ [JOURNAL]: { koerper: journalAntwort([]) } });
     const stand = "2026-09-30T10:00:00Z";
-    const { router } = rendereApp(`${url}?stand=${encodeURIComponent(stand)}&typ=auszahlung&bis=2026-02-31`);
+    const { router } = rendereApp(`${url}?knowledgeDate=${encodeURIComponent(stand)}&type=disbursement&to=2026-02-31`);
     expect((await screen.findByLabelText<HTMLInputElement>("Bis")).value).toBe("");
     await userEvent.click(await screen.findByRole("button", { name: de.journal.filter.zuruecksetzen }));
     await screen.findByText(de.journal.keine);
@@ -650,10 +652,10 @@ describe("Journal", () => {
       [JOURNAL]: { koerper: journalAntwort([]) },
       [`/api/v1/fonds/${zweiter.id}/journal`]: { koerper: journalAntwort([]) },
     });
-    const { router } = rendereApp(`${url}?typ=auszahlung&von=2026-01-01`);
+    const { router } = rendereApp(`${url}?type=disbursement&from=2026-01-01`);
     expect(await screen.findByRole("button", { name: de.journal.neueBuchung })).toBeTruthy();
-    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Fonds" }), zweiter.id);
-    await waitFor(() => expect(router.state.location.pathname).toBe(`/fonds/${zweiter.id}/journal`));
+    await waehleFonds(zweiter.name);
+    await waitFor(() => expect(router.state.location.pathname).toBe(`/funds/${zweiter.id}/journal`));
     expect(router.state.location.search).toEqual({});
     await waitFor(() => expect(screen.queryByRole("button", { name: de.journal.neueBuchung })).toBeNull());
   });
@@ -708,6 +710,37 @@ describe("Journal", () => {
     await nutzer.click(d.getByRole("button", { name: "Buchen" }));
     expect(await d.findByText(/Die Buchung ist angelegt\. Buchwert danach: 1\.012\.000,00/)).toBeTruthy();
     expect(api.anfragen("POST", `/api/v1/funds/${FONDS_ID}/postings`)[0]!.koerper).toMatchObject({ kind: "disbursement", investmentId: BET_ID, amount: "25000" });
+  });
+
+  it("sucht die Beteiligung im Buchungsdialog und im Filter, wenn der Fonds viele hat (Issue #298)", async () => {
+    const vorlage = uebersichtDaten.beteiligungen[0]!;
+    const viele = Array.from({ length: 20 }, (_, i) => ({ ...vorlage, id: `x${i}`, organisation: { ...vorlage.organisation, name: `Unternehmen ${String(i).padStart(2, "0")}` } }));
+    const treffer = { id: "x7", fondsId: FONDS_ID, instrument: "darlehen", status: "aktiv", organisation: { id: "o7", name: "Unternehmen 07", ort: "Köln" } };
+    const api = spieleApi({
+      [JOURNAL]: { koerper: journalAntwort([journalZeile("j1")]) },
+      [`/api/v1/fonds/${FONDS_ID}/uebersicht`]: { koerper: { ...uebersichtDaten, beteiligungen: viele } },
+      "/api/v1/suche": { koerper: { q: "07", organisationen: [], personen: [], deals: [], beteiligungen: [treffer], dokumente: [] } },
+      [`/api/v1/beteiligungen/x7/instrumentdaten`]: { koerper: instrumentDaten },
+      [BUCHUNGEN]: { status: 201, koerper: { typ: "auszahlung", vorgang: {}, buchwert: "1012000.00" } },
+    });
+    rendereApp(url);
+    const nutzer = userEvent.setup();
+    const filter = within(await screen.findByRole("form", { name: de.journal.filter.beschriftung }));
+    expect(await filter.findByRole("combobox", { name: de.journal.filter.beteiligung })).toBeTruthy();
+
+    await nutzer.click(await screen.findByRole("button", { name: "Neue Buchung" }));
+    const d = dialog();
+    await nutzer.selectOptions(d.getByLabelText("Art der Buchung"), "auszahlung");
+    const feld = await d.findByRole("combobox", { name: "Beteiligung" });
+    await nutzer.type(feld, "Unternehmen 07");
+    await nutzer.click(await d.findByRole("option", { name: /Unternehmen 07/ }));
+    await nutzer.type(d.getByLabelText("Betrag"), "25000");
+    await nutzer.click(d.getByRole("button", { name: "Buchen" }));
+    await waitFor(() => expect(api.anfragen("POST", `/api/v1/funds/${FONDS_ID}/postings`)).toHaveLength(1));
+    expect(api.anfragen("POST", `/api/v1/funds/${FONDS_ID}/postings`)[0]!.koerper).toMatchObject({ investmentId: "x7" });
+    const suche = api.anfragen("GET", "/api/v1/suche").at(-1);
+    expect(suche?.query.get("objekt")).toBe("beteiligung");
+    expect(suche?.query.get("fondsId")).toBe(FONDS_ID);
   });
 
   it("zeigt im Journal die Spalte Instrument", async () => {
@@ -785,12 +818,12 @@ describe("Journal", () => {
       "/api/v1/me": alsRolle(rolle),
       [JOURNAL]: { koerper: journalAntwort([journalZeile("j1"), journalZeile(bewegungId, { quelle: "fondsbewegung", typ: "abruf", beteiligung: null })]) },
     });
-    rendereApp(stand ? `${url}?stand=${encodeURIComponent(stand)}` : url);
+    rendereApp(stand ? `${url}?knowledgeDate=${encodeURIComponent(stand)}` : url);
     await screen.findByRole("table", { name: "Journal des Fonds" });
     expect(screen.queryByRole("button", { name: "Neue Buchung" })).toBeNull();
     expect(screen.queryByRole("button", { name: /Aktionen für/ })).toBeNull();
     const kapital = screen.getByRole("link", { name: de.journal.kapitalbewegungOeffnen("Abruf") });
     const ziel = new URL(kapital.getAttribute("href")!, "http://x");
-    expect(Object.fromEntries(ziel.searchParams)).toEqual({ fondsId: FONDS_ID, tab: "kapital", bewegungId, ...(stand ? { stand } : {}) });
+    expect(Object.fromEntries(ziel.searchParams)).toEqual({ fundId: FONDS_ID, tab: "capital", movementId: bewegungId, ...(stand ? { knowledgeDate: stand } : {}) });
   });
 });

@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { externalFundingRound, organisation, providerSuggestion } from "@carraway/db";
 import { parseCsv } from "@carraway/import";
 import { erzeugeMappe, type Blattzeilen } from "@carraway/import";
 import { beispielZeilen } from "@carraway/import/beispiel";
@@ -46,6 +47,10 @@ beforeAll(async () => {
     INSERT INTO bericht (id, art, format, fonds_id, stichtag, sprache, status, freigabestufen, naechste_stufe, erstellt_von, datei_name, datei_schluessel, datei_sha256, datei_groesse)
     VALUES ('00000000-0000-4000-8000-0000000000e1', 'fondsbericht', 'pdf', ${fonds.id}, '2026-09-30', 'de', 'freigegeben', '["a","b"]'::jsonb, 2, 'test', 'b.pdf', ${`berichte/00000000-0000-4000-8000-0000000000e1/${hash}.pdf`}, ${hash}, ${berichtsdatei.length})`);
 
+  const [company] = await db.select({ organizationId: organisation.id }).from(organisation).limit(1);
+  const source = { ...company!, provider: "example", sourceUrl: "https://fixture.example/funding", retrievedAt: new Date() };
+  await db.insert(providerSuggestion).values({ ...source, reference: "fixture", field: "sector", value: "Software" });
+  await db.insert(externalFundingRound).values({ ...source, externalId: "fixture", roundType: "Seed", announcedOn: "2026-01-02", investors: [] });
   const antwort = await t.request("/export?format=zip", { als: ANNA });
   expect(antwort.status).toBe(200);
   expect(antwort.headers.get("content-type")).toBe("application/zip");
@@ -91,6 +96,14 @@ describe("Vollexport", () => {
     expect([...zip.keys()].filter((k) => k.startsWith("berichte/"))).toHaveLength(1);
     expect(bloecke).toBeGreaterThan(1);
     expect(rohgroesse).toBeGreaterThan(1000);
+  });
+
+  it("enthält Anbietervorschläge und externe Finanzierungsrunden aus dem gemeinsamen Schema", () => {
+    for (const name of ["provider_suggestion", "external_funding_round"]) {
+      expect(zip.has(`tabellen/${name}.csv`), name).toBe(true);
+      expect(manifest().tabellen[name]).toBe(1);
+      expect(zip.get(`tabellen/${name}.csv`)!.toString()).toContain("https://fixture.example/funding");
+    }
   });
 
   it("Manifest: Schemaversion, Zeitpunkt, Zeilenzahlen gegen die Datenbank, SHA-256 gegen den Inhalt", async () => {

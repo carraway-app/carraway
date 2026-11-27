@@ -1,23 +1,30 @@
 import { portfolioAnApi } from "../portfolio-vertrag";
 import { pruefePortfolio } from "../portfolio-pruefung";
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import { finanzierungsrunde, mitarbeiterpool, mitarbeiterzuteilung, poolAenderung, zuteilungAustritt, type Db } from "@carraway/db";
-import { aufteilung, Decimal, einheitenBeimExit, poolStand, vergleiche } from "@carraway/rechenkern";
-import { aktuellerAkteur } from "../anmeldung/akteur";
+import { aufteilung, Decimal, einheitenBeimExit, poolStand, vergleiche, VESTING_TAKTE } from "@carraway/rechenkern";
+import { aktuellerAkteur, fuerBereich, type Akteur } from "../anmeldung/akteur";
+import { hatBereich } from "../rechte/bereiche";
 import { Fachfehler, type Feldfehler } from "../fehler";
-import { kernZuteilung, ladeAustritte, mitAustritten, type AustrittKern, type ZuteilungKern } from "../kapital/pool";
+import { kernZuteilung, ladeAustritte, mitAustritten, standDesPools, type AustrittKern, type PoolErfassung, type ZuteilungKern } from "../kapital/pool";
 import { verlangeRundenLeserecht, verlangeRundenrecht } from "../kapital/runden";
 import { heute, idParam, ladeOrganisation, MINDESTENS_EIN_FELD, mindestensEins, nurGesetzte, schreibe, textEingabe, type Protokollant } from "../schreiben";
 import { lese, type Tx } from "../zeitlimit";
 
 /**
  * Mitarbeiterbeteiligung eines Unternehmens (ESOP/VSOP): Pools mit Verlauf der Größe (Schaffung, Aufstockung, optional einer Runde im Pre-
- * oder Post-Money zugeordnet) und Zuteilungen nach Kategorie ohne Personennamen. Rechte wie bei den Runden des Unternehmens (Entscheidung
- * 486, der Pool ist aggregierte Kapitaltabelle ohne Personenbezug): lesen darf, wer die Runden lesen darf (`verlangeRundenLeserecht`),
- * anlegen und ändern verlangt dasselbe wie das Anlegen einer Runde (`verlangeRundenrecht`, bearbeiter). Die Regeln (Vesting, Stand des Pools)
- * rechnet der Rechenkern (`mitarbeiterbeteiligung.ts`).
+ * oder Post-Money zugeordnet), je Pool grob erfasst (vergebene Einheiten, mittlerer Basispreis) oder einzeln mit Zuteilungen je Person oder
+ * Vertrag (Entscheidungen 486 und 522). Pools: Rechte wie bei den Runden des Unternehmens; lesen darf, wer die Runden lesen darf
+ * (`verlangeRundenLeserecht`), anlegen und ändern verlangt dasselbe wie das Anlegen einer Runde (`verlangeRundenrecht`, bearbeiter).
+ * Einzelzuteilungen gehören zum eigenen Bereich `einzelzuteilungen`: Ihre Routen liegen dort (`rechte/bereiche.ts`), die Liste der Pools
+ * liefert sie nur mit diesem Bereich, sonst nur die Summen. Kennung (Pseudonym) ist der Standard, der Name optional; er steht nie im
+ * Änderungsprotokoll (Platzhalter) und lässt sich mit Anonymisieren löschen. Die Regeln (Vesting, Stand des Pools) rechnet der Rechenkern
+ * (`mitarbeiterbeteiligung.ts`).
+ *
+ * Erfassung: Zuteilungen nur bei `einzeln`; die erste Zuteilung stellt einen grob erfassten Pool um. Der Wechsel grob → einzeln behält die
+ * Schätzung (Vergleich der Vollständigkeit), zurück nur ohne Zuteilungen (`pool_has_grants`). Grob: vergebene Einheiten höchstens die Größe nach allen Änderungen (`granted_exceeds_pool`).
  *
  * Regeln über mehrere Datensätze: Die Größe eines Pools ist zu keinem Datum negativ (`pool_negative`), und die nicht verfallenen
  * Zuteilungen übersteigen die Größe zu keinem Datum (`grant_exceeds_pool`): Zuteilungen bis zu einem Datum ≤ Größe zu diesem Datum.
@@ -41,10 +48,15 @@ const kategorie = z.enum(["gruender", "fuehrung", "mitarbeitende", "beirat", "so
 const status = z.enum(["zugeteilt", "gevestet", "verfallen", "ausgeuebt"]);
 const leaverArt = z.enum(["good_leaver", "bad_leaver"]);
 const leaverGevestet = z.enum(["bleiben", "verfallen", "rueckkauf"]);
+const erfassung = z.enum(["grob", "einzeln"]);
+const ausloeser = z.enum(["einfach", "doppelt"]);
+const takt = z.number().int().refine((t) => VESTING_TAKTE.includes(t), "Vesting interval of 1, 3, 6 or 12 months expected");
+const vergebenEingabe = z.string().regex(/^(0|[1-9]\d{0,17})$/, "Whole number of zero or more expected");
 
 const aenderungKoerper = {
   datum: z.iso.date(),
   beschluss: textEingabe(500).nullable().optional(),
+  dokumentId: z.uuid().nullable().optional(),
   rundeId: z.uuid().nullable().optional(),
   basis: basis.nullable().optional(),
 };
@@ -54,15 +66,25 @@ export const neuerPool = z.object({
   bezeichnung: textEingabe(100),
   regel: regel.default("wie_anteile"),
   notiz: textEingabe(2000).nullable().optional(),
+  erfassung: erfassung.default("grob"),
+  vergeben: vergebenEingabe.nullable().optional(),
+  basispreisMittel: preisEingabe.nullable().optional(),
   groesse: anzahlEingabe,
   ...aenderungKoerper,
 });
 const poolAenderungEingabe = z
-  .object({ bezeichnung: textEingabe(100).optional(), regel: regel.optional(), notiz: textEingabe(2000).nullable().optional() })
+  .object({
+    bezeichnung: textEingabe(100).optional(),
+    regel: regel.optional(),
+    notiz: textEingabe(2000).nullable().optional(),
+    erfassung: erfassung.optional(),
+    vergeben: vergebenEingabe.nullable().optional(),
+    basispreisMittel: preisEingabe.nullable().optional(),
+  })
   .refine(mindestensEins, MINDESTENS_EIN_FELD);
 const neueAenderung = z.object({ anzahl: aenderungEingabe, ...aenderungKoerper });
 const aenderungAendern = z
-  .object({ anzahl: aenderungEingabe.optional(), datum: aenderungKoerper.datum.optional(), beschluss: aenderungKoerper.beschluss, rundeId: aenderungKoerper.rundeId, basis: aenderungKoerper.basis })
+  .object({ anzahl: aenderungEingabe.optional(), datum: aenderungKoerper.datum.optional(), beschluss: aenderungKoerper.beschluss, dokumentId: aenderungKoerper.dokumentId, rundeId: aenderungKoerper.rundeId, basis: aenderungKoerper.basis })
   .refine(mindestensEins, MINDESTENS_EIN_FELD);
 
 const zuteilungBasis = {
@@ -78,6 +100,12 @@ const zuteilungBasis = {
   status,
   statusAm: z.iso.date().nullable(),
   leaverRegel: textEingabe(500).nullable(),
+  kennung: textEingabe(100).nullable(),
+  name: textEingabe(200).nullable(),
+  taktMonate: takt,
+  ausloeser,
+  ausuebungsfristMonate: monate.nullable(),
+  laufzeitBis: z.iso.date().nullable(),
 };
 export const neueZuteilung = z.object({
   kategorie: zuteilungBasis.kategorie,
@@ -92,6 +120,12 @@ export const neueZuteilung = z.object({
   status: zuteilungBasis.status.default("zugeteilt"),
   statusAm: zuteilungBasis.statusAm.optional(),
   leaverRegel: zuteilungBasis.leaverRegel.optional(),
+  kennung: zuteilungBasis.kennung.optional(),
+  name: zuteilungBasis.name.optional(),
+  taktMonate: zuteilungBasis.taktMonate.default(1),
+  ausloeser: zuteilungBasis.ausloeser.default("einfach"),
+  ausuebungsfristMonate: zuteilungBasis.ausuebungsfristMonate.optional(),
+  laufzeitBis: zuteilungBasis.laufzeitBis.optional(),
 });
 const zuteilungAenderung = z
   .object(Object.fromEntries(Object.entries(zuteilungBasis).map(([k, v]) => [k, v.optional()])) as { [K in keyof typeof zuteilungBasis]: z.ZodOptional<(typeof zuteilungBasis)[K]> })
@@ -183,11 +217,51 @@ async function verlangeRundeOffen(tx: Tx, a: Pick<Aenderung, "rundeId">) {
 }
 
 /** Zuteilung: Status mit Datum, Datum nicht vor der Zuteilung. */
-function pruefeZuteilung(z: { status: string; statusAm: string | null; zugeteiltAm: string }) {
+function pruefeZuteilung(z: { status: string; statusAm: string | null; zugeteiltAm: string; laufzeitBis?: string | null }) {
   const felder: Feldfehler[] = [];
   if ((z.status === "verfallen" || z.status === "ausgeuebt") && z.statusAm === null) felder.push({ feld: "statusAm", code: "status_without_date", meldung: "Forfeited and exercised require a date" });
   if (z.statusAm !== null && vergleiche(z.statusAm, z.zugeteiltAm) < 0) felder.push({ feld: "statusAm", code: "before_grant", meldung: "The date is before the grant" });
+  if (z.laufzeitBis != null && vergleiche(z.laufzeitBis, z.zugeteiltAm) < 0) felder.push({ feld: "laufzeitBis", code: "before_grant", meldung: "The expiry is before the grant" });
   if (felder.length) ungueltig(felder);
+}
+
+/**
+ * Sieht die Person Einzelzuteilungen? Nur mit dem Bereich Einzelzuteilungen und dem Leserecht der Runden in diesem Bereich (gleiche Fonds wie
+ * beim Pool, Stufe am Bereich Einzelzuteilungen). Ohne ihn liefert die Liste der Pools nur Summen.
+ */
+export async function siehtEinzelzuteilungen(tx: Tx, akteur: Akteur, organisationId: string): Promise<boolean> {
+  if (akteur.globalVerwalter) return true;
+  if (!hatBereich(akteur, "einzelzuteilungen")) return false;
+  try {
+    await verlangeRundenLeserecht(tx, fuerBereich(akteur, "einzelzuteilungen"), organisationId);
+    return true;
+  } catch (e) {
+    if (e instanceof Fachfehler && e.status === 403) return false;
+    throw e;
+  }
+}
+
+/**
+ * Zuteilungen gibt es nur in einem einzeln erfassten Pool: Die erste Zuteilung eines grob erfassten Pools stellt ihn auf `einzeln` um (die
+ * Schätzung bleibt als Vergleichswert, protokolliert wie jede Änderung des Pools).
+ */
+export async function stelleAufEinzeln(tx: Tx, protokoll: Protokollant, pool: Pool): Promise<Pool> {
+  if (pool.erfassung === "einzeln") return pool;
+  const [neu] = await tx.update(mitarbeiterpool).set({ erfassung: "einzeln" }).where(eq(mitarbeiterpool.id, pool.id)).returning();
+  await protokoll("aendern", "mitarbeiterpool", pool.id, pool, neu);
+  return neu!;
+}
+
+/**
+ * Angaben mit möglichem Personenbezug stehen nie im Änderungsprotokoll: Das Protokoll ist unveränderlich, ein Wert ließe sich dort nach dem
+ * Anonymisieren nicht mehr löschen. Name, Kennung (Pseudonym, etwa eine Personalnummer) und die Freitexte Bezeichnung und Leaver-Notiz
+ * erscheinen nur als Platzhalter („gesetzt“) oder leer; Zahlen, Daten und Regeln bleiben nachvollziehbar. Austritte enthalten keine solchen Angaben.
+ */
+export const VERDECKT_IM_PROTOKOLL = "[hidden]";
+const PERSONENFELDER = ["name", "kennung", "bezeichnung", "leaverRegel"] as const;
+export function zuteilungFuersProtokoll<T extends Partial<Record<(typeof PERSONENFELDER)[number], string | null>>>(z: T, organisationId: string) {
+  const verdeckt = Object.fromEntries(PERSONENFELDER.filter((f) => f in z).map((f) => [f, z[f] ? VERDECKT_IM_PROTOKOLL : null]));
+  return { ...z, ...verdeckt, organisationId };
 }
 
 /** Austritte passen zur Zuteilung: zusammen höchstens ihre Anzahl, keiner vor der Zuteilung, keine bei einer ausgeübten Zuteilung. */
@@ -221,7 +295,11 @@ function pruefeAustritt(a: Pick<Austritt, "austrittAm" | "anzahl" | "gevestet" |
  * Prüft die Regeln über alle Änderungen und Zuteilungen eines Pools: Größe nie negativ, Zuteilungen nie über der Größe. Geprüft wird an
  * jedem Datum, an dem sich etwas ändert.
  */
-export function pruefeBestand(aenderungen: readonly Pick<Aenderung, "datum" | "anzahl">[], zuteilungen: readonly ZuteilungKern[]) {
+export function pruefeBestand(aenderungen: readonly Pick<Aenderung, "datum" | "anzahl">[], zuteilungen: readonly ZuteilungKern[], pool?: PoolErfassung) {
+  if (pool?.erfassung === "grob" && pool.vergeben !== null) {
+    const groesse = aenderungen.reduce((s, a) => s.plus(a.anzahl), new Decimal(0));
+    if (new Decimal(pool.vergeben).greaterThan(groesse)) throw new Fachfehler(409, "granted_exceeds_pool", "The granted units exceed the pool size.", { groesse: groesse.toFixed(0), vergeben: new Decimal(pool.vergeben).toFixed(0) });
+  }
   const daten = [...new Set([...aenderungen.map((a) => a.datum), ...zuteilungen.flatMap((z) => [z.zugeteiltAm, z.statusAm, ...z.austritte.map((a) => a.austrittAm)]).filter((d): d is string => d !== null)])].sort();
   const kern = zuteilungen.map(kernZuteilung);
   for (const datum of daten) {
@@ -240,7 +318,15 @@ export async function bestandDesPools(tx: Tx, poolId: string) {
   return { aenderungen, zuteilungen };
 }
 
-const aenderungAntwort = (a: Aenderung) => ({ id: a.id, datum: a.datum, anzahl: new Decimal(a.anzahl).toFixed(0), beschluss: a.beschluss, rundeId: a.rundeId, basis: a.basis });
+const aenderungAntwort = (a: Aenderung) => ({ id: a.id, datum: a.datum, anzahl: new Decimal(a.anzahl).toFixed(0), beschluss: a.beschluss, dokumentId: a.dokumentId, rundeId: a.rundeId, basis: a.basis });
+
+/** Das Dokument eines Beschlusses muss mit dem Unternehmen oder der zugeordneten Runde verknüpft sein. */
+async function pruefeDokument(tx: Tx, organisationId: string, e: { dokumentId?: string | null | undefined; rundeId?: string | null | undefined }) {
+  if (!e.dokumentId) return;
+  const ziele = [sql`(v.ziel_typ = 'organisation' AND v.ziel_id = ${organisationId})`, ...(e.rundeId ? [sql`(v.ziel_typ = 'finanzierungsrunde' AND v.ziel_id = ${e.rundeId})`] : [])];
+  const { rows } = await tx.execute<{ n: number }>(sql`SELECT count(*)::int AS n FROM dokument_verknuepfung v WHERE v.dokument_id = ${e.dokumentId} AND (${sql.join(ziele, sql` OR `)})`);
+  if (!rows[0]?.n) ungueltig([{ feld: "dokumentId", code: "document_not_linked", meldung: "The document is not linked to the company or the round" }]);
+}
 
 const austrittAntwort = (a: Austritt) => ({
   id: a.id,
@@ -269,6 +355,16 @@ function zuteilungAntwort(z: ZuteilungMitAustritten, stichtag: string) {
     status: z.status,
     statusAm: z.statusAm,
     leaverRegel: z.leaverRegel,
+    /** Kennung (Pseudonym) und optionaler Name; nach dem Anonymisieren beide leer. */
+    kennung: z.kennung,
+    name: z.name,
+    anonymisiertAm: z.anonymisiertAm ? z.anonymisiertAm.toISOString() : null,
+    taktMonate: z.taktMonate,
+    ausloeser: z.ausloeser,
+    ausuebungsfristMonate: z.ausuebungsfristMonate,
+    laufzeitBis: z.laufzeitBis,
+    /** Laufzeitende erreicht, aber noch Einheiten ausstehend (Hinweis: Status prüfen). */
+    laufzeitAbgelaufen: !vorher && z.laufzeitBis !== null && vergleiche(z.laufzeitBis, stichtag) <= 0 && a.verbleibend.greaterThan(0),
     /** Alle Austritte nach Datum, auch die nach dem Stichtag. */
     austritte: z.austritte.map(austrittAntwort),
     /** Von den Austritten bis zum Stichtag betroffene Einheiten (gleich der Anzahl: alle ausgeschieden). */
@@ -284,8 +380,9 @@ function zuteilungAntwort(z: ZuteilungMitAustritten, stichtag: string) {
   };
 }
 
-function poolAntwort(p: Pool, aenderungen: Aenderung[], zuteilungen: ZuteilungMitAustritten[], stichtag: string) {
-  const stand = poolStand(aenderungen, zuteilungen.map(kernZuteilung), stichtag);
+/** `einzelSichtbar`: Hat die Person den Bereich Einzelzuteilungen? Ohne ihn bleiben die Zuteilungen leer, die Summen im Stand gelten weiter. */
+function poolAntwort(p: Pool, aenderungen: Aenderung[], zuteilungen: ZuteilungMitAustritten[], stichtag: string, einzelSichtbar = true) {
+  const stand = standDesPools(p, aenderungen, zuteilungen, stichtag);
   return {
     id: p.id,
     organisationId: p.organisationId,
@@ -293,6 +390,11 @@ function poolAntwort(p: Pool, aenderungen: Aenderung[], zuteilungen: ZuteilungMi
     bezeichnung: p.bezeichnung,
     regel: p.regel,
     notiz: p.notiz,
+    erfassung: p.erfassung,
+    /** Schätzung der vergebenen Einheiten und mittlerer Basispreis; bei `einzeln` der Vergleichswert für die Vollständigkeit. */
+    vergeben: p.vergeben === null ? null : new Decimal(p.vergeben).toFixed(0),
+    basispreisMittel: p.basispreisMittel === null ? null : new Decimal(p.basispreisMittel).toFixed(4),
+    einzelSichtbar,
     stand: {
       stichtag,
       groesse: stand.groesse.toFixed(0),
@@ -304,18 +406,24 @@ function poolAntwort(p: Pool, aenderungen: Aenderung[], zuteilungen: ZuteilungMi
       vollVerwaessert: stand.vollVerwaessert.toFixed(0),
     },
     aenderungen: aenderungen.map(aenderungAntwort),
-    zuteilungen: zuteilungen.map((z) => zuteilungAntwort(z, stichtag)),
+    zuteilungen: einzelSichtbar ? zuteilungen.map((z) => zuteilungAntwort(z, stichtag)) : [],
   };
 }
 
 /** Legt einen Pool mit seiner ersten Änderung (Schaffung) an; die Rechte prüft der Aufrufer. */
-export async function legePoolAn(tx: Tx, protokoll: Protokollant, organisationId: string, e: z.infer<typeof neuerPool>) {
+export async function legePoolAn(tx: Tx, protokoll: Protokollant, organisationId: string, e: Omit<z.infer<typeof neuerPool>, "erfassung"> & { erfassung?: "grob" | "einzeln" }) {
   pruefeRegel(e.art, e.regel);
   await ladeOrganisation(tx, organisationId);
   await pruefeNameFrei(tx, organisationId, e.bezeichnung);
   await pruefeRundenbezug(tx, organisationId, e);
-  const [pool] = await tx.insert(mitarbeiterpool).values({ organisationId, art: e.art, bezeichnung: e.bezeichnung, regel: e.regel, notiz: e.notiz ?? null }).returning();
-  const [erste] = await tx.insert(poolAenderung).values({ poolId: pool!.id, datum: e.datum, anzahl: e.groesse, beschluss: e.beschluss ?? null, rundeId: e.rundeId ?? null, basis: e.basis ?? null }).returning();
+  const erfassungDesPools = e.erfassung ?? "grob";
+  pruefeBestand([{ datum: e.datum, anzahl: e.groesse }], [], { erfassung: erfassungDesPools, vergeben: e.vergeben ?? null });
+  const [pool] = await tx
+    .insert(mitarbeiterpool)
+    .values({ organisationId, art: e.art, bezeichnung: e.bezeichnung, regel: e.regel, notiz: e.notiz ?? null, erfassung: erfassungDesPools, vergeben: e.vergeben ?? null, basispreisMittel: e.basispreisMittel ?? null })
+    .returning();
+  await pruefeDokument(tx, organisationId, e);
+  const [erste] = await tx.insert(poolAenderung).values({ poolId: pool!.id, datum: e.datum, anzahl: e.groesse, beschluss: e.beschluss ?? null, dokumentId: e.dokumentId ?? null, rundeId: e.rundeId ?? null, basis: e.basis ?? null }).returning();
   await protokoll("anlegen", "mitarbeiterpool", pool!.id, null, pool);
   await protokoll("anlegen", "pool_aenderung", erste!.id, null, { ...erste, organisationId });
   return { pool: pool!, aenderung: erste! };
@@ -356,7 +464,8 @@ export function organisationMitarbeiterRouten(db: Db) {
         const aenderungen = await tx.select().from(poolAenderung).where(inArray(poolAenderung.poolId, ids)).orderBy(asc(poolAenderung.datum), asc(poolAenderung.erstelltAm));
         const zeilen = await tx.select().from(mitarbeiterzuteilung).where(inArray(mitarbeiterzuteilung.poolId, ids)).orderBy(asc(mitarbeiterzuteilung.zugeteiltAm), asc(mitarbeiterzuteilung.erstelltAm));
         const zuteilungen = mitAustritten(zeilen, await ladeAustritte(tx, zeilen.map((z) => z.id)));
-        return pools.map((p) => poolAntwort(p, aenderungen.filter((a) => a.poolId === p.id), zuteilungen.filter((z) => z.poolId === p.id), stichtag));
+        const einzelSichtbar = await siehtEinzelzuteilungen(tx, aktuellerAkteur(c), id);
+        return pools.map((p) => poolAntwort(p, aenderungen.filter((a) => a.poolId === p.id), zuteilungen.filter((z) => z.poolId === p.id), stichtag, einzelSichtbar));
       });
       return c.json(portfolioAnApi({ daten }), 200);
     })
@@ -367,7 +476,7 @@ export function organisationMitarbeiterRouten(db: Db) {
         await ladeOrganisation(tx, id);
         await verlangeRundenrecht(tx, aktuellerAkteur(c), id, "bearbeiter");
         const { pool, aenderung } = await legePoolAn(tx, protokoll, id, e);
-        return poolAntwort(pool, [aenderung], [], heute());
+        return poolAntwort(pool, [aenderung], [], heute(), await siehtEinzelzuteilungen(tx, aktuellerAkteur(c), id));
       });
       return c.json(portfolioAnApi(neu), 201);
     })
@@ -381,10 +490,14 @@ export function organisationMitarbeiterRouten(db: Db) {
         const werte = nurGesetzte(e);
         pruefeRegel(vorher.art, werte.regel ?? vorher.regel);
         if (e.bezeichnung !== undefined) await pruefeNameFrei(tx, id, e.bezeichnung, poolId);
+        const bestand = await bestandDesPools(tx, poolId);
+        const zusammen = { ...vorher, ...werte };
+        // Zurück zur groben Erfassung nur ohne Zuteilungen: sonst zählten erfasste Zuteilungen stillschweigend nicht mehr.
+        if (zusammen.erfassung === "grob" && bestand.zuteilungen.length > 0) throw new Fachfehler(409, "pool_has_grants", "The pool has individual grants; remove them before switching back to rough recording.");
+        pruefeBestand(bestand.aenderungen, bestand.zuteilungen, zusammen);
         const [neu] = await tx.update(mitarbeiterpool).set(werte).where(eq(mitarbeiterpool.id, poolId)).returning();
         await protokoll("aendern", "mitarbeiterpool", poolId, vorher, neu);
-        const bestand = await bestandDesPools(tx, poolId);
-        return poolAntwort(neu!, bestand.aenderungen, bestand.zuteilungen, heute());
+        return poolAntwort(neu!, bestand.aenderungen, bestand.zuteilungen, heute(), await siehtEinzelzuteilungen(tx, aktuellerAkteur(c), id));
       });
       return c.json(portfolioAnApi(nachher), 200);
     })
@@ -395,11 +508,12 @@ export function organisationMitarbeiterRouten(db: Db) {
         await ladeOrganisation(tx, id);
         await verlangeRundenrecht(tx, aktuellerAkteur(c), id, "bearbeiter");
         await sperreRunden(tx, [e.rundeId]);
-        await ladePool(tx, id, poolId, true);
+        const pool = await ladePool(tx, id, poolId, true);
         await pruefeRundenbezug(tx, id, e);
         const bestand = await bestandDesPools(tx, poolId);
-        pruefeBestand([...bestand.aenderungen, { datum: e.datum, anzahl: e.anzahl }], bestand.zuteilungen);
-        const [zeile] = await tx.insert(poolAenderung).values({ poolId, datum: e.datum, anzahl: e.anzahl, beschluss: e.beschluss ?? null, rundeId: e.rundeId ?? null, basis: e.basis ?? null }).returning();
+        pruefeBestand([...bestand.aenderungen, { datum: e.datum, anzahl: e.anzahl }], bestand.zuteilungen, pool);
+        await pruefeDokument(tx, id, e);
+        const [zeile] = await tx.insert(poolAenderung).values({ poolId, datum: e.datum, anzahl: e.anzahl, beschluss: e.beschluss ?? null, dokumentId: e.dokumentId ?? null, rundeId: e.rundeId ?? null, basis: e.basis ?? null }).returning();
         await protokoll("anlegen", "pool_aenderung", zeile!.id, null, { ...zeile, organisationId: id });
         return aenderungAntwort(zeile!);
       });
@@ -412,7 +526,7 @@ export function organisationMitarbeiterRouten(db: Db) {
         await ladeOrganisation(tx, id);
         await verlangeRundenrecht(tx, aktuellerAkteur(c), id, "bearbeiter");
         await sperreRunden(tx, [(await ladeAenderung(tx, poolId, aenderungId, false)).rundeId, e.rundeId]);
-        await ladePool(tx, id, poolId, true);
+        const pool = await ladePool(tx, id, poolId, true);
         const vorher = await ladeAenderung(tx, poolId, aenderungId);
         await sperreRunden(tx, [vorher.rundeId]);
         await verlangeRundeOffen(tx, vorher);
@@ -421,8 +535,9 @@ export function organisationMitarbeiterRouten(db: Db) {
         await pruefeRundenbezug(tx, id, zusammen);
         // Eine neue Zuordnung braucht einen Entwurf: Mit der Zuordnung zu einer abgeschlossenen Runde wäre die Änderung sofort gesperrt.
         if (zusammen.rundeId !== vorher.rundeId) await verlangeRundeOffen(tx, zusammen);
+        if (e.dokumentId !== undefined || zusammen.rundeId !== vorher.rundeId) await pruefeDokument(tx, id, zusammen);
         const bestand = await bestandDesPools(tx, poolId);
-        pruefeBestand(bestand.aenderungen.map((a) => (a.id === aenderungId ? zusammen : a)), bestand.zuteilungen);
+        pruefeBestand(bestand.aenderungen.map((a) => (a.id === aenderungId ? zusammen : a)), bestand.zuteilungen, pool);
         const [neu] = await tx.update(poolAenderung).set(werte).where(eq(poolAenderung.id, aenderungId)).returning();
         await protokoll("aendern", "pool_aenderung", aenderungId, { ...vorher, organisationId: id }, { ...neu, organisationId: id });
         return aenderungAntwort(neu!);
@@ -435,14 +550,14 @@ export function organisationMitarbeiterRouten(db: Db) {
         await ladeOrganisation(tx, id);
         await verlangeRundenrecht(tx, aktuellerAkteur(c), id, "bearbeiter");
         await sperreRunden(tx, [(await ladeAenderung(tx, poolId, aenderungId, false)).rundeId]);
-        await ladePool(tx, id, poolId, true);
+        const pool = await ladePool(tx, id, poolId, true);
         const vorher = await ladeAenderung(tx, poolId, aenderungId);
         await sperreRunden(tx, [vorher.rundeId]);
         await verlangeRundeOffen(tx, vorher);
         const bestand = await bestandDesPools(tx, poolId);
         const rest = bestand.aenderungen.filter((a) => a.id !== aenderungId);
         if (rest.length === 0) throw new Fachfehler(409, "pool_last_change", "The only change of a pool cannot be deleted; it sets its size.");
-        pruefeBestand(rest, bestand.zuteilungen);
+        pruefeBestand(rest, bestand.zuteilungen, pool);
         await tx.delete(poolAenderung).where(eq(poolAenderung.id, aenderungId));
         await protokoll("loeschen", "pool_aenderung", aenderungId, { ...vorher, organisationId: id }, null);
       });
@@ -454,13 +569,23 @@ export function organisationMitarbeiterRouten(db: Db) {
       const neu = await schreibe(db, c, async (tx, protokoll) => {
         await ladeOrganisation(tx, id);
         await verlangeRundenrecht(tx, aktuellerAkteur(c), id, "bearbeiter");
-        await ladePool(tx, id, poolId, true);
-        const werte = { ...e, bezeichnung: e.bezeichnung ?? null, vestingBeginn: e.vestingBeginn ?? null, statusAm: e.statusAm ?? null, leaverRegel: e.leaverRegel ?? null };
+        await stelleAufEinzeln(tx, protokoll, await ladePool(tx, id, poolId, true));
+        const werte = {
+          ...e,
+          bezeichnung: e.bezeichnung ?? null,
+          vestingBeginn: e.vestingBeginn ?? null,
+          statusAm: e.statusAm ?? null,
+          leaverRegel: e.leaverRegel ?? null,
+          kennung: e.kennung ?? null,
+          name: e.name ?? null,
+          ausuebungsfristMonate: e.ausuebungsfristMonate ?? null,
+          laufzeitBis: e.laufzeitBis ?? null,
+        };
         pruefeZuteilung(werte);
         const bestand = await bestandDesPools(tx, poolId);
         pruefeBestand(bestand.aenderungen, [...bestand.zuteilungen, { ...werte, austritte: [] }]);
         const [zeile] = await tx.insert(mitarbeiterzuteilung).values({ poolId, ...werte }).returning();
-        await protokoll("anlegen", "mitarbeiterzuteilung", zeile!.id, null, { ...zeile, organisationId: id });
+        await protokoll("anlegen", "mitarbeiterzuteilung", zeile!.id, null, zuteilungFuersProtokoll(zeile!, id));
         return zuteilungAntwort({ ...zeile!, austritte: [] }, heute());
       });
       return c.json(portfolioAnApi(neu), 201);
@@ -475,6 +600,7 @@ export function organisationMitarbeiterRouten(db: Db) {
         const [vorher] = await tx.select().from(mitarbeiterzuteilung).where(and(eq(mitarbeiterzuteilung.id, zuteilungId), eq(mitarbeiterzuteilung.poolId, poolId))).for("update");
         if (!vorher) throw new Fachfehler(404, "grant_not_found", "Grant not found.");
         const werte = nurGesetzte(e);
+        if (vorher.anonymisiertAm !== null && (werte.name || werte.kennung)) throw new Fachfehler(409, "grant_anonymized", "The grant is anonymized; name and reference cannot be set again.");
         const zusammen = { ...vorher, ...werte };
         // Zurück auf zugeteilt oder gevestet: das Datum des früheren Status entfällt, wenn nichts anderes angegeben ist.
         if ((zusammen.status === "zugeteilt" || zusammen.status === "gevestet") && e.statusAm === undefined) zusammen.statusAm = null;
@@ -485,7 +611,31 @@ export function organisationMitarbeiterRouten(db: Db) {
         pruefeBestand(bestand.aenderungen, bestand.zuteilungen.map((z) => (z.id === zuteilungId ? { ...zusammen, austritte } : z)));
         const { id: _id, poolId: _pool, erstelltAm: _am, ...neueWerte } = zusammen;
         const [neu] = await tx.update(mitarbeiterzuteilung).set(neueWerte).where(eq(mitarbeiterzuteilung.id, zuteilungId)).returning();
-        await protokoll("aendern", "mitarbeiterzuteilung", zuteilungId, { ...vorher, organisationId: id }, { ...neu, organisationId: id });
+        await protokoll("aendern", "mitarbeiterzuteilung", zuteilungId, zuteilungFuersProtokoll(vorher, id), zuteilungFuersProtokoll(neu!, id));
+        return zuteilungAntwort({ ...neu!, austritte }, heute());
+      });
+      return c.json(portfolioAnApi(nachher), 200);
+    })
+    /** Entfernt eine Zuteilung mit ihren Austritten (Fehlerfassung oder Löschung von Beschäftigtendaten); der Bestand muss weiter stimmen. */
+    .delete("/employee-pools/:poolId/grants/:grantId", pruefePortfolio("param", zuteilungParam), async (c) => {
+      const { id, poolId, zuteilungId } = c.req.valid("param");
+      await schreibe(db, c, async (tx, protokoll) => {
+        const { zuteilung, bestand } = await ladeZuteilungZumSchreiben(tx, c, id, poolId, zuteilungId);
+        pruefeBestand(bestand.aenderungen, bestand.zuteilungen.filter((z) => z.id !== zuteilungId));
+        await tx.delete(mitarbeiterzuteilung).where(eq(mitarbeiterzuteilung.id, zuteilungId));
+        const { austritte: _austritte, ...zeile } = zuteilung;
+        await protokoll("loeschen", "mitarbeiterzuteilung", zuteilungId, zuteilungFuersProtokoll(zeile, id), null);
+      });
+      return c.body(null, 204);
+    })
+    /** Anonymisiert eine Zuteilung (etwa nach dem Austritt): Name, Kennung und die Freitexte werden gelöscht, die Zahlen bleiben für Kapitaltabelle und Wasserfall. */
+    .post("/employee-pools/:poolId/grants/:grantId/anonymize", pruefePortfolio("param", zuteilungParam), async (c) => {
+      const { id, poolId, zuteilungId } = c.req.valid("param");
+      const nachher = await schreibe(db, c, async (tx, protokoll) => {
+        const { zuteilung } = await ladeZuteilungZumSchreiben(tx, c, id, poolId, zuteilungId);
+        const { austritte, ...vorher } = zuteilung;
+        const [neu] = await tx.update(mitarbeiterzuteilung).set({ name: null, kennung: null, bezeichnung: null, leaverRegel: null, anonymisiertAm: vorher.anonymisiertAm ?? new Date() }).where(eq(mitarbeiterzuteilung.id, zuteilungId)).returning();
+        await protokoll("aendern", "mitarbeiterzuteilung", zuteilungId, zuteilungFuersProtokoll(vorher, id), zuteilungFuersProtokoll(neu!, id));
         return zuteilungAntwort({ ...neu!, austritte }, heute());
       });
       return c.json(portfolioAnApi(nachher), 200);

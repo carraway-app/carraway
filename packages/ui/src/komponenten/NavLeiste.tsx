@@ -10,6 +10,8 @@ export interface NavEintrag {
   /** Zeichen vor dem Namen (ein `<…Icon />` aus dem Zeichenmodul). */
   icon?: ReactNode;
   aktiv?: boolean;
+  /** Anzahl hinter dem Namen (zum Beispiel Dokumente); im schmalen Modus ausgeblendet. */
+  zaehler?: number | undefined;
   onClick?: MouseEventHandler<HTMLAnchorElement>;
   /** Wird beim Überfahren und bei Fokus aufgerufen, z. B. um die Zielseite vorzuladen. */
   onVorladen?: () => void;
@@ -63,6 +65,7 @@ export function NavLeiste({ gruppen, eingeklappt = [], onGruppe, schmal, classNa
                   >
                     {i.icon}
                     <span className="cw-nav__text">{i.label}</span>
+                    {i.zaehler !== undefined && !schmal ? <span className="cw-nav__zaehler">{i.zaehler}</span> : null}
                   </a>
                 </li>
               ))}

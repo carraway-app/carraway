@@ -72,7 +72,10 @@ export function ExitSzenario({ beteiligungId, postMoney }: { beteiligungId: stri
     z.halter.art === "stamm"
       ? t.kapital.stamm
       : z.mitarbeiter
-        ? `${z.halter.name} · ${aufzaehlung(t.mitarbeiter.kategorie, z.mitarbeiter.kategorie)}`
+        ? // Ohne den Bereich Einzelzuteilungen eine Zeile je Pool (ohne Kategorie).
+          z.mitarbeiter.kategorie === null
+          ? z.halter.name
+          : `${z.halter.name} · ${aufzaehlung(t.mitarbeiter.kategorie, z.mitarbeiter.kategorie)}`
         : z.halter.vehikel && z.halter.vehikel.name !== z.halter.name
           ? `${z.halter.vehikel.name} · ${z.halter.name}`
           : (t.kapital.halter[z.halter.art]?.(z.halter.name) ?? z.halter.name);
@@ -93,7 +96,12 @@ export function ExitSzenario({ beteiligungId, postMoney }: { beteiligungId: stri
     {
       schluessel: "klasse",
       kopf: w.spalten.klasse,
-      zelle: (z) => (z.mitarbeiter ? w.mitarbeiterKlasse(aufzaehlung(t.mitarbeiter.art, z.mitarbeiter.art), formatPreis(z.mitarbeiter.basispreis, sprache)) : (z.klasseName ?? t.kapital.stammanteile)),
+      zelle: (z) =>
+        z.mitarbeiter
+          ? z.mitarbeiter.basispreis === null
+            ? aufzaehlung(t.mitarbeiter.art, z.mitarbeiter.art)
+            : w.mitarbeiterKlasse(aufzaehlung(t.mitarbeiter.art, z.mitarbeiter.art), formatPreis(z.mitarbeiter.basispreis, sprache))
+          : (z.klasseName ?? t.kapital.stammanteile),
     },
     { schluessel: "anteile", kopf: w.spalten.anteile, zahl: true, zelle: (z) => formatAnzahl(z.anteile, sprache) },
     { schluessel: "investiert", kopf: w.spalten.investiert, zahl: true, zelle: (z) => (Number(z.investiert) > 0 ? formatBetragCent(z.investiert, sprache) : t.gemeinsam.keinWert) },

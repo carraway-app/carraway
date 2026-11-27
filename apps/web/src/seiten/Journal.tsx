@@ -12,6 +12,7 @@ import { BuchungsStornoDialog } from "../komponenten/BuchungsStornoDialog";
 import { FehlerHinweis } from "../komponenten/FehlerHinweis";
 import { betragOderNichts, textOderNichts, useFormular } from "../komponenten/formular";
 import { BetragFeld } from "../komponenten/BetragFeld";
+import { BeteiligungsWahl } from "../komponenten/BeteiligungsWahl";
 import { betragRegel, datumRegel, pflichtRegel } from "../lib/feldpruefung";
 import { NurLesen } from "../komponenten/NurLesen";
 import { Skelettzeilen } from "../komponenten/Skelett";
@@ -24,7 +25,7 @@ import { formatBetragCent } from "../lib/zahl";
 import { DATENSPRACHE } from "../lib/datensprache";
 import { merkeFonds } from "../zustand";
 
-const route = getRouteApi("/fonds/$fondsId/journal");
+const route = getRouteApi("/funds/$fundId/journal");
 
 const TYPEN = ["zusage", "auszahlung", "rueckfluss", "zins", "zinszahlung", "dividende", "tilgung", "wertberichtigung", "abruf", "ausschuettung", "bewertung", "wandlung", "verkauf", "insolvenz"] as const;
 const ZEILENHOEHE = 44;
@@ -38,7 +39,7 @@ const JOURNAL_SCHMAL = "(max-width: 40rem)";
  * ganzen Filter, Storno-Verknüpfung, Herkunft und Export. Die API rechnet (Kassenwirkung, Summen); die Seite zeigt nur an.
  */
 export function JournalSeite() {
-  const { fondsId } = route.useParams();
+  const { fundId: fondsId } = route.useParams();
   return <JournalInhalt key={fondsId} fondsId={fondsId} />;
 }
 
@@ -173,18 +174,18 @@ function JournalInhalt({ fondsId }: { fondsId: string }) {
   function herkunft(z: JournalZeile) {
     const h = z.herkunft;
     const text = aufzaehlung(j.herkunft, h.art);
-    if (h.art === "zinslauf" && h.id) return <Link to="/zinslaeufe/$id" params={{ id: h.id }}>{text}</Link>;
+    if (h.art === "zinslauf" && h.id) return <Link to="/interest-runs/$id" params={{ id: h.id }}>{text}</Link>;
     if (h.art === "import" && h.id) return <Link to="/import/$id" params={{ id: h.id }}>{text}</Link>;
-    if ((h.art === "runde" || h.art === "wandlung" || h.art === "verkauf") && z.beteiligung) return <Link to="/beteiligungen/$id" params={{ id: z.beteiligung.id }} search={detailSuche}>{text}</Link>;
+    if ((h.art === "runde" || h.art === "wandlung" || h.art === "verkauf") && z.beteiligung) return <Link to="/investments/$id" params={{ id: z.beteiligung.id }} search={detailSuche}>{text}</Link>;
     return text;
   }
 
   return (
     <div className="app-seite">
-      <Seitenkopf
+      <Seitenkopf info={j.beschreibung(fondsName)}
         meta={
           <>
-            <Link to="/fonds/$fondsId" params={{ fondsId }} search={detailSuche}>
+            <Link to="/funds/$fundId" params={{ fundId: fondsId }} search={detailSuche}>
               {j.zurueck}
             </Link>
             {" · "}
@@ -194,7 +195,6 @@ function JournalInhalt({ fondsId }: { fondsId: string }) {
         titel={j.titel}
         aktionen={schreiben ? <Button onClick={() => setNeu(true)}>{j.neueBuchung}</Button> : undefined}
       />
-      <p className="app-leer-text">{j.beschreibung(fondsName)}</p>
       <NurLesen fondsId={fondsId} bereich="finanzen" />
       {suche.stand ? <Hinweis>{j.stand}</Hinweis> : null}
 
@@ -212,14 +212,7 @@ function JournalInhalt({ fondsId }: { fondsId: string }) {
             </option>
           ))}
         </Auswahl>
-        <Auswahl kompakt label={j.filter.beteiligung} value={suche.beteiligungId ?? ""} onChange={(e) => setze({ beteiligungId: e.target.value })}>
-          <option value="">{j.filter.alleBeteiligungen}</option>
-          {(uebersicht.data?.beteiligungen ?? []).map((b) => (
-            <option key={b.id} value={b.id}>
-              {b.organisation.name}
-            </option>
-          ))}
-        </Auswahl>
+        <BeteiligungsWahl kompakt label={j.filter.beteiligung} fondsId={fondsId} beteiligungen={uebersicht.data?.beteiligungen ?? []} wert={suche.beteiligungId ?? ""} onWahl={(id) => setze({ beteiligungId: id })} leerOption={j.filter.alleBeteiligungen} />
         <label className="app-haken">
           <input type="checkbox" checked={suche.bewertungen === "1"} onChange={(e) => setze({ bewertungen: e.target.checked ? "1" : "" })} /> {j.filter.bewertungen}
         </label>
@@ -286,14 +279,14 @@ function JournalInhalt({ fondsId }: { fondsId: string }) {
                       typ: (
                         <div role="cell" className="app-journal__typ" title={typ}>
                           {z.quelle === "fondsbewegung" ? (
-                            <Link to="/fonds" search={{ fondsId, tab: "kapital", bewegungId: z.id, ...detailSuche }} aria-label={j.kapitalbewegungOeffnen(typ)}>
+                            <Link to="/funds" search={{ fondsId, tab: "kapital", bewegungId: z.id, ...detailSuche }} aria-label={j.kapitalbewegungOeffnen(typ)}>
                               {typ}
                             </Link>
                           ) : typ}
                         </div>
                       ),
                       unternehmen: (
-                        <div role="cell" className="app-journal__unternehmen">{z.beteiligung ? <Link to="/beteiligungen/$id" params={{ id: z.beteiligung.id }} search={detailSuche} title={z.beteiligung.organisationName}>{z.beteiligung.organisationName}</Link> : t.gemeinsam.keinWert}</div>
+                        <div role="cell" className="app-journal__unternehmen">{z.beteiligung ? <Link to="/investments/$id" params={{ id: z.beteiligung.id }} search={detailSuche} title={z.beteiligung.organisationName}>{z.beteiligung.organisationName}</Link> : t.gemeinsam.keinWert}</div>
                       ),
                       instrument: (
                         <div role="cell" title={z.instrumentBezeichnung ?? undefined}>{z.instrumentBezeichnung ?? t.gemeinsam.keinWert}</div>
@@ -403,12 +396,14 @@ function BuchungDialog({ fondsId, waehrung, onSchliessen }: { fondsId: string; w
   const b = t.journal.buchung;
   const anlegen = useBuchungAnlegen(fondsId);
   const uebersicht = useQuery(fondsUebersicht(fondsId));
-  const { werte, feld, pruefeAlle } = useFormular(
+  const { werte, setWerte, feld, pruefeAlle } = useFormular(
     { typ: "zusage", beteiligungId: "", instrumentId: "", trancheId: "", valuta: heuteIso(), betrag: "", bemerkung: "" },
     { beteiligungId: pflichtRegel(), valuta: datumRegel({ pflicht: true }), betrag: betragRegel({ vorzeichen: "positiv", pflicht: true }) },
   );
   const [fertig, setFertig] = useState<string | null>(null);
   const fehler = (name: string) => feldText(t, anlegen.error, name);
+  const beteiligungFeld = feld("beteiligungId", fehler("beteiligungId"));
+  const beteiligungFehler = "fehler" in beteiligungFeld ? beteiligungFeld.fehler : undefined;
   const f = t.vorgangForm;
   const typ = werte.typ as (typeof VORGANG_ARTEN)[number];
   // Die Instrumente der gewählten Beteiligung; das gewählte gilt nur, solange es die Art erlaubt, mit genau einem passenden ist es vorbelegt.
@@ -459,14 +454,16 @@ function BuchungDialog({ fondsId, waehrung, onSchliessen }: { fondsId: string; w
               </option>
             ))}
           </Auswahl>
-          <Auswahl label={b.beteiligung} {...feld("beteiligungId", fehler("beteiligungId"))}>
-            <option value="">{b.beteiligungWaehlen}</option>
-            {(uebersicht.data?.beteiligungen ?? []).map((x) => (
-              <option key={x.id} value={x.id}>
-                {x.organisation.name}
-              </option>
-            ))}
-          </Auswahl>
+          <BeteiligungsWahl
+            label={b.beteiligung}
+            name="beteiligungId"
+            fondsId={fondsId}
+            beteiligungen={uebersicht.data?.beteiligungen ?? []}
+            wert={werte.beteiligungId}
+            onWahl={(id) => setWerte((alt) => ({ ...alt, beteiligungId: id }))}
+            leerOption={b.beteiligungWaehlen}
+            fehler={beteiligungFehler}
+          />
           {werte.beteiligungId !== "" ? (
             <Auswahl label={f.instrument} {...feld("instrumentId")} value={instrumentId} required={erlaubte.length > 1} fehler={fehler("instrumentId")}>
               {erlaubte.length !== 1 ? <option value="" /> : null}
@@ -495,7 +492,7 @@ function BuchungDialog({ fondsId, waehrung, onSchliessen }: { fondsId: string; w
           ) : null}
           <Feld label={b.valuta} type="date" {...feld("valuta", fehler("valuta"))} />
           <BetragFeld label={b.betrag} {...feld("betrag", fehler("betrag"))} />
-          <Feld label={b.bemerkung} autoComplete="off" {...feld("bemerkung")} fehler={fehler("bemerkung")} />
+          <Feld label={b.bemerkung} {...feld("bemerkung")} fehler={fehler("bemerkung")} />
           <div>
             <Button type="submit" disabled={anlegen.isPending || gesperrt || (werte.beteiligungId !== "" && instrumentId === "")} aria-describedby={gesperrt ? "tranche-gesperrt" : undefined}>
               {b.buchen}

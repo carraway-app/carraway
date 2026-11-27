@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { BEWEGUNG_FERTIG_ID, BEWEGUNG_OFFEN_ID, FONDS_ID, alsRolle, bewegungenDaten, fehler, fondsDaten, rendereApp, spieleApi } from "../test/hilfen";
 
-const url = `/fonds?fondsId=${FONDS_ID}&tab=kapital`;
+const url = `/funds?fundId=${FONDS_ID}&tab=capital`;
 const freigabePfad = `/api/v1/fonds/${FONDS_ID}/bewegungen/${BEWEGUNG_OFFEN_ID}/mitteilungen/freigeben`;
 const buchungPfad = `/api/v1/funds/${FONDS_ID}/postings`;
 const vorschauPfad = `/api/v1/funds/${FONDS_ID}/fund-movements/preview`;
@@ -103,7 +103,7 @@ describe("Kapitalbewegungen und Mitteilungen", () => {
     spieleApi({ "/api/v1/fonds": { koerper: { daten: fondsDaten.daten.map((fonds) => ({ ...fonds, waehrung: "USD" })) } } });
     const stand = "2026-09-30T10:00:00Z";
     const stichtag = "2026-09-30";
-    rendereApp(`${url}&stichtag=${stichtag}&stand=${encodeURIComponent(stand)}`);
+    rendereApp(`${url}&asOf=${stichtag}&knowledgeDate=${encodeURIComponent(stand)}`);
     const abschnitt = within(await screen.findByRole("region", { name: "Kapitalabrufe und Ausschüttungen" }));
     expect(await abschnitt.findByText("Nicht freigegeben")).toBeTruthy();
     expect(within(abschnitt.getByRole("region", { name: "Kapitalbewegungen des Fonds" })).getAllByText(/\$/)).toHaveLength(2);
@@ -182,7 +182,7 @@ describe("Kapitalbewegungen und Mitteilungen", () => {
     await nutzer.type(dialog.getByRole("textbox", { name: "Betrag (EUR)" }), "500");
     await nutzer.click(dialog.getByRole("button", { name: "Aufteilung prüfen" }));
     expect(await dialog.findByText(/keine Zeichnungen hinterlegt/)).toBeTruthy();
-    expect(dialog.getByRole("link", { name: "Fondszeichnungen verwalten" }).getAttribute("href")).toContain("tab=investoren");
+    expect(dialog.getByRole("link", { name: "Fondszeichnungen verwalten" }).getAttribute("href")).toContain("tab=investors");
     expect(dialog.queryByRole("button", { name: "Kapitalabruf buchen" })).toBeNull();
     expect(api.anfragen("POST", buchungPfad)).toHaveLength(0);
   });
@@ -206,7 +206,7 @@ describe("Kapitalbewegungen und Mitteilungen", () => {
         koerper: { ...vorschau, art: "ausschuettung", verteilungsquelle: "mitteilungen", aufteilung: [{ ...aufteilung[0], zeichnungId: null, zusage: null, anteil: null }] },
       },
     });
-    rendereApp(`${url}&bewegungId=${BEWEGUNG_FERTIG_ID}&stand=2026-09-30T10:00:00Z`);
+    rendereApp(`${url}&movementId=${BEWEGUNG_FERTIG_ID}&knowledgeDate=2026-09-30T10:00:00Z`);
     const dialog = within(await screen.findByRole("dialog"));
     expect(await dialog.findByText("Beträge aus den freigegebenen Mitteilungen.")).toBeTruthy();
     expect(dialog.getByText("Investor Am Park")).toBeTruthy();
@@ -223,7 +223,7 @@ describe("Kapitalbewegungen und Mitteilungen", () => {
       [pfad]: { koerper: { faelligAm: "2026-10-15", positionen: [{ organisationId: "investor-1", eingezahlt: "0.00", offen: "500.00", ueberfaellig: "0.00", ungeklaert: "0.00" }], zahlungen: [] } },
       [`POST ${pfad}`]: { status: 201, koerper: {} },
     });
-    rendereApp(`${url}&bewegungId=${BEWEGUNG_OFFEN_ID}&stichtag=2026-10-15`);
+    rendereApp(`${url}&movementId=${BEWEGUNG_OFFEN_ID}&asOf=2026-10-15`);
     const dialog = within(await screen.findByRole("dialog"));
     const nutzer = userEvent.setup();
     await nutzer.click(await dialog.findByRole("button", { name: "Zahlung erfassen" }));
@@ -277,7 +277,7 @@ it.each([
       },
     } },
   });
-  rendereApp(`${url}&stichtag=${stichtag}&stand=${stand}`);
+  rendereApp(`${url}&asOf=${stichtag}&knowledgeDate=${stand}`);
   const nutzer = userEvent.setup();
   await nutzer.click(await screen.findByRole("button", { description: `Herkunft von ${kennzahl} anzeigen` }));
   const dialog = within(await screen.findByRole("dialog"));

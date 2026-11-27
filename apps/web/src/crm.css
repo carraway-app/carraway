@@ -122,13 +122,11 @@ span.app-gitter__sortieren { cursor: default; }
 .app-deal__griff[aria-pressed="true"] { background: var(--cw-inverse); color: var(--cw-on-inverse); box-shadow: inset 0 -2px 0 var(--cw-accent); }
 
 /* Datensatzseite: Reiter links, Attribute rechts (nie gestapelte Abschnitte) */
-.app-datensatz { display: grid; grid-template-columns: minmax(0, 1fr) 320px; align-items: start; gap: var(--s-3); }
-.app-datensatz__haupt { min-width: 0; display: flex; flex-direction: column; gap: var(--s-2); }
-.app-attribute { position: sticky; top: calc(var(--umgebung-h, 0px) + var(--h-l)); display: flex; flex-direction: column; gap: var(--s-1); max-height: calc(100vh - var(--umgebung-h, 0px) - var(--h-l) - var(--s-3)); overflow-y: auto; padding: var(--s-2); border-radius: var(--r-xl); background: var(--cw-surface); }
+.app-attribute { display: flex; flex-direction: column; gap: var(--s-1h); min-width: 0; padding: var(--s-2); border-radius: var(--r-xl); background: var(--cw-surface); }
 .app-attribute__kopf { display: flex; align-items: center; justify-content: space-between; gap: var(--s-1); }
 .app-attribute__kopf h2 { margin: 0; }
-.app-attribute__liste { display: flex; flex-direction: column; gap: var(--s-1); margin: 0; }
-.app-attribute__zeile { display: grid; grid-template-columns: 100px minmax(0, 1fr); gap: var(--s-1); align-items: start; }
+.app-attribute__liste { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 22rem), 1fr)); gap: var(--s-1) var(--s-3); margin: 0; }
+.app-attribute__zeile { display: grid; grid-template-columns: 9rem minmax(0, 1fr); gap: var(--s-1); align-items: start; }
 .app-attribute__zeile dt { font-size: var(--fs-beschriftung); color: var(--cw-text-muted); padding-top: 4px; }
 .app-attribute__zeile dd { margin: 0; min-width: 0; overflow-wrap: anywhere; font-size: var(--fs-text); }
 .app-attribute__wert { display: inline-flex; align-items: center; gap: var(--s-0); flex-wrap: wrap; }
@@ -152,7 +150,6 @@ span.app-gitter__sortieren { cursor: default; }
 .app-erwaehnung { font-weight: 600; }
 
 @media (max-width: 1100px) {
-  .app-datensatz { grid-template-columns: minmax(0, 1fr); }
   .app-attribute { position: static; max-height: none; }
   .app-fed__bedingung { grid-template-columns: 1fr 1fr; }
 }
@@ -184,7 +181,7 @@ span.app-gitter__sortieren { cursor: default; }
 .app-attribute__wert > a { min-width: 0; overflow-wrap: anywhere; }
 .app-attribute .app-chips { flex-wrap: wrap; min-width: 0; }
 .app-attribute__bearbeiten { position: absolute; right: 0; top: 0; background: var(--cw-surface); }
-.app-attribute__liste { gap: var(--s-1); }
+.app-attribute__liste { gap: var(--s-1) var(--s-3); }
 @media (max-width: 700px) {
   .cw-crm-ansichten, .cw-crm-werkzeuge__zeile, .app-crm__listenzeile { width: 100%; }
   .cw-crm-werkzeuge .cw-feld, .app-crm__listenzeile .cw-feld { flex: 1 1 100%; max-inline-size: none; }
@@ -277,7 +274,7 @@ span.app-gitter__sortieren { cursor: default; }
   font-size: var(--fs-klein);
 }
 .app-pipeline-liste__navigation > span { margin-inline-end: auto; }
-.app-pipeline-board > .app-board { position: relative; height: 64dvh; }
+.app-pipeline-board > .app-board { position: relative; height: max(360px, calc(100dvh - var(--fest-oben, 0px) - var(--kontextkopf-h, 0px) - var(--h-hauptreiter) - 120px)); }
 .app-pipeline-gruppen .app-board { height: 50dvh; }
 .app-pipeline-board > .cw-button { justify-self: end; }
 .app-pipeline-gruppen .app-gruppe-block__kopf { margin: 0; }
@@ -340,3 +337,48 @@ span.app-gitter__sortieren { cursor: default; }
 .app-dealflow__vorschau { display: grid; gap: var(--s-0); min-width: 0; }
 .app-dealflow__vorschau > h3, .app-dealflow__vorschau > p { margin: 0; }
 .app-dealflow__vorschau > .app-deal { max-width: 16rem; }
+
+/* Technische Angaben (Kennungen) eingeklappt unter den fachlichen Attributen */
+.app-attribute__technik { border-top: 1px solid var(--cw-line); padding-top: var(--s-1); }
+.app-attribute__technik > summary { cursor: pointer; color: var(--cw-text-muted); font-size: var(--fs-klein); }
+.app-attribute__technik > summary:focus-visible { outline: 2px solid var(--cw-focus); outline-offset: 2px; }
+.app-attribute__technik[open] > summary { margin-bottom: var(--s-1); }
+
+/* Dealflow: eine Werkzeugzeile mit Auswahl, Suche, Filter und Darstellung; aktive Filter als Chips; Detailbereich rechts. */
+.cw-crm-werkzeuge { flex-wrap: wrap; }
+.cw-crm-werkzeuge > .cw-crm-werkzeuge__zeile, .cw-crm-werkzeuge > .cw-crm-ansichten { flex: 0 1 auto; }
+.cw-crm-werkzeuge__hinten { display: flex; align-items: center; margin-left: auto; }
+.app-dealflow__auswahl .cw-popover__flaeche { width: min(360px, 90vw); }
+.app-dealflow__filter { display: flex; flex-direction: column; gap: var(--s-1h); }
+.app-dealflow__filter:focus { outline: none; }
+.app-filterchips { display: flex; flex-wrap: wrap; gap: var(--s-1); margin: 0; padding: 0; list-style: none; }
+.app-filterchip { display: inline-flex; align-items: center; gap: var(--s-0); height: var(--h-xs); padding: 0 var(--s-0) 0 var(--s-1h); border: 1px solid var(--cw-line-strong); border-radius: var(--r-voll); background: var(--cw-surface); font-size: var(--fs-klein); }
+.app-filterchip__weg { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; padding: 0; border: 0; border-radius: var(--r-voll); background: transparent; color: var(--cw-text-muted); cursor: pointer; }
+.app-filterchip__weg:hover { background: var(--cw-hover); color: var(--cw-text); }
+.app-filterchip__weg:focus-visible { outline: 2px solid var(--cw-focus); outline-offset: 1px; }
+.app-dealflow__mit-detail { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 340px); align-items: start; gap: var(--s-2); --detail-oben: calc(var(--fest-oben, 0px) + var(--kontextkopf-h, 0px) + var(--h-hauptreiter) + var(--s-1)); }
+.app-dealflow__liste, .app-dealflow__ergebnisse { display: flex; flex-direction: column; gap: var(--s-1h); min-width: 0; }
+@media (max-width: 1100px) { .app-dealflow__mit-detail { grid-template-columns: minmax(0, 1fr); } }
+/* „Zuweisen“ und „+ Deal“ erst beim Überfahren oder Fokus; per Tastatur bleiben sie erreichbar. */
+@media (hover: hover) {
+  .app-dealflow__karte-zuweisen, .app-board__neu { opacity: 0; transition: opacity 120ms ease; }
+  .app-deal:hover .app-dealflow__karte-zuweisen, .app-deal:focus-within .app-dealflow__karte-zuweisen, .app-dealflow__karte-zuweisen:focus-visible,
+  .app-board__spalte:hover .app-board__neu, .app-board__spalte:focus-within .app-board__neu, .app-board__neu:focus-visible { opacity: 1; }
+}
+
+/* Kontakte: Detailbereich rechts neben der Tabelle; Zeilensymbole und Unterstreichung erst beim Überfahren oder Fokus. */
+.app-crm__mit-detail { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 360px); align-items: start; gap: var(--s-2); --detail-oben: calc(var(--fest-oben, 0px) + var(--kontextkopf-h, 0px) + var(--h-hauptreiter) + var(--s-1)); }
+.app-crm__mit-detail .app-attribute { padding: 0; background: transparent; }
+@media (max-width: 1100px) { .app-crm__mit-detail { grid-template-columns: minmax(0, 1fr); } }
+.app-gitter a, .cw-tabelle a { text-decoration: none; }
+.app-gitter a:is(:hover, :focus-visible), .cw-tabelle a:is(:hover, :focus-visible) { text-decoration: underline; text-underline-offset: 3px; }
+@media (hover: hover) {
+  .app-gitter__zeile .app-schnell[data-raster] { opacity: 0; transition: opacity 120ms ease; }
+  .app-gitter__zeile:hover .app-schnell[data-raster], .app-gitter__zeile:focus-within .app-schnell[data-raster] { opacity: 1; }
+}
+/* Dealflow: Werkzeugzeile und Board rücken dichter an die Reiter, damit das Board auch bei 900 px Höhe früh beginnt. */
+.app-dealflow > .cw-tabs > .cw-tabs__panel, .app-dealflow :is(.app-dealflow__liste, .app-dealflow__ergebnisse) { gap: var(--s-1); }
+.app-dealflow > .cw-seitenkopf + .cw-tabs--fest { margin-top: calc(-1 * var(--s-0)); }
+/* Eine Werkzeugzeile auch bei 1440 px: die Beschriftungen von Suche und Ansicht nur für Screenreader (Suche mit Platzhalter, die Ansicht zeigt ihren Namen). */
+.cw-crm-werkzeuge__suche > .cw-feld__label, .cw-crm-ansichten > .cw-feld > .cw-feld__label { position: absolute; inline-size: 1px; block-size: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+@media (min-width: 1200px) { .cw-crm-werkzeuge > .cw-crm-werkzeuge__zeile { flex-wrap: nowrap; } .cw-crm-werkzeuge > .cw-crm-werkzeuge__zeile > .app-crm__listenwahl { flex: none; } .cw-crm-werkzeuge > .cw-crm-werkzeuge__zeile .cw-crm-werkzeuge__suche { flex: 0 1 11rem; } }

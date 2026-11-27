@@ -1,12 +1,12 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
-import { BET_ID, FONDS_ID, ORG_A, ORG_B, beteiligungDaten, fehler, rendereApp, spieleApi } from "../test/hilfen";
+import { BET_ID, FONDS_ID, ORG_A, ORG_B, beteiligungDaten, fehler, rendereApp, spieleApi, feldImStichtagMenue } from "../test/hilfen";
 
-const url = `/beteiligungen/${BET_ID}`;
-const verlaufUrl = `${url}?tab=bewertung&unter=verlauf`;
-const vorgaengeUrl = `${url}?tab=finanzierung&unter=transaktionen`;
-const rundenUrl = `${url}?tab=finanzierung`;
+const url = `/investments/${BET_ID}`;
+const verlaufUrl = `${url}?tab=valuation&subtab=history`;
+const vorgaengeUrl = `${url}?tab=financing&subtab=transactions`;
+const rundenUrl = `${url}?tab=financing`;
 const RUNDEN_API = `/api/v1/organisationen/${ORG_A}/finanzierungsrunden`;
 const rundenPosition = (id: string, art: "fonds" | "organisation", name: string, extra: Record<string, unknown> = {}) => ({
   id,
@@ -40,9 +40,15 @@ const rundenAntwort = (id: string, bezeichnung: string, datum: string, status: "
 });
 /** Zwei Runden: ein Entwurf (neuer) und eine abgeschlossene Seed-Runde. */
 const MIT_RUNDEN = { [RUNDEN_API]: { koerper: { daten: [rundenAntwort("r2", "Serie A", "2025-06-30", "entwurf"), rundenAntwort("r1", "Seed", "2021-05-31", "abgeschlossen")] } } };
-const verzeichnis = () => within(screen.getByRole("navigation", { name: /^(Bereiche der Beteiligung|Sections of the holding)$/ }));
-const eintrag = (name: string | RegExp) => verzeichnis().getByRole("button", { name });
-const aktiv = () => verzeichnis().getAllByRole("button").filter((b) => b.getAttribute("aria-current") === "page").map((b) => b.textContent?.replace(/\d+$/, ""));
+/** Orte der Beteiligung in der Seitenleiste (Objektkontext); Sichten eines Ortes sind Reiter, die beim Scrollen stehen bleiben. */
+const verzeichnis = () => within(screen.getByRole("navigation", { name: /^(Hauptnavigation|Main navigation)$/ }));
+const eintrag = (name: string | RegExp) => verzeichnis().queryByRole("link", { name }) ?? screen.getByRole("tab", { name });
+/** Die aktive Sicht: der gewählte Reiter des Ortes, sonst der aktive Ort der Leiste. */
+const aktiv = () => {
+  const reiter = document.querySelector('.cw-tabs--fest [role="tab"][aria-selected="true"]');
+  if (reiter) return [reiter.textContent?.replace(/\s*\d+$/, "")];
+  return verzeichnis().getAllByRole("link").filter((b) => b.getAttribute("aria-current") === "page").map((b) => b.textContent?.replace(/\d+$/, ""));
+};
 const schmal = (text: string | null) => (text ?? "").replace(/\s/g, " ");
 
 describe("Beteiligung", () => {
@@ -53,9 +59,9 @@ describe("Beteiligung", () => {
     expect(await screen.findByRole("heading", { level: 1, name: "Alpha Energie" })).toBeTruthy();
     // Fonds, Instrument und Status im Kopf
     const kopf = screen.getByRole("heading", { level: 1 }).closest("header")!;
-    expect(within(kopf).getByRole("link", { name: "Beispielfonds I" }).getAttribute("href")).toBe("/fonds/11111111-1111-4111-8111-111111111111");
+    expect(within(kopf).getByRole("link", { name: "Beispielfonds I" }).getAttribute("href")).toBe("/funds/11111111-1111-4111-8111-111111111111");
     expect(kopf.textContent).toContain("Wandeldarlehen");
-    expect(within(kopf).getByLabelText<HTMLInputElement>("Stichtag").value).toBe("2026-09-30");
+    expect((await feldImStichtagMenue("Stichtag", kopf)).value).toBe("2026-09-30");
     expect(within(kopf).getByText("Aktiv")).toBeTruthy();
 
     const kennzahlen = screen.getByRole("region", { name: "Kennzahlen" });
@@ -70,6 +76,21 @@ describe("Beteiligung", () => {
     expect(aktiv()).toEqual(["Übersicht"]);
     // Ohne Angaben im Pfad fragt die Seite ohne Parameter
     expect(api.anfragen("GET", `/api/v1/beteiligungen/${BET_ID}`)[0]?.query.toString()).toBe("");
+  });
+
+  it("wechselt im Kopf der Seitenleiste zu einer anderen Beteiligung desselben Fonds und behält den Ort", async () => {
+    spieleApi();
+    const { router } = rendereApp(`/investments/${BET_ID}?tab=valuation`);
+    const nutzer = userEvent.setup();
+    await screen.findByRole("heading", { level: 1, name: "Alpha Energie" });
+    const leiste = within(await screen.findByRole("complementary", { name: "Seitenleiste" }));
+    await nutzer.click(await leiste.findByRole("button", { name: /Beteiligung auswählen/ }));
+    const menue = within(screen.getByRole("menu", { name: "Beteiligung auswählen" }));
+    expect(menue.getAllByRole("menuitemradio").map((e) => e.textContent)).toEqual(["Alpha Energie", "Beta Medizin", "Gamma Logistik"]);
+    expect(menue.getByRole("menuitemradio", { name: "Alpha Energie" }).getAttribute("aria-checked")).toBe("true");
+    await nutzer.click(menue.getByRole("menuitemradio", { name: "Beta Medizin" }));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/investments/b2"));
+    expect(router.state.location.search).toMatchObject({ tab: "bewertung" });
   });
 
   it("gibt dem Diagramm eine Textfassung, endet am Stichtag und lässt sich als Tabelle lesen", async () => {
@@ -158,7 +179,7 @@ describe("Beteiligung", () => {
     expect(zeilen[1]!.textContent).toContain("Eigener Fonds");
     expect(zeilen[1]!.textContent).toContain("Lead");
     expect(zeilen[2]!.getAttribute("aria-current")).toBeNull();
-    expect(within(zeilen[2]!).getByRole("link", { name: "Beta Medizin" }).getAttribute("href")).toMatch(/^\/organisationen\//);
+    expect(within(zeilen[2]!).getByRole("link", { name: "Beta Medizin" }).getAttribute("href")).toMatch(/^\/organizations\//);
     expect(zeilen[2]!.textContent).toContain("Co-Investor");
     expect(schmal(zeilen[2]!.textContent)).toContain("400.000,00 €");
 
@@ -175,7 +196,7 @@ describe("Beteiligung", () => {
     spieleApi(MIT_RUNDEN);
     rendereApp(rundenUrl);
     const nutzer = userEvent.setup();
-    expect(await within(await screen.findByRole("navigation", { name: /^Bereiche der Beteiligung$/ })).findByRole("button", { name: /^Finanzierungsrunden\s*2$/ })).toBeTruthy();
+    expect(await screen.findByRole("tab", { name: /^Finanzierungsrunden\s*2$/ })).toBeTruthy();
     const liste = within(await screen.findByRole("tablist", { name: "Runden" }));
     await nutzer.click(liste.getByRole("tab", { name: /Serie A/ }));
     const runde = within(await screen.findByRole("article", { name: /Serie A/ }));
@@ -192,7 +213,9 @@ describe("Beteiligung", () => {
     rendereApp(url);
     const deal = await screen.findByRole("link", { name: "Zum Deal: Alpha, Wachstum" });
     expect(deal.getAttribute("href")).toBe("/deals/d1");
-    expect(screen.getByRole("link", { name: "Alpha Energie" }).getAttribute("href")).toMatch(/^\/organisationen\//);
+    expect(within(screen.getByRole("main")).getByRole("link", { name: "Alpha Energie" }).getAttribute("href")).toMatch(/^\/organizations\//);
+    // Deal und Organisation stehen auch in der Leiste unter „Verknüpft“.
+    expect(verzeichnis().getByRole("link", { name: "Alpha, Wachstum" }).getAttribute("href")).toBe("/deals/d1");
   });
 
   it("öffnet die Herkunft einer Kennzahl mit den Rechenschritten", async () => {
@@ -220,7 +243,8 @@ describe("Beteiligung", () => {
     expect(await screen.findByRole("region", { name: "Vorgänge" })).toBeTruthy();
 
     await nutzer.click(kennzahlen.getByRole("button", { name: /^Bewertung/ }));
-    await waitFor(() => expect(router.state.location.search).toMatchObject({ tab: "bewertung", unter: "bewertungen" }));
+    await waitFor(() => expect(router.state.location.search).toMatchObject({ tab: "bewertung" }));
+    expect((router.state.location.search as Record<string, unknown>).unter).toBeUndefined();
     expect(aktiv()).toEqual(["Bewertungen"]);
 
     await nutzer.click(kennzahlen.getByRole("button", { name: /^Rückflüsse/ }));
@@ -239,26 +263,27 @@ describe("Beteiligung", () => {
 
   it("reicht Stichtag und Wissensstand an die API weiter und trägt sie in den Quartalsbericht", async () => {
     const api = spieleApi();
-    rendereApp(`${url}?stichtag=2026-06-30&stand=2026-07-01T10:00:00Z`);
+    rendereApp(`${url}?asOf=2026-06-30&knowledgeDate=2026-07-01T10:00:00Z`);
     await screen.findByRole("heading", { level: 1, name: "Alpha Energie" });
     const anfrage = api.anfragen("GET", `/api/v1/beteiligungen/${BET_ID}`)[0]!;
     expect(anfrage.query.get("stichtag")).toBe("2026-06-30");
     expect(anfrage.query.get("stand")).toBe("2026-07-01T10:00:00Z");
     expect(screen.getByText(/Ansicht mit dem Wissensstand/)).toBeTruthy();
-    const bericht = new URL(screen.getByRole("link", { name: "Quartalsbericht (PDF, Entwurf)" }).getAttribute("href")!, "http://x");
+    // Der Quartalsbericht steht im Menü „⋯“ des Kontextkopfs.
+    fireEvent.click(screen.getByRole("button", { name: "Weitere Aktionen" }));
+    const bericht = new URL(screen.getByRole("menuitem", { name: "Quartalsbericht (PDF, Entwurf)" }).getAttribute("href")!, "http://x");
     expect(bericht.pathname).toBe(`/api/v1/investments/${BET_ID}/reports/quarterly-report`);
     expect(bericht.searchParams.get("asOf")).toBe("2026-09-30"); // der Stichtag der Antwort
     expect(bericht.searchParams.get("knowledgeDate")).toBe("2026-07-01T10:00:00Z");
     expect(bericht.searchParams.get("language")).toBe("de");
     expect(bericht.searchParams.get("format")).toBe("pdf");
-    expect(screen.getByRole("link", { name: "Quartalsbericht (PDF, Entwurf)" }).hasAttribute("download")).toBe(true);
   });
 
   it("wechselt den Stichtag über die URL", async () => {
     const api = spieleApi();
     const { router } = rendereApp(url);
     await screen.findByRole("heading", { level: 1, name: "Alpha Energie" });
-    fireEvent.change(screen.getByLabelText("Stichtag"), { target: { value: "2026-06-30" } });
+    fireEvent.change(await feldImStichtagMenue(), { target: { value: "2026-06-30" } });
     expect(router.state.location.search).toEqual({ stichtag: "2026-06-30" });
     await screen.findByRole("heading", { level: 1, name: "Alpha Energie" });
     expect(api.anfragen("GET", `/api/v1/beteiligungen/${BET_ID}`).some((a) => a.query.get("stichtag") === "2026-06-30")).toBe(true);
@@ -269,19 +294,22 @@ describe("Beteiligung", () => {
     spieleApi();
     rendereApp(url);
     const nutzer = userEvent.setup();
-    expect(await screen.findByRole("navigation", { name: "Sections of the holding" })).toBeTruthy();
-    for (const name of ["Overview", "Transactions", "Financing rounds", "Cap table", "Exit scenario", "Valuations", "Valuation history", "KPIs", "Documents"]) expect(eintrag(new RegExp(`^${name}`))).toBeTruthy();
+    expect(await screen.findByRole("navigation", { name: "Main navigation" })).toBeTruthy();
+    for (const name of ["Overview", "Financing", "Cap table", "Valuation", "Company", "Documents", "Master data"]) expect(verzeichnis().getByRole("link", { name: new RegExp(`^${name}`) })).toBeTruthy();
     expect(screen.getByRole("heading", { level: 2, name: "Deal" })).toBeTruthy();
     expect(schmal(screen.getByRole("region", { name: "Key figures" }).textContent)).toContain("2.25x");
-    expect(screen.getByRole("link", { name: "Quarterly report (PDF, draft)" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "More actions" }));
+    expect(screen.getByRole("menuitem", { name: "Quarterly report (PDF, draft)" })).toBeTruthy();
 
-    await nutzer.click(eintrag(/^Financing rounds/));
+    await nutzer.click(eintrag(/^Financing/));
+    await nutzer.click(await screen.findByRole("tab", { name: /^Financing rounds/ }));
     expect(await screen.findByRole("region", { name: "Record and close rounds" })).toBeTruthy();
-    await nutzer.click(eintrag("Transactions"));
+    await nutzer.click(screen.getByRole("tab", { name: "Transactions" }));
     const vorgaenge = within((await screen.findAllByRole("region", { name: "Transactions" })).at(-1)!).getByRole("table");
     expect(vorgaenge.textContent).toContain("Disbursement");
     expect(vorgaenge.textContent).toContain("Reversed");
-    await nutzer.click(eintrag("Valuation history"));
+    await nutzer.click(eintrag("Valuation"));
+    await nutzer.click(await screen.findByRole("tab", { name: "Valuation history" }));
     expect(await screen.findByRole("heading", { level: 2, name: "Valuation history" })).toBeTruthy();
     expect(screen.getByRole("img", { name: /3 valuations, from €1,500,000 on 30\/09\/2024 to €2,000,000 on 30\/09\/2026/ })).toBeTruthy();
 
@@ -295,34 +323,48 @@ describe("Beteiligung", () => {
     expect(irr.textContent).toContain("Valuation as terminal value on 30/09/2026");
     expect(irr.textContent).toContain("Disbursements (1 payments, excluding cancelled pairs)");
     expect(irr.textContent).toContain("IRR of the holding (XIRR, act/365)");
-    const mit = new URL(screen.getByRole("link", { name: "Quarterly report (PDF, draft)" }).getAttribute("href")!, "http://x");
+    await nutzer.keyboard("{Escape}");
+    fireEvent.click(screen.getByRole("button", { name: "More actions" }));
+    const mit = new URL(screen.getByRole("menuitem", { name: "Quarterly report (PDF, draft)" }).getAttribute("href")!, "http://x");
     expect(mit.searchParams.get("language")).toBe("en");
   });
 
-  it("gliedert in Gruppen; bei einem Darlehen ohne Anteile aus Runden entfallen Captable und Exit-Szenario", async () => {
+  it("sieben Orte in der Leiste, Sichten als Reiter; bei Anteilen aus Runden gibt es den Captable", async () => {
     spieleApi();
+    const nutzer = userEvent.setup();
     rendereApp(url);
-    const nav = await screen.findByRole("navigation", { name: "Bereiche der Beteiligung" });
-    const gruppe = (name: string) => within(within(nav).getByRole("list", { name })).getAllByRole("button").map((b) => b.textContent?.replace(/\d+$/, ""));
-    expect(gruppe("Position")).toEqual(["Übersicht"]);
-    // Der Fonds hält in der Beispielbeteiligung Anteile aus der Seed-Runde
-    expect(gruppe("Kapital")).toEqual(["Finanzierungsrunden", "Instrumente", "Transaktionen", "Zinsen", "Captable", "Exit-Szenario"]);
-    expect(gruppe("Wert")).toEqual(["Bewertungen", "Bewertungsverlauf", "Währung"]);
-    // ESG ist ein Eintrag der Erweiterung (ee/web); der Kern allein hat nur die Kennzahlen.
-    expect(gruppe("Unternehmen")).toEqual(["Kennzahlen", "Gremien"]);
-    expect(gruppe("Ablage")).toEqual(["Dokumente"]);
-    expect(gruppe("Stammdaten")).toEqual(["Förderung und Buchhaltung", "Zusatzfelder Beteiligung", "Zusatzfelder Instrument"]);
+    await screen.findByRole("heading", { level: 1, name: "Alpha Energie" });
+    const orte = () => {
+      const kopf = verzeichnis().getAllByRole("link").filter((l) => !l.closest('[id$="verknuepft"]'));
+      return kopf.map((l) => l.textContent?.replace(/\d+$/, "")).filter((n) => n && n !== "Alpha, Wachstum" && n !== "Alpha Energie");
+    };
+    expect(orte()).toEqual(["Übersicht", "Finanzierung", "Captable", "Bewertung", "Unternehmen", "Dokumente", "Stammdaten"]);
+    // Rückweg zum Fonds oben in der Leiste
+    expect(within(screen.getByRole("complementary", { name: "Seitenleiste" })).getByRole("link", { name: "Beispielfonds I" }).getAttribute("href")).toBe(`/funds/${FONDS_ID}`);
+    const reiterVon = async (ort: string) => {
+      await nutzer.click(eintrag(new RegExp(`^${ort}`)));
+      return within(await screen.findByRole("tablist", { name: ort })).getAllByRole("tab").map((r) => r.textContent?.replace(/\s*\d+$/, ""));
+    };
+    expect(await reiterVon("Finanzierung")).toEqual(["Finanzierungsrunden", "Instrumente", "Transaktionen", "Zinsen"]);
+    expect(await reiterVon("Captable")).toEqual(["Anteile", "Exit-Szenario"]);
+    expect(await reiterVon("Bewertung")).toEqual(["Bewertungen", "Bewertungsverlauf", "Währung"]);
+    // ESG ist ein Reiter der Erweiterung (ee/web); der Kern allein hat Kennzahlen und Gremien.
+    expect(await reiterVon("Unternehmen")).toEqual(["Kennzahlen", "Gremien"]);
+    // Keine Reiter in Reitern
+    expect(document.querySelectorAll(".cw-tabs--fest")).toHaveLength(1);
+    await nutzer.click(eintrag("Stammdaten"));
+    const marken = within(await screen.findByRole("navigation", { name: "Stammdaten" }));
+    expect(marken.getAllByRole("link").map((m) => m.textContent)).toEqual(["Förderung und Buchhaltung", "Zusatzfelder Beteiligung", "Zusatzfelder Instrument"]);
   });
 
-  it("zeigt bei einem Darlehen (keine Anteile des Fonds aus Runden) weder Captable noch Exit-Szenario; deren Adresse fällt auf die Runden zurück", async () => {
+  it("zeigt bei einem Darlehen (keine Anteile des Fonds aus Runden) keinen Captable; dessen Adresse fällt auf die Übersicht zurück", async () => {
     const ohneAnteile = { ...beteiligungDaten, runden: beteiligungDaten.runden.map((r) => ({ ...r, positionen: r.positionen.map((p) => ({ ...p, diesesFonds: false })) })) };
     spieleApi({ [`/api/v1/beteiligungen/${BET_ID}`]: { koerper: ohneAnteile } });
-    rendereApp(`${url}?tab=finanzierung&unter=wasserfall`);
-    const nav = await screen.findByRole("navigation", { name: "Bereiche der Beteiligung" });
-    expect(within(nav).queryByRole("button", { name: "Captable" })).toBeNull();
-    expect(within(nav).queryByRole("button", { name: "Exit-Szenario" })).toBeNull();
-    expect(within(nav).getByRole("button", { name: "Finanzierungsrunden" })).toBeTruthy();
-    expect(aktiv()).toEqual(["Finanzierungsrunden"]);
+    rendereApp(`${url}?tab=financing&subtab=waterfall`);
+    await screen.findByRole("heading", { level: 1, name: "Alpha Energie" });
+    expect(verzeichnis().queryByRole("link", { name: "Captable" })).toBeNull();
+    expect(screen.queryByRole("tab", { name: "Exit-Szenario" })).toBeNull();
+    expect(aktiv()).toEqual(["Übersicht"]);
   });
 
   it("zeigt ohne Bewertung, Vorgang, Runde und Deal die Leerzustände", async () => {
@@ -332,70 +374,78 @@ describe("Beteiligung", () => {
     rendereApp(url);
     const nutzer = userEvent.setup();
     expect(await screen.findByText("Zu dieser Beteiligung gibt es keinen Deal.")).toBeTruthy();
-    await nutzer.click(eintrag(/^Finanzierungsrunden/));
+    await nutzer.click(eintrag(/^Finanzierung/));
     expect(await screen.findByText(/Noch keine Runde erfasst/)).toBeTruthy();
-    await nutzer.click(eintrag("Transaktionen"));
+    await nutzer.click(screen.getByRole("tab", { name: "Transaktionen" }));
     expect(await screen.findByText("Bis zu diesem Stichtag gibt es keine Vorgänge.")).toBeTruthy();
-    await nutzer.click(eintrag("Bewertungsverlauf"));
+    await nutzer.click(eintrag("Bewertung"));
+    await nutzer.click(await screen.findByRole("tab", { name: "Bewertungsverlauf" }));
     expect(await screen.findByText("Zu diesem Stichtag gibt es noch keine Bewertung.")).toBeTruthy();
   });
 
-  it("Verzeichnis: Knöpfe mit aria-current, Standard Übersicht, nie mehrere Bereiche gleichzeitig", async () => {
+  it("Leiste: Links mit aria-current, Standard Übersicht, nie mehrere Orte gleichzeitig", async () => {
     spieleApi();
     rendereApp(url);
-    const nav = await screen.findByRole("navigation", { name: "Bereiche der Beteiligung" });
-    expect(within(nav).getByRole("button", { name: "Übersicht" }).getAttribute("aria-current")).toBe("page");
+    await screen.findByRole("heading", { level: 1, name: "Alpha Energie" });
+    expect(verzeichnis().getByRole("link", { name: "Übersicht" }).getAttribute("aria-current")).toBe("page");
     expect(aktiv()).toEqual(["Übersicht"]);
     expect(screen.queryByRole("tablist")).toBeNull();
-    // Der Bereich ist nach dem Eintrag benannt
-    expect(screen.getByRole("region", { name: "Übersicht" })).toBeTruthy();
-    expect(screen.getAllByRole("region", { name: "Übersicht" })).toHaveLength(1);
+    // Genau ein Bereich steht da
+    expect(document.querySelectorAll(".app-bereich")).toHaveLength(1);
     // Runden, Vorgänge und Bewertungen gehören nicht zur Übersicht.
     expect(screen.queryByRole("region", { name: "Vorgänge" })).toBeNull();
     expect(screen.queryByRole("article", { name: /Seed/ })).toBeNull();
     expect(screen.queryByRole("heading", { level: 2, name: "Bewertungen" })).toBeNull();
   });
 
-  it("Bereiche stehen in der Adresse mit den bisherigen Kennungen; Zurück führt zum vorigen Bereich", async () => {
+  it("Orte und Reiter stehen in der Adresse; Zurück führt zum vorigen Bereich", async () => {
     spieleApi();
     const { router } = rendereApp(url);
     const nutzer = userEvent.setup();
-    await nutzer.click(await screen.findByRole("button", { name: /^Finanzierungsrunden/ }));
-    await waitFor(() => expect(router.state.location.search).toMatchObject({ tab: "finanzierung", unter: "runden" }));
-    await nutzer.click(eintrag("Exit-Szenario"));
-    await waitFor(() => expect(router.state.location.search).toMatchObject({ tab: "finanzierung", unter: "wasserfall" }));
+    await screen.findByRole("heading", { level: 1, name: "Alpha Energie" });
+    await nutzer.click(eintrag(/^Finanzierung/));
+    await waitFor(() => expect(router.state.location.search).toMatchObject({ tab: "finanzierung" }));
+    await nutzer.click(eintrag("Captable"));
+    await nutzer.click(await screen.findByRole("tab", { name: "Exit-Szenario" }));
+    await waitFor(() => expect(router.state.location.search).toMatchObject({ tab: "kapitaltabelle", unter: "wasserfall" }));
     await nutzer.click(eintrag("Dokumente"));
     await waitFor(() => expect(router.state.location.search).toMatchObject({ tab: "dokumente" }));
     expect((router.state.location.search as Record<string, unknown>).unter).toBeUndefined();
     router.history.back();
-    await waitFor(() => expect(router.state.location.search).toMatchObject({ tab: "finanzierung", unter: "wasserfall" }));
+    await waitFor(() => expect(router.state.location.search).toMatchObject({ tab: "kapitaltabelle", unter: "wasserfall" }));
     await waitFor(() => expect(aktiv()).toEqual(["Exit-Szenario"]));
-    // Der erste Eintrag ist der Standard und steht nicht in der Adresse
+    // Der erste Ort ist der Standard und steht nicht in der Adresse
     await nutzer.click(eintrag("Übersicht"));
     await waitFor(() => expect(router.state.location.search).toEqual({}));
   });
 
-  it("nimmt alte Adressen an: ?tab=finanzierung öffnet die Runden", async () => {
+  it("nimmt alte Adressen an: ?tab=financing öffnet die Runden, subtab=cap-table den Captable", async () => {
     spieleApi();
-    rendereApp(`${url}?tab=finanzierung`);
-    await screen.findByRole("navigation", { name: "Bereiche der Beteiligung" });
-    expect(aktiv()).toEqual(["Finanzierungsrunden"]);
+    const { unmount } = rendereApp(`${url}?tab=financing`);
+    await screen.findByRole("heading", { level: 1, name: "Alpha Energie" });
+    await waitFor(() => expect(aktiv()).toEqual(["Finanzierungsrunden"]));
+    unmount();
+    spieleApi();
+    rendereApp(`${url}?tab=financing&subtab=cap-table`);
+    await screen.findByRole("heading", { level: 1, name: "Alpha Energie" });
+    await waitFor(() => expect(aktiv()).toEqual(["Anteile"]));
+    expect(verzeichnis().getByRole("link", { name: "Captable" }).getAttribute("aria-current")).toBe("page");
   });
 
   it("lädt Inhalte erst mit dem Reiter (träge)", async () => {
     const api = spieleApi();
     rendereApp(url);
     const nutzer = userEvent.setup();
-    await screen.findByRole("navigation", { name: "Bereiche der Beteiligung" });
+    await screen.findByRole("heading", { level: 1, name: "Alpha Energie" });
     expect(api.anfragen("GET", `/api/v1/beteiligungen/${BET_ID}/kennzahlen`)).toHaveLength(0);
-    await nutzer.click(eintrag("Kennzahlen"));
+    await nutzer.click(eintrag("Unternehmen"));
     await waitFor(() => expect(api.anfragen("GET", `/api/v1/beteiligungen/${BET_ID}/kennzahlen`).length).toBeGreaterThan(0));
   });
 
-  it("fällt bei einem unbekannten Reiter auf die Übersicht zurück", async () => {
+  it("fällt bei einem unbekannten Ort auf die Übersicht zurück", async () => {
     spieleApi();
     rendereApp(`${url}?tab=gibtesnicht`);
-    await screen.findByRole("navigation", { name: "Bereiche der Beteiligung" });
+    await screen.findByRole("heading", { level: 1, name: "Alpha Energie" });
     expect(aktiv()).toEqual(["Übersicht"]);
   });
 

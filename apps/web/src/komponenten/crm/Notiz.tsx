@@ -57,7 +57,7 @@ export function ErwaehnenAuswahl({ onWaehlen }: { onWaehlen: (text: string) => v
     );
   return (
     <div className="app-gruppe">
-      <Feld type="search" label={t.crm.erwaehnenSuche} autoComplete="off" value={eingabe} hilfe={t.crm.erwaehnenHinweis} onChange={(e) => setEingabe(e.target.value)} />
+      <Feld type="search" label={t.crm.erwaehnenSuche} value={eingabe} hilfe={t.crm.erwaehnenHinweis} onChange={(e) => setEingabe(e.target.value)} />
       <ul className="app-auswahlliste" aria-label={t.auswahl.treffer}>
         {treffer.map((x) => (
           <li key={`${x.typ}:${x.id}`}>

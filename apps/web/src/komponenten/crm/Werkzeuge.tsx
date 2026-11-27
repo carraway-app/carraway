@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Auswahl, Button, DownloadSimpleIcon, Feld, FunnelIcon, ListIcon, Popover, Seitenpanel, StackIcon } from "@carraway/ui";
 import { exportiereCsv, type Feld as CrmFeld, useAnsichtAendern, useAnsichtLoeschen, useAnsichtSpeichern, type AbfrageEingabe, type Objekt } from "../../api/crm";
 import { FehlerHinweis } from "../FehlerHinweis";
@@ -36,10 +36,14 @@ interface Props {
   mitSpalten: boolean;
   /** Eingabe für den Export: die Konfiguration mit allen sichtbaren Spalten. */
   exportEingabe: AbfrageEingabe;
+  /** Weitere Bedienelemente vorn in derselben Zeile (zum Beispiel Liste oder Auswahl), damit es eine Werkzeugzeile bleibt. */
+  vorne?: ReactNode;
+  /** Weitere Bedienelemente am Ende der Zeile (zum Beispiel Tabelle/Board). */
+  hinten?: ReactNode;
 }
 
 /** Werkzeugzeile einer Ansicht: Suche, Filter (UND/ODER), Spalten, gespeicherte Ansichten und CSV-Export. */
-export function Werkzeuge({ z, objekt, listeId, suche, onSuche, onAnsicht, istVerwalter, mitSpalten, exportEingabe }: Props) {
+export function Werkzeuge({ z, objekt, listeId, suche, onSuche, onAnsicht, istVerwalter, mitSpalten, exportEingabe, vorne, hinten }: Props) {
   const t = useT();
   const [offen, setOffen] = useState<null | "filter" | "spalten">(null);
   const [exportFehler, setExportFehler] = useState<unknown>(null);
@@ -52,7 +56,8 @@ export function Werkzeuge({ z, objekt, listeId, suche, onSuche, onAnsicht, istVe
     <div className="cw-crm-werkzeuge">
       <FehlerHinweis fehler={(speichern.error ?? aendern.error ?? loeschen.error ?? exportFehler) as Error | null} />
       <div className="cw-crm-werkzeuge__zeile">
-        <Feld type="search" label={t.crm.suche} value={suche} autoComplete="off" onChange={(e) => onSuche(e.target.value)} className="cw-crm-werkzeuge__suche" />
+        {vorne}
+        <Feld type="search" label={t.crm.suche} placeholder={t.crm.suche} value={suche} onChange={(e) => onSuche(e.target.value)} className="cw-crm-werkzeuge__suche" />
         <Button variante="sekundaer" groesse="s" icon={<FunnelIcon />} onClick={() => setOffen("filter")}>
           {bedingungen ? t.crm.filterMitAnzahl(bedingungen) : t.crm.filter}
         </Button>
@@ -97,6 +102,7 @@ export function Werkzeuge({ z, objekt, listeId, suche, onSuche, onAnsicht, istVe
         onTeilen={(geteilt) => aendern.mutateAsync({ id: z.aktuell!.id, geteilt })}
         onStandard={(standard) => aendern.mutateAsync({ id: z.aktuell!.id, standard })}
       />
+      {hinten ? <div className="cw-crm-werkzeuge__hinten">{hinten}</div> : null}
       {offen === "filter" ? (
         <Seitenpanel titel={t.crm.filterTitel} onSchliessen={() => setOffen(null)} breit>
           <h2 className="cw-t-untertitel">{t.crm.filterTitel}</h2>

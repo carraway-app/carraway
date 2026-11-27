@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { BET_ID, fehler, instrumentDaten, rendereApp, spieleApi, waehleAktion } from "../test/hilfen";
 
-const url = `/beteiligungen/${BET_ID}`;
+const url = `/investments/${BET_ID}`;
 const schmal = (text: string | null) => (text ?? "").replace(/\s/g, " ");
 const dialog = () => within(screen.getByRole("dialog"));
 const abschnitt = async () => within(await screen.findByRole("region", { name: "Instrument" }));
@@ -45,7 +45,7 @@ describe("Wandlung", () => {
       [`POST /api/v1/beteiligungen/${BET_ID}/wandlung/vorschau`]: { koerper: { vorschau: true, ...ergebnis, runde: { id: null, organisationId: "o", preisJeAnteil: "13" } } },
       [`POST /api/v1/beteiligungen/${BET_ID}/wandlung`]: { status: 201, koerper: { wandlung: {}, ...ergebnis, rundeId: "r", vorgangIds: [] } },
     });
-    rendereApp(`${url}?tab=finanzierung&unter=instrumente`);
+    rendereApp(`${url}?tab=financing&subtab=instruments`);
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Wandlung: Wandeldarlehen 2021" }));
     await screen.findByRole("dialog");
@@ -77,7 +77,7 @@ describe("Wandlung", () => {
 
     await nutzer.click(buchen());
     expect(await d.findByText("Die Wandlung ist gebucht.")).toBeTruthy();
-    expect(d.getByRole("link", { name: "Zur Zielbeteiligung" }).getAttribute("href")).toBe("/beteiligungen/ziel1");
+    expect(d.getByRole("link", { name: "Zur Zielbeteiligung" }).getAttribute("href")).toBe("/investments/ziel1");
     const vorschauBody = api.anfragen("POST", `/api/v1/beteiligungen/${BET_ID}/wandlung/vorschau`)[1]!.koerper;
     const buchungBody = api.anfragen("POST", `/api/v1/beteiligungen/${BET_ID}/wandlung`)[0]!.koerper;
     expect(buchungBody).toEqual(vorschauBody);
@@ -90,7 +90,7 @@ describe("Wandlung", () => {
       ergebnis: { ...ergebnis.ergebnis, darlehenRest: "10000.00", zinsenRest: "0", restbehandlung: { darlehen: "erlassen", zinsen: null } },
     };
     const api = spieleApi({ [`POST /api/v1/beteiligungen/${BET_ID}/wandlung/vorschau`]: { koerper: { vorschau: true, ...abweichend, runde: { id: null, organisationId: "o", preisJeAnteil: "13" } } } });
-    rendereApp(`${url}?tab=finanzierung&unter=instrumente`);
+    rendereApp(`${url}?tab=financing&subtab=instruments`);
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Wandlung: Wandeldarlehen 2021" }));
     await screen.findByRole("dialog");
@@ -114,7 +114,7 @@ describe("Wandlung", () => {
         koerper: { error: { code: "invalid_input", message: "x", fields: [{ field: "preisregel.discount", code: "invalid_format", message: "x" }, { field: "cutoff", code: "as_of_out_of_range", message: "x" }] } },
       },
     });
-    rendereApp(`${url}?tab=finanzierung&unter=instrumente`);
+    rendereApp(`${url}?tab=financing&subtab=instruments`);
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Wandlung: Wandeldarlehen 2021" }));
     await screen.findByRole("dialog");
@@ -141,7 +141,7 @@ describe("Wandlung", () => {
     await inst.findByRole("heading", { name: "Wandlung" });
     expect(inst.queryByRole("link", { name: "Zur Zielbeteiligung" })).toBeNull();
     const link = inst.getByRole("link", { name: "Zum Instrument" });
-    expect(link.getAttribute("href")).toBe(`/beteiligungen/${BET_ID}?tab=finanzierung&unter=instrumente#instrument-i-ziel`);
+    expect(link.getAttribute("href")).toBe(`/investments/${BET_ID}?tab=financing&subtab=instruments#instrument-i-ziel`);
   });
 });
 
@@ -199,7 +199,7 @@ describe("Verkauf, Kaufpreisanpassung, Insolvenz", () => {
     expect(text).toContain("Barzufluss1.450.000,00 €");
     expect(text).toContain("Exit");
     expect(d.getByText("Treuhandforderung angelegt")).toBeTruthy();
-    expect(d.getByRole("link", { name: "Zum Verkäuferdarlehen" }).getAttribute("href")).toBe("/beteiligungen/vd1");
+    expect(d.getByRole("link", { name: "Zum Verkäuferdarlehen" }).getAttribute("href")).toBe("/investments/vd1");
     expect(d.getAllByText("Buchwert vor dem Verkauf")).toHaveLength(2); // Kennzahl und Rechenweg
     expect(api.anfragen("POST", `/api/v1/beteiligungen/${BET_ID}/verkauf`)[0]!.koerper).toMatchObject({
       anteilVerkauft: "1",

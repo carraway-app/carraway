@@ -1,3 +1,4 @@
+import { Fachfehler } from "../fehler";
 import { asc, eq, sql } from "drizzle-orm";
 import { registerBeobachtung } from "@carraway/db";
 import type { Db } from "@carraway/db";
@@ -24,7 +25,7 @@ export interface PruefErgebnis {
 
 const warte = (ms: number) => (ms > 0 ? new Promise<void>((r) => setTimeout(r, ms)) : Promise.resolve());
 
-export async function pruefeBeobachtung(db: Db, anbieter: RegisterAnbieter, optionen: { max?: number; pauseMs?: number; mail?: MailKontext } = {}): Promise<PruefErgebnis> {
+export async function pruefeBeobachtung(db: Db, anbieter: RegisterAnbieter | { name: string; refresh: (companyId: string) => Promise<{ status: string; entries: number; events: number }> }, optionen: { max?: number; pauseMs?: number; mail?: MailKontext } = {}): Promise<PruefErgebnis> {
   const max = optionen.max ?? 20;
   const quelle = `anbieter:${anbieter.name}`;
   const ziele = await lese(db, async (tx) =>
@@ -38,6 +39,21 @@ export async function pruefeBeobachtung(db: Db, anbieter: RegisterAnbieter, opti
   const ergebnis: PruefErgebnis = { geprueft: 0, neueEintraege: 0, neueEreignisse: 0, fehler: 0 };
   for (const [i, ziel] of ziele.entries()) {
     if (i > 0) await warte(optionen.pauseMs ?? 0);
+    if ("refresh" in anbieter) {
+      let status: string;
+      try {
+        const updated = await anbieter.refresh(ziel.organisationId);
+        ergebnis.neueEintraege += updated.entries;
+        ergebnis.neueEreignisse += updated.events;
+        status = updated.status;
+      } catch (error) {
+        status = error instanceof Fachfehler ? error.code : "provider_unavailable";
+        ergebnis.fehler++;
+      }
+      await db.update(registerBeobachtung).set({ letztePruefungAm: new Date(), letztesErgebnis: status }).where(eq(registerBeobachtung.organisationId, ziel.organisationId));
+      ergebnis.geprueft++;
+      continue;
+    }
     const referenz = await lese(db, async (tx) => {
       const e = await aktuellerEintrag(tx, ziel.organisationId);
       return e ? { gericht: e.gericht, registerart: e.registerart, nummer: e.nummer } : undefined;

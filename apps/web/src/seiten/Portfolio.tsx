@@ -10,7 +10,7 @@ import { Waehrungsleiste } from "../komponenten/Waehrungsleiste";
 import { fondsWaehrungssicht } from "../api/waehrung";
 import { betragDerSicht, type WaehrungSuche } from "../lib/waehrung";
 
-const route = getRouteApi("/fonds/$fondsId/");
+const route = getRouteApi("/funds/$fundId/");
 const mobileTabelle = "(width < 600px)";
 
 function beobachteTabellenbreite(aendern: () => void) {
@@ -34,7 +34,7 @@ const alsZahl = (wert: string | null | undefined): number | null => {
 export function PortfolioSeite() {
   const t = useT();
   const sprache = useSprache();
-  const { fondsId } = route.useParams();
+  const { fundId: fondsId } = route.useParams();
   const suche = route.useSearch();
   const { stichtag, stand, hervorgehoben } = suche;
   const navigate = route.useNavigate();
@@ -112,7 +112,7 @@ export function PortfolioSeite() {
       schluessel: "beteiligung",
       kopf: s.beteiligung,
       zelle: (z) => (
-        <Link to="/beteiligungen/$id" params={{ id: z.id }} search={{ ...(stichtag ? { stichtag } : {}), ...(stand ? { stand } : {}) }} className="cw-tabelle__name">
+        <Link to="/investments/$id" params={{ id: z.id }} search={{ ...(stichtag ? { stichtag } : {}), ...(stand ? { stand } : {}) }} className="cw-tabelle__name">
           {z.organisation.name}
         </Link>
       ),
@@ -185,7 +185,7 @@ export function PortfolioSeite() {
         ) : null}
         {gemischteWaehrungen ? <p className="app-leer-text">{t.waehrung.sortierungGemischt}</p> : null}
         {zeilen.length === 0 ? (
-          <Leer zeichen="B" titel={t.portfolio.keineBeteiligungen} beschreibung={t.portfolio.keineBeteiligungenBeschreibung} />
+          <Leer titel={t.portfolio.keineBeteiligungen} beschreibung={t.portfolio.keineBeteiligungenBeschreibung} />
         ) : (
           <Tabelle dicht className="app-portfolio__tabelle" beschriftung={t.portfolio.beteiligungen} spalten={tabellenSpalten} zeilen={zeilen} zeilenSchluessel={(z) => z.id} ausgewaehlt={(z) => z.id === hervorgehoben} sortierung={aktiveSortierung} onSortieren={sortieren} />
         )}

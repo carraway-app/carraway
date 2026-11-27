@@ -17,7 +17,7 @@ function Bezug({ eintrag }: { eintrag: Wiedervorlage }) {
   }
   if (eintrag.organisation) {
     return (
-      <Link to="/organisationen/$id" params={{ id: eintrag.organisation.id }}>
+      <Link to="/organizations/$id" params={{ id: eintrag.organisation.id }}>
         {eintrag.organisation.name}
       </Link>
     );

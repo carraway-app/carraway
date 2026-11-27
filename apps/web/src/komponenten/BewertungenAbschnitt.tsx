@@ -57,21 +57,25 @@ export function BewertungenAbschnitt({ beteiligungId, fondsId, stichtag, lesend,
     { schluessel: "stichtag", kopf: b.spalten.stichtag, zelle: (z) => <span className="app-zahl">{formatDatum(z.stichtag, sprache)}</span> },
     { schluessel: "wert", kopf: b.spalten.wert, zahl: true, zelle: (z) => bewertungId ? formatBetragCent(z.wert, sprache, waehrung) : formatBetrag(z.wert, sprache) },
     { schluessel: "methode", kopf: b.spalten.methode, zelle: (z) => aufzaehlung(t.bewertungMethode, z.methode) },
-    { schluessel: "status", kopf: b.spalten.status, zelle: (z) => <Status variante={STATUS[z.status] ?? "entwurf"}>{aufzaehlung(b.status, z.status)}</Status> },
     { schluessel: "begruendung", kopf: b.spalten.begruendung, umbruch: true, zelle: (z) => (z.begruendung ? <Markdown text={z.begruendung} /> : t.gemeinsam.keinWert) },
     {
-      schluessel: "verlauf",
-      kopf: b.spalten.verlauf,
+      // Status und Verlauf in einer Spalte: der Verlauf steht klein unter dem Status, damit die Tabelle bei 1280 px ohne Scrollen passt.
+      schluessel: "status",
+      kopf: b.spalten.status,
+      umbruch: true,
       zelle: (z) => {
         const vorgaenger = z.ersetztBewertungId ? nachId.get(z.ersetztBewertungId) : undefined;
         return (
-          <ul className="app-liste-klein app-verlauf-liste">
-            <li>{b.erfasstVon(wer(z.erstelltVon))}</li>
-            {z.freigegebenVon && z.freigegebenAm ? <li>{b.freigegebenVon(wer(z.freigegebenVon), formatZeitpunkt(z.freigegebenAm, sprache))}</li> : null}
-            {z.ersetztAm ? <li>{b.ersetztAm(formatZeitpunkt(z.ersetztAm, sprache))}</li> : null}
-            {vorgaenger && z.status === "entwurf" ? <li>{b.ersetztBeiFreigabe(formatBetrag(vorgaenger.wert, sprache))}</li> : null}
-            {vorgaenger && z.status === "freigegeben" ? <li>{b.ersetztVorgaenger(formatBetrag(vorgaenger.wert, sprache), vorgaenger.freigegebenAm ? formatZeitpunkt(vorgaenger.freigegebenAm, sprache) : null)}</li> : null}
-          </ul>
+          <div className="app-status-verlauf">
+            <Status variante={STATUS[z.status] ?? "entwurf"}>{aufzaehlung(b.status, z.status)}</Status>
+            <ul className="app-liste-klein app-verlauf-liste" aria-label={b.spalten.verlauf}>
+              <li>{b.erfasstVon(wer(z.erstelltVon))}</li>
+              {z.freigegebenVon && z.freigegebenAm ? <li>{b.freigegebenVon(wer(z.freigegebenVon), formatZeitpunkt(z.freigegebenAm, sprache))}</li> : null}
+              {z.ersetztAm ? <li>{b.ersetztAm(formatZeitpunkt(z.ersetztAm, sprache))}</li> : null}
+              {vorgaenger && z.status === "entwurf" ? <li>{b.ersetztBeiFreigabe(formatBetrag(vorgaenger.wert, sprache))}</li> : null}
+              {vorgaenger && z.status === "freigegeben" ? <li>{b.ersetztVorgaenger(formatBetrag(vorgaenger.wert, sprache), vorgaenger.freigegebenAm ? formatZeitpunkt(vorgaenger.freigegebenAm, sprache) : null)}</li> : null}
+            </ul>
+          </div>
         );
       },
     },
@@ -141,7 +145,7 @@ export function BewertungenAbschnitt({ beteiligungId, fondsId, stichtag, lesend,
       {isPending ? <Skelettzeilen anzahl={3} /> : null}
       {error ? <FehlerHinweis fehler={error} /> : null}
       {data && zeilen.length === 0 ? <p className="app-leer-text">{b.keine}</p> : null}
-      {zeilen.length > 0 ? <Tabelle beschriftung={b.tabelle} spalten={spalten} zeilen={zeilen} zeilenSchluessel={(z) => z.id} /> : null}
+      {zeilen.length > 0 ? <Tabelle beschriftung={b.tabelle} className="app-bewertungen-tabelle" spalten={spalten} zeilen={zeilen} zeilenSchluessel={(z) => z.id} /> : null}
       {wertberichtigung ? (
         <Suspense fallback={null}>
           <WertberichtigungDialog beteiligungId={beteiligungId} onSchliessen={() => setWertberichtigung(false)} />
@@ -212,7 +216,7 @@ function BewertungDialog({ beteiligungId, stichtag, vorlage, onSchliessen }: { b
           ))}
         </Auswahl>
         <Textbereich label={f.begruendung} hilfe={pflicht ? f.begruendungHilfePflicht : f.begruendungHilfeFrei} {...feld("begruendung")} required={pflicht} fehler={fehler("begruendung")} />
-        <Feld label={f.grundlage} autoComplete="off" {...feld("grundlage")} fehler={fehler("grundlage")} />
+        <Feld label={f.grundlage} {...feld("grundlage")} fehler={fehler("grundlage")} />
         <div>
           <Button type="submit" disabled={anlegen.isPending}>
             {f.speichern}

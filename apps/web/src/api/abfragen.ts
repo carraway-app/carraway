@@ -33,6 +33,14 @@ const ladeWiedervorlagenListe = async (f: WiedervorlagenFilter) =>
   (await ausKontakten(api.api.v1["follow-ups"].$get, { query: { zustaendig: f.zustaendig, ...(f.bis ? { bis: f.bis } : {}) } })).daten;
 const ladeBeschlussvorlagen = (fondsId?: string) => ausBeschlussvorlagen(api.api.v1["resolution-templates"].$get, { query: fondsId ? { fondsId } : {} });
 const ladeSuche = (q: string) => ausKontakten(api.api.v1.search.$get, { query: { q, limit: "6" } });
+/** Suche für ein Verknüpfungsfeld: nur eine Gruppe, bei Organisationen optional eine Art (Issue #274). */
+const ladeSuchfeld = (q: string, objekt: SuchfeldZiel, art?: OrganisationArt, fondsId?: string) =>
+  ausKontakten(api.api.v1.search.$get, { query: { q, limit: "10", objekt, ...(art ? { art } : {}), ...(fondsId ? { fondsId } : {}) } });
+const ladeWertVorschlaege = async (feld: VorschlagsFeld, q: string) =>
+  (feld === "funktion"
+    ? await ausKontakten(api.api.v1.people.values.$get, { query: q ? { q } : {} })
+    : await ausKontakten(api.api.v1.organizations.values.$get, { query: { feld: feld === "sektor" ? "sector" : "city", ...(q ? { q } : {}) } })
+  ).daten;
 
 const ladeInstrumentdaten = (id: string) => auspackenPortfolio(api.api.v1.investments[":id"]["instrument-data"].$get, { param: { id }, query: {} });
 const ladeBeteiligungZinsen = (id: string, stichtag?: string, stand?: string) =>
@@ -207,6 +215,15 @@ export const wiedervorlagenListe = (f: WiedervorlagenFilter) =>
 export const beschlussvorlagen = (fondsId?: string) =>
   queryOptions({ queryKey: [...schluessel.beschlussvorlagen, fondsId ?? null], queryFn: () => ladeBeschlussvorlagen(fondsId) });
 export const suche = (q: string) => queryOptions({ queryKey: ["suche", q], queryFn: () => ladeSuche(q), staleTime: 10_000 });
+/** Datensätze, die ein Verknüpfungsfeld sucht; Beteiligungen lassen sich auf einen Fonds begrenzen. */
+export type SuchfeldZiel = "organisation" | "person" | "deal" | "beteiligung";
+export const suchfeldTreffer = (q: string, objekt: SuchfeldZiel, art?: OrganisationArt, fondsId?: string) =>
+  queryOptions({ queryKey: ["suche", "feld", objekt, art ?? null, fondsId ?? null, q], queryFn: () => ladeSuchfeld(q, objekt, art, fondsId), staleTime: 10_000 });
+/** Stammdatenfelder mit Vorschlägen: Sektor und Ort der Organisationen, Funktion der Personen. */
+export type VorschlagsFeld = "sektor" | "ort" | "funktion";
+/** Erfasste Werte eines Stammdatenfelds als Vorschläge (häufigste zuerst). */
+export const wertVorschlaege = (feld: VorschlagsFeld, q: string) =>
+  queryOptions({ queryKey: [...(feld === "funktion" ? schluessel.personen : schluessel.organisationListe), "werte", feld, q], queryFn: () => ladeWertVorschlaege(feld, q), staleTime: 30_000 });
 export const trichter = (filter: TrichterFilter) =>
   queryOptions({
     queryKey: [...schluessel.trichter, { von: filter.von ?? null, bis: filter.bis ?? null, fondsId: filter.fondsId ?? null }],

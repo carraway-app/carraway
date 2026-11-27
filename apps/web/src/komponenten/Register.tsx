@@ -169,7 +169,7 @@ export function RegisterAbschnitt({ organisationId }: { organisationId: string }
             <Zeile label={r.felder.quelle} wert={quelleText(a.quelle)} />
             <div>
               <dt>{r.felder.auszug}</dt>
-              <dd>{data.auszug ? <Link to="/dokumente/$id" params={{ id: data.auszug.id }} search={{}}>{r.auszugLink(data.auszug.dateiname)}</Link> : r.auszugKein}</dd>
+              <dd>{data.auszug ? <Link to="/documents/$id" params={{ id: data.auszug.id }} search={{}}>{r.auszugLink(data.auszug.dateiname)}</Link> : r.auszugKein}</dd>
             </div>
           </dl>
 
@@ -196,11 +196,11 @@ export function RegisterAbschnitt({ organisationId }: { organisationId: string }
               <li key={`${h.ereignisId}-${h.beteiligungId}`}>
                 {r.hinweise.zeile(h.fondsName, aufzaehlung(r.hinweise.art, h.art), formatDatum(h.datum, sprache))} ·{" "}
                 {h.aktion === "runde" ? (
-                  <Link to="/organisationen/$id" params={{ id: organisationId }} hash="runden-titel">
+                  <Link to="/organizations/$id" params={{ id: organisationId }} hash="runden-titel">
                     {aufzaehlung(r.hinweise.aktion, h.aktion)}
                   </Link>
                 ) : (
-                  <Link to="/beteiligungen/$id" params={{ id: h.beteiligungId }} search={{}} hash={h.aktion === "insolvenz" ? "abschnitt-instrument" : undefined}>
+                  <Link to="/investments/$id" params={{ id: h.beteiligungId }} search={{}} hash={h.aktion === "insolvenz" ? "abschnitt-instrument" : undefined}>
                     {aufzaehlung(r.hinweise.aktion, h.aktion)}
                   </Link>
                 )}
@@ -246,7 +246,7 @@ export function RegisterAbschnitt({ organisationId }: { organisationId: string }
       </label>
       <p className="app-leer-text">{r.beobachtung.erklaerung}</p>
       {!darf("verwalter") ? <p className="app-leer-text">{r.beobachtung.nurVerwalter}</p> : null}
-      {!data.anbieterEingerichtet ? <p className="app-leer-text">{r.beobachtung.keinAnbieter}</p> : null}
+      {!data.anbieterEingerichtet && !data.monitoringProvider ? <p className="app-leer-text">{r.beobachtung.keinAnbieter}</p> : null}
       <p className="app-leer-text">{data.beobachtung.letztePruefungAm ? r.beobachtung.letztePruefung(formatZeitpunkt(data.beobachtung.letztePruefungAm, sprache), data.beobachtung.letztesErgebnis ?? t.gemeinsam.keinWert) : r.beobachtung.nochNie}</p>
 
       {meldungen.data && meldungen.data.length > 0 ? (
@@ -410,7 +410,7 @@ export function RegisterHinweise({ beteiligungId, organisationId }: { beteiligun
           {h.aktion === "insolvenz" ? (
             <a href="#abschnitt-instrument">{aufzaehlung(r.aktion, h.aktion)}</a>
           ) : h.aktion === "runde" ? (
-            <Link to="/organisationen/$id" params={{ id: organisationId }} hash="runden-titel">
+            <Link to="/organizations/$id" params={{ id: organisationId }} hash="runden-titel">
               {aufzaehlung(r.aktion, h.aktion)}
             </Link>
           ) : null}{" "}

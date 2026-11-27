@@ -5,7 +5,7 @@ import { AufgabenAbschnitt, Datensatzpanel, VerknuepftAbschnitt } from "../kompo
 import { useState, type ReactNode } from "react";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { getRouteApi, Link } from "@tanstack/react-router";
-import { Auswahl, Button, Hinweis, Inhaltsverzeichnis, Markdown, Seitenkopf, Seitenpanel, Status, Tabelle, formatBetrag, formatDatum, type StatusVariante, type TabelleSpalte } from "@carraway/ui";
+import { Auswahl, Button, Hinweis, Markdown, Seitenkopf, Seitenpanel, Status, Tabelle, formatBetrag, formatDatum, type StatusVariante, type TabelleSpalte } from "@carraway/ui";
 import { dealDetail, fondsListe, type DealDetail } from "../api/abfragen";
 import { useDealAendern, useDealWiederaufnehmen, usePhaseAendern, type DealPhase } from "../api/mutationen";
 import { AktivitaetDialog, AktivitaetenListe } from "../komponenten/Aktivitaeten";
@@ -17,13 +17,14 @@ import { DealZuordnungDialog } from "../komponenten/DealZuordnungDialog";
 import { FehlerHinweis } from "../komponenten/FehlerHinweis";
 import { NurLesen } from "../komponenten/NurLesen";
 import { aufzaehlung, useSprache, useT } from "../i18n";
+import { BereichsLeiste, mitZielen } from "../komponenten/BereichsLeiste";
 import { feldText } from "../i18n/fehler";
 import { dealtypName, dealtypTexte, type Dealtyp } from "../lib/dealtyp";
 import { DATENSPRACHE } from "../lib/datensprache";
 import { useNamen } from "../lib/namen";
 import { useSichtbar } from "../lib/bereiche";
 import { useBereich, useRechte } from "../lib/rechte";
-import { useInhalt, type InhaltsEintrag } from "../lib/tabs";
+import { aktiverEintrag, type InhaltsEintrag } from "../lib/tabs";
 import { PHASEN, STATUS_VARIANTE } from "./Dealflow";
 import { Datensatzlink } from "../komponenten/crm/Datensatzlink";
 
@@ -32,7 +33,7 @@ const route = getRouteApi("/deals/$id");
 type Beschluss = DealDetail["beschluesse"][number];
 type Offen = null | "aktivitaet" | "beschluss" | "absage" | "uebernahme" | "zuordnung" | "dealtyp";
 
-/** Ziele der Bereiche in der Adresse (`?tab=…&unter=…`, bisherige Kennungen); der erste Eintrag ist der Standard. */
+/** Ziele der Bereiche in der Adresse (`?tab=…&subtab=…`, bisherige Kennungen); der erste Eintrag ist der Standard. */
 const EINTRAEGE: readonly InhaltsEintrag[] = [
   { id: "uebersicht", tab: "uebersicht" },
   { id: "verlauf", tab: "verlauf" },
@@ -44,6 +45,9 @@ const EINTRAEGE: readonly InhaltsEintrag[] = [
   { id: "dokumente", tab: "dokumente" },
   { id: "verknuepft", tab: "verknuepft" },
 ];
+
+/** Felder, die die Übersicht des Deals schon zeigt; im Abschnitt „Attribute“ stehen sie nicht noch einmal. */
+const DEAL_IN_UEBERSICHT = ["titel", "unternehmen", "phase", "status", "ticket", "eingangsdatum", "herkunft", "dealtyp", "fonds", "investmentmanager", "projektleiter", "quelle", "betreuung"];
 
 const ERGEBNIS_VARIANTE: Record<string, StatusVariante> = { zugestimmt: "freigegeben", abgelehnt: "fehlt", vertagt: "pruefung" };
 
@@ -61,13 +65,13 @@ export function DealSeite() {
   const { ich, darf } = useRechte();
   const name = useNamen([...d.beschluesse.map((b) => b.erfasstVon), d.investmentmanagerId, d.projektleiterId]);
   const suche = route.useSearch();
-  const navigate = route.useNavigate();
   // Aufgaben, Termine, Verknüpfungen, Dokumente und das Seitenpanel gehören anderen Bereichen (`lib/bereiche.ts`) und fehlen ohne ihn.
   const eintraege = useSichtbar("deal", EINTRAEGE);
   const sichtbar = (id: string) => eintraege.some((e) => e.id === id);
   const mitPanel = useBereich("kontakte");
-  const { aktiv, setzeAktiv } = useInhalt(suche, navigate, eintraege);
-  const schreiben = darf("bearbeiter", d.fondsId, "dealflow");
+  const aktiv = aktiverEintrag(suche, eintraege)?.id ?? "";
+  const managedBy = d.providerSources?.find(source => source.mirrored)?.anbieter;
+  const schreiben = !managedBy && darf("bearbeiter", d.fondsId, "dealflow");
   const [offen, setOffen] = useState<Offen>(null);
   const [zuordnungMeldung, setZuordnungMeldung] = useState("");
   const schliessen = () => setOffen(null);
@@ -107,6 +111,7 @@ export function DealSeite() {
 
   return (
     <div className="app-seite">
+      {managedBy && <Hinweis>{sprache === "de" ? "Wird in " + managedBy + " gepflegt." : "Managed in " + managedBy + "."}</Hinweis>}
       <Seitenkopf
         meta={
           <>
@@ -130,13 +135,13 @@ export function DealSeite() {
 
       <NurLesen fondsId={d.fondsId} bereich="dealflow" />
 
-      <div className="app-datensatz">
-        <div className="app-datensatz__haupt">
-      <Inhaltsverzeichnis
+      <BereichsLeiste
         aria-label={t.tabs.bereiche}
         aktiv={aktiv}
-        onWechsel={setzeAktiv}
-        gruppen={[
+        zurueck={{ label: t.nav.dealflow, ziel: { to: "/dealflow" } }}
+        kopf={{ titel: d.titel, titelSprache: DATENSPRACHE, untertitel: `${org.name} · ${aufzaehlung(t.dealStatus, d.status)}` }}
+        pfad={[{ label: t.nav.dealflow, ziel: { to: "/dealflow" } }, { label: d.titel }]}
+        gruppen={mitZielen([
           {
             id: "deal",
             label: s.verzeichnis.deal,
@@ -250,16 +255,18 @@ export function DealSeite() {
       </section>
 
 
+      {mitPanel ? <Datensatzpanel objekt="deal" id={d.id} darfSchreiben={schreiben && istOffen} titel={d.titel} doppelt={DEAL_IN_UEBERSICHT} /> : null}
+
       {d.beteiligungen.length > 0 ? (
         <Abschnitt titel={t.organisation.beteiligungen}>
           <ul className="app-liste">
             {d.beteiligungen.map((b) => (
               <li key={b.id}>
-                <Link to="/fonds/$fondsId" params={{ fondsId: b.fonds.id }} search={{}}>
+                <Link to="/funds/$fundId" params={{ fundId: b.fonds.id }} search={{}}>
                   {b.fonds.name}
                 </Link>{" "}
                 ·{" "}
-                <Link to="/beteiligungen/$id" params={{ id: b.id }} search={{}}>
+                <Link to="/investments/$id" params={{ id: b.id }} search={{}}>
                   {aufzaehlung(t.instrument, b.instrument)}
                 </Link>{" "}
                 · {formatDatum(b.erstinvestment, sprache)}
@@ -359,11 +366,8 @@ export function DealSeite() {
               { id: "verknuepft", label: t.crm.tabVerknuepft, inhalt: () => <VerknuepftAbschnitt objekt="deal" id={d.id} /> },
             ].filter((e) => sichtbar(e.id)),
           },
-        ]}
+        ], eintraege, { to: "/deals/$id", params: { id: d.id } })}
       />
-        </div>
-        {mitPanel ? <Datensatzpanel objekt="deal" id={d.id} darfSchreiben={schreiben && istOffen} titel={d.titel} /> : null}
-      </div>
 
       {offen === "aktivitaet" ? <AktivitaetDialog organisationId={org.id} dealId={d.id} personen={d.personen} onSchliessen={schliessen} /> : null}
       {offen === "beschluss" ? <BeschlussDialog dealId={d.id} dealFondsId={d.fondsId} fonds={fonds} onSchliessen={schliessen} /> : null}

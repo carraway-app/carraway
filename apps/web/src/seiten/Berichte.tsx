@@ -2,22 +2,22 @@ import { KeinFonds } from "./Platzhalter";
 import { useState, type ReactNode } from "react";
 import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { getRouteApi, Link } from "@tanstack/react-router";
-import { Auswahl, Button, ButtonLink, DownloadSimpleIcon, FileTextIcon, Hinweis, KartenRaster, Segment, Seitenkopf, Status, Tabs } from "@carraway/ui";
+import { Button, ButtonLink, DownloadSimpleIcon, FileTextIcon, Hinweis, KartenRaster, Segment, Seitenkopf, Status, Tabs } from "@carraway/ui";
+import { BeteiligungsWahl, mitBeteiligungsSuche } from "../komponenten/BeteiligungsWahl";
 import { fondsListe, fondsUebersicht } from "../api/abfragen";
 import { BerichtDialog, BerichteListe } from "../komponenten/BerichteListe";
 import { FehlerHinweis } from "../komponenten/FehlerHinweis";
 import { Skelettzeilen } from "../komponenten/Skelett";
 import { useRechte } from "../lib/rechte";
-import { SeitenStichtag } from "../komponenten/SeitenStichtag";
-import { WissensstandWahl } from "../komponenten/Wissensstand";
+import { StichtagMenue } from "../komponenten/StichtagMenue";
 import { FONDS_SICHT, istWaehrungscode, sichtAnfrage, WaehrungssichtWahl, type SichtZustand } from "../komponenten/WaehrungssichtWahl";
 import { useSprache, useT } from "../i18n";
 import { fondsberichtUrl, gremienvorlageUrl, portfoliolisteUrl, quartalsberichtUrl } from "../lib/berichteUrl";
 import { wirksamerFonds } from "../lib/fonds";
 import { useTabs } from "../lib/tabs";
-import { formatZeitpunkt } from "../lib/zeit";
+import { formatWissensstand } from "../lib/wissensstand";
 
-const route = getRouteApi("/berichte");
+const route = getRouteApi("/reports");
 
 export function BerichteSeite() {
   const t = useT();
@@ -45,7 +45,8 @@ function BerichteFuerFonds({ fondsId, fondsName }: { fondsId: string; fondsName:
   const b = t.berichte;
   // Ohne ausdrückliche Wahl folgt die Sprache des Berichts der Oberfläche.
   const sprache = gewaehlteSprache ?? uiSprache;
-  const beteiligung = u?.beteiligungen.find((x) => x.id === beteiligungId) ?? u?.beteiligungen[0];
+  // Bei wenigen Beteiligungen gilt die erste als vorgewählt; mit Suchfeld muss die Person eine wählen.
+  const beteiligung = u?.beteiligungen.find((x) => x.id === beteiligungId) ?? (u && !mitBeteiligungsSuche(u.beteiligungen.length) ? u.beteiligungen[0] : undefined);
   const parameter = { sprache, stichtag: u?.stichtag, ...(stand ? { stand } : {}) };
   // Die Währungssicht gilt für Fondsbericht und Portfolioliste; ein Vergleich ohne gültigen Code geht nicht an die API.
   const sichtOk = sicht.sicht !== "vergleich" || istWaehrungscode(sicht.vergleich);
@@ -91,7 +92,7 @@ function BerichteFuerFonds({ fondsId, fondsName }: { fondsId: string; fondsName:
             onChange={setSicht}
             texte={{ beschriftung: b.sicht.beschriftung, fonds: b.sicht.fonds, lokal: b.sicht.lokal, vergleich: b.sicht.vergleich, vergleichswaehrung: b.sicht.vergleichswaehrung, hilfe: b.sicht.hilfe }}
           />
-          <p className="app-leer-text">{stand ? b.wissensstandMit(formatZeitpunkt(stand, uiSprache)) : b.wissensstandAktuell}</p>
+          <p className="app-leer-text">{stand ? b.wissensstandMit(formatWissensstand(stand, uiSprache)) : b.wissensstandAktuell}</p>
         </section>
 
         <KartenRaster>
@@ -103,16 +104,10 @@ function BerichteFuerFonds({ fondsId, fondsName }: { fondsId: string; fondsName:
             {knopf(portfoliolisteUrl(fondsId, mitSicht), "Excel", b.portfolioliste.titel)}
           </Bericht>
           <Bericht titel={b.quartalsbericht.titel} beschreibung={b.quartalsbericht.beschreibung}>
-            {beteiligung ? (
+            {u && u.beteiligungen.length > 0 ? (
               <>
-                <Auswahl label={b.quartalsbericht.beteiligung} value={beteiligung.id} onChange={(e) => setBeteiligungId(e.target.value)}>
-                  {u.beteiligungen.map((x) => (
-                    <option key={x.id} value={x.id}>
-                      {x.organisation.name}
-                    </option>
-                  ))}
-                </Auswahl>
-                {knopf(quartalsberichtUrl(beteiligung.id, parameter), "PDF", `${b.quartalsbericht.titel}, ${beteiligung.organisation.name}`)}
+                <BeteiligungsWahl label={b.quartalsbericht.beteiligung} fondsId={fondsId} beteiligungen={u.beteiligungen} wert={beteiligung?.id ?? ""} onWahl={setBeteiligungId} />
+                {beteiligung ? knopf(quartalsberichtUrl(beteiligung.id, parameter), "PDF", `${b.quartalsbericht.titel}, ${beteiligung.organisation.name}`) : null}
               </>
             ) : (
               <p className="app-leer-text">{b.keineBeteiligungen}</p>
@@ -132,14 +127,18 @@ function BerichteFuerFonds({ fondsId, fondsName }: { fondsId: string; fondsName:
         meta={fondsName}
         titel={b.titel}
         zeitbezug={tab === "downloads" ? (
-          <>
-            <WissensstandWahl stand={stand} onWahl={(neu) => void navigate({ search: (alt) => ({ ...alt, stand: neu }), replace: true })} />
-            <SeitenStichtag value={u?.stichtag ?? stichtag ?? ""} label={b.stichtag} onChange={(stichtag) => void navigate({ search: (alt) => ({ ...alt, stichtag }), replace: true })} />
-          </>
+          <StichtagMenue
+            fondsId={fondsId ?? null}
+            label={b.stichtag}
+            stichtag={u?.stichtag ?? stichtag ?? ""}
+            onStichtag={(stichtag) => void navigate({ search: (alt) => ({ ...alt, stichtag }), replace: true })}
+            stand={stand}
+            onStand={(neu) => void navigate({ search: (alt) => ({ ...alt, stand: neu }), replace: true })}
+          />
         ) : null}
         aktionen={tab === "liste" ? (
           <>
-            {darf("verwalter", fondsId, "berichte") ? <Link to="/berichte/vorlagen" search={{ fondsId }} className="cw-button cw-button--sekundaer">{t.vorlagen.link}</Link> : null}
+            {darf("verwalter", fondsId, "berichte") ? <Link to="/reports/templates" search={{ fondsId }} className="cw-button cw-button--sekundaer">{t.vorlagen.link}</Link> : null}
             {darf("bearbeiter", fondsId, "berichte") ? <Button onClick={() => setNeu(true)}>{t.bericht.liste.anlegen}</Button> : null}
           </>
         ) : null}

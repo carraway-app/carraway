@@ -1,7 +1,7 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
-import { alsRolle, ANDERE_ID, FONDS_ID, ICH_ID, fehler, fondsDaten, rendereApp, spieleApi } from "../test/hilfen";
+import { alsRolle, ANDERE_ID, FONDS_ID, ICH_ID, fehler, fondsDaten, rendereApp, spieleApi, waehleFonds } from "../test/hilfen";
 
 const LAUF_ID = "ml1";
 const NEU_ID = "ml2";
@@ -142,14 +142,14 @@ const herkunft = {
 describe("Meldungen am Fonds", () => {
   it("listet Läufe mit Status und Stufe, Definitionen mit Aktivierung und öffnet einen Lauf", async () => {
     const api = spieleApi(standard);
-    rendereApp(`/fonds/${FONDS_ID}/meldungen`);
+    rendereApp(`/funds/${FONDS_ID}/filings`);
     const laeufe = within(await screen.findByRole("region", { name: "Meldeläufe des Fonds" }));
     const zeilen = laeufe.getAllByRole("row");
     expect(zeilen).toHaveLength(2);
     expect(zeilen[1]!.textContent).toContain("Q3 2026");
     expect(zeilen[1]!.textContent).toContain("Entwurf");
     expect(zeilen[1]!.textContent).toContain("Stufe 1 von 2: Investmentmanager");
-    expect(within(zeilen[1]!).getByRole("link", { name: /Meldelauf öffnen: Förderbericht je Quartal \(Vorlage\) Q3 2026/ }).getAttribute("href")).toBe(`/meldungen/${LAUF_ID}`);
+    expect(within(zeilen[1]!).getByRole("link", { name: /Meldelauf öffnen: Förderbericht je Quartal \(Vorlage\) Q3 2026/ }).getAttribute("href")).toBe(`/filings/${LAUF_ID}`);
     expect(api.anfragen("GET", LAEUFE)[0]!.query.get("fondsId")).toBe(FONDS_ID);
     await userEvent.setup().click(screen.getByRole("tab", { name: "Definitionen des Fonds" }));
     const defs = within(await screen.findByRole("region", { name: "Meldedefinitionen" }));
@@ -162,7 +162,7 @@ describe("Meldungen am Fonds", () => {
       [`PUT /api/v1/funds/${FONDS_ID}/reporting-definitions/efre_indikatoren`]: { koerper: { aktiviert: true, foerderprogramm: { schluessel: "demo_wachstum", bezeichnung: "Beispielprogramm Wachstum" } } },
       [`PUT /api/v1/funds/${FONDS_ID}/reporting-definitions/foerderbericht_quartal`]: { koerper: { aktiviert: false, foerderprogramm: null } },
     });
-    rendereApp(`/fonds/${FONDS_ID}/meldungen?tab=definitionen`);
+    rendereApp(`/funds/${FONDS_ID}/filings?tab=definitions`);
     const nutzer = userEvent.setup();
     const auswahl = await screen.findByLabelText(/Förderprogramm als Filter \(optional\): EFRE-Indikatorbericht/);
     await nutzer.selectOptions(auswahl, "demo_wachstum");
@@ -176,7 +176,7 @@ describe("Meldungen am Fonds", () => {
 
   it("legt einen Lauf an (Quartal, Sprache, Wissensstand) und öffnet ihn", async () => {
     const api = spieleApi({ ...standard, [`POST ${LAEUFE}`]: { status: 201, koerper: { ...laufDaten, id: NEU_ID, fassung: 2 } }, [`${LAEUFE}/${NEU_ID}`]: { koerper: { ...laufDaten, id: NEU_ID, fassung: 2 } } });
-    rendereApp(`/fonds/${FONDS_ID}/meldungen`);
+    rendereApp(`/funds/${FONDS_ID}/filings`);
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Meldelauf anlegen" }));
     const dialog = within(screen.getByRole("dialog"));
@@ -190,7 +190,7 @@ describe("Meldungen am Fonds", () => {
 
   it("zeigt den übersetzten Fehler, wenn die Definition nicht aktiviert ist", async () => {
     spieleApi({ ...standard, [`POST ${LAEUFE}`]: fehler(409, "reporting_definition_not_activated") });
-    rendereApp(`/fonds/${FONDS_ID}/meldungen`);
+    rendereApp(`/funds/${FONDS_ID}/filings`);
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Meldelauf anlegen" }));
     await nutzer.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Lauf anlegen" }));
@@ -199,7 +199,7 @@ describe("Meldungen am Fonds", () => {
 
   it("Betrachter sehen die Läufe, aber keine Knöpfe zum Anlegen und Aktivieren", async () => {
     spieleApi({ ...standard, "/api/v1/me": alsRolle("betrachter") });
-    rendereApp(`/fonds/${FONDS_ID}/meldungen?tab=definitionen`);
+    rendereApp(`/funds/${FONDS_ID}/filings?tab=definitions`);
     await screen.findByRole("region", { name: "Meldedefinitionen" });
     expect(screen.queryByRole("button", { name: "Meldelauf anlegen" })).toBeNull();
     expect(screen.queryByRole("button", { name: /für den Fonds aktivieren/ })).toBeNull();
@@ -209,7 +209,7 @@ describe("Meldungen am Fonds", () => {
   it("zeigt Englisch", async () => {
     localStorage.setItem("carraway.sprache", "en");
     spieleApi(standard);
-    rendereApp(`/fonds/${FONDS_ID}/meldungen`);
+    rendereApp(`/funds/${FONDS_ID}/filings`);
     const laeufe = within(await screen.findByRole("region", { name: "Report runs of the fund" }));
     expect(laeufe.getAllByRole("row")[1]!.textContent).toContain("Draft");
     expect(laeufe.getAllByRole("row")[1]!.textContent).toContain("Step 1 of 2: Investmentmanager");
@@ -226,16 +226,16 @@ describe("Meldelauf: Werte, Herkunft und Eingaben", () => {
       "/api/v1/fonds": { koerper: { daten: [...fondsDaten.daten, zweiter] } },
       [`/api/v1/funds/${zweiter.id}/reporting-definitions`]: { koerper: fondsDefinitionen },
     });
-    const { router } = rendereApp(`/meldungen/${LAUF_ID}`);
+    const { router } = rendereApp(`/filings/${LAUF_ID}`);
     const nav = within(await screen.findByRole("navigation", { name: "Hauptnavigation" }));
-    expect(nav.getByRole("link", { name: "Journal" }).getAttribute("href")).toBe(`/fonds/${FONDS_ID}/journal`);
-    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Fonds" }), zweiter.id);
-    await waitFor(() => expect(router.state.location.pathname).toBe(`/fonds/${zweiter.id}/meldungen`));
+    expect(nav.getByRole("link", { name: "Journal" }).getAttribute("href")).toBe(`/funds/${FONDS_ID}/journal`);
+    await waehleFonds(zweiter.name);
+    await waitFor(() => expect(router.state.location.pathname).toBe(`/funds/${zweiter.id}/filings`));
   });
 
   it("zeigt Werte im Zahlenformat, fehlende Werte als k. A. und die Gruppe ohne Zuordnung", async () => {
     spieleApi(standard);
-    rendereApp(`/meldungen/${LAUF_ID}?tab=inhalt`);
+    rendereApp(`/filings/${LAUF_ID}?tab=content`);
     expect(await screen.findByRole("heading", { level: 1, name: /Förderbericht je Quartal \(Vorlage\) Q3 2026 · Fassung 1/ })).toBeTruthy();
     expect(screen.getByText(/Vorlage, fachlich zu prüfen. Aufbau ohne Formularvorgabe./)).toBeTruthy();
     const felder = within(screen.getByRole("region", { name: /^Mittelverwendung/ }));
@@ -249,13 +249,13 @@ describe("Meldelauf: Werte, Herkunft und Eingaben", () => {
 
   it("öffnet die Herkunft eines Werts mit Rechenschritten, Filtern und den Datensätzen dahinter", async () => {
     const api = spieleApi({ ...standard, [`${LAEUFE}/${LAUF_ID}/provenance`]: { koerper: herkunft } });
-    rendereApp(`/meldungen/${LAUF_ID}?tab=inhalt`);
+    rendereApp(`/filings/${LAUF_ID}?tab=content`);
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: /Herkunft von Auszahlungen im Zeitraum/ }));
     const dialog = within(await screen.findByRole("dialog"));
     expect(await dialog.findByText("Summe der Vorgänge nach Storno")).toBeTruthy();
     expect(dialog.getByText(/foerderprogramm: demo_wachstum/)).toBeTruthy();
-    expect(dialog.getByRole("link", { name: "Beteiligung öffnen: Alpha Energie" }).getAttribute("href")).toBe("/beteiligungen/b1");
+    expect(dialog.getByRole("link", { name: "Beteiligung öffnen: Alpha Energie" }).getAttribute("href")).toBe("/investments/b1");
     expect(dialog.getByText("1 von 3 gezeigt.")).toBeTruthy();
     expect(api.anfragen("GET", `${LAEUFE}/${LAUF_ID}/provenance`)[0]!.query.get("schluessel")).toBe("a.x");
   });
@@ -263,7 +263,7 @@ describe("Meldelauf: Werte, Herkunft und Eingaben", () => {
   it("übersetzt die Rechenschritte der Herkunft ins Englische", async () => {
     localStorage.setItem("carraway.sprache", "en");
     spieleApi({ ...standard, [`${LAEUFE}/${LAUF_ID}/provenance`]: { koerper: herkunft } });
-    rendereApp(`/meldungen/${LAUF_ID}?tab=inhalt`);
+    rendereApp(`/filings/${LAUF_ID}?tab=content`);
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: /Provenance of Disbursements in the period/ }));
     const dialog = within(await screen.findByRole("dialog"));
@@ -273,7 +273,7 @@ describe("Meldelauf: Werte, Herkunft und Eingaben", () => {
 
   it("gibt eine Eingabe von Hand ein und zeigt den übersetzten Fehler bei falschem Format", async () => {
     const api = spieleApi({ ...standard, [`PUT ${LAEUFE}/${LAUF_ID}/inputs`]: (a) => (a.koerper && (a.koerper as { wert: string }).wert === "=1+1" ? fehler(400, "reporting_value_invalid") : { koerper: { schluessel: "a.h", wert: "Erika Beispiel", geaendertVon: ICH_ID, geaendertAm: "2026-11-20T10:00:00.000Z" } }) });
-    rendereApp(`/meldungen/${LAUF_ID}?tab=inhalt`);
+    rendereApp(`/filings/${LAUF_ID}?tab=content`);
     const nutzer = userEvent.setup();
     const feld = await screen.findByLabelText("Wert für Verantwortliche Person eingeben");
     await nutzer.type(feld, "Erika Beispiel");
@@ -302,7 +302,7 @@ describe("Meldelauf: Werte, Herkunft und Eingaben", () => {
       ],
     };
     spieleApi({ ...standard, [`${LAEUFE}/${LAUF_ID}`]: { koerper: frei } });
-    rendereApp(`/meldungen/${LAUF_ID}`);
+    rendereApp(`/filings/${LAUF_ID}`);
     expect(await screen.findByText(/Alle Stufen sind erteilt/)).toBeTruthy();
     await userEvent.setup().click(screen.getByRole("tab", { name: "Datei" }));
     const dateien = within(await screen.findByRole("region", { name: "Dateien" }));
@@ -320,7 +320,7 @@ describe("Meldelauf: Werte, Herkunft und Eingaben", () => {
 describe("Meldelauf: Befunde und Stufen", () => {
   it("listet Fehler und Warnungen, kommentiert eine Warnung", async () => {
     const api = spieleApi({ ...standard, [`PUT ${LAEUFE}/${LAUF_ID}/findings/erlaeuterung_fehlt/comment`]: { koerper: { regelId: "erlaeuterung_fehlt", text: "Keine Besonderheiten.", von: ICH_ID, am: "2026-11-20T11:00:00.000Z" } } });
-    rendereApp(`/meldungen/${LAUF_ID}`);
+    rendereApp(`/filings/${LAUF_ID}`);
     const bereich = within(await screen.findByRole("region", { name: "Befunde der Prüfregeln" }));
     expect(bereich.getByText("Pflichtfeld „Verantwortliche Person“ ist leer.")).toBeTruthy();
     expect(bereich.getByText("Es ist keine Erläuterung erfasst.")).toBeTruthy();
@@ -334,7 +334,7 @@ describe("Meldelauf: Befunde und Stufen", () => {
 
   it("erteilt die nächste Stufe und sperrt sie für den Ersteller mit Erklärung", async () => {
     const api = spieleApi({ ...standard, [`POST ${LAEUFE}/${LAUF_ID}/stage`]: { koerper: { ...laufDaten, status: "geprueft", naechsteStufe: 1 } } });
-    rendereApp(`/meldungen/${LAUF_ID}`);
+    rendereApp(`/filings/${LAUF_ID}`);
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Stufe „Investmentmanager“ erteilen" }));
     await waitFor(() => expect(api.anfragen("POST", `${LAEUFE}/${LAUF_ID}/stage`)).toHaveLength(1));
@@ -343,7 +343,7 @@ describe("Meldelauf: Befunde und Stufen", () => {
 
   it("der Ersteller kann nicht freigeben, die Seite sagt warum", async () => {
     spieleApi({ ...standard, [`${LAEUFE}/${LAUF_ID}`]: { koerper: { ...laufDaten, erstelltVon: ICH_ID } } });
-    rendereApp(`/meldungen/${LAUF_ID}`);
+    rendereApp(`/filings/${LAUF_ID}`);
     const knopf = (await screen.findByRole("button", { name: "Stufe „Investmentmanager“ erteilen" })) as HTMLButtonElement;
     expect(knopf.disabled).toBe(true);
     expect(screen.getByText("Sie haben den Lauf angelegt und können ihn nicht freigeben.")).toBeTruthy();
@@ -352,7 +352,7 @@ describe("Meldelauf: Befunde und Stufen", () => {
   it("wer eine Eingabe gemacht hat, kann nicht freigeben (auch aus einer früheren Fassung)", async () => {
     const mitEingabe = werte.map((w) => (w.schluessel === "a.h" ? { ...w, wert: "Erika", geaendertVon: ICH_ID } : w));
     spieleApi({ ...standard, [`${LAEUFE}/${LAUF_ID}`]: { koerper: { ...laufDaten, werte: mitEingabe } } });
-    rendereApp(`/meldungen/${LAUF_ID}`);
+    rendereApp(`/filings/${LAUF_ID}`);
     const knopf = (await screen.findByRole("button", { name: "Stufe „Investmentmanager“ erteilen" })) as HTMLButtonElement;
     expect(knopf.disabled).toBe(true);
     expect(screen.getByText(/Sie haben eine Eingabe gemacht oder eine Warnung kommentiert/)).toBeTruthy();
@@ -361,7 +361,7 @@ describe("Meldelauf: Befunde und Stufen", () => {
   it("die letzte Stufe zeigt offene Fehler und fehlende Kommentare als Sperre; Serverfehler sind übersetzt", async () => {
     const letzte = { ...laufDaten, status: "geprueft", naechsteStufe: 1, naechsteStufeName: "Teamleitung", protokoll: [{ id: "p1", laufId: LAUF_ID, stufeIndex: 0, stufe: "Investmentmanager", ergebnis: "ok", kommentar: null, akteur: "88888888-8888-4888-8888-888888888888", am: "2026-11-21T10:00:00.000Z" }] };
     spieleApi({ ...standard, [`${LAEUFE}/${LAUF_ID}`]: { koerper: letzte } });
-    rendereApp(`/meldungen/${LAUF_ID}`);
+    rendereApp(`/filings/${LAUF_ID}`);
     const knopf = (await screen.findByRole("button", { name: "Stufe „Teamleitung“ erteilen" })) as HTMLButtonElement;
     expect(knopf.disabled).toBe(true);
     expect(screen.getByText("Die letzte Stufe ist gesperrt, solange Fehler offen sind.")).toBeTruthy();
@@ -369,7 +369,7 @@ describe("Meldelauf: Befunde und Stufen", () => {
 
   it("reporting_run_errors_open und four_eyes_violated werden übersetzt angezeigt", async () => {
     spieleApi({ ...standard, [`POST ${LAEUFE}/${LAUF_ID}/stage`]: fehler(409, "four_eyes_violated") });
-    rendereApp(`/meldungen/${LAUF_ID}`);
+    rendereApp(`/filings/${LAUF_ID}`);
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Stufe „Investmentmanager“ erteilen" }));
     expect((await screen.findAllByRole("alert")).length).toBeGreaterThan(0);
@@ -378,7 +378,7 @@ describe("Meldelauf: Befunde und Stufen", () => {
   it("die Rückgabe verlangt einen Kommentar", async () => {
     const stufe1 = { ...laufDaten, status: "geprueft", naechsteStufe: 1, naechsteStufeName: "Teamleitung", protokoll: [{ id: "p1", laufId: LAUF_ID, stufeIndex: 0, stufe: "Investmentmanager", ergebnis: "ok", kommentar: null, akteur: "88888888-8888-4888-8888-888888888888", am: "2026-11-21T10:00:00.000Z" }] };
     const api = spieleApi({ ...standard, [`${LAEUFE}/${LAUF_ID}`]: { koerper: stufe1 }, [`POST ${LAEUFE}/${LAUF_ID}/stage`]: { koerper: laufDaten } });
-    rendereApp(`/meldungen/${LAUF_ID}`);
+    rendereApp(`/filings/${LAUF_ID}`);
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: /Zurückgeben/ }));
     expect(api.anfragen("POST", `${LAEUFE}/${LAUF_ID}/stage`)).toHaveLength(0);
@@ -391,7 +391,7 @@ describe("Meldelauf: Befunde und Stufen", () => {
   it("Englisch: Werte, Befunde und Hinweise", async () => {
     localStorage.setItem("carraway.sprache", "en");
     spieleApi(standard);
-    rendereApp(`/meldungen/${LAUF_ID}`);
+    rendereApp(`/filings/${LAUF_ID}`);
     expect(await screen.findByRole("heading", { level: 1, name: /Funding report per quarter \(template\) Q3 2026 · Version 1/ })).toBeTruthy();
     expect(within(await screen.findByRole("region", { name: "Findings of the validation rules" })).getByText("Required field “Person responsible” is empty.")).toBeTruthy();
     await userEvent.setup().click(screen.getByRole("tab", { name: /^Content/ }));
@@ -410,7 +410,7 @@ describe("Verwaltung der Meldedefinitionen", () => {
 
   it("listet Definitionen mit Vorlagenhinweis und zeigt eine Version als Aufbau und JSON", async () => {
     spieleApi(verwaltung);
-    rendereApp("/verwaltung?bereich=meldewesen");
+    rendereApp("/administration?section=reporting");
     const tabelle = within(await screen.findByRole("region", { name: "Meldedefinitionen" }));
     expect(tabelle.getAllByRole("row")[1]!.textContent).toContain("Vorlage, fachlich zu prüfen");
     const nutzer = userEvent.setup();
@@ -430,7 +430,7 @@ describe("Verwaltung der Meldedefinitionen", () => {
           : { koerper: { ok: true, vorschau: [], probleme: [] } },
       "POST /api/v1/reporting-definitions/foerderbericht_quartal/versions": { status: 201, koerper: { ...kopf, version: 2 } },
     });
-    rendereApp("/verwaltung?bereich=meldewesen");
+    rendereApp("/administration?section=reporting");
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Neue Version von Förderbericht je Quartal (Vorlage)" }));
     const dialog = within(screen.getByRole("dialog"));
@@ -456,7 +456,7 @@ describe("Verwaltung der Meldedefinitionen", () => {
   it("zeigt die Fehler der API beim Speichern mit Pfad (englisch übersetzt)", async () => {
     localStorage.setItem("carraway.sprache", "en");
     spieleApi({ ...verwaltung, "POST /api/v1/reporting-definitions": fehler(400, "reporting_definition_invalid", { definitionsfehler: [{ pfad: "abschnitte.0", code: "zyklus", meldung: "Zyklische Verweise: a → b → a.", params: { kreis: "a → b → a" } }] }) });
-    rendereApp("/verwaltung?bereich=meldewesen");
+    rendereApp("/administration?section=reporting");
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "New definition" }));
     const dialog = within(screen.getByRole("dialog"));
@@ -471,7 +471,7 @@ describe("Verwaltung der Meldedefinitionen", () => {
 
   it("legt ein Förderprogramm an", async () => {
     const api = spieleApi({ ...verwaltung, "POST /api/v1/funding-programs": { status: 201, koerper: programme.daten[0] } });
-    rendereApp("/verwaltung?bereich=meldewesen");
+    rendereApp("/administration?section=reporting");
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Programm anlegen" }));
     const dialog = within(screen.getByRole("dialog"));

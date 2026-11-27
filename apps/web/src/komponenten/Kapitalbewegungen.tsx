@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { alle } from "../erweiterung";
 import { useQuery } from "@tanstack/react-query";
 import { getRouteApi } from "@tanstack/react-router";
 import { Button, DotsThreeIcon, Feld, Kennzahl, KennzahlenReihe, Hinweis, Menue, Segment, Seitenpanel, Status, Tabelle, formatDatum, type MenueEintrag, type TabelleSpalte } from "@carraway/ui";
@@ -17,7 +18,7 @@ import { KapitalHerkunft } from "./KapitalHerkunft";
 import { KapitalbewegungAnlegen, KapitalbewegungDetails } from "./KapitalbewegungDialoge";
 import { Skelettzeilen } from "./Skelett";
 
-const route = getRouteApi("/fonds");
+const route = getRouteApi("/funds");
 type Dialog = { typ: "anlegen"; art: Kapitalart } | { typ: "freigabe" | "storno" | "beleg"; bewegung: BewegungZeile };
 
 /**
@@ -187,11 +188,7 @@ function FreigabeDialog({ fondsId, waehrung, bewegung, onSchliessen }: { fondsId
           />
           <p className="app-leer-text">{d.spracheHilfe}</p>
         </div>
-        <label className="app-schalter">
-          <input type="checkbox" checked={perMail} onChange={(e) => setPerMail(e.target.checked)} />
-          <span>{t.mail.mitteilung.perMail}</span>
-        </label>
-        <p className="app-leer-text">{t.mail.mitteilung.hilfe}</p>
+        {alle("mitteilungMail").map((MitteilungMail, i) => <MitteilungMail key={i} wert={perMail} onChange={setPerMail} />)}
         <div>
           <Button type="submit" disabled={freigeben.isPending}>
             {d.freigeben}

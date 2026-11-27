@@ -2,15 +2,16 @@ import { lazy, Suspense, useCallback, useEffect, useRef, useState, type MouseEve
 import { useQuery } from "@tanstack/react-query";
 import { Outlet, useParams, useRouter, useRouterState, useSearch, type NavigateOptions } from "@tanstack/react-router";
 import { ListIcon, MagnifyingGlassIcon, type NavGruppe } from "@carraway/ui";
+import { KontextLeisteKontext, type ObjektKontext } from "./kontextLeiste";
 import { fondsListe } from "../api/abfragen-kern";
 import { Seitenleiste } from "./Seitenleiste";
-import { brotkruemel, navigationsgruppen } from "./navigation";
+import { brotkruemel, fondsNavigation, globaleNavigation, leistenZiele, type Kontext, type NavGruppeDefinition } from "./navigation";
 import { WiedervorlagenZaehler } from "./WiedervorlagenZaehler";
 import { useRechte } from "../lib/rechte";
 import { Umgebungsbanner } from "./Umgebungsbanner";
 import { useT } from "../i18n";
 import { wirksamerFonds } from "../lib/fonds";
-import { ladeNavZustand, merkeFonds, speichereNavZustand, type NavZustand } from "../zustand";
+import { ladeNavZustand, speichereNavZustand, type NavZustand } from "../zustand";
 
 // Bei Fokus oder Annäherung lädt die Palette vor. Der Einstieg bleibt ein eigener Chunk.
 const ladeSuchDialog = () => import("./SuchDialog");
@@ -49,7 +50,10 @@ function useSchmalesFenster(): boolean {
   return schmal;
 }
 
-/** Rahmen der Anwendung: Seitenleiste mit Fondsauswahl, Navigation und Konto; Kopfzeile mit Pfad und Suche; Inhalt. */
+/**
+ * Rahmen der Anwendung: Seitenleiste im Kontext (global, Fonds oder Objekt) mit Rückweg und Umschalter, Navigation und Konto; Kopfzeile mit
+ * Pfad und Suche; Inhalt. Detailseiten melden ihren Objektkontext über `useObjektKontext` an.
+ */
 export function AnwendungsHuelle() {
   const t = useT();
   const { ich, darf } = useRechte();
@@ -60,25 +64,26 @@ export function AnwendungsHuelle() {
     select: (s) => {
       const match = s.matches.at(-1);
       switch (match?.routeId) {
-        case "/beteiligungen/$id":
-        case "/berichte/$id":
-        case "/belege/$id":
-        case "/zinslaeufe/$id":
-        case "/meldungen/$id":
+        case "/investments/$id":
+        case "/reports/$id":
+        case "/vouchers/$id":
+        case "/interest-runs/$id":
+        case "/filings/$id":
           return match.loaderData?.fondsId;
         default:
           return undefined;
       }
     },
   });
-  const { fondsId: fondsAusPfad } = useParams({ strict: false }) as { fondsId?: string };
+  const { fundId: fondsAusPfad } = useParams({ strict: false }) as { fundId?: string };
   const roh = useSearch({ strict: false }) as { fondsId?: unknown; tab?: string };
+  const [objekt, setObjekt] = useState<ObjektKontext | null>(null);
   const fondsAusSuche = typeof roh.fondsId === "string" ? roh.fondsId : undefined;
   // Listen halten die Fondswahl in der URL. Von einem Detail führt der Wechsel zur zugehörigen Liste.
-  const fondsSeite = fondsRoute === "/berichte/$id" ? "/berichte"
-    : fondsRoute === "/zinslaeufe/$id" ? "/zinslaeufe"
-    : fondsRoute === "/belege/$id" ? "/belege"
-    : (["/fonds", "/berichte", "/berichte/vorlagen", "/zinslaeufe", "/belege", "/buchhaltung", "/beschlussvorlagen"] as const).find((seite) => seite === fondsRoute);
+  const fondsSeite = fondsRoute === "/reports/$id" ? "/reports"
+    : fondsRoute === "/interest-runs/$id" ? "/interest-runs"
+    : fondsRoute === "/vouchers/$id" ? "/vouchers"
+    : (["/funds", "/reports", "/reports/templates", "/interest-runs", "/vouchers", "/accounting", "/decision-proposals"] as const).find((seite) => seite === fondsRoute);
 
   const menueAusloeser = useRef<HTMLButtonElement>(null);
   const [mobilOffen, setMobilOffen] = useState(false);
@@ -101,29 +106,22 @@ export function AnwendungsHuelle() {
   // Im Fondsbereich steht die ID im Pfad, bei Listen in der Suche.
   const aktuellerFonds = fondsAusPfad ?? fondsAusDetail ?? wirksamerFonds(fonds.data ?? [], fondsSeite ? fondsAusSuche : undefined)?.id;
 
-  const fondsInAuswahl = fondsSeite === "/fonds" ? fondsAusSuche : aktuellerFonds;
-  const portfolioFonds = wirksamerFonds((fonds.data ?? []).filter((f) => darf("betrachter", f.id, "portfolio")), aktuellerFonds);
-  const portfolio: NavigateOptions = portfolioFonds ? { to: "/fonds/$fondsId", params: { fondsId: portfolioFonds.id }, search: {} } : { to: "/" };
-
   function fondsZiel(id: string | undefined): NavigateOptions {
-    if (fondsSeite) return { to: fondsSeite, search: { fondsId: id, ...(fondsSeite === "/fonds" ? { tab: roh.tab } : {}) } };
+    if (fondsSeite) return { to: fondsSeite, search: { fondsId: id, ...(fondsSeite === "/funds" ? { tab: roh.tab } : {}) } };
     if (!id) return { to: "/" };
-    const stammdaten: NavigateOptions = { to: "/fonds", search: { fondsId: id } };
-    if (fondsRoute === "/meldungen/$id" || fondsRoute === "/fonds/$fondsId/meldungen") {
-      return darf("betrachter", id, "meldewesen") ? { to: "/fonds/$fondsId/meldungen", params: { fondsId: id }, search: {} } : stammdaten;
+    const stammdaten: NavigateOptions = { to: "/funds", search: { fondsId: id } };
+    if (fondsRoute === "/filings/$id" || fondsRoute === "/funds/$fundId/filings") {
+      return darf("betrachter", id, "meldewesen") ? { to: "/funds/$fundId/filings", params: { fundId: id }, search: {} } : stammdaten;
     }
-    if (fondsRoute === "/fonds/$fondsId/journal") {
-      return darf("betrachter", id, "finanzen") ? { to: fondsRoute, params: { fondsId: id }, search: {} } : stammdaten;
+    if (fondsRoute === "/funds/$fundId/journal") {
+      return darf("betrachter", id, "finanzen") ? { to: fondsRoute, params: { fundId: id }, search: {} } : stammdaten;
     }
     if (!darf("betrachter", id, "portfolio")) return stammdaten;
-    if (fondsAusPfad && fondsRoute !== "__root__" && fondsRoute?.startsWith("/fonds/$fondsId")) {
-      return { to: fondsRoute === "/fonds/$fondsId/" ? "/fonds/$fondsId" : fondsRoute, params: { fondsId: id }, search: {} };
+    if (fondsAusPfad && fondsRoute !== "__root__" && fondsRoute?.startsWith("/funds/$fundId")) {
+      return { to: fondsRoute === "/funds/$fundId/" ? "/funds/$fundId" : fondsRoute, params: { fundId: id }, search: {} };
     }
-    return { to: "/fonds/$fondsId", params: { fondsId: id }, search: {} };
+    return { to: "/funds/$fundId", params: { fundId: id }, search: {} };
   }
-
-  const auswahlZiel = fondsZiel(aktuellerFonds);
-  const auswahlLink = linkAn(auswahlZiel);
 
   function linkAn(ziel: NavigateOptions) {
     return {
@@ -152,22 +150,48 @@ export function AnwendungsHuelle() {
     setMobilOffen(false);
   }, [pfad, fondsAusSuche, schmalesFenster]);
 
-  const definitionen = navigationsgruppen(t, ich, aktuellerFonds, portfolio);
-  const gruppen: NavGruppe[] = definitionen.map((g) => ({
-    id: g.id,
-    label: g.label,
-    items: g.items.map((i) => ({ id: i.id, label: i.label, icon: i.icon, aktiv: i.aktiv(pfad), ...linkAn(i.ziel) })),
-  }));
-  const krumen = brotkruemel(t, pfad, definitionen);
-
-  function fondsWahl(id: string) {
-    setMobilOffen(false);
-    merkeFonds(id);
-    void router.navigate(fondsZiel(id));
-  }
+  // Kontext der Leiste: eine Detailseite meldet ihr Objekt an; sonst der Fonds, solange einer im Kontext ist (Fondsseiten, Finanzbereiche,
+  // Fondsverwaltung mit gewähltem Fonds); sonst global.
+  const ort = { pfad, tab: roh.tab };
+  const fondsImKontext = fondsAusPfad ?? fondsAusDetail ?? (fondsSeite && (fondsSeite !== "/funds" || fondsAusSuche) && fondsSeite !== "/decision-proposals" ? aktuellerFonds : undefined);
+  const kontextFonds = (fonds.data ?? []).find((f) => f.id === fondsImKontext);
+  const kontext: Kontext = objekt
+    ? { art: "objekt", ...objekt, gruppen: objekt.aktivId === undefined ? objekt.gruppen : objekt.gruppen.map((g) => ({ ...g, items: g.items.map((i) => ({ ...i, aktiv: () => i.id === objekt.aktivId })) })) }
+    : kontextFonds
+      ? {
+          art: "fonds",
+          zurueck: { label: t.nav.alleBereiche, ziel: { to: "/funds", search: {} } },
+          kopf: {
+            titel: kontextFonds.name,
+            untertitel: [t.nav.fonds, kontextFonds.vintage, kontextFonds.waehrung].filter(Boolean).join(" · "),
+            umschalter: { label: t.nav.fondsWaehlen, aktuell: kontextFonds.id, optionen: (fonds.data ?? []).map((f) => ({ id: f.id, label: f.name, ziel: fondsZiel(f.id) })) },
+          },
+          gruppen: fondsNavigation(t, ich, kontextFonds.id, darf("betrachter", kontextFonds.id, "portfolio")),
+          pfad: [{ label: t.nav.fonds, ziel: { to: "/funds", search: {} } }, { label: kontextFonds.name, ziel: darf("betrachter", kontextFonds.id, "portfolio") ? { to: "/funds/$fundId", params: { fundId: kontextFonds.id }, search: {} } : { to: "/funds", search: { fondsId: kontextFonds.id } } }],
+        }
+      : { art: "global", gruppen: globaleNavigation(t, ich), pfad: [] };
+  const zuNav = (definitionen: NavGruppeDefinition[]): NavGruppe[] =>
+    definitionen.map((g) => ({
+      id: g.id,
+      label: g.label,
+      items: g.items.map((i) => ({ id: i.id, label: i.label, icon: i.icon, aktiv: i.aktiv(ort), zaehler: i.zaehler, ...linkAn(i.ziel) })),
+    }));
+  const gruppen = zuNav(kontext.gruppen);
+  const krumen = brotkruemel(t, ort, kontext);
+  const kopfDerLeiste = kontext.kopf
+    ? {
+        titel: kontext.kopf.titel,
+        untertitel: kontext.kopf.untertitel,
+        titelSprache: kontext.kopf.titelSprache,
+        umschalter: kontext.kopf.umschalter
+          ? { label: kontext.kopf.umschalter.label, optionen: kontext.kopf.umschalter.optionen.map((o) => ({ id: o.id, label: o.label, aktiv: o.id === kontext.kopf?.umschalter?.aktuell, ...linkAn(o.ziel) })) }
+          : undefined,
+      }
+    : undefined;
+  const zurueck = kontext.zurueck ? { label: kontext.zurueck.label, ...linkAn(kontext.zurueck.ziel) } : undefined;
 
   return (
-    <>
+    <KontextLeisteKontext.Provider value={setObjekt}>
     <Umgebungsbanner />
     <div className="app">
       <a className="app-sprung" href="#inhalt" inert={mobilOffen}>
@@ -179,7 +203,9 @@ export function AnwendungsHuelle() {
         onSchmal={(schmal) => aendereNav({ ...nav, schmal })}
         eingeklappt={nav.eingeklappt}
         onGruppe={(id, zu) => aendereNav({ ...nav, eingeklappt: zu ? [...nav.eingeklappt.filter((g) => g !== id), id] : nav.eingeklappt.filter((g) => g !== id) })}
-        fonds={{ liste: fonds.data, fehler: fonds.isError, aktuell: fondsInAuswahl, onWahl: fondsWahl, onVorladen: auswahlLink.onVorladen, href: auswahlLink.href, onNavigieren: auswahlLink.onClick }}
+        kontextArt={kontext.art}
+        kopf={kopfDerLeiste}
+        zurueck={zurueck}
         mobilAusloeser={menueAusloeser}
         mobilOffen={mobilOffen}
         onMobilSchliessen={schliesseMobil}
@@ -241,7 +267,7 @@ export function AnwendungsHuelle() {
     </div>
     {sucheOffen ? (
       <Suspense fallback={<LadeSuche onAbbrechen={schliesseSuche} />}>
-        <SuchDialog onSchliessen={schliesseSuche} />
+        <SuchDialog onSchliessen={schliesseSuche} orte={[...leistenZiele(kontext), ...(kontext.art === "global" ? [] : leistenZiele({ art: "global", gruppen: globaleNavigation(t, ich), pfad: [] }))]} />
       </Suspense>
     ) : null}
     {ich ? (
@@ -249,6 +275,6 @@ export function AnwendungsHuelle() {
         <ThemaAbgleich />
       </Suspense>
     ) : null}
-    </>
+    </KontextLeisteKontext.Provider>
   );
 }

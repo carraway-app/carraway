@@ -1,0 +1,2 @@
+ALTER TABLE "pool_aenderung" ADD COLUMN "dokument_id" uuid;--> statement-breakpoint
+ALTER TABLE "pool_aenderung" ADD CONSTRAINT "pool_aenderung_dokument_id_dokument_id_fk" FOREIGN KEY ("dokument_id") REFERENCES "public"."dokument"("id") ON DELETE no action ON UPDATE no action;

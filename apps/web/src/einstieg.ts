@@ -3,7 +3,7 @@ import { alle } from "./erweiterung";
 
 /**
  * Einstieg mit getrennten Fällen, damit nur der passende Teil zum Browser kommt:
- * - `/extern/abfrage/:token`: öffentliche Abfrageseite, eigener kleiner Einstieg ohne Router, Anmeldung und Wörterbücher der Anwendung,
+ * - `/external/requests/:token`: öffentliche Abfrageseite, eigener kleiner Einstieg ohne Router, Anmeldung und Wörterbücher der Anwendung,
  * - weitere Einstiege der Erweiterungen (z. B. das LP-Portal unter `/portal` mit eigenem Router und eigenen Texten),
  * - alles andere: interne Anwendung.
  * Der Einstieg „Kern“ (`main.tsx`) ruft das ohne Erweiterungen auf, der Einstieg „Voll“ (`ee/web/src/main.tsx`) meldet sie vorher an.
@@ -15,7 +15,7 @@ export function starteEinstieg(optionen: { vorAnwendung?: () => Promise<void> } 
   if (!wurzel) throw new Error("Element #root fehlt in index.html");
 
   const pfad = window.location.pathname;
-  const extern = /^\/extern\/abfrage\/([^/]+)\/?$/.exec(pfad);
+  const extern = /^\/external\/requests\/([^/]+)\/?$/.exec(pfad);
   const weiterer = alle("einstiege").find((e) => e.passt(pfad));
   if (extern) {
     let token = extern[1]!;

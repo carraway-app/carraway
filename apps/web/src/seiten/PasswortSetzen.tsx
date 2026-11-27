@@ -47,7 +47,7 @@ export function PasswortSetzenSeite() {
         </h1>
         <Hinweis>{s.fertigText}</Hinweis>
         <p className="app-leer-text app-auth__fuss">
-          <Link to="/anmelden" search={{}}>
+          <Link to="/sign-in" search={{}}>
             {t.anmeldung.zurueck}
           </Link>
         </p>
@@ -62,7 +62,7 @@ export function PasswortSetzenSeite() {
         </h1>
         <Hinweis>{s.ungueltigText}</Hinweis>
         <p className="app-leer-text app-auth__fuss">
-          <Link to="/anmelden" search={{}}>
+          <Link to="/sign-in" search={{}}>
             {t.anmeldung.zurueck}
           </Link>
         </p>
@@ -77,7 +77,7 @@ export function PasswortSetzenSeite() {
       <Hinweis>{s.einleitung}</Hinweis>
       <form className="app-formular" onSubmit={speichern} noValidate>
         <FehlerHinweis fehler={fehler} />
-        <Feld
+        <Feld zugang
           label={t.passwort.neu}
           hilfe={t.passwort.neuHilfe(MINDESTLAENGE_PASSWORT)}
           fehler={versucht && zuKurz ? t.passwort.zuKurz(MINDESTLAENGE_PASSWORT) : undefined}
@@ -89,7 +89,7 @@ export function PasswortSetzenSeite() {
           required
           autoFocus
         />
-        <Feld
+        <Feld zugang
           label={t.passwort.wiederholt}
           fehler={versucht && ungleich ? t.passwort.ungleich : undefined}
           name="wiederholt"

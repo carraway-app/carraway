@@ -58,6 +58,13 @@ export function formatAbweichung(typ: string, einheit: string, absolut: string, 
   return t.kennzahlen.abweichung(`${vorzeichen}${abs}`, rel);
 }
 
+/** Kurzform für Tabellenzellen: die relative Abweichung, ohne sie die absolute (die Langform steht im Titel und für Screenreader). */
+export function formatAbweichungKurz(typ: string, einheit: string, absolut: string, prozent: string | null, sprache: Sprache, t: Texte): string {
+  if (prozent !== null) return `${Number(prozent) > 0 ? "+" : ""}${new Intl.NumberFormat(LOCALE[sprache], { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(Number(prozent))}${sprache === "de" ? " %" : "%"}`;
+  const vorzeichen = Number(absolut) > 0 ? "+" : "";
+  return typ === "prozent" ? `${vorzeichen}${new Intl.NumberFormat(LOCALE[sprache], { maximumFractionDigits: 4 }).format(Number(absolut))} ${sprache === "de" ? "Pkt." : "pp"}` : `${vorzeichen}${formatKennzahlWert(typ, absolut, einheit, sprache, t)}`;
+}
+
 /** Relative Abweichung ab dieser Höhe (Prozent, Betrag) wird hervorgehoben. */
 export const ABWEICHUNG_SCHWELLE = 10;
 

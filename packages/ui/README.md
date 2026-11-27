@@ -35,7 +35,7 @@ Data such as names and user input stays in its original language. Components tha
 
 ## Components
 
-`Button`, `ButtonLink`, `IconButton` (an icon-only button needs `aria-label`), `Feld`, `Segment`, `Status`, `Delta`, `Kennzahl`, `KennzahlenReihe`, `Herkunft` (shows `Rechenschritt[]` from `@carraway/rechenkern`), `Initiale`, `Tabelle` (compact, sticky header, loading and empty states, row menu), `NavLeiste` (groups, icons, narrow layout), `Tabs` and `UnterTabs`, `Menue`, `Seitenpanel`, `Dialog`, `Werkzeugleiste`, `Fakten`, `Hinweis`, `Etikett`, `Leer`, `Seitenkopf`, `Logo` and the icons (`<Name>Icon`, Phosphor Light).
+`Button`, `ButtonLink`, `IconButton` (an icon-only button needs `aria-label`), `Feld`, `Segment`, `Status`, `Delta`, `Kennzahl`, `KennzahlenReihe`, `Herkunft` (shows `Rechenschritt[]` from `@carraway/rechenkern`), `Tabelle` (compact, sticky header, loading and empty states, row menu), `NavLeiste` (groups, icons, narrow layout), `Tabs` and `UnterTabs` (overflow menu “More”), `FilterChips`, `Sprungmarken` and `SprungAbschnitt`, `Detailbereich`, `InfoKnopf`, `Menue`, `Seitenpanel`, `Dialog`, `Werkzeugleiste`, `Fakten`, `Hinweis`, `Etikett`, `Leer`, `Seitenkopf`, `Logo` and the icons (`<Name>Icon`, Phosphor Light).
 
 All components forward `className` and native props. CSS classes use the `cw-` prefix.
 

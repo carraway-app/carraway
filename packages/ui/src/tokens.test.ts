@@ -12,7 +12,7 @@ describe("tokens.css", () => {
   });
 
   it("enthält die Kerntokens", () => {
-    for (const name of ["--cw-bg", "--cw-surface", "--cw-text", "--cw-accent", "--cw-focus", "--cw-line", "--s-1", "--s-8", "--r-initiale", "--h-s", "--h-l", "--font-mono"]) {
+    for (const name of ["--cw-bg", "--cw-surface", "--cw-text", "--cw-accent", "--cw-focus", "--cw-line", "--s-1", "--s-8", "--h-s", "--h-l", "--font-mono"]) {
       expect(css).toContain(`${name}:`);
     }
   });
@@ -27,7 +27,9 @@ describe("tokens.css", () => {
     expect(farben("text")).toEqual(["#18211D", "#EEF3EE"]);
     expect(farben("accent")).toEqual(["#096D69", "#7CCFC2"]);
     expect(farben("focus")).toEqual(farben("accent"));
-    expect(farben("highlight")).toEqual(["#806429", "#C4A25A"]);
+    // Keine Hervorhebung in Gold oder Ocker: Kennzahlen heben sich über Gewicht und Akzent ab.
+    expect(tokens.color.semantic.some((s) => s.name === "highlight")).toBe(false);
+    expect(css).not.toMatch(/gold|#806429|#C4A25A/i);
     expect(farben("chart-1")).toEqual(["#18211D", "#F2F5EC"]);
     expect(farben("chart-2")).toEqual(["#096D69", "#65CEC0"]);
     expect(farben("neutral")).toEqual(["#505E56", "#BCCAC2"]);

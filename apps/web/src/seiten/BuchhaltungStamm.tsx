@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { Auswahl, Button, Feld, Hinweis, SortierbareListe, Tabelle } from "@carraway/ui";
+import { BeteiligungsWahl } from "../komponenten/BeteiligungsWahl";
 import { fondsUebersicht } from "../api/abfragen";
 import {
   BUCHUNGSQUELLEN,
@@ -145,14 +146,7 @@ export function KontenKarte({ fondsId, aenderbar }: { fondsId: string; aenderbar
                 </option>
               ))}
             </Auswahl>
-            <Auswahl label={k.beteiligung} value={form.beteiligungId} onChange={(ev) => setForm({ ...form, beteiligungId: ev.target.value })}>
-              <option value="">{k.ohneBeteiligung}</option>
-              {beteiligungen.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.organisation.name}
-                </option>
-              ))}
-            </Auswahl>
+            <BeteiligungsWahl label={k.beteiligung} fondsId={fondsId} beteiligungen={beteiligungen} wert={form.beteiligungId} onWahl={(id) => setForm({ ...form, beteiligungId: id })} leerOption={k.ohneBeteiligung} />
             <div className="app-aktionen__knoepfe">
               <Button type="submit" disabled={setzen.isPending || form.nummer.trim() === "" || form.bezeichnung.trim() === ""}>
                 {k.speichern}

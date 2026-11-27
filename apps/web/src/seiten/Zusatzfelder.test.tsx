@@ -23,26 +23,26 @@ describe("Eigene Felder an Beteiligung, Instrument und Fonds", () => {
       [`/api/v1/beteiligungen/${BET_ID}/instrumentfelder`]: { koerper: antwort("instrument", BET_ID, { "f-sicherheit": "Erstrangig" }) },
       [`PUT /api/v1/beteiligungen/${BET_ID}/felder`]: { koerper: antwort("beteiligung", BET_ID, { "f-risiko": "hoch" }) },
     });
-    rendereApp(`/beteiligungen/${BET_ID}?tab=felder`);
+    rendereApp(`/investments/${BET_ID}?tab=fields`);
     const nutzer = userEvent.setup();
-    expect(await screen.findByRole("button", { name: "Zusatzfelder Beteiligung" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Zusatzfelder Beteiligung" }).getAttribute("aria-current")).toBe("page");
-    expect(await screen.findByText("Risikoklasse")).toBeTruthy();
-    await nutzer.click(screen.getByRole("button", { name: "Wert bearbeiten: Risikoklasse" }));
-    await nutzer.selectOptions(screen.getByLabelText("Risikoklasse"), "Hoch");
+    // Alte Adresse ?tab=fields führt zu den Stammdaten; die Felder stehen dort als Abschnitt mit Sprungmarke.
+    expect(await screen.findByRole("link", { name: "Zusatzfelder Beteiligung" })).toBeTruthy();
+    const beteiligung = within(await screen.findByRole("region", { name: "Zusatzfelder Beteiligung" }));
+    expect(await beteiligung.findByText("Risikoklasse")).toBeTruthy();
+    await nutzer.click(beteiligung.getByRole("button", { name: "Wert bearbeiten: Risikoklasse" }));
+    await nutzer.selectOptions(beteiligung.getByLabelText("Risikoklasse"), "Hoch");
     await waitFor(() => expect(api.anfragen("PUT", `/api/v1/beteiligungen/${BET_ID}/felder`)).toHaveLength(1));
     expect(api.anfragen("PUT", `/api/v1/beteiligungen/${BET_ID}/felder`)[0]!.koerper).toEqual({ werte: { "f-risiko": "hoch" } });
 
     // Instrument: eigener Eintrag mit eigenen Werten
-    await nutzer.click(screen.getByRole("button", { name: "Zusatzfelder Instrument" }));
-    expect(await screen.findByText("Erstrangig")).toBeTruthy();
+    expect(await within(await screen.findByRole("region", { name: "Zusatzfelder Instrument" })).findByText("Erstrangig")).toBeTruthy();
   });
 
   it("der Fonds hat einen Reiter „Felder“; mit Wissensstand ist alles nur lesbar und ein Hinweis erscheint", async () => {
     spieleApi({
       [`/api/v1/fonds/${FONDS_ID}/felder`]: { koerper: antwort("fonds", FONDS_ID, { "f-sicherheit": "Frühphase" }) },
     });
-    rendereApp(`/fonds?fondsId=${FONDS_ID}&tab=felder&stand=2026-10-01T00:00:00Z`);
+    rendereApp(`/funds?fundId=${FONDS_ID}&tab=fields&knowledgeDate=2026-10-01T00:00:00Z`);
     const bereich = await screen.findByRole("heading", { name: "Eigene Felder" });
     const kopf = bereich.closest("div")!.parentElement!;
     expect(await within(kopf).findByText("Frühphase")).toBeTruthy();

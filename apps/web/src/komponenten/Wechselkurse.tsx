@@ -169,7 +169,7 @@ function ImportDialog({ onSchliessen }: { onSchliessen: () => void }) {
           }}
         />
         {leer ? <Hinweis>{i.dateiLeer}</Hinweis> : null}
-        <Feld label={i.waehrungen} hilfe={i.waehrungenHilfe} value={waehrungen} onChange={(e) => setWaehrungen(e.target.value)} autoComplete="off" />
+        <Feld label={i.waehrungen} hilfe={i.waehrungenHilfe} value={waehrungen} onChange={(e) => setWaehrungen(e.target.value)} />
         <Feld label={i.ab} type="date" value={ab} onChange={(e) => setAb(e.target.value)} />
         <div className="app-aktionen__knoepfe">
           <Button variante="sekundaer" disabled={importieren.isPending} onClick={() => los(true)}>

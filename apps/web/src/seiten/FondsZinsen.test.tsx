@@ -1,10 +1,10 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { BET_ID, FONDS_ID, fondsZinsenDaten, rendereApp, spieleApi } from "../test/hilfen";
+import { BET_ID, FONDS_ID, fondsZinsenDaten, rendereApp, spieleApi, feldImStichtagMenue } from "../test/hilfen";
 
 /** Fonds → Zinsen: Zinsen aller Instrumente des Fonds mit eigenem Stichtag, Summen und Verweis auf die Beteiligung. */
 
-const url = `/fonds/${FONDS_ID}/zinsen`;
+const url = `/funds/${FONDS_ID}/interest`;
 const zinsenUrl = `/api/v1/fonds/${FONDS_ID}/zinsen`;
 const schmal = (text: string | null) => (text ?? "").replace(/\s/g, " ");
 
@@ -32,17 +32,17 @@ describe("Fonds → Zinsen", () => {
     rendereApp(url);
     const link = await screen.findByRole("link", { name: "Zinsen der Beteiligung Alpha Energie öffnen" });
     const ziel = link.getAttribute("href") ?? "";
-    expect(ziel).toContain(`/beteiligungen/${BET_ID}`);
-    expect(ziel).toContain("unter=zinsen");
-    expect(ziel).toContain("tab=finanzierung");
-    expect(screen.getByRole("link", { name: "Zinsläufe" }).getAttribute("href")).toContain("/zinslaeufe");
+    expect(ziel).toContain(`/investments/${BET_ID}`);
+    expect(ziel).toContain("subtab=interest");
+    expect(ziel).toContain("tab=financing");
+    expect(screen.getByRole("link", { name: "Zinsläufe" }).getAttribute("href")).toContain("/interest-runs");
   });
 
   it("fragt mit dem eigenen Stichtag der Seite ab", async () => {
     const api = spieleApi();
     rendereApp(url);
     await screen.findByRole("table");
-    fireEvent.change(screen.getByLabelText("Stichtag"), { target: { value: "2026-06-30" } });
+    fireEvent.change(await feldImStichtagMenue(), { target: { value: "2026-06-30" } });
     await waitFor(() => expect(api.anfragen("GET", zinsenUrl).some((a) => a.query.get("stichtag") === "2026-06-30")).toBe(true));
   });
 

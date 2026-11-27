@@ -1,7 +1,7 @@
-import { inArray, isNull, or, sql, type SQL } from "drizzle-orm";
+import { and, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import type { Context } from "hono";
-import { deal } from "@carraway/db";
+import { deal, providerSource } from "@carraway/db";
 import { aktuellerAkteur, sichtbareFonds } from "../anmeldung/akteur";
 import { hatBereich, type Bereich } from "./bereiche";
 
@@ -21,13 +21,18 @@ export function fondsSichtbar(c: Context, spalte: AnyPgColumn, bereich?: Bereich
   return fonds.length ? inArray(spalte, fonds) : sql`false`;
 }
 
+export function sourceActive(resource: "deal" | "note", column: AnyPgColumn): SQL {
+  return sql`not exists (select 1 from ${providerSource} where ${providerSource.resource} = ${resource} and ${providerSource.localId} = ${column} and ${providerSource.archived})`;
+}
+
 /** Deals ohne Fonds sieht jede Person mit einer Rolle, Deals eines Fonds nur, wer dort Dealflow sieht; ohne den Bereich Dealflow keine Deals. */
 export function dealSichtbar(c: Context): SQL | undefined {
   const akteur = aktuellerAkteur(c);
   if (!hatBereich(akteur, "dealflow")) return sql`false`;
   const fonds = sichtbareFonds(akteur, "betrachter", "dealflow");
-  if (fonds === "alle") return undefined;
-  return fonds.length ? or(isNull(deal.fondsId), inArray(deal.fondsId, fonds)) : isNull(deal.fondsId);
+  const active = sourceActive("deal", deal.id);
+  if (fonds === "alle") return active;
+  return and(active, fonds.length ? or(isNull(deal.fondsId), inArray(deal.fondsId, fonds)) : isNull(deal.fondsId));
 }
 
 /** Sicht der Person auf Fonds im Bereich Portfolio als Prüffunktion (Einzelheiten eigener Zielfonds). */

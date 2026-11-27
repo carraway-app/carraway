@@ -167,6 +167,8 @@ export const kontoBereichDe = {
     speichern: "Passwort speichern",
   },
   einrichtung: {
+    token: "Einrichtungs-Token",
+    tokenHilfe: "Das Token steht im Startprotokoll der API oder wurde beim Betrieb als SETUP_TOKEN festgelegt.",
     titel: "Installation einrichten",
     einleitung: "Legt die erste Verwalterperson an. Das geht nur, solange es noch keinen Benutzer gibt. Danach folgt die Anmeldung mit zweitem Faktor.",
     name: "Name",

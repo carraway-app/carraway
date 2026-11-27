@@ -1,3 +1,4 @@
+import { einmaligeAntwort } from "../idempotenz";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { z } from "zod";
@@ -17,7 +18,7 @@ import { stapelSpeicher } from "../zeitlimit";
 export const MAX_OPERATIONEN = 100;
 
 /** Wege, die nicht in einen Stapel gehören: Anmeldung und Benutzer, Importe und Exporte, Berichtsstufen (schreiben Dateien), der Stapel selbst. */
-const AUSGESCHLOSSEN = new Set(["auth", "batch", "setup", "import", "export", "api-keys", "users", "reports", "changes", "openapi.json", "docs"]);
+const AUSGESCHLOSSEN = new Set(["auth", "batch", "data-providers", "setup", "import", "export", "api-keys", "users", "reports", "changes", "openapi.json", "docs"]);
 
 const operation = z.object({
   method: z.enum(["POST", "PUT", "PATCH", "DELETE"]),
@@ -27,7 +28,7 @@ const operation = z.object({
     .max(300)
     .regex(/^\/[A-Za-z0-9._~/-]+$/, "Path below /api/v1 without a query string")
     .refine((p) => !p.includes("//") && !p.split("/").some((t) => t === ".." || t === "."), "Invalid path")
-    .refine((p) => !AUSGESCHLOSSEN.has(p.split("/")[1] ?? ""), "This route is not allowed in a batch"),
+    .refine((p) => !AUSGESCHLOSSEN.has(p.split("/")[1] ?? "") && !/^\/organizations\/[^/]+\/provider-data\/(search|fetch)\/?$/.test(p), "This route is not allowed in a batch"),
   body: z.unknown().optional(),
 });
 
@@ -68,6 +69,7 @@ export function stapelRouten(db: Db, fuehreAus: (anfrage: Request) => Promise<Re
               const antwort = await fuehreAus(
                 new Request(`${basis.origin}/api/v1${op.path}`, { method: op.method, headers: kopf, ...(op.body === undefined ? {} : { body: JSON.stringify(op.body) }) }),
               );
+              if (antwort.headers.get("Idempotency-Replay") === "unavailable") einmaligeAntwort(c);
               const text = await antwort.text();
               let body: unknown;
               try {

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { sql } from "drizzle-orm";
-import type { MiddlewareHandler } from "hono";
+import type { Context, MiddlewareHandler } from "hono";
 import type { Db } from "@carraway/db";
 import { Fachfehler } from "./fehler";
 import { relativerPfad } from "./rechte/pruefen";
@@ -10,11 +10,22 @@ import { relativerPfad } from "./rechte/pruefen";
  * Antwort, ohne die Anfrage noch einmal auszuführen (Kopf `Idempotent-Replayed: true`). Derselbe Schlüssel mit anderem Körper, anderer
  * Methode oder anderem Pfad ist 409 `idempotency_conflict`; läuft die erste Anfrage noch, ist es 409 `idempotency_in_progress`.
  * Gespeichert werden die Antworten bis 4xx; ein Serverfehler (5xx) gibt den Schlüssel wieder frei, damit die Wiederholung gelingt.
+ * Bei einmaligen Zugangsdaten bleibt nur die Reservierung bestehen. Eine Wiederholung liefert 409 `idempotency_replay_unavailable`.
  * Ohne Kopf bleibt alles beim Alten. Ausgenommen sind `/auth/*` und die Einrichtung (ohne Akteur).
  */
 
 const SCHLUESSEL = /^[\x21-\x7e]{1,200}$/;
 const GUELTIG_STUNDEN = 24;
+
+/** Einmalige Zugangsdaten dürfen auch als Teilergebnis eines Stapels nicht wiedergegeben werden. */
+export function einmaligeAntwort(c: Context) {
+  c.header("Cache-Control", "no-store");
+  c.header("Idempotency-Replay", "unavailable");
+}
+
+export async function loescheAbgelaufeneSchluessel(db: Db) {
+  await db.execute(sql`DELETE FROM idempotenz_schluessel WHERE erstellt_am < now() - ${`${GUELTIG_STUNDEN} hours`}::interval`);
+}
 
 async function koerperHash(c: Parameters<MiddlewareHandler>[0]): Promise<string> {
   const hash = createHash("sha256");
@@ -45,7 +56,6 @@ export function idempotenz(db: Db): MiddlewareHandler {
     const anfrage = createHash("sha256").update(`${c.req.method}\n${pfad}${new URL(c.req.url).search}\n`).update(await koerperHash(c)).digest("hex");
 
     await db.execute(sql`DELETE FROM idempotenz_schluessel WHERE akteur = ${akteur.id} AND schluessel = ${schluessel} AND erstellt_am < now() - ${`${GUELTIG_STUNDEN} hours`}::interval`);
-    if (Math.random() < 0.02) await db.execute(sql`DELETE FROM idempotenz_schluessel WHERE erstellt_am < now() - ${`${GUELTIG_STUNDEN} hours`}::interval`);
     const { rows: reserviert } = await db.execute<{ schluessel: string }>(
       sql`INSERT INTO idempotenz_schluessel (akteur, schluessel, methode, pfad, anfrage_hash) VALUES (${akteur.id}, ${schluessel}, ${c.req.method}, ${pfad}, ${anfrage}) ON CONFLICT DO NOTHING RETURNING schluessel`,
     );
@@ -62,7 +72,10 @@ export function idempotenz(db: Db): MiddlewareHandler {
         c.header("Retry-After", "1");
         throw new Fachfehler(409, "idempotency_in_progress", "The request with this Idempotency-Key is still in progress.");
       }
-      return new Response(gespeichert.antwort ?? "", {
+      if (gespeichert.antwort === null) {
+        throw new Fachfehler(409, "idempotency_replay_unavailable", "This request has completed. Its one-time response cannot be replayed.");
+      }
+      return new Response(gespeichert.antwort, {
         status: gespeichert.status,
         headers: { "Content-Type": gespeichert.inhaltstyp ?? "application/json", "Idempotent-Replayed": "true" },
       });
@@ -80,6 +93,10 @@ export function idempotenz(db: Db): MiddlewareHandler {
     const typ = antwort.headers.get("content-type") ?? "";
     if (antwort.status >= 500 || !/json/i.test(typ)) {
       await db.execute(sql`DELETE FROM idempotenz_schluessel WHERE akteur = ${akteur.id} AND schluessel = ${schluessel}`);
+      return;
+    }
+    if (antwort.headers.get("Idempotency-Replay") === "unavailable") {
+      await db.execute(sql`UPDATE idempotenz_schluessel SET status = ${antwort.status} WHERE akteur = ${akteur.id} AND schluessel = ${schluessel}`);
       return;
     }
     const text = await antwort.clone().text();

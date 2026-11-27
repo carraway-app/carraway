@@ -89,7 +89,7 @@ describe("Belegfreigabe: interne Hinweise mit Opt-in", () => {
     const gesendet = await versende();
     expect(gesendet.map((m) => m.an)).toEqual([optIn.email]);
     expect(gesendet[0]!.betreff).toBe("Voucher released: Voucher");
-    expect(gesendet[0]!.text).toContain(`${TESTORIGIN}/belege/${id}`);
+    expect(gesendet[0]!.text).toContain(`${TESTORIGIN}/vouchers/${id}`);
     expect(gesendet[0]!.text).toContain("A voucher");
     const [auftrag] = await db.select().from(s.mailAuftrag).where(eq(s.mailAuftrag.bezugId, id));
     expect(auftrag).toMatchObject({ vorlage: "bericht_freigegeben", bezugArt: "beleg", status: "gesendet" });

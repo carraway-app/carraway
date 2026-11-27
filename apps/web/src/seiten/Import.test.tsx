@@ -69,7 +69,7 @@ describe("Datenübernahme: Zugang und Navigation", () => {
   it("zeigt ihn Betrachtern nicht und führt sie von /import zurück zur Startseite", async () => {
     importApi({ "/api/v1/me": alsRolle("betrachter") });
     const { router } = rendereApp("/import");
-    await waitFor(() => expect(router.state.location.pathname).toBe(`/fonds/${FONDS_ID}`));
+    await waitFor(() => expect(router.state.location.pathname).toBe(`/funds/${FONDS_ID}`));
     expect(screen.queryByRole("link", { name: "Datenübernahme" })).toBeNull();
   });
 
@@ -260,7 +260,7 @@ describe("Datenübernahme: Übernehmen (Vier-Augen)", () => {
 
   it("sperrt, solange der Lauf nicht fehlerfrei geprüft ist", async () => {
     importApi({ "/api/v1/me": als("freigeber"), [pfad]: { koerper: geprueft({ status: "hochgeladen", fehlerAnzahl: 2 }) } });
-    rendereApp(`/import/${LAUF_ID}?tab=uebernehmen`);
+    rendereApp(`/import/${LAUF_ID}?tab=apply`);
     expect(((await screen.findByRole("button", { name: de.datenuebernahme.uebernehmen.knopf })) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText(de.datenuebernahme.uebernehmen.nichtGeprueft)).toBeTruthy();
   });
@@ -325,7 +325,7 @@ describe("Datenübernahme: Übernehmen (Vier-Augen)", () => {
 describe("Datenübernahme: Abnahmeprotokoll", () => {
   it("verlinkt PDF und Excel in der Sprache der Oberfläche", async () => {
     importApi({ "/api/v1/me": alsRolle("freigeber"), [pfad]: { koerper: geprueft() } });
-    rendereApp(`/import/${LAUF_ID}?tab=protokoll`);
+    rendereApp(`/import/${LAUF_ID}?tab=log`);
     const pdf = await screen.findByRole("link", { name: de.datenuebernahme.protokoll.pdf });
     expect(pdf.getAttribute("href")).toBe(`${pfad}/log?format=pdf&language=de`);
     expect(screen.getByRole("link", { name: de.datenuebernahme.protokoll.xlsx }).getAttribute("href")).toBe(`${pfad}/log?format=xlsx&language=de`);
@@ -335,13 +335,13 @@ describe("Datenübernahme: Abnahmeprotokoll", () => {
   it("verlinkt auf Englisch mit language=en", async () => {
     localStorage.setItem("carraway.sprache", "en");
     importApi({ "/api/v1/me": alsRolle("freigeber"), [pfad]: { koerper: geprueft() } });
-    rendereApp(`/import/${LAUF_ID}?tab=protokoll`);
+    rendereApp(`/import/${LAUF_ID}?tab=log`);
     expect((await screen.findByRole("link", { name: en.datenuebernahme.protokoll.pdf })).getAttribute("href")).toBe(`${pfad}/log?format=pdf&language=en`);
   });
 
   it("bietet es vor der Prüfung noch nicht an", async () => {
     importApi({ "/api/v1/me": alsRolle("bearbeiter") });
-    rendereApp(`/import/${LAUF_ID}?tab=protokoll`);
+    rendereApp(`/import/${LAUF_ID}?tab=log`);
     expect(await screen.findByText(de.datenuebernahme.protokoll.nurNachPruefung)).toBeTruthy();
     expect(screen.queryByRole("link", { name: de.datenuebernahme.protokoll.pdf })).toBeNull();
   });

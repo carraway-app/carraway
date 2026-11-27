@@ -4,7 +4,7 @@ import { Link } from "@tanstack/react-router";
 import { Button, Dialog, Hinweis, Leer, Seitenkopf, Tabelle, type TabelleSpalte } from "@carraway/ui";
 import { kontaktvorschlaege, useVorschlagUebernehmen, useVorschlagVerwerfen, useVorschlagZusammenfuehren, type Kontaktvorschlag } from "../api/kontaktvorschlaege";
 import { FehlerHinweis } from "../komponenten/FehlerHinweis";
-import { KontaktAuswahl, type Treffer } from "../komponenten/KontaktAuswahl";
+import { VerknuepfungsFeld, type SuchfeldTreffer } from "../komponenten/Suchfeld";
 import { useT } from "../i18n";
 import { useRechte } from "../lib/rechte";
 
@@ -33,7 +33,7 @@ export function KontaktVorschlaegeSeite() {
         v.unternehmen === null ? (
           <span className="app-leer-text">{k.ohneUnternehmen}</span>
         ) : v.unternehmen.id ? (
-          <Link to="/organisationen/$id" params={{ id: v.unternehmen.id }}>
+          <Link to="/organizations/$id" params={{ id: v.unternehmen.id }}>
             {v.unternehmen.name}
           </Link>
         ) : (
@@ -70,7 +70,7 @@ export function KontaktVorschlaegeSeite() {
 
   return (
     <div className="app-seite">
-      <Seitenkopf meta={t.crm.etikett} titel={k.listeTitel} aktionen={<Link to="/kontakte">{k.zuKontakten}</Link>} />
+      <Seitenkopf meta={t.crm.etikett} titel={k.listeTitel} aktionen={<Link to="/contacts">{k.zuKontakten}</Link>} />
       <p className="app-leer-text">{k.listeEinleitung}</p>
       <FehlerHinweis fehler={abfrage.error ?? uebernehmen.error ?? verwerfen.error} />
       {meldung ? <Hinweis>{meldung}</Hinweis> : null}
@@ -97,7 +97,7 @@ export function KontaktVorschlaegeSeite() {
 function ZusammenfuehrenDialog({ vorschlag, onSchliessen, onFertig }: { vorschlag: Kontaktvorschlag; onSchliessen: () => void; onFertig: () => void }) {
   const k = useT().mail.kontakte;
   const zusammenfuehren = useVorschlagZusammenfuehren();
-  const [ziel, setZiel] = useState<Treffer | null>(null);
+  const [ziel, setZiel] = useState<SuchfeldTreffer | null>(null);
   return (
     <Dialog
       titel={k.zusammenfuehrenTitel}
@@ -116,7 +116,7 @@ function ZusammenfuehrenDialog({ vorschlag, onSchliessen, onFertig }: { vorschla
       <p>{vorschlag.name ? `${vorschlag.name} (${vorschlag.adresse})` : vorschlag.adresse}</p>
       <p className="app-leer-text">{k.zusammenfuehrenHilfe}</p>
       <FehlerHinweis fehler={zusammenfuehren.error} />
-      <KontaktAuswahl art="person" label={k.zielPerson} gewaehlt={ziel} onWaehlen={setZiel} />
+      <VerknuepfungsFeld ziel="person" label={k.zielPerson} wert={ziel} onWahl={setZiel} />
     </Dialog>
   );
 }

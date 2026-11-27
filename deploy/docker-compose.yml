@@ -2,7 +2,7 @@
 name: ${COMPOSE_PROJECT_NAME:-carraway}
 
 x-carraway: &carraway
-  image: ${CARRAWAY_IMAGE:-ghcr.io/carraway-app/carraway:0.2.3}
+  image: ${CARRAWAY_IMAGE:-ghcr.io/carraway-app/carraway:0.4.0}
   read_only: true
   tmpfs:
     - /tmp
@@ -114,6 +114,7 @@ services:
       WEB_AUSLIEFERN: "1"
       PROXY_VERTRAUEN: ${TRUST_PROXY:-${PROXY_VERTRAUEN:-0}}
       ZWEI_FAKTOR_PFLICHT: ${REQUIRE_TWO_FACTOR:-${ZWEI_FAKTOR_PFLICHT:-1}}
+      SETUP_TOKEN: ${SETUP_TOKEN:-}
       REGISTRIERUNG_OFFEN: ${OPEN_REGISTRATION:-${REGISTRIERUNG_OFFEN:-0}}
       METRIKEN_TOKEN: ${METRICS_TOKEN:-${METRIKEN_TOKEN:-}}
       OIDC_MICROSOFT_CLIENT_ID: ${OIDC_MICROSOFT_CLIENT_ID:-}
@@ -121,6 +122,7 @@ services:
       OIDC_MICROSOFT_TENANT_ID: ${OIDC_MICROSOFT_TENANT_ID:-}
       OIDC_GOOGLE_CLIENT_ID: ${OIDC_GOOGLE_CLIENT_ID:-}
       OIDC_GOOGLE_CLIENT_SECRET: ${OIDC_GOOGLE_CLIENT_SECRET:-}
+      OIDC_GOOGLE_KONTEN_VERKNUEPFEN: ${OIDC_GOOGLE_KONTEN_VERKNUEPFEN:-false}
     volumes:
       - speicher:/daten/speicher
     depends_on:

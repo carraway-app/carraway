@@ -1,5 +1,4 @@
 import { ausFonds, type FondsEingabe } from "./abbildung-fonds";
-import { ausKontakten } from "./abbildung-kontakte";
 import { queryOptions, type QueryClient } from "@tanstack/react-query";
 import { schluessel } from "./abfragen";
 import { type Stufe } from "./abbildung";
@@ -75,27 +74,28 @@ const ladeFondsInvestorenzugaenge = (fondsId: string) =>
 export const fondsInvestorenzugaenge = (fondsId: string) =>
   queryOptions({ queryKey: [...fondsInvestorSchluessel, fondsId], queryFn: () => ladeFondsInvestorenzugaenge(fondsId) });
 
-const ladeZeichnungsOrganisationen = async () => {
-  const daten: { id: string; name: string }[] = [];
-  let cursor: string | undefined;
-  do {
-    const seite = await ausKontakten(api.api.v1.organizations.$get, { query: { art: "investor", limit: "200", cursor } });
-    daten.push(...seite.daten.map(({ id, name }) => ({ id, name })));
-    cursor = seite.naechsterCursor ?? undefined;
-  } while (cursor);
-  return daten;
-};
-
-export const zeichnungsOrganisationen = () =>
-  queryOptions({ queryKey: [...schluessel.organisationListe, "zeichnungsorganisationen"], queryFn: ladeZeichnungsOrganisationen });
-
 const zeichnungenApi = api.api.v1.funds[":fundId"]["investor-access"].subscriptions;
 type ZeichnungenEingabe = FondsEingabe<typeof zeichnungenApi.$post>["json"];
 
 export const useFondsZeichnungenAnlegen = (fondsId: string) =>
   useApiMutation({
     aufruf: (json: ZeichnungenEingabe) => ausFonds(zeichnungenApi.$post, { param: { fondsId }, json }),
-    invalidiert: () => [[...fondsInvestorSchluessel, fondsId]],
+    invalidiert: () => [schluessel.fonds], // Liste (Abdeckung) und Zeichnungen des Fonds
+  });
+
+/** Ändert eine Zusage der Ersterfassung (Issue #275). */
+export const useFondsZusageBearbeiten = (fondsId: string) =>
+  useApiMutation({
+    aufruf: ({ organisationId, zusage }: { organisationId: string; zusage: string }) =>
+      ausFonds(zeichnungenApi[":organizationId"].$patch, { param: { fondsId, organisationId }, json: { zusage } }),
+    invalidiert: () => [schluessel.fonds], // Liste (Abdeckung) und Zeichnungen des Fonds
+  });
+
+/** Entfernt eine Zusage der Ersterfassung (Issue #275). */
+export const useFondsZusageEntfernen = (fondsId: string) =>
+  useApiMutation({
+    aufruf: (organisationId: string) => ausFonds(zeichnungenApi[":organizationId"].$delete, { param: { fondsId, organisationId } }),
+    invalidiert: () => [schluessel.fonds], // Liste (Abdeckung) und Zeichnungen des Fonds
   });
 
 const closingApi = api.api.v1.funds[":fundId"]["investor-access"].closings;

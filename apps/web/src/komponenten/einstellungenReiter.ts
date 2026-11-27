@@ -4,7 +4,7 @@ import { alle } from "../erweiterung";
 import type { Texte } from "../i18n";
 import { useSichtbar } from "../lib/bereiche";
 
-/** Die Reiter der persönlichen Einstellungen des Kerns in fester Reihenfolge; sie liegen alle auf `/einstellungen/postfach`. */
+/** Die Reiter der persönlichen Einstellungen des Kerns in fester Reihenfolge; sie liegen alle auf `/settings/mailbox`. */
 export const EINSTELLUNGEN_REITER = ["benachrichtigungen", "postfach", "kalender", "darstellung", "sicherheit"] as const;
 export type KernReiter = (typeof EINSTELLUNGEN_REITER)[number];
 
@@ -20,7 +20,7 @@ function alleReiter(): string[] {
   return liste;
 }
 
-/** Ziel eines Reiters mit eigener Seite (Erweiterung); `undefined` für die Reiter auf `/einstellungen/postfach`. */
+/** Ziel eines Reiters mit eigener Seite (Erweiterung); `undefined` für die Reiter auf `/settings/mailbox`. */
 export const eigeneSeite = (id: string): string | undefined => alle("einstellungenReiter").find((r) => r.id === id)?.ziel;
 
 /** Reiter ohne Bereichsrecht (Postfach ohne Kontakte) entfallen, siehe `lib/bereiche.ts`. */

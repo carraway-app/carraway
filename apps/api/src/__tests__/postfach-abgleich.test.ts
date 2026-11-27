@@ -255,7 +255,7 @@ describe("Dubletten, Ausschluss, Löschen", () => {
   it("Nutzer entfernt eine Mail: sie verschwindet, kommt nicht wieder, Protokoll ohne Betreff; nur die Besitzerin darf entfernen", async () => {
     await verbinde(vera, "mail");
     const a = new FakeAnbieter();
-    a.mails = [mail({ von: "anna@alpha.example.com", an: [EIGENE], betreff: "Privat gemeint" })];
+    a.mails = [mail({ von: "info@beta.example.com", an: [EIGENE], betreff: "Privat gemeint" })];
     await gleicheAb(db, syncOpt(a));
     const [x] = await aktivitaeten();
     const entfernen = (als: Testperson, id: string) => t.request(`/aktivitaeten/${id}/sync-entfernen`, { method: "POST", als });
@@ -267,6 +267,7 @@ describe("Dubletten, Ausschluss, Löschen", () => {
     expect(await aktivitaeten()).toHaveLength(1);
 
     expect((await entfernen(vera, x!.id)).status).toBe(204);
+    expect((await db.execute(sql`SELECT fonds_id FROM aenderung WHERE aktion = 'loeschen' AND datensatz_id = ${x!.id}`)).rows).toEqual([{ fonds_id: ID.fonds }]);
     expect(await aktivitaeten()).toHaveLength(0);
     expect(await herkunft()).toHaveLength(0);
     expect(await db.select().from(s.syncAusschluss)).toHaveLength(1);
@@ -283,6 +284,19 @@ describe("Dubletten, Ausschluss, Löschen", () => {
     const protokoll = JSON.stringify((await db.execute(sql`SELECT aktion, vorher, nachher FROM aenderung WHERE tabelle = 'aktivitaet' ORDER BY am, id`)).rows);
     expect(protokoll).toContain("loeschen");
     expect(protokoll).not.toMatch(/Privat gemeint/);
+  });
+
+  it("ordnet frühere Löschzeilen ohne Fonds-ID dem protokollierten Deal zu", async () => {
+    const datensatz = crypto.randomUUID();
+    await db.execute(sql`INSERT INTO aenderung (akteur, aktion, tabelle, datensatz_id, vorher)
+      VALUES ('test', 'loeschen', 'aktivitaet', ${datensatz}, jsonb_build_object('dealId', ${DEAL_B}::text))`);
+    const sichtbar = async (als: Testperson) => {
+      const feed = await t.request("/changes?table=aktivitaet", { als });
+      expect(feed.status).toBe(200);
+      return (await json(feed)).data.some((e: { recordId: string }) => e.recordId === datensatz);
+    };
+    expect(await sichtbar(vera)).toBe(true);
+    expect(await sichtbar(nurAnderer)).toBe(false);
   });
 
   it("manuell angelegte Aktivitäten lassen sich so nicht entfernen (409 not_synced_activity)", async () => {
@@ -331,7 +345,7 @@ describe("Kalender", () => {
   it("Änderungen am Termin aktualisieren dieselbe Aktivität (kein zweiter Eintrag); Absage entfernt sie", async () => {
     await verbinde(vera, "kalender");
     const a = new FakeAnbieter();
-    const t1 = termin({ titel: "Erstgespräch", teilnehmer: [EIGENE, "anna@alpha.example.com"] });
+    const t1 = termin({ titel: "Erstgespräch", teilnehmer: [EIGENE, "info@beta.example.com"] });
     a.termine = [t1];
     await gleicheAb(db, syncOpt(a));
     const [erste] = await aktivitaeten();
@@ -354,6 +368,7 @@ describe("Kalender", () => {
     t1.abgesagt = true;
     await faellig();
     await gleicheAb(db, syncOpt(a));
+    expect((await db.execute(sql`SELECT fonds_id FROM aenderung WHERE aktion = 'loeschen' AND datensatz_id = ${erste!.id}`)).rows).toEqual([{ fonds_id: ID.fonds }]);
     expect(await aktivitaeten()).toHaveLength(0);
     expect(await herkunft()).toHaveLength(0);
   });

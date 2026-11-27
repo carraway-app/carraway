@@ -4,11 +4,12 @@ import { and, asc, eq, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import { anteilsklasse, finanzierungsrunde, rundenposition, type Db } from "@carraway/db";
-import { Decimal, wasserfall, wasserfallKnicke, wasserfallKurve } from "@carraway/rechenkern";
+import { Decimal, wasserfall, wasserfallKnicke, wasserfallKurve, type Rechenschritt } from "@carraway/rechenkern";
 import { aktuellerAkteur } from "../anmeldung/akteur";
 import { Fachfehler, type Feldfehler } from "../fehler";
 import { ladeOffeneWandlungen, type OffeneWandlungen } from "../kapital/offene-wandlungen";
-import { entschaerfeZeilen, fasseWasserfallZusammen, rechenwegHeikel, schritteFuerAnsicht, sichtbarFuer, verdeckeKapital, verdeckteZeilen } from "../kapital/sichtbarkeit";
+import { entschaerfeZeilen, fasseWasserfallZusammen, rechenwegHeikel, schritteFuerAnsicht, sichtbarFuer, verdeckeKapital, verdeckeZuteilungen, verdeckteZeilen, zuteilungenVerdeckt } from "../kapital/sichtbarkeit";
+import { siehtEinzelzuteilungen } from "./mitarbeiterbeteiligung";
 import { standardSicht } from "../kapital/sicht";
 import { anteilBruch, kernEingabe, ladeBeteiligungKurz, ladeKapital, STAMM_ID, type Halter, type Kapital, type KlasseZeile, type MitarbeiterZeile, type OptionsscheinZeile } from "../kapital/wasserfall";
 import { heute, idParam, ladeOrganisation, MINDESTENS_EIN_FELD, mindestensEins, nurGesetzte, schreibe, textEingabe, type Protokollant } from "../schreiben";
@@ -464,7 +465,10 @@ export function beteiligungKapitalRouten(db: Db) {
         const b = await ladeBeteiligungKurz(tx, id);
         const k = await ladeKapital(tx, b, e.exitdatum);
         verlangeAnteile(k);
-        const v = verdeckteZeilen(k, sichtbarFuer(aktuellerAkteur(c)));
+        const akteur = aktuellerAkteur(c);
+        const v = verdeckteZeilen(k, sichtbarFuer(akteur));
+        // Ohne den Bereich Einzelzuteilungen: Zuteilungen je Pool zusammengefasst.
+        if (!(await siehtEinzelzuteilungen(tx, akteur, b.organisationId))) verdeckeZuteilungen(k, v);
         // Namen verdeckter Zeilen auch in den Rechenschritten anonym.
         const kern = kernEingabe(k, new Set(v.keys()));
         return { kapital: k, verdeckt: v, ergebnis: wasserfall({ exitwert: netto, exitdatum: e.exitdatum, treuhandAnteil: e.treuhandAnteil ?? "0", ...kern }) };
@@ -472,7 +476,9 @@ export function beteiligungKapitalRouten(db: Db) {
       const { wert: roh, schritte: rohSchritte } = ergebnis;
       // Zeilen und Rechenschritte für die Antwort: verdeckte Ausübungen ohne Investition und Präferenz, Rechenweg ohne Einzelwerte verdeckter Zeilen.
       const wert = { ...roh, zeilen: entschaerfeZeilen(roh.zeilen, verdeckt) };
-      const schritte = schritteFuerAnsicht(rohSchritte, verdeckt);
+      const schritte = zuteilungenVerdeckt(verdeckt)
+        ? ([{ zeichen: "", bezeichnung: "Rechenweg nicht sichtbar: Er enthält Einzelzuteilungen der Mitarbeiterbeteiligung, die Sie nicht sehen.", wert: "" }] as Rechenschritt[])
+        : schritteFuerAnsicht(rohSchritte, verdeckt);
       const ausZeilen = wert.zeilen !== roh.zeilen;
       const heikel = rechenwegHeikel(verdeckt);
       const eigene = new Set(kapital.zeilen.filter((z) => z.diesesFonds).map((z) => z.id));
@@ -510,7 +516,9 @@ export function beteiligungKapitalRouten(db: Db) {
               gedeckelt: z.gedeckelt,
               diesesFonds: z.id !== STAMM_ID && eigene.has(z.id),
               mitarbeiter: q.mitarbeiter
-                ? { poolId: q.mitarbeiter.pool.id, pool: q.mitarbeiter.pool.bezeichnung, art: q.mitarbeiter.pool.art, regel: q.mitarbeiter.pool.regel, kategorie: q.mitarbeiter.kategorie, anzahl: q.mitarbeiter.anzahl, basispreis: q.mitarbeiter.basispreis, imGeld: z.imGeld === true }
+                ? verdeckt.has(z.id)
+                  ? { poolId: q.mitarbeiter.pool.id, pool: q.mitarbeiter.pool.bezeichnung, art: q.mitarbeiter.pool.art, regel: q.mitarbeiter.pool.regel, kategorie: null, anzahl: null, basispreis: null, imGeld: z.imGeld === true }
+                  : { poolId: q.mitarbeiter.pool.id, pool: q.mitarbeiter.pool.bezeichnung, art: q.mitarbeiter.pool.art, regel: q.mitarbeiter.pool.regel, kategorie: q.mitarbeiter.kategorie, anzahl: q.mitarbeiter.anzahl, basispreis: q.mitarbeiter.basispreis, imGeld: z.imGeld === true }
                 : null,
               /** Nicht ausgeübte Optionsscheine: Instrument, Ausübungspreis und ob sie im Geld sind (je Anteil max(0, Betrag je Anteil − Ausübungspreis)). */
               optionsschein: q.optionsschein ? { instrumentId: q.optionsschein.instrumentId, ausuebungspreis: q.optionsschein.ausuebungspreis, laufzeitBis: q.optionsschein.laufzeitBis, imGeld: z.imGeld === true } : null,
@@ -556,7 +564,10 @@ export function beteiligungKapitalRouten(db: Db) {
         const k = await ladeKapital(tx, b, exitdatum);
         verlangeAnteile(k);
         if (!k.letzteRunde) throw new Fachfehler(409, "waterfall_no_shares", "The fund holds no shares in this company from financing rounds.");
-        return { k, verdeckt: verdeckteZeilen(k, sichtbarFuer(aktuellerAkteur(c))) };
+        const akteur = aktuellerAkteur(c);
+        const verdeckt = verdeckteZeilen(k, sichtbarFuer(akteur));
+        if (!(await siehtEinzelzuteilungen(tx, akteur, b.organisationId))) verdeckeZuteilungen(k, verdeckt);
+        return { k, verdeckt };
       });
       const { k: antwort, verdeckt } = ergebnisKapital;
       const post = new Decimal(antwort.letzteRunde!.postMoney);
@@ -574,7 +585,7 @@ export function beteiligungKapitalRouten(db: Db) {
       const exitwerte = Array.from({ length: punkteZahl }, (_, i) => rund(bis.times(i).div(punkteZahl - 1)));
       const punkte = wasserfallKurve({ exitdatum, ...kern }, exitwerte, eigene).map((p) => wertMitMal(p.exitwert, p.rueckfluss));
       // Knickpunkte verrieten Ausübungspreise verdeckter Optionsscheine und Ausübungen (siehe `kapital/sichtbarkeit.ts`): dann entfallen sie.
-      const knicke = rechenwegHeikel(verdeckt) ? [] : wasserfallKnicke({ exitdatum, ...kern }, bis);
+      const knicke = rechenwegHeikel(verdeckt) || zuteilungenVerdeckt(verdeckt) ? [] : wasserfallKnicke({ exitdatum, ...kern }, bis);
       const knickWerte = wasserfallKurve({ exitdatum, ...kern }, knicke.map((x) => x.exitwert), eigene);
       return c.json(
         portfolioAnApi({

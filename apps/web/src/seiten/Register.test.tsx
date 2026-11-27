@@ -8,7 +8,7 @@ import { en } from "../i18n/en";
 /** Register am Unternehmen (Etappe 18) mit gespielter API, in beiden Sprachen. Alle Daten sind erfunden. */
 
 const REGISTER = `/api/v1/organisationen/${ORG_A}/register`;
-const url = `/organisationen/${ORG_A}?tab=register`;
+const url = `/organizations/${ORG_A}?tab=register`;
 
 const eintrag = {
   id: "e1",
@@ -65,7 +65,7 @@ describe("Register am Unternehmen", () => {
     expect(diff.getByText("Im Register, nicht in den Stammdaten: Johanna Beispielhalter")).toBeTruthy();
     expect(diff.getByText("In den Stammdaten, nicht im Register: Eva Muster")).toBeTruthy();
     expect(r.getByText(/Beispielfonds I: Insolvenz vom 02\.11\.2026/)).toBeTruthy();
-    expect(r.getByRole("link", { name: "Insolvenz an der Beteiligung erfassen" }).getAttribute("href")).toBe(`/beteiligungen/${BET_ID}#abschnitt-instrument`);
+    expect(r.getByRole("link", { name: "Insolvenz an der Beteiligung erfassen" }).getAttribute("href")).toBe(`/investments/${BET_ID}#abschnitt-instrument`);
     expect(within(r.getByRole("region", { name: "Bekanntmachungen" })).getByText("Eröffnung des Verfahrens (Beispiel).")).toBeTruthy();
     expect(within(r.getByRole("region", { name: "Verlauf der Registerdaten" })).getByText("Musterhausen")).toBeTruthy();
     expect(r.getByText("Es ist kein Anbieter eingerichtet; die Beobachtung hat derzeit keine Wirkung.")).toBeTruthy();
@@ -172,7 +172,7 @@ describe("Hinweis auf der Beteiligung", () => {
 
   it("verweist auf den Ablauf, ohne zu buchen", async () => {
     const api = spieleApi({ [`/api/v1/beteiligungen/${BET_ID}/register-hinweise`]: { koerper: { daten: [hinweis] } } });
-    rendereApp(`/beteiligungen/${BET_ID}`);
+    rendereApp(`/investments/${BET_ID}`);
     expect(await screen.findByText(/Registerhinweis: Insolvenz vom 02\.11\.2026/)).toBeTruthy();
     // Der Hinweis führt zum Insolvenzablauf im Abschnitt Instrument derselben Seite, nicht zum Unternehmen.
     const link = screen.getByRole("link", { name: "Insolvenz an der Beteiligung erfassen" });
@@ -183,19 +183,19 @@ describe("Hinweis auf der Beteiligung", () => {
 
   it("führt bei einer Kapitalerhöhung zur Rundenerfassung am Unternehmen", async () => {
     spieleApi({ [`/api/v1/beteiligungen/${BET_ID}/register-hinweise`]: { koerper: { daten: [{ ...hinweis, art: "kapitalerhoehung", aktion: "runde" }] } } });
-    rendereApp(`/beteiligungen/${BET_ID}`);
+    rendereApp(`/investments/${BET_ID}`);
     const link = await screen.findByRole("link", { name: "Runde am Unternehmen erfassen" });
-    expect(link.getAttribute("href")).toMatch(/^\/organisationen\/.+#runden-titel$/);
+    expect(link.getAttribute("href")).toMatch(/^\/organizations\/.+#runden-titel$/);
   });
 
   it("zeigt in Englisch den übersetzten Hinweis und ohne Hinweise nichts", async () => {
     localStorage.setItem("carraway.sprache", "en");
     spieleApi({ [`/api/v1/beteiligungen/${BET_ID}/register-hinweise`]: { koerper: { daten: [hinweis] } } });
-    const { unmount } = rendereApp(`/beteiligungen/${BET_ID}`);
+    const { unmount } = rendereApp(`/investments/${BET_ID}`);
     expect(await screen.findByText(/Register note: Insolvency of 02\/11\/2026/)).toBeTruthy();
     unmount();
     spieleApi({ [`/api/v1/beteiligungen/${BET_ID}/register-hinweise`]: { koerper: { daten: [] } } });
-    rendereApp(`/beteiligungen/${BET_ID}`);
+    rendereApp(`/investments/${BET_ID}`);
     await screen.findByRole("heading", { level: 1 });
     expect(screen.queryByText(/Register note/)).toBeNull();
   });

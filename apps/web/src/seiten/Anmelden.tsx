@@ -9,7 +9,7 @@ import { FehlerHinweis } from "../komponenten/FehlerHinweis";
 import { useT } from "../i18n";
 import { alle } from "../erweiterung";
 
-const route = getRouteApi("/anmelden");
+const route = getRouteApi("/sign-in");
 
 /** Nur die Form einer Adresse; ob ein Konto dazu besteht, erfährt die Seite nie vor dem Passwort. */
 const GUELTIGE_ADRESSE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -22,10 +22,10 @@ const GUELTIGE_ADRESSE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export function AnmeldenSeite() {
   const t = useT();
   const a = t.anmeldung;
-  const { weiter, eingerichtet } = route.useSearch();
+  const { weiter, eingerichtet, zweiterFaktor } = route.useSearch();
   const abschliessen = useAnmeldungAbschliessen();
   const { data: umgebung } = useQuery(umgebungAbfrage());
-  const [schritt, setSchritt] = useState<"email" | "passwort" | "code">("email");
+  const [schritt, setSchritt] = useState<"email" | "passwort" | "code">(zweiterFaktor ? "code" : "email");
   const [wiederherstellung, setWiederherstellung] = useState(false);
   const [werte, setWerte] = useState({ email: "", passwort: "", code: "" });
   const [emailFehler, setEmailFehler] = useState(false);
@@ -100,7 +100,7 @@ export function AnmeldenSeite() {
         <form className="app-formular" onSubmit={code} noValidate>
           <FehlerHinweis fehler={fehler} />
           {wiederherstellung ? (
-            <Feld
+            <Feld zugang
               key="wiederherstellung"
               label={a.wiederherstellungsCode}
               name="code"
@@ -165,14 +165,14 @@ export function AnmeldenSeite() {
           <FehlerHinweis fehler={fehler} />
           {/* Für Passwortmanager: Die Adresse bleibt als Benutzername im Formular, auch wenn sie oben nur gelesen wird. */}
           <input type="email" name="email" className="cw-nur-lesen" tabIndex={-1} aria-hidden="true" autoComplete="username" value={werte.email} readOnly />
-          <Feld label={a.passwort} name="passwort" type="password" value={werte.passwort} onChange={(e) => setWerte((alt) => ({ ...alt, passwort: e.target.value }))} autoComplete="current-password" required autoFocus />
+          <Feld zugang label={a.passwort} name="passwort" type="password" value={werte.passwort} onChange={(e) => setWerte((alt) => ({ ...alt, passwort: e.target.value }))} autoComplete="current-password" required autoFocus />
           <Button type="submit" disabled={laeuft || werte.passwort === ""}>
             {laeuft ? a.laeuft : a.anmelden}
           </Button>
         </form>
         {umgebung?.anmeldung.passwortZuruecksetzen ? (
           <p className="app-leer-text app-auth__fuss">
-            <Link to="/passwort-vergessen">{a.passwortVergessen}</Link>
+            <Link to="/forgot-password">{a.passwortVergessen}</Link>
           </p>
         ) : null}
         {weitereWege.map((Weg, i) => (
@@ -190,7 +190,7 @@ export function AnmeldenSeite() {
       </h1>
       {eingerichtet ? <Hinweis>{a.eingerichtet}</Hinweis> : null}
       <form className="app-formular" onSubmit={adresse} noValidate>
-        <Feld
+        <Feld zugang
           label={a.email}
           name="email"
           type="email"
@@ -208,7 +208,7 @@ export function AnmeldenSeite() {
       </form>
       {umgebung?.einrichtungOffen ? (
         <p className="app-leer-text app-auth__fuss">
-          {a.neueInstallation} <Link to="/einrichtung">{a.einrichten}</Link>
+          {a.neueInstallation} <Link to="/setup">{a.einrichten}</Link>
         </p>
       ) : null}
     </section>

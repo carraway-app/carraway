@@ -1,7 +1,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
-import { BET_ID, FONDS_ID, fehler, rendereApp, spieleApi, uebersichtDaten } from "../test/hilfen";
+import { BET_ID, FONDS_ID, fehler, rendereApp, spieleApi, uebersichtDaten, feldImStichtagMenue } from "../test/hilfen";
 
 const betraege = (fonds: string, lokal: string | null, vergleich: string | null) => ({ fonds, lokal, vergleich });
 const sicht = (vergleich: string | null = null) => ({
@@ -27,8 +27,10 @@ describe("Währungssicht an der Beteiligung", () => {
       [`/api/v1/beteiligungen/${BET_ID}/waehrungssicht`]: (a) => ({ koerper: sicht(a.query.get("vergleich")) }),
       "/api/v1/wechselkurse/waehrungen": { koerper: waehrungenListe },
     });
-    rendereApp(`/beteiligungen/${BET_ID}`);
+    rendereApp(`/investments/${BET_ID}`);
     const nutzer = userEvent.setup();
+    // Die Währungssicht steht im Stichtag-Menü des Kopfs, unter Stichtag und Wissensstand.
+    await feldImStichtagMenue();
     const leiste = await screen.findByRole("region", { name: "Währungssicht" });
     // Standard: Fondswährung, die Zahlen der Kennzahlen
     const kennzahlen = screen.getByRole("region", { name: "Kennzahlen" });
@@ -60,7 +62,7 @@ describe("Währungssicht an der Beteiligung", () => {
       [`/api/v1/beteiligungen/${BET_ID}/waehrungssicht`]: { koerper: eur },
       "/api/v1/wechselkurse/waehrungen": { koerper: { daten: [] } },
     });
-    rendereApp(`/beteiligungen/${BET_ID}`);
+    rendereApp(`/investments/${BET_ID}`);
     expect(await screen.findByRole("heading", { level: 1, name: "Alpha Energie" })).toBeTruthy();
     await waitFor(() => expect(screen.queryByRole("region", { name: "Währungssicht" })).toBeNull());
   });
@@ -69,7 +71,7 @@ describe("Währungssicht an der Beteiligung", () => {
 describe("Währungssicht am Fonds", () => {
   it("zeigt die Vergleichsauswahl nur im Vergleich; ohne verfügbare Währung bleibt sie deaktiviert", async () => {
     spieleApi({ "/api/v1/wechselkurse/waehrungen": { koerper: { daten: [] } } });
-    rendereApp(`/fonds/${FONDS_ID}`);
+    rendereApp(`/funds/${FONDS_ID}`);
     const nutzer = userEvent.setup();
     const leiste = await screen.findByRole("region", { name: "Währungssicht" });
     expect(within(leiste).queryByRole("combobox")).toBeNull();
@@ -85,7 +87,7 @@ describe("Währungssicht am Fonds", () => {
       [`/api/v1/fonds/${FONDS_ID}/uebersicht`]: { koerper: { ...uebersichtDaten, beteiligungen: [] } },
       "/api/v1/wechselkurse/waehrungen": { koerper: waehrungenListe },
     });
-    const { router } = rendereApp(`/fonds/${FONDS_ID}?sicht=vergleich`);
+    const { router } = rendereApp(`/funds/${FONDS_ID}?currencyView=comparison`);
     const nutzer = userEvent.setup();
     expect(await screen.findByRole("heading", { name: "0 Beteiligungen" })).toBeTruthy();
     const leiste = screen.getByRole("region", { name: "Währungssicht" });
@@ -112,7 +114,7 @@ describe("Währungssicht am Fonds", () => {
       [`/api/v1/fonds/${FONDS_ID}/waehrungssicht`]: { koerper: fonds },
       "/api/v1/wechselkurse/waehrungen": { koerper: waehrungenListe },
     });
-    rendereApp(`/fonds/${FONDS_ID}?sicht=lokal`);
+    rendereApp(`/funds/${FONDS_ID}?currencyView=local`);
     const tabelle = await screen.findByRole("table");
     await waitFor(() => expect(within(tabelle).getByText(/1\.080\.000/)).toBeTruthy());
     expect(within(tabelle).getByText(/2\.200\.000/)).toBeTruthy();
@@ -138,7 +140,7 @@ describe("Währungssicht am Fonds", () => {
         };
       },
     });
-    rendereApp(`/fonds/${FONDS_ID}?sicht=vergleich&vergleich=CHF`);
+    rendereApp(`/funds/${FONDS_ID}?currencyView=comparison&comparison=CHF`);
     const nutzer = userEvent.setup();
     const tabelle = within(await screen.findByRole("table"));
     expect(await screen.findByText(/8,1 Mio.*CHF/)).toBeTruthy();
@@ -157,7 +159,7 @@ describe("Währungssicht am Fonds", () => {
   it("lädt Wechselkurse für Beträge erst in der Währungssicht und bietet bei einem Fehler eine Wiederholung an", async () => {
     const fondsSicht = `/api/v1/fonds/${FONDS_ID}/waehrungssicht`;
     const api = spieleApi({ [fondsSicht]: fehler(500, "internal_error") });
-    rendereApp(`/fonds/${FONDS_ID}`);
+    rendereApp(`/funds/${FONDS_ID}`);
     const nutzer = userEvent.setup();
     const leiste = await screen.findByRole("region", { name: "Währungssicht" });
     expect(api.anfragen("GET", fondsSicht)).toHaveLength(0);

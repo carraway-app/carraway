@@ -1,7 +1,7 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
-import { NEUE_ORG_ID, ORG_A, kandidat, aktivitaetDaten, fehler, organisationDaten, rendereApp, spieleApi, wiedervorlageDaten } from "../test/hilfen";
+import { NEUE_ORG_ID, ORG_A, kandidat, aktivitaetDaten, fehler, organisationDaten, rendereApp, spieleApi, wiedervorlageDaten, weitereAktion } from "../test/hilfen";
 
 const LISTE = { id: "11111111-aaaa-4aaa-8aaa-111111111111", name: "Co-Investoren 2026", objekt: "organisation", beschreibung: null, besitzerId: null, eintraege: 3 };
 const abfragen = (api: ReturnType<typeof spieleApi>, objekt = "organisation") => api.anfragen("POST", `/api/v1/crm/objekte/${objekt}/abfrage`);
@@ -9,18 +9,36 @@ const letzte = (api: ReturnType<typeof spieleApi>, objekt = "organisation") => a
 const gitter = (name = "Unternehmen") => screen.findByRole("grid", { name });
 const zelle = (grid: HTMLElement, zeile: number, spalte: number) => grid.querySelector<HTMLElement>(`[data-z="${zeile}:${spalte}"]`)!;
 
+describe("Kontakte: Detailbereich", () => {
+  it("ein Klick auf den Namen öffnet den Datensatz rechts (nicht modal, eigene Adresse); Strg-Klick öffnet weiter die volle Seite", async () => {
+    spieleApi();
+    const { router } = rendereApp("/contacts");
+    const nutzer = userEvent.setup();
+    const grid = await gitter();
+    const link = within(grid).getAllByRole("link", { name: "Alpha Energie" })[0]!;
+    await nutzer.click(link);
+    await waitFor(() => expect(router.state.location.search).toMatchObject({ datensatz: ORG_A }));
+    expect(router.state.location.pathname).toBe("/contacts");
+    const detail = await screen.findByRole("complementary", { name: "Alpha Energie" });
+    expect(within(detail).getByRole("link", { name: "Öffnen" }).getAttribute("href")).toBe(`/organizations/${ORG_A}`);
+    expect(screen.getByRole("grid", { name: "Unternehmen" })).toBeTruthy();
+    fireEvent.keyDown(within(detail).getByRole("button", { name: "Schließen" }), { key: "Escape" });
+    await waitFor(() => expect(router.state.location.search).not.toHaveProperty("datensatz"));
+  });
+});
+
 describe("Kontakte (CRM)", () => {
   it("zeigt Unternehmen, Kontakte und Deals als Tabellen in Reitern", async () => {
     spieleApi();
-    const { router } = rendereApp("/kontakte");
+    const { router } = rendereApp("/contacts");
     const nutzer = userEvent.setup();
     const unternehmen = await gitter();
-    expect(within(unternehmen).getByRole("link", { name: "Alpha Energie" }).getAttribute("href")).toBe(`/organisationen/${ORG_A}`);
+    expect(within(unternehmen).getByRole("link", { name: "Alpha Energie" }).getAttribute("href")).toBe(`/organizations/${ORG_A}`);
     expect(within(unternehmen).getByText("Investor")).toBeTruthy();
 
     await nutzer.click(screen.getByRole("tab", { name: "Kontakte" }));
     const kontakte = await gitter("Kontakte");
-    expect(within(kontakte).getByRole("link", { name: "Anna Berger" }).getAttribute("href")).toBe("/personen/p1");
+    expect(within(kontakte).getByRole("link", { name: "Anna Berger" }).getAttribute("href")).toBe("/people/p1");
     // Verknüpfung zum Unternehmen: Name aus den Bezügen der Antwort, als Link
     expect(within(kontakte).getByRole("link", { name: "Alpha Energie" })).toBeTruthy();
     expect(router.state.location.search).toEqual({ objekt: "person" });
@@ -33,7 +51,7 @@ describe("Kontakte (CRM)", () => {
 
   it("sucht serverseitig und trägt die Suche in die URL ein", async () => {
     const api = spieleApi();
-    const { router } = rendereApp("/kontakte");
+    const { router } = rendereApp("/contacts");
     const nutzer = userEvent.setup();
     await gitter();
     await nutzer.type(screen.getByLabelText("Suche"), "alp");
@@ -45,7 +63,7 @@ describe("Kontakte (CRM)", () => {
 
   it("zeigt Mail, Telefon und Adressen als Schnellaktionen und kopiert die Adresse", async () => {
     spieleApi();
-    rendereApp("/kontakte");
+    rendereApp("/contacts");
     const nutzer = userEvent.setup();
     const grid = await gitter();
     const mail = within(grid).getByRole("link", { name: "E-Mail an Alpha Energie" });
@@ -61,7 +79,7 @@ describe("Kontakte (CRM)", () => {
 
   it("bedient die Tabelle mit der Tastatur: Pfeile, Eingabe bearbeitet die Zelle, Escape verwirft", async () => {
     const api = spieleApi({ [`PATCH /api/v1/crm/datensaetze/organisation/${ORG_A}`]: { koerper: { id: ORG_A } } });
-    rendereApp("/kontakte");
+    rendereApp("/contacts");
     const nutzer = userEvent.setup();
     const grid = await gitter();
     zelle(grid, 0, 0).focus();
@@ -88,7 +106,7 @@ describe("Kontakte (CRM)", () => {
 
   it("zeigt Fehler beim Speichern einer Zelle (400 field_value_invalid)", async () => {
     spieleApi({ [`PATCH /api/v1/crm/datensaetze/organisation/${ORG_A}`]: () => fehler(400, "field_value_invalid", { felder: [{ feld: "website", code: "invalid_value", meldung: "x" }] }) });
-    rendereApp("/kontakte");
+    rendereApp("/contacts");
     const nutzer = userEvent.setup();
     const grid = await gitter();
     zelle(grid, 0, 2).focus();
@@ -99,7 +117,7 @@ describe("Kontakte (CRM)", () => {
 
   it("sortiert über den Spaltenkopf und merkt es in aria-sort", async () => {
     const api = spieleApi();
-    rendereApp("/kontakte");
+    rendereApp("/contacts");
     const nutzer = userEvent.setup();
     const grid = await gitter();
     await nutzer.click(within(grid).getByRole("button", { name: "Name" }));
@@ -111,7 +129,7 @@ describe("Kontakte (CRM)", () => {
 
   it("filtert mit Bedingungen und Gruppen und schickt sie an den Server", async () => {
     const api = spieleApi();
-    rendereApp("/kontakte");
+    rendereApp("/contacts");
     const nutzer = userEvent.setup();
     await gitter();
     await nutzer.click(screen.getByRole("button", { name: "Filter" }));
@@ -143,7 +161,7 @@ describe("Kontakte (CRM)", () => {
       "/api/v1/crm/ansichten": { koerper: { daten: [{ id: ANSICHT, objekt: "organisation", listeId: null, name: "Berliner", art: "tabelle", konfig, besitzerId: "x", geteilt: true, standard: false, eigene: false, bearbeitbar: false }] } },
       "POST /api/v1/crm/ansichten": { status: 201, koerper: { id: "33333333-cccc-4ccc-8ccc-333333333333" } },
     });
-    const { router } = rendereApp("/kontakte");
+    const { router } = rendereApp("/contacts");
     const nutzer = userEvent.setup();
     await gitter();
     await nutzer.selectOptions(screen.getByLabelText("Ansicht"), `Berliner (geteilt)`);
@@ -167,7 +185,7 @@ describe("Kontakte (CRM)", () => {
       "/api/v1/crm/listen": { koerper: { daten: [LISTE] } },
       "POST /api/v1/crm/objekte/organisation/massenaktion": { koerper: { erfolgreich: 1, hinzugefuegt: 1, fehler: [] } },
     });
-    rendereApp("/kontakte");
+    rendereApp("/contacts");
     const nutzer = userEvent.setup();
     const grid = await gitter();
     await nutzer.click(within(grid).getByRole("checkbox", { name: "Zeile auswählen: Alpha Energie" }));
@@ -184,7 +202,7 @@ describe("Kontakte (CRM)", () => {
 
   it("archiviert nur nach Bestätigung und meldet abgelehnte Datensätze mit Grund", async () => {
     const api = spieleApi({ "POST /api/v1/crm/objekte/organisation/massenaktion": { koerper: { erfolgreich: 0, hinzugefuegt: 0, fehler: [{ id: ORG_A, code: "record_referenced" }] } } });
-    rendereApp("/kontakte");
+    rendereApp("/contacts");
     const nutzer = userEvent.setup();
     const grid = await gitter();
     await nutzer.click(within(grid).getByRole("checkbox", { name: "Alle Zeilen auswählen" }));
@@ -201,10 +219,10 @@ describe("Kontakte (CRM)", () => {
       "/api/v1/crm/objekte/organisation/felder": () => ({ koerper: { daten: [] } }),
       "POST /api/v1/crm/felder": { status: 201, koerper: { id: "f1" } },
     });
-    rendereApp("/kontakte");
+    rendereApp("/contacts");
     const nutzer = userEvent.setup();
     await gitter();
-    await nutzer.click(screen.getByRole("button", { name: "Felder verwalten" }));
+    await weitereAktion("Felder verwalten");
     const panel = await screen.findByRole("dialog", { name: "Eigene Felder" });
     await nutzer.click(await within(panel).findByRole("button", { name: "Neues Feld" }));
     await nutzer.type(within(panel).getByLabelText("Name des Feldes"), "Temperatur");
@@ -229,10 +247,10 @@ describe("Kontakte (CRM)", () => {
       "POST /api/v1/crm/import/vorschau": { koerper: { zusammenfassung: { zeilen: 2, neu: 1, dubletten: 1, fehler: 0, leer: 0 }, zeilen: [{ zeile: 2, status: "neu", name: "Neu GmbH", fehler: [] }, { zeile: 3, status: "dublette", name: "Alpha Energie", dublette: { id: ORG_A, name: "Alpha Energie", score: 1 }, fehler: [] }] } },
       "POST /api/v1/crm/import": { koerper: { zusammenfassung: { zeilen: 2, angelegt: 1, aktualisiert: 0, uebersprungen: 1, fehler: 0, leer: 0 }, zeilen: [{ zeile: 2, status: "angelegt", name: "Neu GmbH", fehler: [] }, { zeile: 3, status: "uebersprungen", name: "Alpha Energie", fehler: [] }] } },
     });
-    rendereApp("/kontakte");
+    rendereApp("/contacts");
     const nutzer = userEvent.setup();
     await gitter();
-    await nutzer.click(screen.getByRole("button", { name: "Import" }));
+    await weitereAktion("Import");
     const panel = await screen.findByRole("dialog", { name: "CSV-Import mit Zuordnung" });
     const csv = "Name;Ort;Notizen\nNeu GmbH;Köln;x\nAlpha Energie;Hamburg;y\n";
     const text = within(panel).getByLabelText("Oder CSV-Text einfügen");
@@ -264,7 +282,7 @@ describe("Kontakte (CRM)", () => {
           : fehler(409, "possible_duplicate", { kandidaten: [kandidat] }),
       [`/api/v1/organisationen/${NEUE_ORG_ID}`]: { koerper: { ...organisationDaten, id: NEUE_ORG_ID, name: "Alpha Energie GmbH" } },
     });
-    const { router } = rendereApp("/kontakte");
+    const { router } = rendereApp("/contacts");
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Neues Unternehmen" }));
     const dialog = await screen.findByRole("dialog", { name: "Neue Organisation" });
@@ -276,16 +294,16 @@ describe("Kontakte (CRM)", () => {
     await nutzer.click(within(dialog).getByRole("button", { name: "Organisation anlegen" }));
     const bestaetigung = await within(dialog).findByRole("alert");
     expect(within(bestaetigung).getByText("Es gibt bereits ähnliche Organisationen.")).toBeTruthy();
-    expect(router.state.location.pathname).toBe("/kontakte");
+    expect(router.state.location.pathname).toBe("/contacts");
 
     await nutzer.click(within(dialog).getByRole("button", { name: "Trotzdem neu anlegen" }));
     expect(await screen.findByRole("heading", { level: 1, name: "Alpha Energie GmbH" })).toBeTruthy();
-    expect(router.state.location.pathname).toBe(`/organisationen/${NEUE_ORG_ID}`);
+    expect(router.state.location.pathname).toBe(`/organizations/${NEUE_ORG_ID}`);
   });
 
   it("legt einen Kontakt ohne Unternehmen an", async () => {
     const api = spieleApi({ "POST /api/v1/personen": { status: 201, koerper: { id: "p9" } } });
-    rendereApp("/kontakte?objekt=person");
+    rendereApp("/contacts?object=person");
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Neuer Kontakt" }));
     const dialog = await screen.findByRole("dialog", { name: "Person hinzufügen" });
@@ -305,7 +323,7 @@ describe("Kontakte (CRM)", () => {
         return { koerper: { ...aktivitaetDaten, wiedervorlageErledigtAm: "2026-10-02T08:00:00.000Z" } };
       },
     });
-    rendereApp("/kontakte?objekt=heute");
+    rendereApp("/contacts?object=today");
     const nutzer = userEvent.setup();
     expect(await screen.findByText("Erstes Gespräch")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Alpha, Wachstum" }).getAttribute("href")).toBe("/deals/d1");
@@ -318,7 +336,7 @@ describe("Kontakte (CRM)", () => {
   it("ist auch auf Englisch vollständig", async () => {
     localStorage.setItem("carraway.sprache", "en");
     spieleApi();
-    rendereApp("/kontakte");
+    rendereApp("/contacts");
     expect(await screen.findByRole("heading", { level: 1, name: "Contacts" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "New company" })).toBeTruthy();
     const grid = await screen.findByRole("grid", { name: "Companies" });

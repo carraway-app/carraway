@@ -1,6 +1,6 @@
-import { useCallback, useRef } from "react";
+import { useCallback } from "react";
 
-/** Reiter stehen in der Adresse: `?tab=…` für die erste Stufe, `?unter=…` für die zweite. Ein Wechsel ist ein neuer Verlaufseintrag (Zurück-Knopf). */
+/** Reiter stehen in der Adresse: `?tab=…` für die erste Stufe, `?subtab=…` für die zweite. Ein Wechsel ist ein neuer Verlaufseintrag (Zurück-Knopf). */
 export interface TabSuche {
   tab?: string;
   unter?: string;
@@ -38,7 +38,7 @@ export function useTabs<T extends string>(suche: TabSuche, navigate: unknown, ta
   return { tab, unter, setzeTab, setzeUnter };
 }
 
-/** Ein Eintrag des Inhaltsverzeichnisses mit seinem Ziel in der Adresse (`tab`, bei Bedarf `unter`, mit den bisherigen Kennungen). Der erste Eintrag ist der Standard. */
+/** Ein Ort oder Bereich einer Seite mit seinem Ziel in der Adresse (`tab`, bei Bedarf `unter`, mit den bisherigen Kennungen). Der erste Eintrag ist der Standard. */
 export interface InhaltsEintrag {
   id: string;
   tab: string;
@@ -52,28 +52,4 @@ export function aktiverEintrag<E extends InhaltsEintrag>(suche: TabSuche, eintra
   const tab = suche.tab ?? erster.tab;
   const genau = eintraege.find((e) => e.tab === tab && e.unter === suche.unter);
   return genau ?? eintraege.find((e) => e.tab === tab) ?? erster;
-}
-
-/**
- * Zustand eines Inhaltsverzeichnisses aus denselben Suchparametern wie `useTabs` (`?tab=…&unter=…`), damit bestehende Links und Aliasse gelten.
- * Ein Wechsel schreibt `tab` und `unter` in einer Navigation (neuer Verlaufseintrag); Standardwerte bleiben aus der Adresse.
- */
-export function useInhalt(suche: TabSuche, navigate: unknown, eintraege: readonly InhaltsEintrag[]) {
-  const aktiv = aktiverEintrag(suche, eintraege)?.id ?? "";
-  const nav = navigate as Navigiere;
-  const liste = useRef(eintraege);
-  liste.current = eintraege;
-  const setzeAktiv = useCallback(
-    (id: string) => {
-      const alle = liste.current;
-      const ziel = alle.find((e) => e.id === id);
-      const erster = alle[0];
-      if (!ziel || !erster) return;
-      const tab = ziel.tab === erster.tab ? undefined : ziel.tab;
-      const unter = ziel === erster ? undefined : ziel.unter;
-      void nav({ search: (alt) => ({ ...alt, tab, unter }) });
-    },
-    [nav],
-  );
-  return { aktiv, setzeAktiv };
 }

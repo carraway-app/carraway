@@ -48,7 +48,7 @@ describe("Verbindungen: Zeilenaktionen", () => {
 
   it("ändert Funktion und Zeitraum einer Beschäftigung", async () => {
     const api = spieleApi({ ...seite, "PATCH /api/v1/crm/beschaeftigungen/b1": { koerper: { id: "b1" } } });
-    rendereApp(`/organisationen/${ORG_A}`);
+    rendereApp(`/organizations/${ORG_A}`);
     const nutzer = userEvent.setup();
     const tabelle = await screen.findByRole("region", { name: "Kontakte des Unternehmens" });
     await within(tabelle).findByText("Eva Muster");
@@ -67,7 +67,7 @@ describe("Verbindungen: Zeilenaktionen", () => {
 
   it("löst eine Verknüpfung erst nach Bestätigung", async () => {
     const api = spieleApi({ ...seite, "DELETE /api/v1/crm/beschaeftigungen/b1": { status: 204, koerper: null } });
-    rendereApp(`/organisationen/${ORG_A}`);
+    rendereApp(`/organizations/${ORG_A}`);
     const nutzer = userEvent.setup();
     const tabelle = await screen.findByRole("region", { name: "Kontakte des Unternehmens" });
     await within(tabelle).findByText("Eva Muster");
@@ -84,7 +84,7 @@ describe("Verbindungen: Zeilenaktionen", () => {
       ...seite,
       "/api/v1/me": alsRolle("betrachter"),
     });
-    rendereApp(`/organisationen/${ORG_A}`);
+    rendereApp(`/organizations/${ORG_A}`);
     const tabelle = await screen.findByRole("region", { name: "Kontakte des Unternehmens" });
     await within(tabelle).findByText("Eva Muster");
     expect(within(tabelle).getByText("Gründung")).toBeTruthy();
@@ -104,12 +104,12 @@ describe("Verbindungen: Zeilenaktionen", () => {
         return rollenVersuche === 1 ? { status: 409, koerper: { error: { code: "ROLLE_BEREITS_VORHANDEN", message: "x" } } } : { status: 201, koerper: { id: "r9" } };
       },
     });
-    rendereApp(`/organisationen/${ORG_A}`);
+    rendereApp(`/organizations/${ORG_A}`);
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Kontakt verknüpfen" }));
     const dialog = await screen.findByRole("dialog", { name: "Kontakt verknüpfen" });
-    await nutzer.type(within(dialog).getByLabelText("Kontakt suchen"), "max");
-    await nutzer.click(await within(dialog).findByRole("button", { name: /^Max Neu/ }));
+    await nutzer.type(within(dialog).getByRole("combobox", { name: "Kontakt suchen" }), "max");
+    await nutzer.click(await within(dialog).findByRole("option", { name: /^Max Neu/ }));
     await nutzer.selectOptions(within(dialog).getByLabelText("Rolle (optional)"), "berater");
     await nutzer.click(within(dialog).getByRole("button", { name: "Verknüpfen" }));
     await within(dialog).findByRole("alert");
@@ -124,15 +124,14 @@ describe("Verbindungen: Zeilenaktionen", () => {
       "/api/v1/suche": { koerper: { q: "eva", organisationen: [], personen: [{ id: "p1", vorname: "Eva", nachname: "Muster", email: null, telefon: null, linkedin: null, organisation: null, score: 1 }], deals: [] } },
       "POST /api/v1/crm/beschaeftigungen": { status: 201, koerper: { id: "b9" } },
     });
-    rendereApp(`/organisationen/${ORG_A}`);
+    rendereApp(`/organizations/${ORG_A}`);
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Kontakt verknüpfen" }));
     const dialog = await screen.findByRole("dialog", { name: "Kontakt verknüpfen" });
-    expect(within(dialog).queryByRole("status")).toBeNull();
-    await nutzer.type(within(dialog).getByLabelText("Kontakt suchen"), "eva");
-    await nutzer.click(await within(dialog).findByRole("button", { name: /^Eva Muster/ }));
-    const hinweis = await within(dialog).findByRole("status");
-    expect(hinweis.textContent).toContain("Diese Verbindung besteht bereits");
+    expect(within(dialog).queryByText(/Diese Verbindung besteht bereits/)).toBeNull();
+    await nutzer.type(within(dialog).getByRole("combobox", { name: "Kontakt suchen" }), "eva");
+    await nutzer.click(await within(dialog).findByRole("option", { name: /^Eva Muster/ }));
+    expect(await within(dialog).findByText(/Diese Verbindung besteht bereits/)).toBeTruthy();
     expect(within(dialog).getAllByText(/Geschäftsführung/).length).toBeGreaterThan(0);
     // Trotzdem verknüpfen (zweiter Zeitraum) bleibt möglich
     await nutzer.type(within(dialog).getByLabelText("Seit (optional)"), "2024-01-01");
@@ -145,12 +144,12 @@ describe("Verbindungen: Zeilenaktionen", () => {
       ...seite,
       "/api/v1/suche": { koerper: { q: "eva", organisationen: [], personen: [{ id: "p1", vorname: "Eva", nachname: "Muster", email: null, telefon: null, linkedin: null, organisation: null, score: 1 }], deals: [] } },
     });
-    rendereApp(`/organisationen/${ORG_A}`);
+    rendereApp(`/organizations/${ORG_A}`);
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Kontakt verknüpfen" }));
     const dialog = await screen.findByRole("dialog", { name: "Kontakt verknüpfen" });
-    await nutzer.type(within(dialog).getByLabelText("Kontakt suchen"), "eva");
-    await nutzer.click(await within(dialog).findByRole("button", { name: /^Eva Muster/ }));
+    await nutzer.type(within(dialog).getByRole("combobox", { name: "Kontakt suchen" }), "eva");
+    await nutzer.click(await within(dialog).findByRole("option", { name: /^Eva Muster/ }));
     await nutzer.click(await within(dialog).findByRole("button", { name: "Bestehende öffnen" }));
     expect(await screen.findByRole("dialog", { name: "Funktion und Zeitraum: Eva Muster" })).toBeTruthy();
   });

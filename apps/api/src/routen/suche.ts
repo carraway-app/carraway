@@ -2,11 +2,11 @@ import { kontaktJson, pruefeKontakt } from "../kontakte/http";
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
-import { deal, organisation, person, type Db } from "@carraway/db";
+import { beteiligung, deal, organisation, organisationArt, person, type Db } from "@carraway/db";
 import { aktuellerAkteur, fuerBereich, hatRolleOhneFonds } from "../anmeldung/akteur";
 import { sucheDokumentSeiten } from "./dokumente";
 import { hatBereich } from "../rechte/bereiche";
-import { dealSichtbar } from "../rechte/sichtbarkeit";
+import { dealSichtbar, fondsSichtbar } from "../rechte/sichtbarkeit";
 import { lese } from "../zeitlimit";
 
 const maskiere = (text: string) => text.replace(/[\\%_]/g, (zeichen) => `\\${zeichen}`);
@@ -24,16 +24,27 @@ const rang = (text: ReturnType<typeof sql>, q: string) =>
 const trifft = (text: ReturnType<typeof sql>, q: string) => sql`(${text} LIKE ${`%${maskiere(q)}%`} OR ${text} % ${q} OR ${q} <% ${text})`;
 
 /**
- * Globale Suche über Organisationen, Personen und Deals, auf dem Server gerankt (pg_trgm), dazu Treffer im Text von Dokumenten
+ * Globale Suche über Organisationen, Personen und Deals (Beteiligungen nur auf ausdrückliche Anfrage, für Suchfelder), auf dem Server gerankt (pg_trgm), dazu Treffer im Text von Dokumenten
  * (Volltext, Seite mit Ausschnitt). Deals und Dokumente fremder Fonds erscheinen nicht; zusammengeführte Organisationen und Personen auch nicht.
  * Jede Gruppe von Treffern verlangt ihren Bereich (Kontakte, Dealflow, Dokumente); ohne ihn bleibt sie leer.
  */
 export function sucheRouten(db: Db) {
   return new Hono().get(
     "/",
-    pruefeKontakt("query", z.object({ q: z.string().trim().min(2).max(100), limit: z.coerce.number().int().min(1).max(20).default(5) })),
+    pruefeKontakt("query", z.object({
+      q: z.string().trim().min(2).max(100),
+      limit: z.coerce.number().int().min(1).max(20).default(5),
+      /** Nur diese Gruppe suchen (Suchfelder für Verknüpfungen); die übrigen Gruppen und Dokumente bleiben leer. */
+      objekt: z.enum(["organisation", "person", "deal", "beteiligung"]).optional(),
+      /** Nur Organisationen dieser Art (z. B. Investoren für LP-Zeichnungen). */
+      art: z.enum(organisationArt.enumValues).optional(),
+      /** Nur Beteiligungen dieses Fonds (Ziel `beteiligung`). */
+      fondsId: z.uuid().optional(),
+    })),
     async (c) => {
-      const { q: roh, limit } = c.req.valid("query");
+      const { q: roh, limit, objekt, art, fondsId } = c.req.valid("query");
+      // Beteiligungen gehören nicht zur globalen Suche; sie erscheinen nur, wenn das Ziel sie nennt.
+      const gruppe = (name: "organisation" | "person" | "deal") => objekt === undefined || objekt === name;
       const q = roh.toLowerCase();
       const akteur = aktuellerAkteur(c);
       // Kontakte haben keinen Fonds: Es genügt der Bereich mit einer Stufe an irgendeinem Fonds oder über eine Gruppe ohne Fonds.
@@ -41,17 +52,17 @@ export function sucheRouten(db: Db) {
       const ergebnis = await lese(db, async (tx) => {
         const orgName = sql`lower(${organisation.name})`;
         const orgRang = rang(orgName, q);
-        const organisationen = await tx
+        const organisationen = !gruppe("organisation") ? [] : await tx
           .select({ id: organisation.id, name: organisation.name, art: organisation.art, ort: organisation.ort, email: organisation.email, telefon: organisation.telefon, website: organisation.website, linkedin: organisation.linkedin, score: orgRang })
           .from(organisation)
-          .where(and(kontakte ? undefined : sql`false`, isNull(organisation.zusammengefuehrtIn), isNull(organisation.archiviertAm), trifft(orgName, q)))
+          .where(and(kontakte ? undefined : sql`false`, isNull(organisation.zusammengefuehrtIn), isNull(organisation.archiviertAm), art ? eq(organisation.art, art) : undefined, trifft(orgName, q)))
           .orderBy(desc(orgRang), organisation.name, organisation.id)
           .limit(limit);
 
         const personName = sql`lower(${person.vorname} || ' ' || ${person.nachname})`;
         const personEmail = sql`lower(coalesce(${person.email}, ''))`;
         const personRang = sql<number>`greatest(${rang(personName, q)}, CASE WHEN ${personEmail} = ${q} THEN 1.5 WHEN ${personEmail} LIKE ${`${maskiere(q)}%`} THEN 0.75 ELSE 0 END)::float8`;
-        const personen = await tx
+        const personen = !gruppe("person") ? [] : await tx
           .select({
             id: person.id,
             vorname: person.vorname,
@@ -70,7 +81,7 @@ export function sucheRouten(db: Db) {
 
         const dealTitel = sql`lower(${deal.titel})`;
         const dealRang = sql<number>`greatest(${rang(dealTitel, q)}, ${rang(orgName, q)} * 0.8)::float8`;
-        const deals = await tx
+        const deals = !gruppe("deal") ? [] : await tx
           .select({
             id: deal.id,
             titel: deal.titel,
@@ -85,9 +96,25 @@ export function sucheRouten(db: Db) {
           .orderBy(desc(dealRang), deal.titel, deal.id)
           .limit(limit);
 
+        // Beteiligungen nur auf ausdrückliche Anfrage und nur an Fonds, an denen die Person den Bereich Portfolio hat.
+        const beteiligungen = objekt !== "beteiligung" ? [] : await tx
+          .select({
+            id: beteiligung.id,
+            fondsId: beteiligung.fondsId,
+            instrument: beteiligung.instrument,
+            status: beteiligung.status,
+            organisation: { id: organisation.id, name: organisation.name, ort: organisation.ort },
+            score: orgRang,
+          })
+          .from(beteiligung)
+          .innerJoin(organisation, eq(organisation.id, beteiligung.organisationId))
+          .where(and(fondsId ? eq(beteiligung.fondsId, fondsId) : undefined, fondsSichtbar(c, beteiligung.fondsId, "portfolio"), isNull(organisation.zusammengefuehrtIn), trifft(orgName, q)))
+          .orderBy(desc(orgRang), organisation.name, beteiligung.id)
+          .limit(limit);
+
         // Bereiche je Fonds: Dokumente nur an Fonds, an denen die Person den Bereich Dokumente hat.
-        const dokumente = hatBereich(akteur, "dokumente") ? await sucheDokumentSeiten(tx, fuerBereich(akteur, "dokumente"), roh, limit) : [];
-        return { organisationen, personen, deals, dokumente };
+        const dokumente = objekt === undefined && hatBereich(akteur, "dokumente") ? await sucheDokumentSeiten(tx, fuerBereich(akteur, "dokumente"), roh, limit) : [];
+        return { organisationen, personen, deals, beteiligungen, dokumente };
       });
       return kontaktJson(
         c,
@@ -96,6 +123,7 @@ export function sucheRouten(db: Db) {
           organisationen: ergebnis.organisationen.map((z) => ({ ...z, score: rund(z.score) })),
           personen: ergebnis.personen.map((z) => ({ ...z, organisation: z.organisation?.id ? z.organisation : null, score: rund(z.score) })),
           deals: ergebnis.deals.map((z) => ({ ...z, score: rund(z.score) })),
+          beteiligungen: ergebnis.beteiligungen.map((z) => ({ ...z, score: rund(z.score) })),
           dokumente: ergebnis.dokumente.map((z) => ({ id: z.dokumentId, dateiname: z.dateiname, klassifikation: z.klassifikation, seite: z.seite, ausschnitt: z.ausschnitt, quelle: z.quelle, score: z.rang })),
         },
         200,

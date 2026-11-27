@@ -56,6 +56,7 @@ export function registerOrganisationRouten(db: Db, anbieter: RegisterAnbieter | 
             hinweise: await ladeHinweise(tx, { organisationId: id, fondsIds: fonds }),
             beobachtung: { aktiv: b?.aktiv ?? false, letztePruefungAm: b?.letztePruefungAm ?? null, letztesErgebnis: b?.letztesErgebnis ?? null },
             auszug,
+            monitoringProvider: ["north-data", "companies-house"].includes(process.env.REGISTER_ANBIETER ?? "") ? process.env.REGISTER_ANBIETER : undefined,
             anbieterEingerichtet: anbieter !== null,
           };
         })),
@@ -96,7 +97,12 @@ export function registerOrganisationRouten(db: Db, anbieter: RegisterAnbieter | 
     .post("/:id/register/apply", pruefePortfolio("param", idParam), pruefePortfolio("json", z.object({ felder: z.array(z.enum(UEBERNAHME_FELDER)).min(1).max(UEBERNAHME_FELDER.length) })), async (c) => {
       const { id } = c.req.valid("param");
       const { felder } = c.req.valid("json");
-      const ergebnis = await schreibe(db, c, (tx, protokoll) => uebernehme(tx, protokoll, id, [...new Set(felder)]));
+      const ergebnis = await schreibe(db, c, async (tx, protokoll) => {
+        if (aktuellerAkteur(c).technisch && (await aktuellerEintrag(tx, id))?.quelle.startsWith("anbieter:")) {
+          throw new Fachfehler(403, "technical_user", "Reviewing a provider record requires a signed-in person.");
+        }
+        return uebernehme(tx, protokoll, id, [...new Set(felder)]);
+      });
       return c.json(portfolioAnApi(ergebnis), 200);
     })
     .put("/:id/register/monitoring", pruefePortfolio("param", idParam), pruefePortfolio("json", z.object({ aktiv: z.boolean() })), async (c) => {

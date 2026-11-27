@@ -14,6 +14,7 @@ import { pruefeSichtEingabe, SICHT_ARTEN, sichtEingabe, sichtParameter, sichtWah
 import { Fachfehler, fehlerAntwort } from "../fehler";
 import { sendeBerichtFreigegeben } from "../mail/benachrichtigung";
 import { pruefeStichtag } from "../instrumente/stichtag";
+import { pruefeZusagenVollstaendig } from "../instrumente/zusagen";
 import { standardStichtag } from "../kennzahlen/fonds";
 import { verlangeAnderenAkteur } from "../instrumente/bewertung";
 import { geaendertSeitBedingung, geaendertSeitEingabe } from "../geaendert";
@@ -153,6 +154,8 @@ export function berichtFreigabeRouten(db: Db, speicher: Speicher = erstelleStand
           const [f] = await tx.select({ id: fonds.id }).from(fonds).where(eq(fonds.id, fondsId));
           if (!f) throw new Fachfehler(404, "fund_not_found", "Fund not found.");
         }
+        // Der LP-Bericht verteilt Kapitalkonten auf die Investoren; unvollständige Zusagen sperren ihn (Issue #275).
+        if (e.art === "lp_bericht") await pruefeZusagenVollstaendig(tx, fondsId!);
         // Arten aus Erweiterungen geben Vorgabe und Prüfung des Stichtags selbst vor (PAI-Erklärung: der 31.12. des letzten abgeschlossenen Jahres).
         // Szenariobericht: nur festgeschriebene Szenarien dieses Fonds; ihr Ergebnis ist gespeichert und unveränderlich, die Auswahl wird mit dem Bericht festgehalten.
         let szenarien: SzenarioZeile[] = [];

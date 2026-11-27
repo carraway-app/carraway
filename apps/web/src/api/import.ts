@@ -14,8 +14,8 @@ export const MAX_UPLOAD = 20 * 1024 * 1024;
 /** Befunde je Seite der Befundtabelle. */
 export const BEFUNDE_JE_SEITE = 100;
 
-export type Blatt = "fonds" | "organisationen" | "personen" | "beteiligungen" | "finanzierungsrunden" | "rundenpositionen" | "vorgaenge" | "bewertungen" | "konditionen" | "fondsbewegungen" | "kontrollsummen";
-export const BLAETTER: readonly Blatt[] = ["fonds", "organisationen", "personen", "beteiligungen", "finanzierungsrunden", "rundenpositionen", "vorgaenge", "bewertungen", "konditionen", "fondsbewegungen", "kontrollsummen"];
+export type Blatt = "fonds" | "organisationen" | "personen" | "beteiligungen" | "finanzierungsrunden" | "rundenpositionen" | "mitarbeiterzuteilungen" | "vorgaenge" | "bewertungen" | "kennzahlen" | "konditionen" | "fondsbewegungen" | "kontrollsummen";
+export const BLAETTER: readonly Blatt[] = ["fonds", "organisationen", "personen", "beteiligungen", "finanzierungsrunden", "rundenpositionen", "mitarbeiterzuteilungen", "vorgaenge", "bewertungen", "kennzahlen", "konditionen", "fondsbewegungen", "kontrollsummen"];
 
 export interface Zaehler {
   zeilen: number;
@@ -25,6 +25,8 @@ export interface Zaehler {
 }
 export interface Kontrollsumme {
   groesse: string;
+  /** Fachschlüssel der Beteiligung bei einer Summe je Beteiligung. */
+  beteiligung?: string;
   quelle: string;
   ist: string | null;
   differenz: string | null;

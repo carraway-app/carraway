@@ -5,6 +5,7 @@ import { erstelleTestApp, legePersonAn, person } from "./hilfen-auth";
 import { sql } from "drizzle-orm";
 import { leeren, oeffneTestdb, vehikelVon } from "./hilfen";
 import { aufrufe, grundbestand, ID, json, protokollZeilen } from "./hilfen-instrumente";
+import { EXPORT_TABELLEN } from "../export/vollexport";
 
 const { db, pool } = oeffneTestdb();
 const { get, post, patch, delete: entferne } = aufrufe(erstelleTestApp(db));
@@ -18,6 +19,8 @@ const betrachterHalter = person("mp-betrachter", { rollen: { [ID.fonds]: "betrac
 const bearbeiterFremd = person("mp-fremd", { rollen: { [ID.anderer]: "bearbeiter" } });
 const nurKontakte = person("mp-nur-kontakte");
 const mitPortfolio = person("mp-portfolio");
+const ohneEinzel = person("mp-ohne-einzel");
+const mitEinzel = person("mp-mit-einzel");
 
 /** Unternehmen A wie im Wasserfall-Test: Seed und Serie A, nach der Serie A 1.250.000 ausgegebene Anteile zu 5 € (Post-Money 6,25 Mio). */
 beforeEach(async () => {
@@ -67,7 +70,9 @@ describe("Pools und Zuteilungen", () => {
     // 16 volle Monate von 48: 1.600 gevestet
     expect(liste.daten[0].zuteilungen[0]).toMatchObject({ gevestet: "1600", beimExit: "1600" });
     expect(liste.daten[0].stand).toMatchObject({ groesse: "100000", ausstehend: "4800", frei: "95200", vollVerwaessert: "100000" });
-    expect((await protokollZeilen(db, "mitarbeiterpool")).length).toBe(1);
+    // Anlegen (grob) und Umstellen auf einzeln mit der ersten Zuteilung.
+    expect(liste.daten[0]).toMatchObject({ erfassung: "einzeln", einzelSichtbar: true });
+    expect((await protokollZeilen(db, "mitarbeiterpool")).map((z) => z.aktion)).toEqual(["anlegen", "aendern"]);
     expect((await protokollZeilen(db, "mitarbeiterzuteilung")).length).toBe(1);
   });
 
@@ -104,6 +109,56 @@ describe("Pools und Zuteilungen", () => {
     expect((await post(pfad, esop, bearbeiterFremd)).status).toBe(403);
     expect((await get(pfad, bearbeiterFremd)).status).toBe(403);
     expect((await get(pfad, betrachterHalter)).status).toBe(200);
+  });
+});
+
+describe("Grobe Erfassung und Wechsel zu einzeln", () => {
+  it("grob: vergebene Einheiten zählen als zugeteilt, höchstens die Größe; Wasserfall mit einer Zeile zum mittleren Basispreis", async () => {
+    const antwort = await post(pfad, { ...esop, vergeben: "60000", basispreisMittel: "1.5" }, bearbeiterHalter);
+    expect(antwort.status).toBe(201);
+    const p = await json(antwort);
+    expect(p).toMatchObject({ erfassung: "grob", vergeben: "60000", basispreisMittel: "1.5000", stand: { groesse: "100000", ausstehend: "60000", frei: "40000", vollVerwaessert: "100000" }, zuteilungen: [] });
+    // Schätzung über der Größe: beim Anlegen, Ändern und Verkleinern abgelehnt
+    expect((await post(pfad, { ...esop, bezeichnung: "Zu groß", vergeben: "100001" }, bearbeiterHalter)).status).toBe(409);
+    expect((await patch(`${pfad}/${p.id}`, { vergeben: "100001" }, bearbeiterHalter)).status).toBe(409);
+    const kleiner = await post(`${pfad}/${p.id}/aenderungen`, { anzahl: "-50000", datum: "2025-06-01" }, bearbeiterHalter);
+    expect(kleiner.status).toBe(409);
+    expect((await json(kleiner)).error.code).toBe("granted_exceeds_pool");
+    const d = await json(await get(`/beteiligungen/${ID.eigen}/kapitaltabelle?stichtag=2026-01-01`, betrachterHalter));
+    expect(d.anteileVollVerwaessert).toBe("1350000");
+    const w = await json(await post(`/beteiligungen/${ID.eigen}/wasserfall`, { exitwert: "12500000", exitdatum: "2026-06-30" }, betrachterHalter));
+    const grob = w.zeilen.filter((z: { mitarbeiter: unknown }) => z.mitarbeiter);
+    expect(grob).toHaveLength(1);
+    expect(grob[0]).toMatchObject({ anteile: "60000", mitarbeiter: { basispreis: "1.5000", anzahl: "60000" } });
+    expect(w.zeilen.reduce((summe: Decimal, z: { gesamt: string }) => summe.plus(z.gesamt), new Decimal(0)).toFixed(2)).toBe("12500000.00");
+  });
+
+  it("Wechsel zu einzeln behält die Schätzung; zurück nur ohne Zuteilungen; neue Angaben je Zuteilung, Name nie im Protokoll", async () => {
+    const p = await json(await post(pfad, { ...esop, vergeben: "60000" }, bearbeiterHalter));
+    const umgestellt = await json(await patch(`${pfad}/${p.id}`, { erfassung: "einzeln" }, bearbeiterHalter));
+    expect(umgestellt).toMatchObject({ erfassung: "einzeln", vergeben: "60000", stand: { ausstehend: "0", frei: "100000" } });
+    const z = await post(
+      `${pfad}/${p.id}/zuteilungen`,
+      { kategorie: "fuehrung", kennung: "B-017", name: "Erika Beispiel", anzahl: "12000", basispreis: "1", zugeteiltAm: "2025-03-01", taktMonate: 3, ausloeser: "doppelt", ausuebungsfristMonate: 6, laufzeitBis: "2026-01-01", beschleunigung: "1" },
+      bearbeiterHalter,
+    );
+    expect(z.status).toBe(201);
+    const zeile = await json(z);
+    expect(zeile).toMatchObject({ kennung: "B-017", name: "Erika Beispiel", taktMonate: 3, ausloeser: "doppelt", ausuebungsfristMonate: 6, laufzeitBis: "2026-01-01", anonymisiertAm: null });
+    // Takt 3: 16 volle Monate bis 31.07.2026 zählen als 15; Laufzeit abgelaufen, Einheiten noch ausstehend
+    const liste = await json(await get(`${pfad}?stichtag=2026-07-31`, betrachterHalter));
+    expect(liste.daten[0].zuteilungen[0]).toMatchObject({ gevestet: "3750", laufzeitAbgelaufen: true });
+    expect(liste.daten[0].stand).toMatchObject({ ausstehend: "12000", frei: "88000" });
+    expect((await post(`${pfad}/${p.id}/zuteilungen`, { kategorie: "fuehrung", anzahl: "1", zugeteiltAm: "2025-03-01", taktMonate: 2 }, bearbeiterHalter)).status).toBe(400);
+    expect((await post(`${pfad}/${p.id}/zuteilungen`, { kategorie: "fuehrung", anzahl: "1", zugeteiltAm: "2025-03-01", laufzeitBis: "2025-01-01" }, bearbeiterHalter)).status).toBe(400);
+    const zurueck = await patch(`${pfad}/${p.id}`, { erfassung: "grob" }, bearbeiterHalter);
+    expect(zurueck.status).toBe(409);
+    expect((await json(zurueck)).error.code).toBe("pool_has_grants");
+    expect((await patch(`${pfad}/${p.id}/zuteilungen/${zeile.id}`, { name: "Erika B." }, bearbeiterHalter)).status).toBe(200);
+    const protokoll = await protokollZeilen(db, "mitarbeiterzuteilung");
+    expect(JSON.stringify(protokoll)).not.toContain("Erika");
+    expect(JSON.stringify(protokoll)).not.toContain("B-017");
+    expect(protokoll.at(-1)).toMatchObject({ nachher: { name: "[hidden]", kennung: "[hidden]", anzahl: "12000" } });
   });
 });
 
@@ -351,6 +406,91 @@ describe("Bereiche je Fonds", () => {
     expect((await get(pfad, mitPortfolio)).status).toBe(200);
     expect((await get(`/organisationen/${ID.orgA}/finanzierungsrunden`, mitPortfolio)).status).toBe(200);
     expect((await post(pfad, { ...esop, bezeichnung: "ESOP P" }, mitPortfolio)).status).toBe(201);
+  });
+});
+
+describe("Beschluss als Dokument", () => {
+  it("verknüpft eine Änderung mit einem Dokument des Unternehmens, fremde Dokumente werden abgelehnt", async () => {
+    const dokument = async (name: string) =>
+      (await db.insert(s.dokument).values({ dateiname: name, sha256: name.padEnd(64, "0"), mime: "application/pdf", groesse: 100, gespeichertUnter: name, hochgeladenVon: "test", hochgeladenAm: new Date("2025-03-01") }).returning())[0]!.id;
+    const eigen = await dokument("beschluss-a");
+    const fremd = await dokument("beschluss-b");
+    await db.insert(s.dokumentVerknuepfung).values([{ dokumentId: eigen, zielTyp: "organisation", zielId: ID.orgA }, { dokumentId: fremd, zielTyp: "organisation", zielId: ID.orgB }]);
+    const p = await json(await post(pfad, { ...esop, dokumentId: eigen }, bearbeiterHalter));
+    expect(p.aenderungen[0]).toMatchObject({ dokumentId: eigen });
+    const abgelehnt = await post(`${pfad}/${p.id}/aenderungen`, { anzahl: "1000", datum: "2025-06-01", dokumentId: fremd }, bearbeiterHalter);
+    expect(abgelehnt.status).toBe(400);
+    expect(JSON.stringify(await json(abgelehnt))).toContain("document_not_linked");
+    const auf = await json(await post(`${pfad}/${p.id}/aenderungen`, { anzahl: "1000", datum: "2025-06-01" }, bearbeiterHalter));
+    expect((await json(await patch(`${pfad}/${p.id}/aenderungen/${auf.id}`, { dokumentId: eigen }, bearbeiterHalter))).dokumentId).toBe(eigen);
+  });
+});
+
+describe("Bereich Einzelzuteilungen", () => {
+  /** Zwei Personen mit Bearbeiter am Fonds: eine nur mit Portfolio, eine mit Portfolio und Einzelzuteilungen. */
+  async function zugaenge() {
+    const ohneId = await legePersonAn(db, ohneEinzel);
+    const mitId = await legePersonAn(db, mitEinzel);
+    const rolle = async (name: string, areas: string[]) => json(await post("/permissions/roles", { name, areas }));
+    const nurPortfolio = await rolle("Nur Portfolio", ["portfolio"]);
+    const auchEinzel = await rolle("Portfolio und Einzelzuteilungen", ["portfolio", "individual_grants"]);
+    const gruppe = (name: string, rolleId: string, mitglied: string) => post("/permissions/groups", { name, level: "editor", fundsRestricted: true, fundIds: [ID.fonds], roleIds: [rolleId], memberIds: [mitglied] });
+    expect((await gruppe("Ohne", nurPortfolio.id, ohneId)).status).toBe(201);
+    expect((await gruppe("Mit", auchEinzel.id, mitId)).status).toBe(201);
+  }
+
+  it("ohne den Bereich: Summen im Pool, keine Zuteilungen, kein Schreiben; Wasserfall je Pool zusammengefasst", async () => {
+    const { poolId, z1 } = await poolMitZuteilungen();
+    await zugaenge();
+    const ohne = await json(await get(`${pfad}?stichtag=2026-06-30`, ohneEinzel));
+    expect(ohne.daten[0]).toMatchObject({ einzelSichtbar: false, zuteilungen: [], stand: { ausstehend: "60000", frei: "40000" } });
+    const mit = await json(await get(`${pfad}?stichtag=2026-06-30`, mitEinzel));
+    expect(mit.daten[0].einzelSichtbar).toBe(true);
+    expect(mit.daten[0].zuteilungen).toHaveLength(2);
+    const neu = { kategorie: "mitarbeitende", kennung: "M-1", anzahl: "100", zugeteiltAm: "2025-04-01" };
+    expect((await post(`${pfad}/${poolId}/zuteilungen`, neu, ohneEinzel)).status).toBe(403);
+    expect((await patch(`${pfad}/${poolId}/zuteilungen/${z1}`, { kennung: "X" }, ohneEinzel)).status).toBe(403);
+    expect((await post(`${pfad}/${poolId}/zuteilungen/${z1}/anonymize`, {}, ohneEinzel)).status).toBe(403);
+    expect((await entferne(`${pfad}/${poolId}/zuteilungen/${z1}`, undefined, ohneEinzel)).status).toBe(403);
+    expect((await post(`${pfad}/${poolId}/zuteilungen`, neu, mitEinzel)).status).toBe(201);
+    // Wasserfall: gleiche Summen, ohne den Bereich nur eine Zeile je Pool ohne Kategorie, Anzahl und Basispreis
+    const wOhne = await json(await post(`/beteiligungen/${ID.eigen}/wasserfall`, { exitwert: "12500000", exitdatum: "2026-06-30" }, ohneEinzel));
+    const wMit = await json(await post(`/beteiligungen/${ID.eigen}/wasserfall`, { exitwert: "12500000", exitdatum: "2026-06-30" }, mitEinzel));
+    const mitarbeiter = (w: { zeilen: { id: string; mitarbeiter: unknown }[] }) => w.zeilen.filter((z) => z.mitarbeiter);
+    expect(mitarbeiter(wOhne)).toHaveLength(1);
+    expect(mitarbeiter(wOhne)[0]).toMatchObject({ id: `zuteilung:verdeckt:${poolId}`, halter: { art: "mitarbeiter", name: "ESOP 2025" }, mitarbeiter: { kategorie: null, anzahl: null, basispreis: null } });
+    expect(mitarbeiter(wMit).length).toBeGreaterThan(1);
+    expect(wOhne.mitarbeiter).toEqual(wMit.mitarbeiter);
+    // Rechenweg und Knickpunkte nennen Basispreise und Einheiten einzelner Zuteilungen: ohne den Bereich entfallen sie
+    expect(wOhne.schritte).toHaveLength(1);
+    expect(wOhne.schritte[0].bezeichnung).toMatch(/Einzelzuteilungen/);
+    expect(wMit.schritte.length).toBeGreaterThan(1);
+    const kurve = (als: typeof ohneEinzel) => get(`/beteiligungen/${ID.eigen}/wasserfall/kurve?exitdatum=2026-06-30&bis=10000000`, als).then(json);
+    expect((await kurve(ohneEinzel)).knicke).toEqual([]);
+    expect((await kurve(mitEinzel)).knicke.length).toBeGreaterThan(0);
+  });
+
+  it("Anonymisieren löscht Name und Kennung, Löschen gibt die Einheiten frei; Export ohne Namen", async () => {
+    const { poolId } = await poolMitZuteilungen();
+    await zugaenge();
+    const z = await json(await post(`${pfad}/${poolId}/zuteilungen`, { kategorie: "fuehrung", kennung: "F-2", name: "Max Muster", anzahl: "5000", zugeteiltAm: "2025-04-01" }, mitEinzel));
+    const anonym = await post(`${pfad}/${poolId}/zuteilungen/${z.id}/anonymize`, {}, mitEinzel);
+    expect(anonym.status).toBe(200);
+    const a = await json(anonym);
+    expect(a).toMatchObject({ name: null, kennung: null, bezeichnung: null, leaverRegel: null, anzahl: "5000" });
+    expect(a.anonymisiertAm).not.toBeNull();
+    const wieder = await patch(`${pfad}/${poolId}/zuteilungen/${z.id}`, { name: "Max Muster" }, mitEinzel);
+    expect(wieder.status).toBe(409);
+    expect((await json(wieder)).error.code).toBe("grant_anonymized");
+    // Nach Anlegen, Ändern (abgelehnt) und Anonymisieren steht weder Name noch Kennung im Protokoll; anonymisiert ist beides leer.
+    const protokoll = await protokollZeilen(db, "mitarbeiterzuteilung");
+    expect(JSON.stringify(protokoll)).not.toContain("Max Muster");
+    expect(JSON.stringify(protokoll)).not.toContain("F-2");
+    expect(protokoll.at(-1)).toMatchObject({ vorher: { name: "[hidden]", kennung: "[hidden]" }, nachher: { name: null, kennung: null } });
+    expect((await entferne(`${pfad}/${poolId}/zuteilungen/${z.id}`, undefined, mitEinzel)).status).toBe(204);
+    const liste = await json(await get(`${pfad}?stichtag=2026-06-30`, mitEinzel));
+    expect(liste.daten[0].stand).toMatchObject({ ausstehend: "60000", frei: "40000" });
+    expect(EXPORT_TABELLEN.find((t) => t.name === "mitarbeiterzuteilung")?.ohne).toContain("name");
   });
 });
 

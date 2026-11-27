@@ -15,7 +15,7 @@ import { useTabs } from "../lib/tabs";
 import { aufzaehlung, useSprache, useT } from "../i18n";
 import { useRechte } from "../lib/rechte";
 
-const route = getRouteApi("/fonds/$fondsId/szenarien");
+const route = getRouteApi("/funds/$fundId/scenarios");
 
 const STATUS: Record<string, StatusVariante> = { entwurf: "pruefung", festgeschrieben: "freigegeben" };
 const MAX_VERGLEICH = 3;
@@ -30,7 +30,7 @@ export function SzenarienSeite() {
   const t = useT();
   const z = t.szenarien;
   const sprache = useSprache();
-  const { fondsId } = route.useParams();
+  const { fundId: fondsId } = route.useParams();
   const { data: liste, error, isPending } = useQuery(szenarienListe(fondsId));
   const vorlage = useQuery(szenarioVorlage(fondsId));
   const { darf } = useRechte();
@@ -76,7 +76,7 @@ export function SzenarienSeite() {
                   id: "bericht",
                   label: z.alsBericht,
                   deaktiviert: berichtAnlegen.isPending,
-                  onClick: () => berichtAnlegen.mutate({ art: "szenariobericht", fondsId, szenarioIds: [s.id], sprache }, { onSuccess: (neu) => void navigate({ to: "/berichte/$id", params: { id: neu.id } }) }),
+                  onClick: () => berichtAnlegen.mutate({ art: "szenariobericht", fondsId, szenarioIds: [s.id], sprache }, { onSuccess: (neu) => void navigate({ to: "/reports/$id", params: { id: neu.id } }) }),
                 },
               ]
             : []),
@@ -99,14 +99,13 @@ export function SzenarienSeite() {
 
   return (
     <div className="app-seite">
-      <Bereichskopf titel={z.titel}>
+      <Bereichskopf info={z.beschreibung} titel={z.titel}>
         {schreiben ? (
           <Button onClick={() => setOffen("neu")} disabled={!vorlage.data}>
             {z.neu}
           </Button>
         ) : null}
       </Bereichskopf>
-      <p className="app-leer-text">{z.beschreibung}</p>
       <FehlerHinweis fehler={festschreiben.error ?? loeschen.error ?? duplizieren.error} />
 
       {offen === "neu" && vorlage.data ? <SzenarioEditor fondsId={fondsId} vorlage={vorlage.data} onFertig={schliessen} onAbbrechen={schliessen} /> : null}

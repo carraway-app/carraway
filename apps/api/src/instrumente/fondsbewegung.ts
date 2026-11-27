@@ -5,6 +5,7 @@ import { Fachfehler } from "../fehler";
 import { heute, type Protokollant } from "../schreiben";
 import type { Tx } from "../zeitlimit";
 import { ladeVerteilungsgrundlageZum, verteileBewegungsbetrag } from "./lp-verteilung";
+import { pruefeZusagenVollstaendig } from "./zusagen";
 import { pruefePeriodensperre } from "./zustand";
 
 /**
@@ -37,6 +38,8 @@ export async function abgerufen(tx: Tx, fondsId: string): Promise<Decimal> {
 /** Prüft die Buchbarkeit auch in der Vorschau. Für die Buchung hält der Aufrufer die Fondszeile gesperrt. */
 export async function pruefeFondsbewegung(tx: Tx, f: Pick<typeof fonds.$inferSelect, "id" | "zeichnungskapital">, eingabe: BewegungEingabe) {
   await pruefePeriodensperre(tx, f.id, eingabe.valuta);
+  // Abrufe und Ausschüttungen verteilen nach Zusagen; unvollständige Zusagen sperren sie (Issue #275).
+  await pruefeZusagenVollstaendig(tx, f.id);
   if (eingabe.art !== "abruf" && eingabe.faelligAm) throw new Fachfehler(400, "invalid_input", "A due date belongs to a capital call.");
   const betrag = new Decimal(eingabe.betrag);
   if (eingabe.art === "abruf") {

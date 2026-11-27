@@ -1,3 +1,6 @@
+import { sourceActive } from "../rechte/sichtbarkeit";
+import { verlangeZustimmendenBeschluss } from "../crm/resolution";
+import { sourcesFor } from "../integrationen/records";
 import { kontaktJson, pruefeKontakt } from "../kontakte/http";
 import { and, asc, desc, eq, isNull, or, sql } from "drizzle-orm";
 import { Hono } from "hono";
@@ -153,21 +156,6 @@ function inCent(betrag: string): bigint {
   return BigInt(ganz) * 100n + BigInt(rest.padEnd(2, "0"));
 }
 
-/**
- * Ein Deal darf nur ins Closing oder ins Portfolio, wenn sein jüngster Beschluss zustimmt
- * (jüngster nach `datum`, dann `erstellt_am`; ein späterer ablehnender oder vertagender Beschluss hebt die Zustimmung auf).
- */
-export async function verlangeZustimmendenBeschluss(tx: Tx, dealId: string) {
-  const [juengster] = await tx
-    .select()
-    .from(beschluss)
-    .where(eq(beschluss.dealId, dealId))
-    .orderBy(desc(beschluss.datum), desc(beschluss.erstelltAm), desc(beschluss.id))
-    .limit(1);
-  if (juengster?.ergebnis !== "zugestimmt") throw new Fachfehler(409, "resolution_missing", "This requires an approving resolution.");
-  return juengster;
-}
-
 /** Phasenwechsel eines offenen Deals mit allen Regeln (Closing nur mit zustimmendem Beschluss); gemeinsam genutzt von Route, Board und Massenaktion. */
 export async function wechselePhase(tx: Tx, protokoll: Protokollant, id: string, nachPhase: (typeof dealPhase.enumValues)[number], am?: string, bemerkung?: string | null) {
   const vorher = await ladeDeal(tx, id);
@@ -282,7 +270,7 @@ export function dealRouten(db: Db) {
           .select(aktivitaetMitHerkunft(aktuellerAkteur(c).id))
           .from(aktivitaet)
           .leftJoin(aktivitaetSync, eq(aktivitaetSync.aktivitaetId, aktivitaet.id))
-          .where(eq(aktivitaet.dealId, id))
+          .where(and(eq(aktivitaet.dealId, id), sourceActive("note", aktivitaet.id)))
           .orderBy(desc(aktivitaet.datum), desc(aktivitaet.erstelltAm), asc(aktivitaet.id));
         const beschluesse = await tx
           .select()
@@ -301,7 +289,7 @@ export function dealRouten(db: Db) {
           .innerJoin(fonds, eq(fonds.id, beteiligung.fondsId))
           .where(and(eq(beteiligung.dealId, id), fondsSichtbar(c, beteiligung.fondsId, "portfolio")))
           .orderBy(asc(beteiligung.erstinvestment), asc(beteiligung.id));
-        return { ...d, organisation: org, fonds: dealFonds, personen, phasenverlauf, aktivitaeten, beschluesse, beteiligungen };
+        return { ...d, providerSources: await sourcesFor(tx, "deal", id), organisation: org, fonds: dealFonds, personen, phasenverlauf, aktivitaeten, beschluesse, beteiligungen };
       });
       if (!ergebnis) return fehlerAntwort(c, 404, "deal_not_found", "Deal not found.");
       return kontaktJson(c, ergebnis, 200);

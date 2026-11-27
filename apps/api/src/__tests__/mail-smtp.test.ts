@@ -71,7 +71,7 @@ afterAll(async () => {
 });
 
 const mailer = (p = port) => new SmtpMailer({ host: "127.0.0.1", port: p, tls: "keine", absender: "carraway@example.org", limitProStunde: 100 });
-const nachricht = (an: string) => ({ an, betreff: "Kennzahlen-Abfrage: Alpha", text: "Hallo\nLink: https://fonds.example.org/extern/abfrage/abc", html: '<p>Hallo</p><p><a href="https://fonds.example.org/extern/abfrage/abc">Zum Formular</a></p>' });
+const nachricht = (an: string) => ({ an, betreff: "Kennzahlen-Abfrage: Alpha", text: "Hallo\nLink: https://fonds.example.org/external/requests/abc", html: '<p>Hallo</p><p><a href="https://fonds.example.org/external/requests/abc">Zum Formular</a></p>' });
 
 describe("SMTP-Adapter", () => {
   it("stellt Text und HTML zu, ohne Tracking-Köpfe, mit Absender aus der Konfiguration", async () => {
@@ -83,7 +83,7 @@ describe("SMTP-Adapter", () => {
     expect(m.daten).toMatch(/^Subject: Kennzahlen-Abfrage: Alpha$/m);
     expect(m.daten).toMatch(/^Auto-Submitted: auto-generated$/m);
     expect(m.daten).toMatch(/Content-Type: multipart\/alternative/);
-    expect(m.daten).toContain("https://fonds.example.org/extern/abfrage/abc");
+    expect(m.daten).toContain("https://fonds.example.org/external/requests/abc");
     expect(m.daten).not.toMatch(/Disposition-Notification-To|Return-Receipt-To|X-Confirm-Reading-To|<img|List-Unsubscribe/i);
   });
 

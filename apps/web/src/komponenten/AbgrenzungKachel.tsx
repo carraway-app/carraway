@@ -51,7 +51,7 @@ export function AbgrenzungKachel({ fondsId, waehrung, stichtag, stand }: { fonds
       schluessel: "darlehen",
       kopf: a.spalten.darlehen,
       zelle: (z) => (
-        <Link to="/beteiligungen/$id" params={{ id: z.beteiligungId }} search={{ stichtag, stand }}>
+        <Link to="/investments/$id" params={{ id: z.beteiligungId }} search={{ stichtag, stand }}>
           {z.organisation}
         </Link>
       ),
@@ -92,7 +92,7 @@ export function AbgrenzungKachel({ fondsId, waehrung, stichtag, stand }: { fonds
       <p className="app-leer-text">{a.beschreibung(formatDatum(stichtag, sprache))}</p>
       <p className="app-leer-text app-klein">
         {a.portfolioHinweis}{" "}
-        <Link to="/fonds/$fondsId/zinsen" params={{ fondsId }}>
+        <Link to="/funds/$fundId/interest" params={{ fundId: fondsId }}>
           {a.portfolioLink}
         </Link>
         .

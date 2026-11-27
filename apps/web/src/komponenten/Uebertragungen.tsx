@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Auswahl, Button, Feld, Hinweis, Segment, Seitenpanel, Status, Tabelle, formatDatum, type TabelleSpalte } from "@carraway/ui";
+import { Auswahl, Button, Feld, Hinweis, Segment, Seitenpanel, Status, Tabelle, formatDatum, type MenueEintrag, type TabelleSpalte } from "@carraway/ui";
 import { fondsListe, kapitaltabelle, uebertragungen, type KapitalZeile, type Uebertragung } from "../api/abfragen";
 import { heuteIso } from "../api/datum";
 import { useUebertragungAnlegen, useUebertragungStorno, type NeueUebertragung } from "../api/mutationen";
@@ -44,31 +44,28 @@ export function UebertragungenAbschnitt({ beteiligungId, organisationId, fondsId
   const kein = t.gemeinsam.keinWert;
   const spalten: TabelleSpalte<Uebertragung>[] = [
     { schluessel: "datum", kopf: u.spalten.datum, zelle: (x) => formatDatum(x.date, sprache) },
-    { schluessel: "verkaeufer", kopf: u.spalten.verkaeufer, zelle: (x) => inhaberText(t, x.seller) },
-    { schluessel: "kaeufer", kopf: u.spalten.kaeufer, zelle: (x) => inhaberText(t, x.buyer) },
+    // Namen brechen um, der Preis je Anteil steht unter dem Kaufpreis, Stornieren im Zeilenmenü: passt so bei 1280 px.
+    { schluessel: "verkaeufer", kopf: u.spalten.verkaeufer, umbruch: true, zelle: (x) => inhaberText(t, x.seller) },
+    { schluessel: "kaeufer", kopf: u.spalten.kaeufer, umbruch: true, zelle: (x) => inhaberText(t, x.buyer) },
     { schluessel: "anteile", kopf: u.spalten.anteile, zahl: true, zelle: (x) => formatAnzahl(x.shares, sprache) },
-    { schluessel: "preis", kopf: u.spalten.preis, zahl: true, zelle: (x) => (x.pricePerShare === null ? kein : formatPreis(x.pricePerShare, sprache)) },
-    { schluessel: "kaufpreis", kopf: u.spalten.kaufpreis, zahl: true, zelle: (x) => (x.purchasePrice === null ? kein : formatBetragCent(x.purchasePrice, sprache)) },
+    {
+      schluessel: "kaufpreis",
+      kopf: u.spalten.kaufpreis,
+      zahl: true,
+      zelle: (x) => (
+        <>
+          {x.purchasePrice === null ? kein : formatBetragCent(x.purchasePrice, sprache)}
+          {x.pricePerShare === null ? null : <span className="app-zelle-zusatz" title={u.spalten.preis}>{`${u.spalten.preis} ${formatPreis(x.pricePerShare, sprache)}`}</span>}
+        </>
+      ),
+    },
     {
       schluessel: "stand",
       kopf: u.spalten.stand,
       zelle: (x) => (x.reversedAt ? <Status variante="fehlt">{u.storniert(formatDatum(x.reversedAt.slice(0, 10), sprache))}</Status> : <Status variante="freigegeben">{u.gebucht}</Status>),
     },
-    ...(darfSchreiben
-      ? [
-          {
-            schluessel: "aktion",
-            kopf: u.spalten.aktion,
-            zelle: (x: Uebertragung) =>
-              x.reversedAt ? null : (
-                <Button variante="ruhig" groesse="s" aria-label={u.stornierenFuer(formatDatum(x.date, sprache), formatAnzahl(x.shares, sprache))} onClick={() => setDialog({ art: "storno", zeile: x })}>
-                  {u.stornieren}
-                </Button>
-              ),
-          },
-        ]
-      : []),
   ];
+  const aktionen = (x: Uebertragung): MenueEintrag[] => (x.reversedAt ? [] : [{ id: "storno", label: u.stornierenFuer(formatDatum(x.date, sprache), formatAnzahl(x.shares, sprache)), onClick: () => setDialog({ art: "storno", zeile: x }) }]);
   return (
     <>
       <section className="app-karte" aria-labelledby="uebertragungen-titel">
@@ -82,7 +79,7 @@ export function UebertragungenAbschnitt({ beteiligungId, organisationId, fondsId
         {isPending ? <Skelettzeilen anzahl={2} /> : null}
         {error ? <FehlerHinweis fehler={error} /> : null}
         {data && data.length === 0 ? <p className="app-leer-text">{u.keine}</p> : null}
-        {data && data.length > 0 ? <Tabelle beschriftung={u.tabelle} spalten={spalten} zeilen={data} zeilenSchluessel={(x) => x.id} /> : null}
+        {data && data.length > 0 ? <Tabelle beschriftung={u.tabelle} className="app-tabelle-schmal" spalten={spalten} zeilen={data} zeilenSchluessel={(x) => x.id} aktionen={darfSchreiben ? aktionen : undefined} /> : null}
       </section>
       {dialog?.art === "neu" ? <UebertragungDialog beteiligungId={beteiligungId} organisationId={organisationId} onSchliessen={() => setDialog(null)} /> : null}
       {dialog?.art === "storno" ? <UebertragungStornoDialog organisationId={organisationId} zeile={dialog.zeile} onSchliessen={() => setDialog(null)} /> : null}
@@ -181,7 +178,7 @@ function UebertragungDialog({ beteiligungId, organisationId, onSchliessen }: { b
         <BetragFeld label={f.anzahl} inputMode="numeric" {...feld("shares", fehler("shares"))} />
         <BetragFeld label={f.preis} hilfe={f.preisHilfe} {...feld("preis", fehler("pricePerShare"))} />
         <BetragFeld label={f.kaufpreisFonds} hilfe={f.kaufpreisFondsHilfe} {...feld("kaufpreisFonds", fehler("purchasePriceFundCurrency"))} />
-        <Feld label={f.bemerkung} autoComplete="off" {...feld("bemerkung", fehler("note"))} />
+        <Feld label={f.bemerkung} {...feld("bemerkung", fehler("note"))} />
         <div>
           <Button type="submit" disabled={anlegen.isPending || !kaeufer || !quelle}>
             {f.speichern}
@@ -220,7 +217,7 @@ function UebertragungStornoDialog({ organisationId, zeile, onSchliessen }: { org
         }}
       >
         <FehlerHinweis fehler={storno.error} bekannt={["reason"]} />
-        <Feld label={f.grund} autoComplete="off" {...feld("grund")} fehler={feldText(t, storno.error, "reason")} />
+        <Feld label={f.grund} {...feld("grund")} fehler={feldText(t, storno.error, "reason")} />
         <div>
           <Button type="submit" variante="gefahr" disabled={storno.isPending}>
             {f.stornieren}

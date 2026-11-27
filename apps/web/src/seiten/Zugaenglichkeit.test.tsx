@@ -23,7 +23,7 @@ describe("Zugänglichkeit (axe)", () => {
         "/api/v1/wiedervorlagen": { koerper: { daten: [{ ...wiedervorlageDaten, zustaendigId: ICH_ID, ueberfaellig: true }] } },
         "/api/v1/users/names": { koerper: { daten: [{ id: ICH_ID, name: "Vera Beispiel" }] } },
       });
-      rendereApp("/kontakte");
+      rendereApp("/contacts");
       await screen.findByRole("link", { name: /^(Wiedervorlagen|Follow-ups) \d/ });
       expect(await pruefe()).toEqual([]);
     });
@@ -31,7 +31,7 @@ describe("Zugänglichkeit (axe)", () => {
 
   it("Organisationsseite ist in Ordnung", async () => {
     spieleApi({});
-    rendereApp(`/organisationen/${ORG_A}`);
+    rendereApp(`/organizations/${ORG_A}`);
     await screen.findByRole("heading", { level: 1 });
     expect(await pruefe()).toEqual([]);
   });

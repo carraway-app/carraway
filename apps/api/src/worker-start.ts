@@ -1,3 +1,8 @@
+import { northData } from "./data-providers/north-data";
+import { companiesHouse } from "./data-providers/companies-house";
+import { refreshLinked } from "./data-providers/monitor";
+import { loescheAbgelaufeneSchluessel } from "./idempotenz";
+import { processPage } from "./integrationen/runs";
 import { writeFile } from "node:fs/promises";
 import { hostname } from "node:os";
 import { erstelleDb } from "@carraway/db";
@@ -62,7 +67,8 @@ export async function starteWorker(erweiterungen: readonly ApiErweiterung[] = []
   const mailKonfig = ladeMailKonfiguration(process.env, umgebung);
   const ring = ladeSchluesselring(process.env, umgebung);
   // Registerbeobachtung: aus, solange kein Plan (`REGISTER_PRUEFUNG_CRON`, z. B. `0 5 * * *`) und kein Anbieter eingerichtet sind.
-  const registerAnbieter = erstelleRegisterAnbieter();
+  const adapter = [northData, companiesHouse].find(p => p.id === process.env.REGISTER_ANBIETER);
+  const registerAnbieter = adapter ? { name: adapter.id, refresh: (id: string) => refreshLinked(db, ring, adapter, id) } : erstelleRegisterAnbieter();
   const registerPlan = process.env.REGISTER_PRUEFUNG_CRON?.trim();
   if (registerAnbieter && registerPlan) {
     await boss.schedule(REGISTER_PRUEFUNG, registerPlan, {});
@@ -89,7 +95,10 @@ export async function starteWorker(erweiterungen: readonly ApiErweiterung[] = []
       if (ergebnis === "failed") logger("warn", "Webhook-Zustellung endgültig gescheitert", { zustellungId: job.data.zustellungId });
     }
   });
+  const bereinigeIdempotenz = () => loescheAbgelaufeneSchluessel(db).catch((fehler) => logger("error", "Idempotenzspeicher nicht aufgeräumt", fehlerFelder(fehler)));
+  await bereinigeIdempotenz();
   const webhookAufraeumen = setInterval(() => {
+    void bereinigeIdempotenz();
     raeumeZustellungenAuf(db).catch((fehler) => logger("error", "Zustellprotokoll nicht aufgeräumt", fehlerFelder(fehler)));
   }, 6 * 60 * 60_000);
 
@@ -97,7 +106,7 @@ export async function starteWorker(erweiterungen: readonly ApiErweiterung[] = []
   const takt = setInterval(() => {
     if (laeuft) return;
     laeuft = true;
-    Promise.all([verteileAuftraege(db, boss), verteileWebhooks(db, (job) => boss.send(WEBHOOK_ZUSTELLUNG, job)), ...erweiterungen.map((e) => e.verteilen?.(kontext))])
+    Promise.all([processPage(db, ring), verteileAuftraege(db, boss), verteileWebhooks(db, (job) => boss.send(WEBHOOK_ZUSTELLUNG, job)), ...erweiterungen.map((e) => e.verteilen?.(kontext))])
       .catch((fehler) => logger("error", "Verteilen fehlgeschlagen", fehlerFelder(fehler)))
       .finally(() => {
         laeuft = false;

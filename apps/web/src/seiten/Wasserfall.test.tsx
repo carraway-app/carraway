@@ -1,13 +1,13 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it } from "vitest";
-import { alsRolle, BET_ID, ORG_A, mitarbeiterpoolDaten, beteiligungDaten, fehler, FONDS_ID, kapitalDaten, KLASSE_ID, klasseDaten, rendereApp, spieleApi, wasserfallDaten, wasserfallGewandeltDaten, letzteRegion, type OffeneWandlungDaten } from "../test/hilfen";
+import { alsRolle, BET_ID, ORG_A, mitarbeiterpoolDaten, beteiligungDaten, fehler, FONDS_ID, kapitalDaten, KLASSE_ID, klasseDaten, rendereApp, spieleApi, wasserfallDaten, wasserfallGewandeltDaten, letzteRegion, type OffeneWandlungDaten, zeilenAktion } from "../test/hilfen";
 import { de } from "../i18n/de";
 import { en } from "../i18n/en";
 
-const url = `/beteiligungen/${BET_ID}`;
-const kapitalUrl = `${url}?tab=finanzierung&unter=kapitaltabelle`;
-const wasserfallUrl = `${url}?tab=finanzierung&unter=wasserfall`;
+const url = `/investments/${BET_ID}`;
+const kapitalUrl = `${url}?tab=financing&subtab=cap-table`;
+const wasserfallUrl = `${url}?tab=financing&subtab=waterfall`;
 const WASSERFALL = `/api/v1/beteiligungen/${BET_ID}/wasserfall`;
 const schmal = (text: string | null) => (text ?? "").replace(/\s/g, " ");
 
@@ -18,7 +18,7 @@ describe("Captable", () => {
     spieleApi();
     rendereApp(kapitalUrl);
     const karte = await screen.findByRole("region", { name: "Beteiligungsverhältnisse" });
-    expect(screen.getByRole("region", { name: "Captable" }).contains(karte)).toBe(true);
+    expect(screen.getByRole("tabpanel", { name: "Anteile" }).contains(karte)).toBe(true);
     const abschnitt = within(karte);
     expect(abschnitt.getByRole("heading", { name: "Captable" })).toBeTruthy();
     const tabellenbereich = await abschnitt.findByRole("region", { name: "Captable nach Inhaber und Klasse" });
@@ -35,7 +35,7 @@ describe("Captable", () => {
     expect(within(fondsZeile).getByText("Dieser Fonds")).toBeTruthy();
     expect(schmal(fondsZeile.textContent)).toContain("81.000");
     expect(schmal(fondsZeile.textContent)).toContain("7,7143 %");
-    expect(abschnitt.getAllByRole("link", { name: "Beta Medizin" })[0]!.getAttribute("href")).toContain("/organisationen/");
+    expect(abschnitt.getAllByRole("link", { name: "Beta Medizin" })[0]!.getAttribute("href")).toContain("/organizations/");
     expect(schmal(abschnitt.getByText(/Anteile\. Letzte Runde/).textContent)).toContain("Voll verwässert 1.050.000 Anteile. Letzte Runde: Seed, Post-Money 10.000.000 €.");
     expect(schmal(abschnitt.getByText(/Dieser Fonds hält/).textContent)).toContain("Anteil des Fonds: 8,1 % unverwässert, 7,7143 % voll verwässert.");
     // Pool-Zeilen haben keine Klassenauswahl
@@ -104,7 +104,46 @@ describe("Captable", () => {
     expect(await abschnitt.findByText("ESOP (Optionen)")).toBeTruthy();
     const zuteilungen = within(abschnitt.getByRole("region", { name: "Zuteilungen: ESOP" }));
     expect(zuteilungen.getByText("Mitarbeitende")).toBeTruthy();
+    expect(zuteilungen.getByText("M-001")).toBeTruthy();
     expect(abschnitt.getByRole("button", { name: "Zuteilung anlegen: ESOP" })).toBeTruthy();
+  });
+
+  it("grob erfasster Pool: Schätzung als Näherung, Umstellen auf Einzelzuteilungen; ohne Bereich nur Summen", async () => {
+    const pool = mitarbeiterpoolDaten.daten[0]!;
+    const grob = { ...pool, erfassung: "grob" as const, vergeben: "30000", basispreisMittel: "1.5000", zuteilungen: [] };
+    const verborgen = { ...pool, id: "vsop", bezeichnung: "VSOP", einzelSichtbar: false, zuteilungen: [] };
+    const pfad = `/api/v1/organisationen/${ORG_A}/mitarbeiterpools/esop`;
+    const api = spieleApi({ [`/api/v1/organisationen/${ORG_A}/mitarbeiterpools`]: { koerper: { daten: [grob, verborgen] } }, [`PATCH ${pfad}`]: { koerper: { ...grob, erfassung: "einzeln" } } });
+    rendereApp(kapitalUrl);
+    const nutzer = userEvent.setup();
+    const abschnitt = within(await letzteRegion("Mitarbeiterbeteiligung"));
+    expect(await abschnitt.findByText("Vergeben (geschätzt)")).toBeTruthy();
+    expect(abschnitt.getByText(/Näherung/)).toBeTruthy();
+    expect(abschnitt.getByText(/Einzelzuteilungen sieht nur/)).toBeTruthy();
+    expect(abschnitt.queryByRole("button", { name: "Zuteilung anlegen: VSOP" })).toBeNull();
+    await nutzer.click(abschnitt.getByRole("button", { name: "Auf Einzelzuteilungen umstellen: ESOP" }));
+    await waitFor(() => expect(api.anfragen("PATCH", pfad)).toHaveLength(1));
+    expect(api.anfragen("PATCH", pfad)[0]!.koerper).toEqual({ erfassung: "einzeln" });
+  });
+
+  it("Größe ändern: Verkleinern mit positiver Anzahl, Vorschau vorher und nachher, Wirkung der Runde, Abbrechen und Speichern zusammen", async () => {
+    const pfad = `/api/v1/organisationen/${ORG_A}/mitarbeiterpools/esop/aenderungen`;
+    const api = spieleApi({ [`POST ${pfad}`]: { status: 201, koerper: mitarbeiterpoolDaten.daten[0]!.aenderungen[0] } });
+    rendereApp(kapitalUrl);
+    const nutzer = userEvent.setup();
+    const abschnitt = within(await letzteRegion("Mitarbeiterbeteiligung"));
+    await nutzer.click(await abschnitt.findByRole("button", { name: "Größe ändern: ESOP" }));
+    const dialog = within(await screen.findByRole("dialog", { name: "Größe des Pools ändern" }));
+    await nutzer.click(dialog.getByRole("button", { name: "Verkleinern" }));
+    await nutzer.type(dialog.getByLabelText("Anzahl (Einheiten)"), "5000");
+    const vorschau = within(dialog.getByText("Vorschau").closest("section, div")!.parentElement!);
+    expect(vorschau.getByText("50.000")).toBeTruthy();
+    expect(vorschau.getByText("45.000")).toBeTruthy();
+    expect(dialog.getByText(/Gesellschafterbeschlusses/)).toBeTruthy();
+    expect(dialog.getByRole("button", { name: "Abbrechen" })).toBeTruthy();
+    await nutzer.click(dialog.getByRole("button", { name: "Speichern" }));
+    await waitFor(() => expect(api.anfragen("POST", pfad)).toHaveLength(1));
+    expect(api.anfragen("POST", pfad)[0]!.koerper).toMatchObject({ anzahl: "-5000" });
   });
 
   it("erfasst einen Austritt an einer bestehenden Zuteilung mit Teilverfall und Rückkauf; die Vorgabe folgt der Art", async () => {
@@ -112,8 +151,8 @@ describe("Captable", () => {
     const api = spieleApi({ [`POST ${pfad}`]: { status: 201, koerper: mitarbeiterpoolDaten.daten[0]!.zuteilungen[0] } });
     rendereApp(kapitalUrl);
     const nutzer = userEvent.setup();
-    const abschnitt = within(await letzteRegion("Mitarbeiterbeteiligung"));
-    await nutzer.click(await abschnitt.findByRole("button", { name: "Zuteilung ändern: Mitarbeitende" }));
+    await letzteRegion("Mitarbeiterbeteiligung");
+    await nutzer.click((await zeilenAktion("Zuteilung ändern: M-001"))!);
     const dialog = within(await screen.findByRole("dialog", { name: "Zuteilung ändern" }));
     // Die Zuteilung selbst trägt keine Leaver-Felder mehr; die Austritte stehen in einer eigenen Liste
     expect(dialog.queryByLabelText("Austrittsdatum")).toBeNull();
@@ -156,7 +195,7 @@ describe("Captable", () => {
     // Stichtag 30.09.2026: zwei Austritte gelten (der dritte liegt danach), 15.000 von 30.000 betroffen; die übrigen bleiben zugeteilt
     expect(tabelle.getByText("Zugeteilt")).toBeTruthy();
     expect(schmal(tabelle.getByText(/2 Austritte/).textContent)).toBe("2 Austritte · 15.000 von 30.000");
-    await nutzer.click(abschnitt.getByRole("button", { name: "Zuteilung ändern: Mitarbeitende" }));
+    await nutzer.click((await zeilenAktion("Zuteilung ändern: M-001"))!);
     const dialog = within(await screen.findByRole("dialog", { name: "Zuteilung ändern" }));
     const liste = within(dialog.getByRole("region", { name: "Austritte: Mitarbeitende" }));
     expect(liste.getAllByRole("row")).toHaveLength(4);
@@ -165,7 +204,7 @@ describe("Captable", () => {
     await waitFor(() => expect(api.anfragen("DELETE", pfad)).toHaveLength(1));
   });
 
-  it("bearbeitet eine Änderung der Größe im Seitenpanel und löscht sie nach Bestätigung im Dialog (kein Browser-Dialog)", async () => {
+  it("bearbeitet eine Änderung der Größe im Dialog und löscht sie nach Bestätigung (kein Browser-Dialog)", async () => {
     const pool = mitarbeiterpoolDaten.daten[0]!;
     const pfad = `/api/v1/organisationen/${ORG_A}/mitarbeiterpools/esop/aenderungen/a1`;
     const api = spieleApi({ [`PATCH ${pfad}`]: { koerper: pool.aenderungen[0] }, [`DELETE ${pfad}`]: { status: 204, koerper: null } });
@@ -175,13 +214,13 @@ describe("Captable", () => {
     const verlauf = within(await abschnitt.findByRole("region", { name: "Verlauf der Größe: ESOP" }));
     await nutzer.click(verlauf.getByRole("button", { name: "Änderung der Größe ändern: 01.01.2022" }));
     const panel = within(await screen.findByRole("dialog", { name: "Änderung der Größe bearbeiten" }));
-    const anzahl = panel.getByLabelText(/Änderung \(Einheiten/) as HTMLInputElement;
+    const anzahl = panel.getByLabelText("Anzahl (Einheiten)") as HTMLInputElement;
     expect(anzahl.value).toBe("50000");
     await nutzer.clear(anzahl);
     await nutzer.type(anzahl, "60000");
     await nutzer.click(panel.getByRole("button", { name: "Speichern" }));
     await waitFor(() => expect(api.anfragen("PATCH", pfad)).toHaveLength(1));
-    expect(api.anfragen("PATCH", pfad)[0]!.koerper).toEqual({ anzahl: "60000", datum: "2022-01-01", beschluss: "Gesellschafterbeschluss", rundeId: null, basis: null });
+    expect(api.anfragen("PATCH", pfad)[0]!.koerper).toEqual({ anzahl: "60000", datum: "2022-01-01", beschluss: "Gesellschafterbeschluss", dokumentId: null, rundeId: null, basis: null });
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Änderung der Größe bearbeiten" })).toBeNull());
     await nutzer.click(verlauf.getByRole("button", { name: "Änderung der Größe löschen: 01.01.2022" }));
     const dialog = within(await screen.findByRole("dialog", { name: "Änderung der Größe löschen" }));
@@ -231,7 +270,7 @@ describe("Captable", () => {
     unmount();
 
     spieleApi();
-    rendereApp(`${kapitalUrl}&stand=2026-07-01T10:00:00Z`);
+    rendereApp(`${kapitalUrl}&knowledgeDate=2026-07-01T10:00:00Z`);
     expect(await screen.findByText(de.kapital.stand)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Neue Klasse" })).toBeNull();
   });

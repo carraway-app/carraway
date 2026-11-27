@@ -18,7 +18,7 @@ import { merkeFonds } from "../zustand";
 import { LAUF_STATUS } from "./Zinslaeufe";
 import type { Sprache } from "@carraway/ui";
 
-const route = getRouteApi("/zinslaeufe/$id");
+const route = getRouteApi("/interest-runs/$id");
 
 type Position = Zinslauf["positionen"][number];
 const REIHENFOLGE = ["berechnet", "geprueft", "freigegeben", "gebucht"] as const;
@@ -68,7 +68,7 @@ export function ZinslaufSeite() {
       schluessel: "darlehen",
       kopf: z.spalten.darlehen,
       zelle: (p) => (
-        <Link to="/beteiligungen/$id" params={{ id: p.beteiligungId }} search={{}}>
+        <Link to="/investments/$id" params={{ id: p.beteiligungId }} search={{}}>
           {p.organisation.name}
         </Link>
       ),
@@ -116,7 +116,7 @@ export function ZinslaufSeite() {
       <Seitenkopf
         meta={
           <>
-            <Link to="/zinslaeufe" search={{ fondsId: lauf.fondsId }}>
+            <Link to="/interest-runs" search={{ fondsId: lauf.fondsId }}>
               {z.zurListe}
             </Link>
             {" · "}

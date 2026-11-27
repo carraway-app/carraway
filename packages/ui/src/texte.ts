@@ -28,8 +28,10 @@ export interface UiTexte {
   schrittOffen: string;
   schliessen: string;
   laedt: string;
-  inhaltBereich: string;
   weitereAktionen: string;
+  /** Auslöser für Reiter, die nicht mehr in die Leiste passen. */
+  mehrReiter: string;
+  erklaerung: string;
   markdownVorschau: string;
   markdownBearbeiten: string;
   markdownHilfe: string;
@@ -60,8 +62,9 @@ export const texte: Record<Sprache, UiTexte> = {
     schrittOffen: "offen",
     schliessen: "Schließen",
     laedt: "Wird geladen",
-    inhaltBereich: "Bereich",
     weitereAktionen: "Weitere Aktionen",
+    mehrReiter: "Mehr",
+    erklaerung: "Erklärung",
     markdownVorschau: "Vorschau",
     markdownBearbeiten: "Bearbeiten",
     markdownHilfe: "Markdown möglich: **fett**, *kursiv*, - Liste, [Text](https://…)",
@@ -90,8 +93,9 @@ export const texte: Record<Sprache, UiTexte> = {
     schrittOffen: "pending",
     schliessen: "Close",
     laedt: "Loading",
-    inhaltBereich: "Section",
     weitereAktionen: "More actions",
+    mehrReiter: "More",
+    erklaerung: "Explanation",
     markdownVorschau: "Preview",
     markdownBearbeiten: "Edit",
     markdownHilfe: "Markdown supported: **bold**, *italic*, - list, [text](https://…)",

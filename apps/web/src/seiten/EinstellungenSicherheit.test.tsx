@@ -18,7 +18,7 @@ const grundlage = { [SICHERHEIT]: { koerper: uebersicht }, [SITZUNGEN]: { koerpe
 describe("Einstellungen: Reiter Sicherheit", () => {
   it("zeigt Kennwerte, Sitzungen mit Gerät und markiert die aktuelle", async () => {
     spieleApi(grundlage);
-    rendereApp("/einstellungen/postfach?tab=sicherheit");
+    rendereApp("/settings/mailbox?tab=security");
     const uebersichtKarte = within(await letzteRegion("Übersicht"));
     expect(await uebersichtKarte.findByText("7 Codes übrig")).toBeTruthy();
     expect(uebersichtKarte.getByText("Aktiv")).toBeTruthy();
@@ -33,7 +33,7 @@ describe("Einstellungen: Reiter Sicherheit", () => {
   it("beendet eine einzelne Anmeldung erst nach Bestätigung", async () => {
     const nutzer = userEvent.setup();
     const api = spieleApi({ ...grundlage, [`DELETE ${SITZUNGEN}/${sitzungen[1]!.id}`]: { status: 204, koerper: null } });
-    rendereApp("/einstellungen/postfach?tab=sicherheit");
+    rendereApp("/settings/mailbox?tab=security");
     const karte = within(await letzteRegion("Aktive Anmeldungen"));
     await nutzer.click(await karte.findByRole("button", { name: "Anmeldung beenden: Chrome auf Windows" }));
     expect(api.anfragen("DELETE", `${SITZUNGEN}/${sitzungen[1]!.id}`)).toHaveLength(0);
@@ -44,7 +44,7 @@ describe("Einstellungen: Reiter Sicherheit", () => {
   it("ändert das Passwort mit aktuellem Passwort und Option für andere Anmeldungen; prüft Länge und Wiederholung vor dem Senden", async () => {
     const nutzer = userEvent.setup();
     const api = spieleApi({ ...grundlage, [`POST ${PASSWORT}`]: { koerper: { ok: true, andereSitzungenBeendet: 1 } } });
-    rendereApp("/einstellungen/postfach?tab=sicherheit");
+    rendereApp("/settings/mailbox?tab=security");
     const karte = within(await letzteRegion("Passwort ändern"));
     fireEvent.change(await karte.findByLabelText("Aktuelles Passwort"), { target: { value: "alt-alt-alt-alt-1" } });
     fireEvent.change(karte.getByLabelText("Neues Passwort"), { target: { value: "kurz" } });
@@ -67,7 +67,7 @@ describe("Einstellungen: Reiter Sicherheit", () => {
   it("zeigt ein falsches aktuelles Passwort als Fehler", async () => {
     const nutzer = userEvent.setup();
     spieleApi({ ...grundlage, [`POST ${PASSWORT}`]: fehler(400, "password_incorrect") });
-    rendereApp("/einstellungen/postfach?tab=sicherheit");
+    rendereApp("/settings/mailbox?tab=security");
     const karte = within(await letzteRegion("Passwort ändern"));
     fireEvent.change(await karte.findByLabelText("Aktuelles Passwort"), { target: { value: "falsch" } });
     fireEvent.change(karte.getByLabelText("Neues Passwort"), { target: { value: "neues-Passwort-2026" } });
@@ -79,7 +79,7 @@ describe("Einstellungen: Reiter Sicherheit", () => {
   it("Wiederherstellungscodes erneuern: Passwort wird mitgesendet, die neuen Codes erscheinen einmal", async () => {
     const nutzer = userEvent.setup();
     const api = spieleApi({ ...grundlage, [`POST /api/v1/account/recovery-codes`]: { koerper: { backupCodes: ["aaaaa-11111", "bbbbb-22222"] } } });
-    rendereApp("/einstellungen/postfach?tab=sicherheit");
+    rendereApp("/settings/mailbox?tab=security");
     const karte = within(await letzteRegion("Zweiter Faktor"));
     await nutzer.click(await karte.findByRole("button", { name: "Wiederherstellungscodes erneuern" }));
     fireEvent.change(karte.getByLabelText("Aktuelles Passwort"), { target: { value: "geheim-geheim-1" } });
@@ -95,7 +95,7 @@ describe("Einstellungen: Reiter Sicherheit", () => {
       "POST /api/v1/account/two-factor/restart": { koerper: { totpURI: "otpauth://totp/Carraway:a%40b.example?secret=ABCDEFGH&issuer=Carraway", backupCodes: ["aaaaa-11111"], ablaufSekunden: 900 } },
       "POST /api/v1/account/two-factor/restart/confirm": { koerper: { ok: true, andereSitzungenBeendet: 0 } },
     });
-    rendereApp("/einstellungen/postfach?tab=sicherheit");
+    rendereApp("/settings/mailbox?tab=security");
     const karte = within(await letzteRegion("Zweiter Faktor"));
     await nutzer.click(await karte.findByRole("button", { name: "Neu einrichten" }));
     fireEvent.change(karte.getByLabelText("Aktuelles Passwort"), { target: { value: "geheim-geheim-1" } });
@@ -114,7 +114,7 @@ describe("Einstellungen: Reiter Sicherheit", () => {
 
   it("ohne Passwort-Zugang entfallen die Passwortabfragen", async () => {
     spieleApi({ ...grundlage, [SICHERHEIT]: { koerper: { ...uebersicht, passwortVorhanden: false, passwortGeaendertAm: null, anbieter: ["google"] } } });
-    rendereApp("/einstellungen/postfach?tab=sicherheit");
+    rendereApp("/settings/mailbox?tab=security");
     expect(await within(await letzteRegion("Passwort ändern")).findByText(/kein Passwort/)).toBeTruthy();
   });
 });

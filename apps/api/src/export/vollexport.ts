@@ -74,7 +74,8 @@ export const EXPORT_TABELLEN: readonly Tabelle[] = [
   { name: "rundenposition_zahlung", ordnung: ["id"] },
   { name: "mitarbeiterpool", ordnung: ["id"] },
   { name: "pool_aenderung", ordnung: ["id"] },
-  { name: "mitarbeiterzuteilung", ordnung: ["id"] },
+  // Namen von Begünstigten bleiben im Unternehmen: der Export trägt nur die Kennung (Pseudonym).
+  { name: "mitarbeiterzuteilung", ordnung: ["id"], ohne: ["name"] },
   { name: "zuteilung_austritt", ordnung: ["id"] },
   { name: "runde_buchung", ordnung: ["vorgang_id"] },
   { name: "vorgang_runde", ordnung: ["vorgang_id"] },
@@ -155,6 +156,8 @@ export const EXPORT_TABELLEN: readonly Tabelle[] = [
   { name: "aktivitaet_sync", ordnung: ["aktivitaet_id"] },
   { name: "benutzer_einstellung", ordnung: ["benutzer_id"] },
   // Registerdaten, Szenarien und Reserven (Etappe 18)
+  { name: "provider_suggestion", ordnung: ["id"] },
+  { name: "external_funding_round", ordnung: ["id"] },
   { name: "registereintrag", ordnung: ["id"] },
   { name: "register_ereignis", ordnung: ["id"] },
   { name: "register_beobachtung", ordnung: ["organisation_id"] },

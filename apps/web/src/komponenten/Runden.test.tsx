@@ -1,7 +1,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
-import { BET_ID, FONDS_ID, ORG_A, ORG_B, rendereApp, spieleApi, type Anfrage } from "../test/hilfen";
+import { BET_ID, FONDS_ID, ORG_A, ORG_B, rendereApp, spieleApi, type Anfrage, zeilenAktion } from "../test/hilfen";
 import { anteilNachRunde } from "./Runden";
 
 const RUNDEN = `/api/v1/organisationen/${ORG_A}/finanzierungsrunden`;
@@ -63,12 +63,13 @@ describe("Runden: Anteil und Summenzeile", () => {
     expect(voll.pruefung.volumen).toBe("1500000.30");
     const leer = runde("r2", "Serie A", "2022-05-31", "abgeschlossen", fondsOnly, "1000000.05");
     spieleApi({ [RUNDEN]: { koerper: { daten: [voll, leer] } } });
-    rendereApp(`/beteiligungen/${BET_ID}?tab=finanzierung`);
+    rendereApp(`/investments/${BET_ID}?tab=financing`);
     const nutzer = userEvent.setup();
 
     // Serie A (neuer) ist die Vorgabe: Fondszeilen ohne Gezahlt/Offen
     let tabelle = within(await screen.findByRole("table"));
-    expect(tabelle.getByRole("columnheader", { name: "Anteil nach Runde" })).toBeTruthy();
+    // Anteil nach der Runde steht unter den Anteilen, Gezahlt unter Offen (zusammengefasste Spalten)
+    expect(tabelle.getByRole("columnheader", { name: "Anteile" })).toBeTruthy();
     let zeilen = tabelle.getAllByRole("row");
     expect(schmal(zeilen[1]!.textContent)).toContain("6,21 %");
     let fuss = zeilen[zeilen.length - 1]!;
@@ -76,8 +77,7 @@ describe("Runden: Anteil und Summenzeile", () => {
     expect(schmal(fuss.textContent)).toContain("1.000.000,05 €");
     expect(schmal(fuss.textContent)).toContain("100.000");
     expect(schmal(fuss.textContent)).toContain("8,65 %"); // 100000 / 1156723
-    expect(fuss.querySelectorAll("td")[5]!.textContent).toBe("");
-    expect(fuss.querySelectorAll("td")[6]!.textContent).toBe("");
+    expect(fuss.querySelectorAll("td")[3]!.textContent).toBe("");
 
     await nutzer.click(within(screen.getByRole("tablist", { name: "Runden" })).getByRole("tab", { name: /Seed/ }));
     tabelle = within(await screen.findByRole("table"));
@@ -87,7 +87,7 @@ describe("Runden: Anteil und Summenzeile", () => {
     expect(schmal(fuss.textContent)).toContain(schmal(new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" }).format(Number(voll.pruefung.volumen))));
     expect(schmal(fuss.textContent)).toContain("112.300"); // 71800 + 40500
     // Gezahlt/Offen: nicht jede Zeile hat einen Wert
-    expect(fuss.querySelectorAll("td")[5]!.textContent).toBe("");
+    expect(fuss.querySelectorAll("td")[3]!.textContent).toBe("");
   });
 
   it("summiert Gezahlt und Offen, wenn jede Position einen Wert hat", async () => {
@@ -96,7 +96,7 @@ describe("Runden: Anteil und Summenzeile", () => {
       position("s2", "organisation", "Gamma Kapital", "200.20", "20", { gezahlt: "100.10", offen: "100.10" }),
     ];
     spieleApi({ [RUNDEN]: { koerper: { daten: [runde("r1", "Seed", "2021-05-31", "abgeschlossen", alle, "300.30")] } } });
-    rendereApp(`/beteiligungen/${BET_ID}?tab=finanzierung`);
+    rendereApp(`/investments/${BET_ID}?tab=financing`);
     const zeilen = within(await screen.findByRole("table")).getAllByRole("row");
     const fuss = zeilen[zeilen.length - 1]!;
     expect(schmal(fuss.textContent)).toContain("300,30 €");
@@ -109,7 +109,7 @@ describe("Runden: Reiter", () => {
     const alt = runde("r1", "Seed", "2021-05-31", "abgeschlossen", gemischt, "1500000.30");
     const neu = runde("r9", "Serie Z", "2026-01-15", "entwurf", gemischt, "1500000.30");
     spieleApi({ [RUNDEN]: { koerper: { daten: [alt, neu] } } });
-    rendereApp(`/beteiligungen/${BET_ID}?tab=finanzierung`);
+    rendereApp(`/investments/${BET_ID}?tab=financing`);
     const nutzer = userEvent.setup();
     const leiste = within(await screen.findByRole("tablist", { name: "Runden" }));
     const reiter = leiste.getAllByRole("tab");
@@ -117,7 +117,7 @@ describe("Runden: Reiter", () => {
     expect(reiter[0]!.textContent).toContain("Serie Z"); // neueste zuerst
     expect(reiter[0]!.textContent).toMatch(/2026/);
     expect(reiter[1]!.getAttribute("aria-selected")).toBe("true"); // Vorgabe: neueste abgeschlossene
-    expect(screen.getByRole("tabpanel").getAttribute("aria-labelledby")).toBe(reiter[1]!.id);
+    expect(within(leiste.getByRole("tab", { selected: true }).closest(".cw-untertabs")! as HTMLElement).getByRole("tabpanel").getAttribute("aria-labelledby")).toBe(reiter[1]!.id);
     reiter[1]!.focus();
     await nutzer.keyboard("{ArrowLeft}");
     expect(document.activeElement).toBe(reiter[0]);
@@ -147,7 +147,7 @@ describe("Runden: neue Runde wird gewählt", () => {
   }
 
   it("wählt die neue Runde in der Liste (Beteiligung)", async () => {
-    const { api, nutzer } = await anlegen(`/beteiligungen/${BET_ID}?tab=finanzierung`);
+    const { api, nutzer } = await anlegen(`/investments/${BET_ID}?tab=financing`);
     await nutzer.click(await screen.findByRole("button", { name: "Neue Runde" }));
     const d = within(screen.getByRole("dialog"));
     await nutzer.type(d.getByLabelText("Bezeichnung"), "Serie Z");
@@ -162,8 +162,8 @@ describe("Runden: neue Runde wird gewählt", () => {
   });
 
   it("wählt die neue Runde auch auf der Organisationsseite (mit Fondswahl)", async () => {
-    const { api, nutzer } = await anlegen(`/organisationen/${ORG_A}`);
-    await nutzer.click(await screen.findByRole("button", { name: /^Runden/ }));
+    const { api, nutzer } = await anlegen(`/organizations/${ORG_A}`);
+    await nutzer.click(await within(await screen.findByRole("navigation", { name: /^(Hauptnavigation|Main navigation)$/ })).findByRole("link", { name: /^Runden/ }));
     await nutzer.click(await screen.findByRole("button", { name: "Neue Runde" }));
     const d = within(screen.getByRole("dialog"));
     await nutzer.type(d.getByLabelText("Bezeichnung"), "Serie Z");
@@ -189,9 +189,9 @@ describe("Runden: Vehikel einer Position zuordnen", () => {
       [VEHIKEL]: { koerper: { daten: [vehikel("v1", "Beta Seedfonds", true), vehikel("v2", "Beta Wachstumsfonds", false)] } },
       [`PATCH ${PATCH_URL}`]: { koerper: mitVehikel("entwurf") },
     });
-    rendereApp(`/beteiligungen/${BET_ID}?tab=finanzierung`);
+    rendereApp(`/investments/${BET_ID}?tab=financing`);
     const nutzer = userEvent.setup();
-    await nutzer.click(await screen.findByRole("button", { name: /Position von .* ändern/ }));
+    await nutzer.click((await zeilenAktion(/Position von .* ändern/))!);
     const d = within(await screen.findByRole("dialog"));
     const auswahl = (await d.findByLabelText("Vehikel")) as HTMLSelectElement;
     expect(auswahl.value).toBe("v1");
@@ -206,9 +206,9 @@ describe("Runden: Vehikel einer Position zuordnen", () => {
       [RUNDEN]: { koerper: { daten: [mitVehikel("entwurf")] } },
       [VEHIKEL]: { koerper: { daten: [vehikel("v1", "Beta Seedfonds", true)] } },
     });
-    rendereApp(`/beteiligungen/${BET_ID}?tab=finanzierung`);
+    rendereApp(`/investments/${BET_ID}?tab=financing`);
     const nutzer = userEvent.setup();
-    await nutzer.click(await screen.findByRole("button", { name: /Position von .* ändern/ }));
+    await nutzer.click((await zeilenAktion(/Position von .* ändern/))!);
     const d = within(await screen.findByRole("dialog"));
     await d.findByLabelText("Zusage");
     expect(d.queryByLabelText("Vehikel")).toBeNull();
@@ -220,9 +220,9 @@ describe("Runden: Vehikel einer Position zuordnen", () => {
       [VEHIKEL]: { koerper: { daten: [vehikel("v1", "Beta Seedfonds", true), vehikel("v2", "Beta Wachstumsfonds", false)] } },
       [`PATCH ${PATCH_URL}`]: { koerper: mitVehikel("abgeschlossen") },
     });
-    rendereApp(`/beteiligungen/${BET_ID}?tab=finanzierung`);
+    rendereApp(`/investments/${BET_ID}?tab=financing`);
     const nutzer = userEvent.setup();
-    await nutzer.click(await screen.findByRole("button", { name: /Vehikel der Position von .* ändern/ }));
+    await nutzer.click((await zeilenAktion(/Vehikel der Position von .* ändern/))!);
     const d = within(await screen.findByRole("dialog"));
     await nutzer.selectOptions(await d.findByLabelText("Vehikel"), "v2");
     expect(d.queryByLabelText("Zusage")).toBeNull();
@@ -242,7 +242,7 @@ describe("Runden: Vorschau im Dialog", () => {
         return { koerper: { postMoney: "15000000.00", anteileGesamtNach: "1416667", pruefung: { volumen: "0.00", postMoneyErwartet: "0", anteileErwartet: "0", anteileVergeben: "0", abweichungen: [], schliessbar: true }, dubletten: [] } };
       },
     });
-    rendereApp(`/beteiligungen/${BET_ID}?tab=finanzierung`);
+    rendereApp(`/investments/${BET_ID}?tab=financing`);
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Neue Runde" }));
     const d = within(screen.getByRole("dialog"));

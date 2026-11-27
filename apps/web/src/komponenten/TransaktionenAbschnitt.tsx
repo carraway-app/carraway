@@ -1,5 +1,5 @@
 import type { Key } from "react";
-import { ArrowLeftIcon, ArrowRightIcon, ArrowsClockwiseIcon, Auswahl, DotsThreeIcon, HandshakeIcon, ListIcon, PercentIcon, Tabelle, Tabs, type IconKomponente, type TabelleSpalte } from "@carraway/ui";
+import { ArrowLeftIcon, ArrowRightIcon, ArrowsClockwiseIcon, Auswahl, DotsThreeIcon, FilterChips, HandshakeIcon, ListIcon, PercentIcon, Tabelle, type IconKomponente, type MenueEintrag, type TabelleSpalte } from "@carraway/ui";
 import { aufzaehlung, useSprache, useT } from "../i18n";
 import { TX_FILTER, formatBetragMitCent, TX_GRUPPEN, gruppiere, imFilter, summen, zaehle, type TxFilter, type TxGruppe, type TxSummen, type TxZeile } from "../lib/transaktionen";
 
@@ -12,6 +12,8 @@ interface Props<T extends TxZeile> {
   gruppe: TxGruppe;
   onFilter: (filter: TxFilter) => void;
   onGruppe: (gruppe: TxGruppe) => void;
+  /** Aktionen je Zeile im Menü „⋯“ (statt Knöpfen in eigenen Spalten, damit die Tabelle in die Breite passt). */
+  aktionen?: (zeile: T) => MenueEintrag[];
   /** Summen nur in der Fondswährung: in einer anderen Sicht wären sie mit der Spalte nicht vergleichbar. */
   mitSummen: boolean;
 }
@@ -23,7 +25,7 @@ interface Props<T extends TxZeile> {
  */
 const TX_ICON: Record<TxFilter, IconKomponente> = { alle: ListIcon, auszahlungen: ArrowRightIcon, rueckfluesse: ArrowLeftIcon, zinsen: PercentIcon, zusagen: HandshakeIcon, wandlung: ArrowsClockwiseIcon, sonstige: DotsThreeIcon };
 
-export function TransaktionenAbschnitt<T extends TxZeile>({ zeilen, spalten, zeilenSchluessel, ausgewaehlt, filter, gruppe, onFilter, onGruppe, mitSummen }: Props<T>) {
+export function TransaktionenAbschnitt<T extends TxZeile>({ zeilen, spalten, zeilenSchluessel, ausgewaehlt, filter, gruppe, onFilter, onGruppe, mitSummen, aktionen }: Props<T>) {
   const t = useT();
   const sprache = useSprache();
   const b = t.beteiligung.vorgaenge;
@@ -43,10 +45,11 @@ export function TransaktionenAbschnitt<T extends TxZeile>({ zeilen, spalten, zei
   return (
     <>
       <div className="app-tx-leiste">
-        <Tabs
+        {/* Filter der Liste, keine Navigation: Filterchips in der Werkzeugzeile wie in Dealflow und Kontakte (Wahl in der Adresse, `art`). */}
+        <FilterChips
           aria-label={b.filterArt}
-          tabs={TX_FILTER.filter((f) => f === "alle" || anzahl[f] > 0 || f === filter).map((f) => ({ id: f, icon: TX_ICON[f], label: b.filterTab[f], zaehler: anzahl[f] }))}
-          aktiv={filter}
+          chips={TX_FILTER.filter((f) => f === "alle" || anzahl[f] > 0 || f === filter).map((f) => ({ id: f, icon: TX_ICON[f], label: b.filterTab[f], zaehler: anzahl[f] }))}
+          wert={filter}
           onWechsel={(id) => onFilter(id as TxFilter)}
         />
         <Auswahl label={b.gruppeLabel} kompakt labelVersteckt value={gruppe} onChange={(e) => onGruppe(e.target.value as TxGruppe)}>
@@ -68,6 +71,7 @@ export function TransaktionenAbschnitt<T extends TxZeile>({ zeilen, spalten, zei
           zeilen={sichtbar}
           zeilenSchluessel={zeilenSchluessel}
           ausgewaehlt={ausgewaehlt}
+          aktionen={aktionen}
           fusszeile={gesamt === undefined ? undefined : { [spalten[0]!.schluessel]: `${b.summe} (${sichtbar.length})`, betrag: betragText(gesamt) }}
         />
       ) : (
@@ -81,7 +85,7 @@ export function TransaktionenAbschnitt<T extends TxZeile>({ zeilen, spalten, zei
                   <span className="app-leer-text">{b.anzahl(g.zeilen.length)}</span>
                   {mitSummen && summenText(summen(g.zeilen, filter)) ? <span className="app-zahl app-tx-gruppe__summe">{summenText(summen(g.zeilen, filter))}</span> : null}
                 </div>
-                <Tabelle dicht className="app-tx-tabelle" beschriftung={`${b.titel}: ${name}`} spalten={spalten} zeilen={g.zeilen} zeilenSchluessel={zeilenSchluessel} ausgewaehlt={ausgewaehlt} />
+                <Tabelle dicht className="app-tx-tabelle" beschriftung={`${b.titel}: ${name}`} spalten={spalten} zeilen={g.zeilen} zeilenSchluessel={zeilenSchluessel} ausgewaehlt={ausgewaehlt} aktionen={aktionen} />
               </section>
             );
           })}

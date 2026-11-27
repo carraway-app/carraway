@@ -7,7 +7,8 @@ import { feldText } from "../i18n/fehler";
 import { aufzaehlung, useSprache, useT } from "../i18n";
 import { FehlerHinweis } from "./FehlerHinweis";
 import { useFormular } from "./formular";
-import { KontaktAuswahl, type Treffer } from "./KontaktAuswahl";
+import type { Treffer } from "./KontaktAuswahl";
+import { PersonSuchfeld } from "./NeuAnlegenFelder";
 import { Skelettzeilen } from "./Skelett";
 
 const GREMIEN = ["beirat", "aufsichtsrat", "board", "sonstiges"] as const satisfies readonly Gremium[];
@@ -34,7 +35,7 @@ export function MandateAbschnitt({ beteiligungId, schreiben }: { beteiligungId: 
 
   const spalten: TabelleSpalte<Mandat>[] = [
     { schluessel: "gremium", kopf: g.spalten.gremium, zelle: (m) => gremiumText(m) },
-    { schluessel: "person", kopf: g.spalten.person, zelle: (m) => <Link to="/personen/$id" params={{ id: m.person.id }}>{personName(m)}</Link> },
+    { schluessel: "person", kopf: g.spalten.person, zelle: (m) => <Link to="/people/$id" params={{ id: m.person.id }}>{personName(m)}</Link> },
     { schluessel: "rolle", kopf: g.spalten.rolle, zelle: (m) => aufzaehlung(g.rollen, m.rolle) },
     { schluessel: "zeitraum", kopf: g.spalten.zeitraum, zelle: (m) => g.zeitraum(formatDatum(m.beginn, sprache), m.ende ? formatDatum(m.ende, sprache) : null) },
     { schluessel: "status", kopf: g.spalten.status, zelle: (m) => (laeuft(m, tag) ? <Status variante="freigegeben">{g.laufend}</Status> : <Status variante="entwurf">{g.beendet}</Status>) },
@@ -91,7 +92,7 @@ export function FondsMandate({ fondsId }: { fondsId: string }) {
       schluessel: "unternehmen",
       kopf: g.spalten.unternehmen,
       zelle: (m) => (
-        <Link to="/beteiligungen/$id" params={{ id: m.beteiligungId }} search={{ tab: "gremien" }}>
+        <Link to="/investments/$id" params={{ id: m.beteiligungId }} search={{ tab: "gremien" }}>
           {m.organisation.name}
         </Link>
       ),
@@ -173,8 +174,8 @@ function MandatDialog({ beteiligungId, mandat, onSchliessen }: { beteiligungId: 
             </option>
           ))}
         </Auswahl>
-        <Feld label={f.gremiumName} hilfe={f.gremiumNameHilfe} autoComplete="off" {...feld("gremiumName")} fehler={feldText(t, mutation.error, "gremiumName")} />
-        <KontaktAuswahl art="person" label={f.person} gewaehlt={person} onWaehlen={setPerson} fehler={feldText(t, mutation.error, "personId")} />
+        <Feld label={f.gremiumName} hilfe={f.gremiumNameHilfe} {...feld("gremiumName")} fehler={feldText(t, mutation.error, "gremiumName")} />
+        <PersonSuchfeld label={f.person} name="personId" required wert={person} onWahl={setPerson} fehler={feldText(t, mutation.error, "personId")} />
         <Auswahl label={f.rolle} {...feld("rolle")}>
           {ROLLEN.map((x) => (
             <option key={x} value={x}>
@@ -184,7 +185,7 @@ function MandatDialog({ beteiligungId, mandat, onSchliessen }: { beteiligungId: 
         </Auswahl>
         <Feld type="date" label={f.beginn} {...feld("beginn")} fehler={feldText(t, mutation.error, "beginn")} />
         <Feld type="date" label={f.ende} hilfe={f.endeHilfe} {...feld("ende")} fehler={feldText(t, mutation.error, "ende")} />
-        <Feld label={f.bemerkung} autoComplete="off" {...feld("bemerkung")} fehler={feldText(t, mutation.error, "bemerkung")} />
+        <Feld label={f.bemerkung} {...feld("bemerkung")} fehler={feldText(t, mutation.error, "bemerkung")} />
         <div>
           <Button type="submit" disabled={mutation.isPending || !person || werte.beginn === ""}>
             {f.speichern}

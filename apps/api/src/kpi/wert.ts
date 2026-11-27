@@ -81,7 +81,7 @@ export interface NeuerKennzahlWert {
  * je Kennzahl, Zeitraum und Szenario). Gemeinsamer Weg der Eingabe von Hand und der Übernahme aus der KI-Auslesung; bestätigt wird in der Kennzahlenerfassung.
  * Die Beteiligung muss der Aufrufer geprüft haben.
  */
-export async function legeKennzahlEntwurfAn(tx: Tx, protokoll: Protokollant, beteiligungId: string, e: NeuerKennzahlWert) {
+export async function legeKennzahlEntwurfAn(tx: Tx, protokoll: Protokollant, beteiligungId: string, e: NeuerKennzahlWert, quelle: "intern" | "import" = "intern") {
   // Parallele manuelle Eingaben und Bestätigungen prüfen offene Werte nacheinander.
   await tx.execute(sql`SELECT id FROM beteiligung WHERE id = ${beteiligungId} FOR UPDATE`);
   const d = await geltendeDefinition(tx, e.schluessel, e.periodeEnde);
@@ -91,11 +91,11 @@ export async function legeKennzahlEntwurfAn(tx: Tx, protokoll: Protokollant, bet
   const { rows: offen } = await tx.execute<{ id: string }>(sql`
     SELECT w.id FROM kennzahl_wert w JOIN kennzahl_definition k ON k.id = w.definition_id
     WHERE w.beteiligung_id = ${beteiligungId} AND k.schluessel = ${e.schluessel} AND w.periode_beginn = ${e.periodeBeginn}::date AND w.periode_ende = ${e.periodeEnde}::date
-      AND w.szenario = ${e.szenario} AND w.quelle = 'intern' AND w.status <> 'bestaetigt' AND w.verworfen_am IS NULL`);
+      AND w.szenario = ${e.szenario} AND w.quelle IN ('intern', 'import') AND w.status <> 'bestaetigt' AND w.verworfen_am IS NULL`);
   if (offen[0]) throw new Fachfehler(409, "metric_value_pending_exists", "There is already a pending value for this period; please change the existing one.", { wertId: offen[0].id });
   const [zeile] = await tx
     .insert(kennzahlWert)
-    .values({ beteiligungId, definitionId: d.id, periodeBeginn: e.periodeBeginn, periodeEnde: e.periodeEnde, szenario: e.szenario, wert, quelle: "intern", erfasstVon: protokoll.akteur, status: "entwurf", kommentar: e.kommentar ?? null, geschaetzt: e.geschaetzt ?? false, quellenangabe: e.quellenangabe ?? null })
+    .values({ beteiligungId, definitionId: d.id, periodeBeginn: e.periodeBeginn, periodeEnde: e.periodeEnde, szenario: e.szenario, wert, quelle, erfasstVon: protokoll.akteur, status: "entwurf", kommentar: e.kommentar ?? null, geschaetzt: e.geschaetzt ?? false, quellenangabe: e.quellenangabe ?? null })
     .returning();
   await protokoll("anlegen", "kennzahl_wert", zeile!.id, null, zeile);
   return { zeile: zeile!, definition: d };

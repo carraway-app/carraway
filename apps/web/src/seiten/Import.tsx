@@ -50,8 +50,7 @@ export function ImportSeite() {
 
   return (
     <div className="app-seite">
-      <Seitenkopf meta={d.etikett} titel={d.titel} />
-      <p className="app-leer-text">{d.einleitung}</p>
+      <Seitenkopf info={d.einleitung} meta={d.etikett} titel={d.titel} />
 
       <section className="app-karte" aria-labelledby="import-vorlage">
         <h2 id="import-vorlage" className="cw-t-untertitel app-karte__titel">

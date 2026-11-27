@@ -235,8 +235,8 @@ function FallEditor({ fondsId, detail, beteiligungId, name, onSchliessen }: { fo
         {faelle.map((f, i) => (
           <fieldset key={i} className="app-gruppe">
             <legend className="cw-t-beschriftung">{e.fall(i + 1)}</legend>
-            <Feld label={e.schluessel} value={f.schluessel} onChange={(ev) => setze(i, { schluessel: ev.target.value })} maxLength={20} autoComplete="off" {...pruefe(`schluessel-${i}`, schluesselRegel, f.schluessel)} />
-            <Feld label={e.name} value={f.name} onChange={(ev) => setze(i, { name: ev.target.value })} maxLength={60} autoComplete="off" />
+            <Feld label={e.schluessel} value={f.schluessel} onChange={(ev) => setze(i, { schluessel: ev.target.value })} maxLength={20} {...pruefe(`schluessel-${i}`, schluesselRegel, f.schluessel)} />
+            <Feld label={e.name} value={f.name} onChange={(ev) => setze(i, { name: ev.target.value })} maxLength={60} />
             <BetragFeld label={e.wahrscheinlichkeit} value={f.prozent} onChange={(ev) => setze(i, { prozent: ev.target.value })} {...pruefe(`prozent-${i}`, prozentRegel({ pflicht: true }), f.prozent)} />
             <Auswahl label={e.methode} value={f.art} onChange={(ev) => setze(i, { art: ev.target.value as FallForm["art"] })}>
               {(["wert", "letzte_runde", "multiple"] as const).map((m) => (
@@ -249,7 +249,7 @@ function FallEditor({ fondsId, detail, beteiligungId, name, onSchliessen }: { fo
             {f.art === "letzte_runde" ? <BetragFeld label={e.abschlag} hilfe={e.abschlagHilfe} value={f.abschlag} onChange={(ev) => setze(i, { abschlag: ev.target.value })} {...pruefe(`abschlag-${i}`, prozentRegel({ min: -100, max: 99.9999 }), f.abschlag)} /> : null}
             {f.art === "multiple" ? (
               <>
-                <Feld label={e.kennzahl} hilfe={e.kennzahlHilfe} value={f.kennzahl} onChange={(ev) => setze(i, { kennzahl: ev.target.value })} autoComplete="off" {...pruefe(`kennzahl-${i}`, pflichtRegel(), f.kennzahl)} />
+                <Feld label={e.kennzahl} hilfe={e.kennzahlHilfe} value={f.kennzahl} onChange={(ev) => setze(i, { kennzahl: ev.target.value })} {...pruefe(`kennzahl-${i}`, pflichtRegel(), f.kennzahl)} />
                 <BetragFeld label={e.multiple} value={f.multiple} onChange={(ev) => setze(i, { multiple: ev.target.value })} {...pruefe(`multiple-${i}`, betragRegel({ nachkomma: 4, ganzstellen: 4, pflicht: true }), f.multiple)} />
                 <BetragFeld label={e.abzug} value={f.abzug} onChange={(ev) => setze(i, { abzug: ev.target.value })} {...pruefe(`abzug-${i}`, betragRegel(), f.abzug)} />
                 <BetragFeld label={e.anteil} hilfe={e.anteilHilfe} value={f.anteil} onChange={(ev) => setze(i, { anteil: ev.target.value })} {...pruefe(`anteil-${i}`, prozentRegel(), f.anteil)} />

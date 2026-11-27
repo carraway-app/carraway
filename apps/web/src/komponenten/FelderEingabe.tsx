@@ -88,7 +88,7 @@ export function FelderEingabe({ objekt, onChange }: { objekt: PortfolioObjekt; o
         if (d.typ === "datum")
           return <Feld key={d.id} label={d.name} type="date" value={typeof wert === "string" ? wert : ""} onChange={(e) => setze(d.id, e.target.value)} {...pruefe(d.id, datumRegel(), typeof wert === "string" ? wert : "")} />;
         const art = d.typ === "email" ? "email" : d.typ === "url" ? "url" : d.typ === "telefon" ? "tel" : "text";
-        return <Feld key={d.id} label={d.name} type={art} autoComplete="off" value={typeof wert === "string" ? wert : ""} onChange={(e) => setze(d.id, e.target.value)} />;
+        return <Feld key={d.id} label={d.name} type={art} value={typeof wert === "string" ? wert : ""} onChange={(e) => setze(d.id, e.target.value)} />;
       })}
     </fieldset>
   );

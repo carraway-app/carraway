@@ -71,6 +71,21 @@ export function verdeckeKapital(k: Kapital, sichtbar: Sichtbar): Kapital {
   return { ...k, zeilen, optionsscheine: k.optionsscheine.filter((o) => sichtbar(o.fondsId)) };
 }
 
+/**
+ * Einzelzuteilungen der Mitarbeiterbeteiligung ohne den Bereich Einzelzuteilungen (Entscheidung 522): je Pool eine Sammelzeile
+ * (`zuteilung:verdeckt:<pool>`) mit dem Namen des Pools, ohne Kategorie, Anzahl und Basispreis der einzelnen Zuteilungen. Ergänzt `verdeckt`.
+ */
+export function verdeckeZuteilungen(k: Kapital, verdeckt: Map<string, { id: string; halter: Halter }>): Map<string, { id: string; halter: Halter }> {
+  for (const m of k.mitarbeiter) {
+    if (m.zuteilungId === null) continue;
+    verdeckt.set(m.id, { id: `zuteilung:verdeckt:${m.pool.id}`, halter: { art: "mitarbeiter", id: m.pool.id, name: m.pool.bezeichnung, vehikel: null } });
+  }
+  return verdeckt;
+}
+
+/** Sind Einzelzuteilungen verdeckt? Dann entfallen Rechenweg und Knickpunkte: Sie nennen Basispreise und Einheiten einzelner Zuteilungen. */
+export const zuteilungenVerdeckt = (verdeckt: Map<string, { id: string; halter: Halter }>): boolean => [...verdeckt.values()].some((v) => v.id.startsWith("zuteilung:verdeckt:"));
+
 const SUMMEN = ["anteile", "investiert", "anspruch", "praeferenz", "beteiligung", "gesamt", "treuhand", "sofort"] as const;
 type WasserfallAusgabe = { id: string; halter: Halter; multiple: string | null; gedeckelt: boolean; diesesFonds: boolean; optionsschein: unknown } & Record<(typeof SUMMEN)[number], string>;
 

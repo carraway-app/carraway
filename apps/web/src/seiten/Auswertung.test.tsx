@@ -6,7 +6,7 @@ import { FONDS_ID, ORG_A, aktivitaetDaten, fehler, organisationDaten, rendereApp
 describe("Dealflow-Auswertung", () => {
   it("zeigt den Trichter mit erreicht, aktuell und Konversion sowie Quellen und Absagegründe", async () => {
     spieleApi();
-    rendereApp("/dealflow/auswertung");
+    rendereApp("/dealflow/analytics");
     const trichter = await screen.findByRole("region", { name: "Trichter nach Phase" });
     const zeilen = within(trichter).getAllByRole("row");
     expect(zeilen).toHaveLength(7);
@@ -32,7 +32,7 @@ describe("Dealflow-Auswertung", () => {
 
   it("reicht von, bis und Fonds an die API weiter und hält sie in der URL", async () => {
     const api = spieleApi();
-    const { router } = rendereApp("/dealflow/auswertung");
+    const { router } = rendereApp("/dealflow/analytics");
     const nutzer = userEvent.setup();
     await screen.findByRole("region", { name: "Trichter nach Phase" });
 
@@ -52,20 +52,20 @@ describe("Dealflow-Auswertung", () => {
 
   it("meldet einen Fehler der API und zeigt Leerzustand ohne Deals", async () => {
     spieleApi({ "/api/v1/dealflow/trichter": () => fehler(400, "invalid_input") });
-    rendereApp("/dealflow/auswertung?von=2026-06-30&bis=2026-01-01");
+    rendereApp("/dealflow/analytics?from=2026-06-30&to=2026-01-01");
     expect((await screen.findByRole("alert")).textContent).toContain("Die Eingabe ist ungültig");
   });
 
   it("zeigt einen Leerzustand, wenn der Zeitraum keine Deals enthält", async () => {
     spieleApi({ "/api/v1/dealflow/trichter": { koerper: { ...trichterDaten, gesamt: { deals: 0, offen: 0, abgesagt: 0, investiert: 0 } } } });
-    rendereApp("/dealflow/auswertung");
+    rendereApp("/dealflow/analytics");
     expect(await screen.findByText("Im gewählten Zeitraum gibt es keine Deals.")).toBeTruthy();
   });
 
   it("ist auch auf Englisch vollständig", async () => {
     localStorage.setItem("carraway.sprache", "en");
     spieleApi();
-    rendereApp("/dealflow/auswertung");
+    rendereApp("/dealflow/analytics");
     const trichter = await screen.findByRole("region", { name: "Funnel by stage" });
     expect(within(trichter).getByText("Due diligence")).toBeTruthy();
     expect(within(trichter).getByText("On to next")).toBeTruthy();
@@ -79,7 +79,7 @@ describe("Dealflow-Auswertung", () => {
 describe("Organisation: schreiben", () => {
   it("erfasst eine Aktivität mit Wiedervorlage an der Organisation", async () => {
     const api = spieleApi({ "POST /api/v1/aktivitaeten": () => ({ status: 201, koerper: aktivitaetDaten }) });
-    rendereApp(`/organisationen/${ORG_A}?tab=aktivitaet`);
+    rendereApp(`/organizations/${ORG_A}?tab=activity`);
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Aktivität erfassen" }));
     const dialog = await screen.findByRole("dialog", { name: "Aktivität erfassen" });
@@ -108,7 +108,7 @@ describe("Organisation: schreiben", () => {
       [`PATCH /api/v1/organisationen/${ORG_A}`]: () => ({ koerper: organisationDaten }),
       "POST /api/v1/personen": () => ({ status: 201, koerper: { id: "p2" } }),
     });
-    rendereApp(`/organisationen/${ORG_A}`);
+    rendereApp(`/organizations/${ORG_A}`);
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Organisation bearbeiten" }));
     let dialog = await screen.findByRole("dialog", { name: "Organisation bearbeiten" });

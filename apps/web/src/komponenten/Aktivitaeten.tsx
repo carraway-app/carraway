@@ -16,11 +16,13 @@ import { useRechte } from "../lib/rechte";
 import { Seitenpanel } from "@carraway/ui";
 import { FehlerHinweis } from "./FehlerHinweis";
 import { textOderNichts, useFormular } from "./formular";
+import { DealSuchfeld } from "./NeuAnlegenFelder";
+import type { SuchfeldTreffer } from "./Suchfeld";
 
 export const AKTIVITAET_ARTEN = ["gespraech", "termin", "notiz", "mail"] as const;
 type AktivitaetArt = (typeof AKTIVITAET_ARTEN)[number];
 
-const FELDER = ["art", "datum", "titel", "notiz", "personId", "wiedervorlage"];
+const FELDER = ["art", "datum", "titel", "notiz", "personId", "dealId", "wiedervorlage"];
 
 interface PersonKurz {
   id: string;
@@ -45,6 +47,9 @@ export function AktivitaetDialog({
   const t = useT();
   const anlegen = useAktivitaetAnlegen();
   const { werte, setWerte, feld } = useFormular({ art: "gespraech", datum: heuteIso(), titel: "", notiz: "", personId: personId ?? "", wiedervorlage: "" });
+  // Ohne vorgegebenen Deal (Seiten von Unternehmen und Personen) lässt sich optional ein Deal verknüpfen.
+  const [gewaehlterDeal, setGewaehlterDeal] = useState<SuchfeldTreffer | null>(null);
+  const verknuepfterDeal = dealId ?? gewaehlterDeal?.id;
   const f = t.aktivitaetForm;
 
   return (
@@ -62,7 +67,7 @@ export function AktivitaetDialog({
               titel: werte.titel.trim(),
               notiz: textOderNichts(werte.notiz),
               organisationId,
-              ...(dealId ? { dealId } : {}),
+              ...(verknuepfterDeal ? { dealId: verknuepfterDeal } : {}),
               ...(werte.personId ? { personId: werte.personId } : {}),
               ...(werte.wiedervorlage ? { wiedervorlage: werte.wiedervorlage } : {}),
             },
@@ -79,7 +84,7 @@ export function AktivitaetDialog({
           ))}
         </Auswahl>
         <Feld label={f.datum} type="date" {...feld("datum")} fehler={feldText(t, anlegen.error, "datum")} />
-        <Feld label={f.titelFeld} autoComplete="off" {...feld("titel")} fehler={feldText(t, anlegen.error, "titel")} />
+        <Feld label={f.titelFeld} {...feld("titel")} fehler={feldText(t, anlegen.error, "titel")} />
         <Textbereich markdown label={f.notiz} {...feld("notiz")} fehler={feldText(t, anlegen.error, "notiz")} />
         <ErwaehnenAuswahl onWaehlen={(text) => setWerte((alt) => ({ ...alt, notiz: `${alt.notiz}${alt.notiz && !alt.notiz.endsWith(" ") ? " " : ""}${text} ` }))} />
         {personen.length > 0 ? (
@@ -92,6 +97,7 @@ export function AktivitaetDialog({
             ))}
           </Auswahl>
         ) : null}
+        {dealId ? null : <DealSuchfeld label={f.deal} wert={gewaehlterDeal} onWahl={setGewaehlterDeal} fehler={feldText(t, anlegen.error, "dealId")} />}
         <Feld
           label={f.wiedervorlage}
           type="date"
@@ -219,7 +225,7 @@ function AnhaengeDialog({ aktivitaet, onSchliessen }: { aktivitaet: Aktivitaet; 
               {fertig[x.id] ? (
                 <>
                   <Status variante="freigegeben">{a.uebernommen}</Status>
-                  <Link to="/dokumente/$id" params={{ id: fertig[x.id]! }} search={{}}>
+                  <Link to="/documents/$id" params={{ id: fertig[x.id]! }} search={{}}>
                     {a.zumDokument}
                   </Link>
                 </>

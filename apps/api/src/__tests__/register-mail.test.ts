@@ -93,7 +93,7 @@ describe("Registerereignisse per Mail", () => {
     expect(m.an).toBe(mitOptIn.email);
     expect(m.betreff).toBe("Register event: Alpha Beispiel");
     expect(m.text).toContain("Insolvency");
-    expect(m.text).toContain(`${TESTORIGIN}/organisationen/${ID.orgA}`);
+    expect(m.text).toContain(`${TESTORIGIN}/organizations/${ID.orgA}`);
     for (const geheim of ["99 IN 999", "Beispiel, Aktenzeichen", "HRB 99001", "Erika", "25000", "Beispielstadt"]) expect(m.text + m.html).not.toContain(geheim);
     // Zweiter Lauf: kein neues Ereignis, keine zweite Mail.
     await pruefeBeobachtung(db, anbieter, { mail: { konfig: MAIL, ring, appBasis: TESTORIGIN } });

@@ -15,7 +15,7 @@ import { formatZeitpunkt } from "../lib/zeit";
 import { merkeFonds } from "../zustand";
 import { LAUF_STATUS, zeitraumText } from "./Meldungen";
 
-const route = getRouteApi("/meldungen/$id");
+const route = getRouteApi("/filings/$id");
 
 type Abschnitt = MeldeLauf["definition"]["abschnitte"][number];
 type Feldname = { id: string; bezeichnung: { de: string; en: string }; format: string; einheit?: string | undefined; quelle: { art: string; feld?: string }; hinweis?: { de: string; en: string } | undefined; pflicht?: boolean | undefined; summe?: boolean | undefined };
@@ -57,7 +57,7 @@ export function MeldelaufSeite() {
       <Seitenkopf
         meta={
           <>
-            <Link to="/fonds/$fondsId/meldungen" params={{ fondsId: lauf.fondsId }}>
+            <Link to="/funds/$fundId/filings" params={{ fundId: lauf.fondsId }}>
               {l.zurListe}
             </Link>
             {fondsName ? ` · ${fondsName}` : ""}
@@ -104,7 +104,7 @@ export function MeldelaufSeite() {
                     sprache: lauf.sprache as "de" | "en",
                     ...(lauf.periodeArt === "stichtag" ? { stichtag: lauf.periodeEnde } : { jahr: Number(lauf.periodeKennung.slice(0, 4)), ...(lauf.periodeArt === "jahr" ? {} : { nummer: Number(lauf.periodeKennung.slice(-1)) }) }),
                   },
-                  { onSuccess: (neu) => void navigate({ to: "/meldungen/$id", params: { id: neu.id } }) },
+                  { onSuccess: (neu) => void navigate({ to: "/filings/$id", params: { id: neu.id } }) },
                 )
               }
             >

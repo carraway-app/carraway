@@ -19,13 +19,13 @@ describe("Rechte in der Oberfläche", () => {
     unmount();
 
     spieleApi({ [ICH]: alsRolle("betrachter") });
-    const kontakte = rendereApp("/kontakte");
+    const kontakte = rendereApp("/contacts");
     await screen.findByRole("heading", { name: /Kontakte/i });
     expect(screen.queryByRole("button", { name: "Neue Organisation" })).toBeNull();
     kontakte.unmount();
 
     spieleApi({ [ICH]: alsRolle("betrachter") });
-    rendereApp(`/beteiligungen/${BET_ID}`);
+    rendereApp(`/investments/${BET_ID}`);
     expect(await screen.findByText(de.rechte.nurLesenRolle("Betrachter"))).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Vorgang erfassen" })).toBeNull();
     expect(screen.queryByRole("button", { name: /stornieren/ })).toBeNull();
@@ -38,7 +38,7 @@ describe("Rechte in der Oberfläche", () => {
     unmount();
 
     spieleApi({ [ICH]: alsRolle("bearbeiter"), [`/api/v1/zinslaeufe/${ZL_ID}`]: { koerper: { ...zinslaufDaten, geprueftVon: ANDERE } } });
-    const lauf = rendereApp(`/zinslaeufe/${ZL_ID}`);
+    const lauf = rendereApp(`/interest-runs/${ZL_ID}`);
     const freigeben = await screen.findByRole("button", { name: "Freigeben" });
     expect((freigeben as HTMLButtonElement).disabled).toBe(true);
     expect(freigeben.getAttribute("aria-describedby")).toBeTruthy();
@@ -47,7 +47,7 @@ describe("Rechte in der Oberfläche", () => {
     lauf.unmount();
 
     spieleApi({ [`/api/v1/zinslaeufe/${ZL_ID}`]: { koerper: { ...zinslaufDaten, geprueftVon: ANDERE } } });
-    rendereApp(`/zinslaeufe/${ZL_ID}`);
+    rendereApp(`/interest-runs/${ZL_ID}`);
     expect((await screen.findByRole("button", { name: "Freigeben" }) as HTMLButtonElement).disabled).toBe(false);
   });
 
@@ -57,7 +57,7 @@ describe("Rechte in der Oberfläche", () => {
       "/api/v1/users/names": { koerper: { daten: [{ id: ICH_EIGENE, name: "Vera Beispiel" }, { id: ANDERE, name: "Berta Beispiel" }] } },
       [`/api/v1/zinslaeufe/${ZL_ID}`]: { koerper: { ...zinslaufDaten, berechnetVon: ANDERE, geprueftVon: ICH_EIGENE } },
     });
-    rendereApp(`/zinslaeufe/${ZL_ID}`);
+    rendereApp(`/interest-runs/${ZL_ID}`);
     const freigeben = await screen.findByRole("button", { name: "Freigeben" });
     expect((freigeben as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText(de.rechte.vierAugenFreigabe)).toBeTruthy();
@@ -70,7 +70,7 @@ describe("Rechte in der Oberfläche", () => {
 
   it("fragt keine Namen für Altbestand ('system') und zeigt dafür einen neutralen Text", async () => {
     const api = spieleApi();
-    rendereApp(`/zinslaeufe/${ZL_ID}`);
+    rendereApp(`/interest-runs/${ZL_ID}`);
     await screen.findByRole("button", { name: "Freigeben" });
     expect(api.anfragen("GET", "/api/v1/users/names")).toHaveLength(0);
     expect(screen.getAllByText(/^System,/).length).toBeGreaterThan(0);
@@ -79,7 +79,7 @@ describe("Rechte in der Oberfläche", () => {
   it("erklärt four_eyes_violated beim Freigeben in beiden Sprachen", async () => {
     spieleApi({ [`/api/v1/zinslaeufe/${ZL_ID}`]: { koerper: { ...zinslaufDaten, geprueftVon: ANDERE } }, [`POST /api/v1/zinslaeufe/${ZL_ID}/freigeben`]: fehler(409, "four_eyes_violated") });
     localStorage.setItem("carraway.sprache", "en");
-    rendereApp(`/zinslaeufe/${ZL_ID}`);
+    rendereApp(`/interest-runs/${ZL_ID}`);
     await userEvent.setup().click(await screen.findByRole("button", { name: "Approve" }));
     expect((await screen.findByRole("alert")).textContent).toContain(en.fehler.four_eyes_violated);
   });
@@ -88,7 +88,7 @@ describe("Rechte in der Oberfläche", () => {
 describe("Beschluss und Übergang mit echten Personen", () => {
   it("sperrt Zustimmen für Bearbeiter und erklärt es; Ablehnen bleibt möglich", async () => {
     const api = spieleApi({ [ICH]: alsRolle("bearbeiter"), [`/api/v1/deals/${DEAL_ID}`]: { koerper: { ...dealDetailDaten, fondsId: FONDS_ID } }, [`POST /api/v1/deals/${DEAL_ID}/beschluesse`]: { status: 201, koerper: {} } });
-    rendereApp(`/deals/${DEAL_ID}?tab=beschluss`);
+    rendereApp(`/deals/${DEAL_ID}?tab=decision`);
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Beschluss erfassen" }));
     const dialog = within(await screen.findByRole("dialog", { name: "Beschluss erfassen" }));
@@ -103,7 +103,7 @@ describe("Beschluss und Übergang mit echten Personen", () => {
 
   it("verlangt bei Zustimmung ohne Fonds am Deal einen Fonds und sendet ihn mit", async () => {
     const api = spieleApi({ [ICH]: alsRolle("freigeber"), [`/api/v1/deals/${DEAL_ID}`]: { koerper: { ...dealDetailDaten, fondsId: null } }, [`POST /api/v1/deals/${DEAL_ID}/beschluesse`]: { status: 201, koerper: {} } });
-    rendereApp(`/deals/${DEAL_ID}?tab=beschluss`);
+    rendereApp(`/deals/${DEAL_ID}?tab=decision`);
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Beschluss erfassen" }));
     const dialog = within(await screen.findByRole("dialog", { name: "Beschluss erfassen" }));
@@ -127,7 +127,7 @@ describe("Beschluss und Übergang mit echten Personen", () => {
     const knopf = await screen.findByRole("button", { name: "Ins Portfolio übernehmen" });
     expect((knopf as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText(de.rechte.vierAugenBeschluss)).toBeTruthy();
-    await userEvent.setup().click(screen.getByRole("button", { name: /^Beschluss/ }));
+    await userEvent.setup().click(within(screen.getByRole("navigation", { name: "Hauptnavigation" })).getByRole("link", { name: /^Beschluss/ }));
     expect(await screen.findByRole("cell", { name: "Vera Beispiel" })).toBeTruthy();
   });
 
@@ -158,7 +158,7 @@ describe("Periodensperre am Formular", () => {
     const neuer = async (antwort: ReturnType<typeof fehler>, bereitsEn = false) => {
       spieleApi({ [pfad]: antwort });
       if (bereitsEn) localStorage.setItem("carraway.sprache", "en");
-      const app = rendereApp(`/beteiligungen/${BET_ID}`);
+      const app = rendereApp(`/investments/${BET_ID}`);
       const nutzer = userEvent.setup();
       await nutzer.click(await screen.findByRole("button", { name: bereitsEn ? "Record transaction" : "Vorgang erfassen" }));
       const dialog = within(await screen.findByRole("dialog"));

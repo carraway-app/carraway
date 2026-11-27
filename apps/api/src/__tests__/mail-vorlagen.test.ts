@@ -4,17 +4,17 @@ import { ladeMailKonfiguration, mailStatus } from "../mail/konfiguration";
 
 /** Mailvorlagen in beiden Sprachen: Link vorhanden, nichts Externes, nichts Verfolgendes, Werte maskiert. Alle Daten sind erfunden. */
 
-const LINK = "https://fonds.example.org/extern/abfrage/AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-abcde";
+const LINK = "https://fonds.example.org/external/requests/AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-abcde";
 
 const parameter: { [V in Vorlage]: VorlagenParameter[V] } = {
   testmail: {},
   kennzahl_abfrage: { unternehmen: "Alpha Beispiel GmbH", periodeBeginn: "2026-07-01", periodeEnde: "2026-09-30", faelligAm: "2026-10-15", link: LINK, hinweis: "Bitte bis Mitte des Monats" },
   esg_abfrage: { unternehmen: "Alpha Beispiel GmbH", jahr: "2025", faelligAm: "2026-10-15", link: LINK, hinweis: "Bitte bis Mitte des Monats" },
   lp_mitteilung: { fonds: "Beispielfonds Eins", art: "abruf", link: "https://fonds.example.org/portal" },
-  bericht_freigegeben: { bericht: "quartalsbericht", fonds: "Beispielfonds Eins", link: "https://fonds.example.org/berichte/123" },
-  register_ereignis: { unternehmen: "Alpha Beispiel GmbH", art: "insolvenz", link: "https://fonds.example.org/organisationen/123" },
-  passwort_zuruecksetzen: { link: "https://fonds.example.org/passwort-setzen#token=AbCdEfGhIjKlMnOpQrStUvWx", gueltigMinuten: 30 },
-  einladung: { name: "Anna Alpha", link: "https://fonds.example.org/passwort-setzen#token=AbCdEfGhIjKlMnOpQrStUvWx", gueltigStunden: 72 },
+  bericht_freigegeben: { bericht: "quartalsbericht", fonds: "Beispielfonds Eins", link: "https://fonds.example.org/reports/123" },
+  register_ereignis: { unternehmen: "Alpha Beispiel GmbH", art: "insolvenz", link: "https://fonds.example.org/organizations/123" },
+  passwort_zuruecksetzen: { link: "https://fonds.example.org/set-password#token=AbCdEfGhIjKlMnOpQrStUvWx", gueltigMinuten: 30 },
+  einladung: { name: "Anna Alpha", link: "https://fonds.example.org/set-password#token=AbCdEfGhIjKlMnOpQrStUvWx", gueltigStunden: 72 },
 };
 
 describe("Vorlagen", () => {

@@ -2,7 +2,7 @@ import { KeinFonds } from "./Platzhalter";
 import { useState } from "react";
 import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { getRouteApi, Link } from "@tanstack/react-router";
-import { Button, Feld, Hinweis, Seitenkopf, Status, Tabelle, formatDatum, type StatusVariante, type TabelleSpalte } from "@carraway/ui";
+import { Button, Feld, Hinweis, Seitenkopf, Status, Tabelle, formatDatum, type StatusVariante, type TabelleSpalte, Leer } from "@carraway/ui";
 import { fondsListe, fondsUebersicht, zinslaufListe, type ZinslaufZeile } from "../api/abfragen";
 import { heuteIso } from "../api/datum";
 import { useZinslaufAnlegen } from "../api/mutationen";
@@ -13,13 +13,14 @@ import { useFormular } from "../komponenten/formular";
 import { datumRegel } from "../lib/feldpruefung";
 import { feldText } from "../i18n/fehler";
 import { aufzaehlung, useSprache, useT } from "../i18n";
+import { ZinsReiter } from "../komponenten/FondsBereiche";
 import { wirksamerFonds } from "../lib/fonds";
 import { useRechte } from "../lib/rechte";
 import { formatBetragCent } from "../lib/zahl";
 import { formatZeitpunkt } from "../lib/zeit";
 import { merkeFonds } from "../zustand";
 
-const route = getRouteApi("/zinslaeufe");
+const route = getRouteApi("/interest-runs");
 
 export const LAUF_STATUS: Record<string, StatusVariante> = { berechnet: "entwurf", geprueft: "pruefung", freigegeben: "pruefung", gebucht: "freigegeben", verworfen: "fehlt" };
 
@@ -51,13 +52,18 @@ function ZinslaeufeFuerFonds({ fondsId, fondsName }: { fondsId: string; fondsNam
       schluessel: "aktion",
       kopf: z.spalten.aktion,
       zelle: (l) => (
-        <Link to="/zinslaeufe/$id" params={{ id: l.id }} aria-label={z.oeffnenFuer(formatDatum(l.stichtag, sprache))}>
+        <Link to="/interest-runs/$id" params={{ id: l.id }} aria-label={z.oeffnenFuer(formatDatum(l.stichtag, sprache))}>
           {z.oeffnen}
         </Link>
       ),
     },
   ];
 
+  const liste = (
+    <section className="app-karte" aria-label={z.etikett}>
+      {laeufe.length === 0 ? <Leer titel={z.keine} beschreibung={z.keineHilfe} /> : <Tabelle dicht beschriftung={z.liste} spalten={spalten} zeilen={laeufe} zeilenSchluessel={(l) => l.id} />}
+    </section>
+  );
   return (
     <div className="app-seite">
       <Seitenkopf
@@ -66,9 +72,7 @@ function ZinslaeufeFuerFonds({ fondsId, fondsName }: { fondsId: string; fondsNam
         aktionen={darf("bearbeiter", fondsId, "finanzen") ? <Button onClick={() => setNeu(true)}>{z.neu}</Button> : undefined}
       />
       <NurLesen fondsId={fondsId} bereich="finanzen" />
-      <section className="app-karte" aria-label={z.etikett}>
-        {laeufe.length === 0 ? <p className="app-leer-text">{z.keine}</p> : <Tabelle dicht beschriftung={z.liste} spalten={spalten} zeilen={laeufe} zeilenSchluessel={(l) => l.id} />}
-      </section>
+      {darf("betrachter", fondsId, "portfolio") ? <ZinsReiter aktiv="zinslaeufe" fondsId={fondsId}>{liste}</ZinsReiter> : liste}
       {neu ? <NeuerLaufDialog fondsId={fondsId} onSchliessen={() => setNeu(false)} /> : null}
     </div>
   );
@@ -100,7 +104,7 @@ function NeuerLaufDialog({ fondsId, onSchliessen }: { fondsId: string; onSchlies
               {angelegt.hinweise.ohneKonditionen.map((id, i) => (
                 <span key={id}>
                   {i > 0 ? ", " : ""}
-                  <Link to="/beteiligungen/$id" params={{ id }} search={{}}>
+                  <Link to="/investments/$id" params={{ id }} search={{}}>
                     {name(id)}
                   </Link>
                 </span>
@@ -108,7 +112,7 @@ function NeuerLaufDialog({ fondsId, onSchliessen }: { fondsId: string; onSchlies
             </Hinweis>
           ) : null}
           <p>
-            <Link to="/zinslaeufe/$id" params={{ id: angelegt.id }}>
+            <Link to="/interest-runs/$id" params={{ id: angelegt.id }}>
               {f.oeffnen}
             </Link>
           </p>

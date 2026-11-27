@@ -142,7 +142,7 @@ export function KontaktvorschlaegeHinweis() {
   if (!erlaubt || anzahl === 0) return null;
   return (
     <Hinweis>
-      {k.einstieg(anzahl)} <Link to="/kontakte/vorschlaege">{k.ansehen}</Link>
+      {k.einstieg(anzahl)} <Link to="/contacts/suggestions">{k.ansehen}</Link>
     </Hinweis>
   );
 }

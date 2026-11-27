@@ -14,10 +14,13 @@ describe("Datensatzseiten (CRM)", () => {
       [`/api/v1/crm/datensaetze/organisation/${ORG_A}`]: { koerper: orgMitEigenemFeld },
       [`PATCH /api/v1/crm/datensaetze/organisation/${ORG_A}`]: { koerper: { id: ORG_A } },
     });
-    rendereApp(`/organisationen/${ORG_A}`);
+    rendereApp(`/organizations/${ORG_A}`);
     const nutzer = userEvent.setup();
-    const attribute = await screen.findByRole("complementary", { name: "Attribute" });
-    expect(await within(attribute).findByText("Hamburg")).toBeTruthy();
+    await screen.findByText("Temperatur");
+    const attribute = screen.getByRole("region", { name: "Attribute" });
+    expect(within(attribute).getByText("Hamburg")).toBeTruthy();
+    // Art und Sektor stehen im Kopf und deshalb nicht noch einmal in den Attributen (keine doppelten Felder)
+    expect(within(attribute).queryByText("Sektor")).toBeNull();
     expect(within(attribute).getByText("Temperatur")).toBeTruthy();
     expect(within(attribute).getByText("Heiß")).toBeTruthy();
     // Name steht im Kopf, nicht noch einmal in den Attributen
@@ -48,7 +51,7 @@ describe("Datensatzseiten (CRM)", () => {
       "PATCH /api/v1/crm/aufgaben/t1": { koerper: { id: "t1" } },
       "POST /api/v1/crm/aufgaben/t1/erledigt": { koerper: { id: "t1" } },
     });
-    rendereApp(`/organisationen/${ORG_A}?tab=aufgaben`);
+    rendereApp(`/organizations/${ORG_A}?tab=tasks`);
     const nutzer = userEvent.setup();
     // Der Bereich des Verzeichnisses trägt den Namen des Eintrags und umschließt den Aufgabenabschnitt, der denselben Namen hat.
     const bereich = (await screen.findAllByRole("region", { name: "Aufgaben" }))[0]!;
@@ -80,7 +83,7 @@ describe("Datensatzseiten (CRM)", () => {
       "/api/v1/crm/zustaendige": { koerper: { daten: [{ id: "u1", name: "Vera Beispiel" }, { id: "u2", name: "Max Muster" }] } },
       "PATCH /api/v1/crm/aufgaben/t1": { koerper: { id: "t1" } },
     });
-    rendereApp(`/organisationen/${ORG_A}?tab=aufgaben`);
+    rendereApp(`/organizations/${ORG_A}?tab=tasks`);
     const nutzer = userEvent.setup();
     // Der Bereich des Verzeichnisses trägt den Namen des Eintrags und umschließt den Aufgabenabschnitt, der denselben Namen hat.
     const bereich = (await screen.findAllByRole("region", { name: "Aufgaben" }))[0]!;
@@ -104,12 +107,12 @@ describe("Datensatzseiten (CRM)", () => {
         },
       },
     });
-    rendereApp(`/organisationen/${ORG_A}?tab=verknuepft`);
+    rendereApp(`/organizations/${ORG_A}?tab=linked`);
     const eingehend = await screen.findByRole("region", { name: "Verweisen auf diesen Datensatz" });
-    expect(within(eingehend).getByRole("link", { name: "Beta Medizin" }).getAttribute("href")).toBe(`/organisationen/${ORG_B}`);
+    expect(within(eingehend).getByRole("link", { name: "Beta Medizin" }).getAttribute("href")).toBe(`/organizations/${ORG_B}`);
     expect(within(eingehend).getByText(/Erwähnung in einer Notiz/)).toBeTruthy();
     const ausgehend = screen.getByRole("region", { name: "Dieser Datensatz verweist auf" });
-    expect(within(ausgehend).getByRole("link", { name: "Anna Berger" }).getAttribute("href")).toBe("/personen/p1");
+    expect(within(ausgehend).getByRole("link", { name: "Anna Berger" }).getAttribute("href")).toBe("/people/p1");
   });
 
   it("Kontakt: eine Tabelle der Unternehmen, Verknüpfen in der Schublade mit Funktion, Hauptunternehmen und Rolle", async () => {
@@ -120,10 +123,10 @@ describe("Datensatzseiten (CRM)", () => {
       "POST /api/v1/crm/beschaeftigungen": { status: 201, koerper: { id: "b2" } },
       "POST /api/v1/kontaktrollen": { status: 201, koerper: { id: "r1" } },
     });
-    rendereApp("/personen/p1");
+    rendereApp("/people/p1");
     const nutzer = userEvent.setup();
     expect(await screen.findByRole("heading", { level: 1, name: "Anna Berger" })).toBeTruthy();
-    expect(await screen.findByRole("complementary", { name: "Attribute" })).toBeTruthy();
+    expect(await screen.findByRole("region", { name: "Attribute" })).toBeTruthy();
     const bereich = await screen.findByRole("region", { name: "Unternehmen des Kontakts" });
     expect(await within(bereich).findByText("Hauptunternehmen")).toBeTruthy();
     expect(within(bereich).getByRole("link", { name: "Alpha Energie" })).toBeTruthy();
@@ -150,13 +153,13 @@ describe("Datensatzseiten (CRM)", () => {
       "/api/v1/suche": { koerper: { q: "jon", organisationen: [], personen: [{ id: "p2", vorname: "Jonas", nachname: "Keller", email: null, organisation: null, score: 1 }], deals: [] } },
       "POST /api/v1/crm/deals/d1/kontakte": { status: 201, koerper: {} },
     });
-    rendereApp("/deals/d1?tab=kontakte");
+    rendereApp("/deals/d1?tab=contacts");
     const nutzer = userEvent.setup();
     const bereich = await screen.findByRole("region", { name: "Kontakte des Deals" });
     expect(await within(bereich).findByRole("link", { name: "Anna Berger" })).toBeTruthy();
     expect(within(bereich).getByRole("link", { name: "E-Mail an Anna Berger" })).toBeTruthy();
-    await nutzer.type(within(bereich).getByLabelText("Kontakt suchen"), "jon");
-    await nutzer.click(await within(bereich).findByRole("button", { name: /^Jonas Keller/ }));
+    await nutzer.type(within(bereich).getByRole("combobox", { name: "Kontakt suchen" }), "jon");
+    await nutzer.click(await within(bereich).findByRole("option", { name: /^Jonas Keller/ }));
     await nutzer.type(within(bereich).getByLabelText("Rolle"), "Investor");
     await nutzer.click(within(bereich).getByRole("button", { name: "Verknüpfen" }));
     await waitFor(() => expect(api.anfragen("POST", "/api/v1/crm/deals/d1/kontakte")).toHaveLength(1));
@@ -170,7 +173,7 @@ describe("Notizen mit Erwähnungen", () => {
       "/api/v1/suche": { koerper: { q: "bet", organisationen: [{ id: ORG_B, name: "Beta Medizin", art: "unternehmen", ort: null, score: 1 }], personen: [], deals: [] } },
       "POST /api/v1/aktivitaeten": { status: 201, koerper: { ...aktivitaetDaten, id: "a2" } },
     });
-    rendereApp(`/organisationen/${ORG_A}?tab=aktivitaet`);
+    rendereApp(`/organizations/${ORG_A}?tab=activity`);
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Aktivität erfassen" }));
     const dialog = await screen.findByRole("dialog", { name: "Aktivität erfassen" });
@@ -189,9 +192,9 @@ describe("Notizen mit Erwähnungen", () => {
     spieleApi({
       "/api/v1/aktivitaeten": { koerper: { daten: [{ ...aktivitaetDaten, notiz: `<img src=x onerror="alert(1)"> mit @[Beta <b>Medizin</b>](organisation:${ORG_B}) besprochen` }] } },
     });
-    rendereApp(`/organisationen/${ORG_A}?tab=aktivitaet`);
+    rendereApp(`/organizations/${ORG_A}?tab=activity`);
     const link = await screen.findByRole("link", { name: "@Beta <b>Medizin</b>" });
-    expect(link.getAttribute("href")).toBe(`/organisationen/${ORG_B}`);
+    expect(link.getAttribute("href")).toBe(`/organizations/${ORG_B}`);
     const absatz = link.closest("p")!;
     expect(absatz.querySelector("img")).toBeNull();
     expect(absatz.querySelector("b")).toBeNull();
@@ -206,7 +209,7 @@ describe("Notizen mit Markdown", () => {
     spieleApi({
       "/api/v1/aktivitaeten": { koerper: { daten: [{ ...aktivitaetDaten, notiz: "Ergebnis **gut**\n\n- erstens\n- zweitens\n\n[Zugang](javascript:alert(1)) und [Seite](https://beispiel.test)" }] } },
     });
-    rendereApp(`/organisationen/${ORG_A}?tab=aktivitaet`);
+    rendereApp(`/organizations/${ORG_A}?tab=activity`);
     expect((await screen.findByText("gut")).tagName).toBe("STRONG");
     expect(screen.getAllByRole("listitem").some((li) => li.textContent === "zweitens")).toBe(true);
     expect(screen.queryByRole("link", { name: "Zugang" })).toBeNull();
@@ -219,11 +222,10 @@ describe("Datensatzseiten auf Englisch", () => {
   it("übersetzt Reiter, Attribute und Aufgaben", async () => {
     localStorage.setItem("carraway.sprache", "en");
     spieleApi();
-    rendereApp(`/organisationen/${ORG_A}?tab=aufgaben`);
-    expect(await screen.findByRole("complementary", { name: "Attributes" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Tasks" }).getAttribute("aria-current")).toBe("page");
-    expect(screen.getByRole("button", { name: "Linked" })).toBeTruthy();
-    expect(screen.getByText("Collaboration")).toBeTruthy();
+    rendereApp(`/organizations/${ORG_A}?tab=tasks`);
+    await waitFor(() => expect(within(screen.getByRole("navigation", { name: /^(Hauptnavigation|Main navigation)$/ })).getByRole("link", { name: "Tasks" }).getAttribute("aria-current")).toBe("page"));
+    expect(within(screen.getByRole("navigation", { name: /^(Hauptnavigation|Main navigation)$/ })).getByRole("link", { name: "Linked" })).toBeTruthy();
+    expect(within(screen.getByRole("navigation", { name: /^(Hauptnavigation|Main navigation)$/ })).getByRole("button", { name: "Collaboration" })).toBeTruthy();
     expect(await screen.findByRole("button", { name: "Create task" })).toBeTruthy();
     expect(screen.getByText("No tasks.")).toBeTruthy();
   });
@@ -232,23 +234,23 @@ describe("Datensatzseiten auf Englisch", () => {
 describe("Kontaktseite: Inhaltsverzeichnis", () => {
   it("zeigt die Bereiche ohne Reiter und öffnet über alte Adressen den richtigen Eintrag", async () => {
     spieleApi({ "/api/v1/personen/p1": { koerper: person } });
-    const { unmount } = rendereApp("/personen/p1");
+    const { unmount } = rendereApp("/people/p1");
     expect(await screen.findByRole("heading", { level: 1, name: "Anna Berger" })).toBeTruthy();
     expect(screen.queryByRole("tab")).toBeNull();
-    const nav = screen.getByRole("navigation", { name: "Bereiche" });
-    for (const eintrag of ["Unternehmen", "Aktivitäten", "Termine", "Aufgaben", "Verknüpft"]) expect(within(nav).getByRole("button", { name: new RegExp(`^${eintrag}`) })).toBeTruthy();
-    expect(within(nav).getByRole("button", { name: /^Unternehmen/ }).getAttribute("aria-current")).toBe("page");
+    const nav = screen.getByRole("navigation", { name: "Hauptnavigation" });
+    for (const eintrag of ["Unternehmen", "Aktivitäten", "Termine", "Aufgaben", "Verknüpft"]) expect(within(nav).getByRole("link", { name: new RegExp(`^${eintrag}`) })).toBeTruthy();
+    await waitFor(() => expect(within(nav).getByRole("link", { name: /^Unternehmen/ }).getAttribute("aria-current")).toBe("page"));
     unmount();
 
     for (const [suche, eintrag] of [
-      ["tab=aktivitaet", "Aktivitäten"],
-      ["tab=aktivitaet&unter=termine", "Termine"],
-      ["tab=aufgaben", "Aufgaben"],
-      ["tab=verknuepft", "Verknüpft"],
+      ["tab=activity", "Aktivitäten"],
+      ["tab=activity&subtab=appointments", "Termine"],
+      ["tab=tasks", "Aufgaben"],
+      ["tab=linked", "Verknüpft"],
     ] as const) {
       spieleApi({ "/api/v1/personen/p1": { koerper: person } });
-      const { unmount: weg } = rendereApp(`/personen/p1?${suche}`);
-      const knopf = await screen.findByRole("button", { name: new RegExp(`^${eintrag}`) });
+      const { unmount: weg } = rendereApp(`/people/p1?${suche}`);
+      const knopf = await within(await screen.findByRole("navigation", { name: /^(Hauptnavigation|Main navigation)$/ })).findByRole("link", { name: new RegExp(`^${eintrag}`) });
       expect(knopf.getAttribute("aria-current")).toBe("page");
       weg();
     }

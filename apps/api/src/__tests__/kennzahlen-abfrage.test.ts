@@ -57,7 +57,7 @@ describe("Token", () => {
   it("256 Bit zufällig, nur der SHA-256 steht in der Datenbank, nirgends der Klartext oder der Hash in Antworten", async () => {
     const { abfrage, token, link } = await neueAbfrage();
     expect(token).toMatch(/^[A-Za-z0-9_-]{43}$/); // 32 Byte als Base64url
-    expect(link.pfad).toBe(`/extern/abfrage/${token}`);
+    expect(link.pfad).toBe(`/external/requests/${token}`);
     const zeile = (await db.execute(sql`SELECT * FROM kennzahl_abfrage WHERE id = ${abfrage.id}`)).rows[0] as Record<string, unknown>;
     expect(zeile.token_hash).toBe(sha(token));
     expect(Object.values(zeile).some((w) => typeof w === "string" && w.includes(token))).toBe(false);

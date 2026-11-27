@@ -11,7 +11,7 @@ const dataTransfer = () => ({ setData: () => {}, setDragImage: () => {}, effectA
 describe("Spalten ordnen (Dialog und Tabellenkopf)", () => {
   async function oeffneDialog() {
     spieleApi();
-    rendereApp("/kontakte");
+    rendereApp("/contacts");
     const nutzer = userEvent.setup();
     const grid = await screen.findByRole("grid", { name: "Unternehmen" });
     await nutzer.click(screen.getByRole("button", { name: "Spalten" }));
@@ -70,7 +70,7 @@ describe("Spalten ordnen (Dialog und Tabellenkopf)", () => {
 
   it("verschiebt Spalten im Tabellenkopf per Ziehen; die erste Spalte bleibt vorn", async () => {
     spieleApi();
-    rendereApp("/kontakte");
+    rendereApp("/contacts");
     const grid = await screen.findByRole("grid", { name: "Unternehmen" });
     const vorher = kopfNamen(grid);
     const kopf = (k: string) => grid.querySelector<HTMLElement>(`.app-gitter__kopf [data-kopf="${k}"]`)!;
@@ -94,7 +94,7 @@ describe("Spalten ordnen (Dialog und Tabellenkopf)", () => {
 
   it("lässt den Breitengriff und das Sortieren unberührt", async () => {
     spieleApi();
-    rendereApp("/kontakte");
+    rendereApp("/contacts");
     const nutzer = userEvent.setup();
     const grid = await screen.findByRole("grid", { name: "Unternehmen" });
     const namen = kopfNamen(grid);

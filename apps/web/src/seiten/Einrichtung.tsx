@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Link, useRouter } from "@tanstack/react-router";
 import { Button, Feld, Hinweis } from "@carraway/ui";
 import { api, auspacken } from "../api/client";
@@ -15,6 +15,12 @@ export function EinrichtungSeite() {
   const t = useT();
   const e = t.einrichtung;
   const router = useRouter();
+  const [token, setToken] = useState(() => new URLSearchParams(router.history.location.search).get("token") ?? "");
+  useEffect(() => {
+    if (new URLSearchParams(router.history.location.search).has("token")) {
+      void router.navigate({ to: "/setup", search: {}, replace: true });
+    }
+  }, [router]);
   const [werte, setWerte] = useState({ name: "", email: "", passwort: "", wiederholt: "" });
   const [versucht, setVersucht] = useState(false);
   const { laeuft, fehler, ausfuehren } = useAnmeldeschritt();
@@ -24,11 +30,12 @@ export function EinrichtungSeite() {
   function einrichten(ev: FormEvent) {
     ev.preventDefault();
     setVersucht(true);
-    if (zuKurz || ungleich) return;
+    if (!token || zuKurz || ungleich) return;
     void ausfuehren(async () => {
-      await auspacken(api.api.v1.setup.$post({ json: { name: werte.name.trim(), email: werte.email.trim(), password: werte.passwort } }));
+      await auspacken(api.api.v1.setup.$post({ json: { token, name: werte.name.trim(), email: werte.email.trim(), password: werte.passwort } }));
+      setToken("");
       setWerte({ name: "", email: "", passwort: "", wiederholt: "" });
-      await router.navigate({ to: "/anmelden", search: { eingerichtet: true }, replace: true });
+      await router.navigate({ to: "/sign-in", search: { eingerichtet: true }, replace: true });
     });
   }
 
@@ -39,10 +46,13 @@ export function EinrichtungSeite() {
       </h1>
       <Hinweis>{e.einleitung}</Hinweis>
       <form className="app-formular" onSubmit={einrichten} noValidate>
-        <FehlerHinweis fehler={fehler} bekannt={["name", "email", "password"]} />
-        <Feld label={e.name} name="name" value={werte.name} onChange={(ev) => setWerte((w) => ({ ...w, name: ev.target.value }))} autoComplete="name" required autoFocus />
-        <Feld label={e.email} name="email" type="email" value={werte.email} onChange={(ev) => setWerte((w) => ({ ...w, email: ev.target.value }))} autoComplete="username" required />
-        <Feld
+        <FehlerHinweis fehler={fehler} bekannt={["token", "name", "email", "password"]} />
+        {/* Das Einrichtungs-Token ist kein Zugang: Passwortmanager bieten hier nichts an (Fachfeld). */}
+        <Feld label={e.token} hilfe={e.tokenHilfe} name="token" type="password" value={token}
+          onChange={(ev) => setToken(ev.target.value)} maxLength={1024} required />
+        <Feld zugang label={e.name} name="name" value={werte.name} onChange={(ev) => setWerte((w) => ({ ...w, name: ev.target.value }))} autoComplete="name" required autoFocus />
+        <Feld zugang label={e.email} name="email" type="email" value={werte.email} onChange={(ev) => setWerte((w) => ({ ...w, email: ev.target.value }))} autoComplete="username" required />
+        <Feld zugang
           label={e.passwort}
           hilfe={t.passwort.neuHilfe(MINDESTLAENGE_PASSWORT)}
           fehler={versucht && zuKurz ? t.passwort.zuKurz(MINDESTLAENGE_PASSWORT) : undefined}
@@ -53,7 +63,7 @@ export function EinrichtungSeite() {
           autoComplete="new-password"
           required
         />
-        <Feld
+        <Feld zugang
           label={t.passwort.wiederholt}
           fehler={versucht && ungleich ? t.passwort.ungleich : undefined}
           name="wiederholt"
@@ -63,12 +73,12 @@ export function EinrichtungSeite() {
           autoComplete="new-password"
           required
         />
-        <Button type="submit" disabled={laeuft || werte.name.trim() === "" || werte.email.trim() === "" || werte.passwort === ""}>
+        <Button type="submit" disabled={laeuft || !token || werte.name.trim() === "" || werte.email.trim() === "" || werte.passwort === ""}>
           {e.einrichten}
         </Button>
       </form>
       <p className="app-leer-text app-auth__fuss">
-        <Link to="/anmelden" search={{}}>
+        <Link to="/sign-in" search={{}}>
           {e.zurAnmeldung}
         </Link>
       </p>

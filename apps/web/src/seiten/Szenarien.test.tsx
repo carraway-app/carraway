@@ -1,7 +1,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it } from "vitest";
-import { alsRolle, FONDS_ID, rendereApp, spieleApi } from "../test/hilfen";
+import { alsRolle, FONDS_ID, uebersichtDaten, rendereApp, spieleApi } from "../test/hilfen";
 import { de } from "../i18n/de";
 
 /** Szenarien, Vergleich und Reserven (Etappe 18) mit gespielter API, in beiden Sprachen. Alle Daten sind erfunden. */
@@ -64,7 +64,7 @@ const vergleich = (ids: string[]) => {
 
 const schmal = (text: string | null) => (text ?? "").replace(/\s/g, " ");
 
-const URL_S = `/fonds/${FONDS_ID}/szenarien`;
+const URL_S = `/funds/${FONDS_ID}/scenarios`;
 const API_S = `/api/v1/fonds/${FONDS_ID}/szenarien`;
 const liste = { daten: [kopf(S1, "Basis", "festgeschrieben"), kopf(S2, "Oben"), kopf(S3, "Unten"), kopf(S4, "Vierter")] };
 const vorlage = { basisStichtag: "2026-11-20", beteiligungen: [{ id: BET, organisation: "Alpha Energie", instrument: "offene_beteiligung", wert: "2500000.00", investiert: "2000000.00" }] };
@@ -289,7 +289,7 @@ describe("Reserven", () => {
 
   it("zeigt Reserve gegen Verbrauch, den verfügbaren Betrag mit Rechenweg und plant eine Reserve", async () => {
     const api = spieleApi({ [`/api/v1/fonds/${FONDS_ID}/reserven`]: { koerper: reserven }, [`PUT /api/v1/beteiligungen/b1/reserve`]: { koerper: { id: "r" }, status: 201 } });
-    rendereApp(`/fonds/${FONDS_ID}/reserven`);
+    rendereApp(`/funds/${FONDS_ID}/reserves`);
     const abschnitt = within((await screen.findAllByRole("region", { name: "Reserven" }))[0]!);
     await abschnitt.findByRole("region", { name: "Unternehmen · Geplant" });
     const zeile = abschnitt.getAllByRole("row").find((r) => r.textContent?.includes("Alpha Energie"))!;
@@ -308,10 +308,37 @@ describe("Reserven", () => {
     expect(api.anfragen("PUT", "/api/v1/beteiligungen/b1/reserve")[0]!.koerper).toMatchObject({ betrag: "500000", bemerkung: null });
   });
 
+  it("sucht die Beteiligung für die Reserve, wenn der Fonds viele aktive hat, und blendet beendete aus (Issue #298)", async () => {
+    const vorlage = uebersichtDaten.beteiligungen[0]!;
+    const viele = Array.from({ length: 20 }, (_, i) => ({ ...vorlage, id: `x${i}`, organisation: { ...vorlage.organisation, name: `Unternehmen ${String(i).padStart(2, "0")}` } }));
+    const treffer = [
+      { id: "x7", fondsId: FONDS_ID, instrument: "darlehen", status: "aktiv", organisation: { id: "o7", name: "Unternehmen 07", ort: "Köln" } },
+      { id: "alt", fondsId: FONDS_ID, instrument: "darlehen", status: "insolvent", organisation: { id: "o8", name: "Unternehmen 07 Alt", ort: null } },
+    ];
+    const api = spieleApi({
+      [`/api/v1/fonds/${FONDS_ID}/reserven`]: { koerper: reserven },
+      [`/api/v1/fonds/${FONDS_ID}/uebersicht`]: { koerper: { ...uebersichtDaten, beteiligungen: [...viele, { ...vorlage, id: "alt", status: "insolvent" }] } },
+      "/api/v1/suche": { koerper: { q: "07", organisationen: [], personen: [], deals: [], beteiligungen: treffer, dokumente: [] } },
+      [`PUT /api/v1/beteiligungen/x7/reserve`]: { koerper: { id: "r" }, status: 201 },
+    });
+    rendereApp(`/funds/${FONDS_ID}/reserves`);
+    const nutzer = userEvent.setup();
+    await nutzer.click(await screen.findByRole("button", { name: "Reserve planen" }));
+    const f = within(await screen.findByRole("form", { name: "Reserve planen" }));
+    const feld = await f.findByRole("combobox", { name: "Beteiligung" });
+    await nutzer.type(feld, "Unternehmen 07");
+    const optionen = await f.findAllByRole("option");
+    expect(optionen).toHaveLength(1);
+    await nutzer.click(optionen[0]!);
+    await nutzer.type(f.getByLabelText("Betrag"), "500000");
+    await nutzer.click(f.getByRole("button", { name: "Speichern" }));
+    await waitFor(() => expect(api.anfragen("PUT", "/api/v1/beteiligungen/x7/reserve")).toHaveLength(1));
+  });
+
   it("zeigt Betrachtern kein Formular und ist in Englisch übersetzt", async () => {
     localStorage.setItem("carraway.sprache", "en");
     spieleApi({ "/api/v1/me": alsRolle("betrachter"), [`/api/v1/fonds/${FONDS_ID}/reserven`]: { koerper: { ...reserven, befunde: [] } } });
-    rendereApp(`/fonds/${FONDS_ID}/reserven`);
+    rendereApp(`/funds/${FONDS_ID}/reserves`);
     const abschnitt = within((await screen.findAllByRole("region", { name: "Reserves" }))[0]!);
     await abschnitt.findByRole("region", { name: "Company · Planned" });
     expect(abschnitt.getAllByText("Available for new investments").length).toBeGreaterThan(0);

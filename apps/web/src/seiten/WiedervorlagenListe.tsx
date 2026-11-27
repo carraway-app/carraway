@@ -12,7 +12,7 @@ import { useRechte } from "../lib/rechte";
 import { useSprache, useT } from "../i18n";
 import { Datensatzlink } from "../komponenten/crm/Datensatzlink";
 
-const route = getRouteApi("/wiedervorlagen");
+const route = getRouteApi("/follow-ups");
 
 function Bezug({ z }: { z: WiedervorlageZeile }) {
   if (z.deal?.id)
@@ -113,7 +113,7 @@ export function WiedervorlagenSeite() {
         {abfrage.isPending ? (
           <div className="app-skelett app-skelett--zeile" aria-hidden="true" />
         ) : !abfrage.data ? null : zeilen.length === 0 ? (
-          <Leer zeichen="W" titel={w.keine} beschreibung="" />
+          <Leer titel={w.keine} beschreibung="" />
         ) : (
           <Tabelle beschriftung={w.titel} spalten={spalten} zeilen={zeilen} zeilenSchluessel={(z) => z.id} />
         )}

@@ -1,15 +1,30 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
-import { FONDS_ID, ZL_ID, abgrenzungDaten, alsRolle, fehler, rendereApp, spieleApi, zinslaufDaten } from "../test/hilfen";
+import { FONDS_ID, ZL_ID, abgrenzungDaten, alsRolle, fehler, rendereApp, spieleApi, zinslaufDaten, feldImStichtagMenue } from "../test/hilfen";
 
 const schmal = (text: string | null) => (text ?? "").replace(/\s/g, " ");
 const dialog = () => within(screen.getByRole("dialog"));
 
+describe("Zinsläufe: Leerzustand", () => {
+  it.each([
+    ["Bearbeiter im Bereich Finanzen", alsRolle("bearbeiter", { bereiche: ["finanzen", "portfolio"], bereicheJeFonds: { [FONDS_ID]: { finanzen: "bearbeiter", portfolio: "betrachter" } } }), true],
+    ["Betrachter", alsRolle("betrachter", { bereiche: ["finanzen", "portfolio"], bereicheJeFonds: { [FONDS_ID]: { finanzen: "betrachter", portfolio: "betrachter" } } }), false],
+  ])("%s: Titel und Erklärung im Bereich, die Aktion nur im Kopf und nur mit Schreibrecht", async (_name, ich, mitAktion) => {
+    spieleApi({ "/api/v1/me": ich, "/api/v1/zinslaeufe": { koerper: { daten: [] } } });
+    rendereApp("/interest-runs");
+    expect(await screen.findByText("Für diesen Fonds gibt es noch keinen Zinslauf.")).toBeTruthy();
+    expect(screen.getByText(/Ein Zinslauf berechnet die Zinsen aller Darlehen/)).toBeTruthy();
+    const leer = screen.getByText("Für diesen Fonds gibt es noch keinen Zinslauf.").closest(".cw-leer") as HTMLElement;
+    expect(within(leer).queryByRole("button", { name: "Neuer Zinslauf" })).toBeNull();
+    expect(screen.queryAllByRole("button", { name: "Neuer Zinslauf" }).length).toBe(mitAktion ? 1 : 0);
+  });
+});
+
 describe("Zinsläufe: Liste", () => {
   it("ist über die Navigation erreichbar und listet die Läufe des Fonds", async () => {
     const api = spieleApi();
-    rendereApp(`/fonds/${FONDS_ID}`);
+    rendereApp(`/funds/${FONDS_ID}`);
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("link", { name: "Zinsen" }));
     expect(await screen.findByRole("heading", { level: 1, name: "Zinsen" })).toBeTruthy();
@@ -19,22 +34,22 @@ describe("Zinsläufe: Liste", () => {
     expect(schmal(zeile.textContent)).toContain("16.200,62 €");
     expect(api.anfragen("GET", "/api/v1/zinslaeufe")[0]!.query.get("fondsId")).toBe(FONDS_ID);
     // Fondsauswahl der Kopfzeile bleibt auf der Seite
-    expect((screen.getByRole("combobox", { name: "Fonds" }) as HTMLSelectElement).value).toBe(FONDS_ID);
+    expect(await screen.findByText("Beispielfonds I", { selector: ".app-kontext__titel" })).toBeTruthy();
   });
 
   it("berechnet einen Lauf und nennt Darlehen ohne Konditionen", async () => {
     const api = spieleApi({
       "POST /api/v1/zinslaeufe": { status: 201, koerper: { ...zinslaufDaten, id: "neu1", status: "berechnet", hinweise: { ohneKonditionen: ["b2"] } } },
     });
-    rendereApp("/zinslaeufe");
+    rendereApp("/interest-runs");
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Neuer Zinslauf" }));
     fireEvent.change(dialog().getByLabelText("Stichtag"), { target: { value: "2026-12-31" } });
     await nutzer.click(dialog().getByRole("button", { name: "Zinslauf berechnen" }));
     expect(await dialog().findByText("Der Zinslauf ist berechnet.")).toBeTruthy();
     expect(dialog().getByText(/1 aktives Darlehen hat keine Konditionen/)).toBeTruthy();
-    expect(dialog().getByRole("link", { name: "Beta Medizin" }).getAttribute("href")).toBe("/beteiligungen/b2");
-    expect(dialog().getByRole("link", { name: "Zinslauf öffnen" }).getAttribute("href")).toBe("/zinslaeufe/neu1");
+    expect(dialog().getByRole("link", { name: "Beta Medizin" }).getAttribute("href")).toBe("/investments/b2");
+    expect(dialog().getByRole("link", { name: "Zinslauf öffnen" }).getAttribute("href")).toBe("/interest-runs/neu1");
     expect(api.anfragen("POST", "/api/v1/zinslaeufe")[0]!.koerper).toEqual({ fondsId: FONDS_ID, stichtag: "2026-12-31" });
   });
 
@@ -42,7 +57,7 @@ describe("Zinsläufe: Liste", () => {
     spieleApi({
       "POST /api/v1/zinslaeufe": { status: 400, koerper: { error: { code: "invalid_input", message: "x", fields: [{ field: "stichtag", code: "as_of_out_of_range", message: "x" }] } } },
     });
-    rendereApp("/zinslaeufe");
+    rendereApp("/interest-runs");
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Neuer Zinslauf" }));
     await nutzer.click(dialog().getByRole("button", { name: "Zinslauf berechnen" }));
@@ -53,7 +68,7 @@ describe("Zinsläufe: Liste", () => {
 describe("Zinslauf: Detail", () => {
   it("zeigt den Status als Schrittfolge, die Positionen mit Kapitalsegmenten und das Kontrollbericht", async () => {
     spieleApi();
-    rendereApp(`/zinslaeufe/${ZL_ID}`);
+    rendereApp(`/interest-runs/${ZL_ID}`);
     const nutzer = userEvent.setup();
     expect(await screen.findByRole("heading", { level: 1, name: /30\.09\.2026/ })).toBeTruthy();
 
@@ -79,7 +94,7 @@ describe("Zinslauf: Detail", () => {
 
   it("rendert das Kontrollbericht je Prüfung mit Status und betroffenen Darlehen", async () => {
     spieleApi();
-    rendereApp(`/zinslaeufe/${ZL_ID}`);
+    rendereApp(`/interest-runs/${ZL_ID}`);
     await userEvent.setup().click(await screen.findByRole("tab", { name: /Kontrollbericht/ }));
     const bericht = within(await screen.findByRole("region", { name: "Kontrollbericht" }));
     expect(await bericht.findByText("Es gibt Abweichungen. Sie werden ausgewiesen, nicht geglättet.")).toBeTruthy();
@@ -98,7 +113,7 @@ describe("Zinslauf: Detail", () => {
   it("zeigt four_eyes_violated übersetzt mit der Erklärung, in beiden Sprachen", async () => {
     const freigegeben = fehler(409, "four_eyes_violated");
     spieleApi({ [`POST /api/v1/zinslaeufe/${ZL_ID}/freigeben`]: freigegeben });
-    rendereApp(`/zinslaeufe/${ZL_ID}`);
+    rendereApp(`/interest-runs/${ZL_ID}`);
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Freigeben" }));
     const hinweis = await screen.findByRole("alert");
@@ -109,7 +124,7 @@ describe("Zinslauf: Detail", () => {
 
   it("führt Prüfen, Freigeben und Buchen je nach Status; verworfene und gebuchte Läufe haben keine Aktionen", async () => {
     const api = spieleApi({ [`/api/v1/zinslaeufe/${ZL_ID}`]: { koerper: { ...zinslaufDaten, status: "berechnet", geprueftVon: null, geprueftAm: null } }, [`POST /api/v1/zinslaeufe/${ZL_ID}/pruefen`]: { koerper: {} } });
-    const { unmount } = rendereApp(`/zinslaeufe/${ZL_ID}`);
+    const { unmount } = rendereApp(`/interest-runs/${ZL_ID}`);
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Prüfen" }));
     expect(api.anfragen("POST", `/api/v1/zinslaeufe/${ZL_ID}/pruefen`)).toHaveLength(1);
@@ -117,12 +132,12 @@ describe("Zinslauf: Detail", () => {
     unmount();
 
     spieleApi({ [`/api/v1/zinslaeufe/${ZL_ID}`]: { koerper: { ...zinslaufDaten, status: "freigegeben" } } });
-    const zweite = rendereApp(`/zinslaeufe/${ZL_ID}`);
+    const zweite = rendereApp(`/interest-runs/${ZL_ID}`);
     expect(await screen.findByRole("button", { name: "Buchen" })).toBeTruthy();
     zweite.unmount();
 
     spieleApi({ [`/api/v1/zinslaeufe/${ZL_ID}`]: { koerper: { ...zinslaufDaten, status: "verworfen", verworfenVon: "system", verworfenAm: "2026-11-20T10:00:00.000Z" } } });
-    const dritte = rendereApp(`/zinslaeufe/${ZL_ID}`);
+    const dritte = rendereApp(`/interest-runs/${ZL_ID}`);
     expect(await screen.findByText("Dieser Zinslauf ist verworfen. Es wurde nichts gebucht.")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Buchen" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Verwerfen" })).toBeNull();
@@ -130,7 +145,7 @@ describe("Zinslauf: Detail", () => {
     dritte.unmount();
 
     spieleApi({ [`/api/v1/zinslaeufe/${ZL_ID}`]: { koerper: { ...zinslaufDaten, status: "gebucht" } } });
-    rendereApp(`/zinslaeufe/${ZL_ID}`);
+    rendereApp(`/interest-runs/${ZL_ID}`);
     expect(await screen.findByText("Der Zinslauf ist gebucht.")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Verwerfen" })).toBeNull();
   });
@@ -138,7 +153,7 @@ describe("Zinslauf: Detail", () => {
   it("zeigt die Seite auf Englisch", async () => {
     spieleApi();
     localStorage.setItem("carraway.sprache", "en");
-    rendereApp(`/zinslaeufe/${ZL_ID}`);
+    rendereApp(`/interest-runs/${ZL_ID}`);
     expect(await screen.findByRole("button", { name: "Approve" })).toBeTruthy();
     expect(screen.getByRole("tab", { name: /Control report/ })).toBeTruthy();
     expect(screen.getByText("Reviewed", { selector: ".cw-schritt__label" })).toBeTruthy();
@@ -149,7 +164,7 @@ describe("Zinslauf: Detail", () => {
 describe("Abgrenzung auf der Fondsseite", () => {
   it("zeigt aufgelaufene Zinsen je Darlehen mit Summe, Herkunft und Fehlern", async () => {
     const api = spieleApi({ [`/api/v1/fonds/${FONDS_ID}/abgrenzung`]: { koerper: abgrenzungDaten } });
-    rendereApp(`/fonds?fondsId=${FONDS_ID}&tab=abgrenzung`);
+    rendereApp(`/funds?fundId=${FONDS_ID}&tab=accruals`);
     const nutzer = userEvent.setup();
     const kachel = within(await screen.findByRole("region", { name: "Abgrenzung der Zinsen" }));
     const zeile = (await kachel.findAllByRole("row"))[1]!;
@@ -170,19 +185,17 @@ describe("Abgrenzung auf der Fondsseite", () => {
     const pfad = `/api/v1/fonds/${FONDS_ID}/abgrenzung`;
     const api = spieleApi({ [pfad]: { koerper: abgrenzungDaten } });
     const stand = "2026-10-01T00:00:00Z";
-    const { router } = rendereApp(`/fonds?fondsId=${FONDS_ID}&tab=abgrenzung&stand=${encodeURIComponent(stand)}`);
-    const datum = await waitFor(() => {
-      const input = screen.getByLabelText<HTMLInputElement>("Stichtag");
-      expect(input.value).toBe("2026-09-30");
-      return input;
-    });
+    const { router } = rendereApp(`/funds?fundId=${FONDS_ID}&tab=accruals&knowledgeDate=${encodeURIComponent(stand)}`);
+    await screen.findByRole("button", { name: /^Stichtag: 30\.09\.2026/ });
+    const datum = await feldImStichtagMenue();
+    expect(datum.value).toBe("2026-09-30");
     fireEvent.change(datum, { target: { value: "2026-06-30" } });
     await waitFor(() => expect(router.state.location.search).toMatchObject({ fondsId: FONDS_ID, tab: "abgrenzung", stichtag: "2026-06-30", stand }));
     await waitFor(() => expect(api.anfragen("GET", pfad).some(({ query }) => query.get("stichtag") === "2026-06-30")).toBe(true));
     const link = await screen.findByRole("link", { name: "Alpha Energie" });
     const url = new URL(link.getAttribute("href")!, "https://carraway.test");
-    expect(url.searchParams.get("stichtag")).toBe("2026-06-30");
-    expect(url.searchParams.get("stand")).toBe(stand);
+    expect(url.searchParams.get("asOf")).toBe("2026-06-30");
+    expect(url.searchParams.get("knowledgeDate")).toBe(stand);
     expect(screen.getByText("Die Abgrenzung zeigt den Stichtag nach heutigem Wissensstand.")).toBeTruthy();
   });
 });
@@ -197,12 +210,12 @@ describe("Zinsläufe: Bereiche je Fonds", () => {
 
   it("ohne Bereich Finanzen an diesem Fonds fehlt „Neuer Zinslauf“, mit ihm erscheint der Knopf", async () => {
     spieleApi({ "/api/v1/me": jeFonds(null) });
-    const ohne = rendereApp("/zinslaeufe");
+    const ohne = rendereApp("/interest-runs");
     await screen.findByRole("heading", { level: 1, name: "Zinsen" });
     expect(screen.queryByRole("button", { name: "Neuer Zinslauf" })).toBeNull();
     ohne.unmount();
     spieleApi({ "/api/v1/me": jeFonds("bearbeiter") });
-    rendereApp("/zinslaeufe");
+    rendereApp("/interest-runs");
     expect(await screen.findByRole("button", { name: "Neuer Zinslauf" })).toBeTruthy();
   });
 });

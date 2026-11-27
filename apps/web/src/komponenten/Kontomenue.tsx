@@ -49,8 +49,8 @@ export function Kontomenue({ schmal }: { schmal?: boolean }) {
       onClick: () => setzeSprache(s),
       ...(i === 0 ? { gruppe: t.konto.sprache } : {}),
     })),
-    { id: "einstellungen", label: t.nav.einstellungen, icon: <GearIcon />, trennerDavor: true, ...nach({ to: "/einstellungen/postfach", search: {} }) },
-    ...(ich.globalVerwalter ? [{ id: "verwaltung", label: t.nav.verwaltung, icon: <LockIcon />, ...nach({ to: "/verwaltung" }) }] : []),
+    { id: "einstellungen", label: t.nav.einstellungen, icon: <GearIcon />, trennerDavor: true, ...nach({ to: "/settings/mailbox", search: {} }) },
+    ...(ich.globalVerwalter ? [{ id: "verwaltung", label: t.nav.verwaltung, icon: <LockIcon />, ...nach({ to: "/administration" }) }] : []),
     { id: "abmelden", label: t.konto.abmelden, icon: <SignOutIcon />, trennerDavor: true, deaktiviert: laeuft, onClick: () => void abmelden() },
   ];
   return (

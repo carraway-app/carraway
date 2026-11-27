@@ -95,8 +95,8 @@ describe("OAuth mit PKCE", () => {
     const antwort = await rueckruf(code, anfrage.state);
     expect(antwort.status).toBe(302);
     expect(ziel(antwort).origin).toBe(TESTORIGIN);
-    expect(ziel(antwort).pathname).toBe("/einstellungen/postfach");
-    expect(Object.fromEntries(ziel(antwort).searchParams)).toEqual({ ergebnis: "verbunden", bereich: "mail" });
+    expect(ziel(antwort).pathname).toBe("/settings/mailbox");
+    expect(Object.fromEntries(ziel(antwort).searchParams)).toEqual({ result: "connected", section: "mail" });
     // Der Fake hat PKCE geprüft (Verifier passt zur Challenge); der Tausch kam genau einmal.
     expect(fake.aufrufe.filter((a) => a.felder.grant_type === "authorization_code")).toHaveLength(1);
     expect(fake.aufrufe[0]!.felder).toMatchObject({ client_id: "client-ms", redirect_uri: RUECKRUF });
@@ -128,36 +128,36 @@ describe("OAuth mit PKCE", () => {
   it("ein falscher state wird abgelehnt und verbindet nichts; der echte bleibt davon unberührt", async () => {
     const { code, anfrage } = await starte();
     const falsch = await rueckruf(code, "voellig-falscher-state-wert");
-    expect(Object.fromEntries(ziel(falsch).searchParams)).toEqual({ fehler: "mailbox_state_invalid" });
+    expect(Object.fromEntries(ziel(falsch).searchParams)).toEqual({ error: "mailbox_state_invalid" });
     expect(fake.aufrufe).toHaveLength(0); // der Code wurde gar nicht erst eingelöst
     expect(await verbindungen()).toHaveLength(0);
     const ohne = await get(`/postfach/rueckruf?code=${code}`, anna);
-    expect(ziel(ohne).searchParams.get("fehler")).toBe("mailbox_state_invalid");
+    expect(ziel(ohne).searchParams.get("error")).toBe("mailbox_state_invalid");
     // Mit dem richtigen state klappt es weiterhin.
-    expect(ziel(await rueckruf(code, anfrage.state)).searchParams.get("ergebnis")).toBe("verbunden");
+    expect(ziel(await rueckruf(code, anfrage.state)).searchParams.get("result")).toBe("connected");
   });
 
   it("der state ist einmalig: eine Wiederholung scheitert, auch mit einem neuen Code", async () => {
     const { code, anfrage } = await starte();
-    expect(ziel(await rueckruf(code, anfrage.state)).searchParams.get("ergebnis")).toBe("verbunden");
+    expect(ziel(await rueckruf(code, anfrage.state)).searchParams.get("result")).toBe("connected");
     const zweiterCode = fake.autorisiere(`https://login.fake.example/authorize?client_id=client-ms&redirect_uri=${encodeURIComponent(RUECKRUF)}&state=${anfrage.state}&nonce=${anfrage.nonce}&code_challenge=${anfrage.challenge}&code_challenge_method=S256&scope=x`).code;
-    expect(ziel(await rueckruf(zweiterCode, anfrage.state)).searchParams.get("fehler")).toBe("mailbox_state_invalid");
+    expect(ziel(await rueckruf(zweiterCode, anfrage.state)).searchParams.get("error")).toBe("mailbox_state_invalid");
     expect(await verbindungen()).toHaveLength(1);
   });
 
   it("der state ist an die Person gebunden: eine andere angemeldete Person kann ihn nicht einlösen, und er ist danach verbraucht", async () => {
     const { code, anfrage } = await starte(anna);
     const fremd = await rueckruf(code, anfrage.state, bernd);
-    expect(ziel(fremd).searchParams.get("fehler")).toBe("mailbox_state_invalid");
+    expect(ziel(fremd).searchParams.get("error")).toBe("mailbox_state_invalid");
     expect(await verbindungen()).toHaveLength(0);
     expect(fake.aufrufe).toHaveLength(0);
-    expect(ziel(await rueckruf(code, anfrage.state, anna)).searchParams.get("fehler")).toBe("mailbox_state_invalid");
+    expect(ziel(await rueckruf(code, anfrage.state, anna)).searchParams.get("error")).toBe("mailbox_state_invalid");
   });
 
   it("ein abgelaufener state wird abgelehnt", async () => {
     const { code, anfrage } = await starte();
     await db.execute(sql`UPDATE oauth_zustand SET ablauf = now() - interval '1 minute'`);
-    expect(ziel(await rueckruf(code, anfrage.state)).searchParams.get("fehler")).toBe("mailbox_state_invalid");
+    expect(ziel(await rueckruf(code, anfrage.state)).searchParams.get("error")).toBe("mailbox_state_invalid");
     expect(await verbindungen()).toHaveLength(0);
   });
 
@@ -166,20 +166,20 @@ describe("OAuth mit PKCE", () => {
     const app = neueApp({ abrufer: boese.abrufer }, boese);
     const { code, anfrage } = await starte(anna, "mail", app, boese);
     const antwort = await rueckruf(code, anfrage.state, anna, app);
-    expect(Object.fromEntries(ziel(antwort).searchParams)).toEqual({ fehler: "mailbox_connection_failed", grund: "NONCE_UNGUELTIG" });
+    expect(Object.fromEntries(ziel(antwort).searchParams)).toEqual({ error: "mailbox_connection_failed", reason: "NONCE_UNGUELTIG" });
     expect(await verbindungen()).toHaveLength(0);
   });
 
   it("Ablehnung beim Anbieter, fehlendes Refresh-Token und fehlerhafter Code verbinden nichts", async () => {
     const a = await starte();
     const abgelehnt = await get(`/postfach/rueckruf?error=access_denied&state=${a.anfrage.state}`, anna);
-    expect(ziel(abgelehnt).searchParams.get("fehler")).toBe("mailbox_connection_failed");
+    expect(ziel(abgelehnt).searchParams.get("error")).toBe("mailbox_connection_failed");
     const ohneRefresh = erstelleFakeOAuth({ ohneRefreshToken: true });
     const app2 = neueApp({ abrufer: ohneRefresh.abrufer }, ohneRefresh);
     const b = await starte(anna, "mail", app2, ohneRefresh);
-    expect(ziel(await rueckruf(b.code, b.anfrage.state, anna, app2)).searchParams.get("grund")).toBe("REFRESH_TOKEN_FEHLT");
+    expect(ziel(await rueckruf(b.code, b.anfrage.state, anna, app2)).searchParams.get("reason")).toBe("REFRESH_TOKEN_FEHLT");
     const c = await starte();
-    expect(ziel(await rueckruf("gefaelscht", c.anfrage.state)).searchParams.get("fehler")).toBe("mailbox_connection_failed");
+    expect(ziel(await rueckruf("gefaelscht", c.anfrage.state)).searchParams.get("error")).toBe("mailbox_connection_failed");
     expect(await verbindungen()).toHaveLength(0);
   });
 

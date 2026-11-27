@@ -8,12 +8,16 @@ import {
   fonds,
   fondsBewegung,
   importZuordnung,
+  mitarbeiterpool,
+  mitarbeiterzuteilung,
+  kennzahlWert,
   INSTRUMENT_BEZEICHNUNG,
   instrument,
   organisation,
   person,
   rundenposition,
   vorgang,
+  vorgangRunde,
 } from "@carraway/db";
 import { BLAETTER, type Blatt } from "@carraway/import";
 import { Decimal } from "@carraway/rechenkern";
@@ -24,7 +28,10 @@ import { hauptinstrumentIds } from "../instrumente/hauptinstrument";
 import { ordneStandardRundenZu } from "../instrumente/vorgang-runde";
 import { standardVehikel } from "../kapital/vehikel";
 import { liste } from "./sql";
-import type { Plan, Zaehler } from "./pruefen";
+import { zuteilungAusZeile, type Plan, type Zaehler } from "./pruefen";
+import { zuteilungFuersProtokoll } from "../routen/mitarbeiterbeteiligung";
+import { inArray } from "drizzle-orm";
+import { pruefeZusagenVollstaendig } from "../instrumente/zusagen";
 
 /**
  * Schreibt den Plan einer Prüfung in die Datenbank. Der Aufrufer hat die Transaktion (über `schreibe()`) und prüft vorher Rechte,
@@ -54,7 +61,8 @@ export interface FondsSummen {
   zeichnungskapital: string;
   nav: string | null;
   navStichtag: string | null;
-  kontrollsummen: { groesse: string; quelle: string; ist: string | null; differenz: string | null; status: "ok" | "abweichung" | "nicht_berechnet"; stichtag: string | null }[];
+  /** Kontrollsummen der Quelle; mit `beteiligung` (Fachschlüssel) eine Summe je Beteiligung über alle ihre Instrumente. */
+  kontrollsummen: { groesse: string; beteiligung?: string; quelle: string; ist: string | null; differenz: string | null; status: "ok" | "abweichung" | "nicht_berechnet"; stichtag: string | null }[];
 }
 
 export interface UebernahmeErgebnis {
@@ -99,10 +107,16 @@ export async function summenJeFonds(tx: Tx, kurznamen: string[], kontrollsummen:
       kontrollsummen: [],
     };
     const ist: Record<string, string | null> = { zusagen: summen.zusagen, auszahlungen: summen.auszahlungen, rueckfluesse: summen.rueckfluesse, zeichnungskapital: summen.zeichnungskapital, nav };
+    const ART: Record<string, string> = { zusagen: "zusage", auszahlungen: "auszahlung", rueckfluesse: "rueckfluss" };
     for (const k of kontrollsummen.filter((x) => x.fondsKurzname === f.kurzname)) {
-      const wert = ist[k.groesse] ?? null;
+      let wert = k.beteiligungSchluessel ? null : (ist[k.groesse] ?? null);
+      if (k.beteiligungSchluessel && ART[k.groesse]) {
+        const { rows } = await tx.execute<{ summe: string | null }>(sql`SELECT sum(v.betrag)::text AS summe FROM import_zuordnung z JOIN vorgang v ON v.beteiligung_id = z.datensatz_id WHERE z.objekt = 'beteiligung' AND z.schluessel = ${k.beteiligungSchluessel} AND v.art = ${ART[k.groesse]}::vorgang_art`);
+        wert = new Decimal(rows[0]?.summe ?? 0).toFixed(2);
+      }
       summen.kontrollsummen.push({
         groesse: k.groesse,
+        ...(k.beteiligungSchluessel ? { beteiligung: k.beteiligungSchluessel } : {}),
         quelle: new Decimal(k.betrag).toFixed(2),
         ist: wert,
         differenz: wert === null ? null : new Decimal(wert).minus(k.betrag).toFixed(2),
@@ -234,7 +248,10 @@ export async function schreibePlan(tx: Tx, protokoll: Protokollant, plan: Plan, 
   await blockweise(originale, (t) => tx.insert(vorgang).values(t));
   await blockweise(stornos, (t) => tx.insert(vorgang).values(t));
   anlegen("vorgang", vorgaenge);
-  // Runde des Instruments bzw. des stornierten Originals (der Import legt Instrumente ohne Runde an; ein Storno kann ein Altbuchung treffen).
+  // Ausdrücklich genannte Runde (die Prüfung hat sie gegen das Unternehmen der Beteiligung geprüft), sonst die Runde des Instruments bzw. des stornierten Originals (der Import legt Instrumente ohne Runde an; ein Storno kann ein Altbuchung treffen).
+  const mitRunde = plan.vorgaenge.filter((v) => v.w.runde_id).map((v) => ({ vorgangId: v.id, rundeId: v.w.runde_id!, quelle: "manuell" as const, geaendertVon: protokoll.akteur }));
+  await blockweise(mitRunde, (t) => tx.insert(vorgangRunde).values(t));
+  for (const z of mitRunde) zeilen.push({ aktion: "anlegen", tabelle: "vorgang_runde", datensatzId: z.vorgangId, nachher: { ...z, importLaufId: laufId } });
   await ordneStandardRundenZu(tx, protokoll, vorgaenge.map((v) => v.id));
 
   // Bewertungen: der Import selbst ist die Vier-Augen-Freigabe (Hochladender erstellt, übernehmende Person gibt frei).
@@ -255,9 +272,42 @@ export async function schreibePlan(tx: Tx, protokoll: Protokollant, plan: Plan, 
   await blockweise(bewertungen, (t) => tx.insert(bewertung).values(t));
   anlegen("bewertung", bewertungen);
 
+  // Kennzahlenwerte: bestätigt mit der Übernahme (Vier-Augen wie bei den Bewertungen), Quelle `import`, Herkunft als Quellenangabe.
+  const kennzahlen = plan.kennzahlen.map((k) => ({
+    id: k.id,
+    beteiligungId: k.w.beteiligung_id!,
+    definitionId: k.w.definition_id!,
+    periodeBeginn: k.w.periode_beginn!,
+    periodeEnde: k.w.periode_ende!,
+    szenario: k.w.szenario as "ist",
+    wert: k.w.wert!,
+    quelle: "import" as const,
+    erfasstVon: erstelltVon,
+    status: "bestaetigt" as const,
+    kommentar: k.w.kommentar ?? null,
+    quellenangabe: k.schluessel,
+    bestaetigtVon: protokoll.akteur,
+    bestaetigtAm: jetzt,
+  }));
+  await blockweise(kennzahlen, (t) => tx.insert(kennzahlWert).values(t));
+  anlegen("kennzahl_wert", kennzahlen);
+
   const bewegungen = plan.bewegungen.map((b) => ({ id: b.id, fondsId: b.w.fonds_id!, art: b.w.art as "abruf", valuta: b.w.valuta!, betrag: b.w.betrag!, bemerkung: b.w.bemerkung ?? null }));
+  // Abrufe und Ausschüttungen verteilen nach Zusagen; unvollständige Zusagen sperren sie auch in der Datenübernahme (Issue #275).
+  for (const fondsId of [...new Set(bewegungen.map((b) => b.fondsId))].sort()) await pruefeZusagenVollstaendig(tx, fondsId);
   await blockweise(bewegungen, (t) => tx.insert(fondsBewegung).values(t));
   anlegen("fonds_bewegung", bewegungen);
+
+  // Einzelzuteilungen: ein noch grob erfasster Pool wird auf einzeln umgestellt (die Schätzung bleibt). Name und Freitexte nie im Protokoll.
+  const grobePools = [...new Set(plan.zuteilungen.filter((z) => z.w.pool_grob === "ja").map((z) => z.w.pool_id!))];
+  if (grobePools.length) {
+    const vorher = await tx.select().from(mitarbeiterpool).where(inArray(mitarbeiterpool.id, grobePools));
+    await tx.update(mitarbeiterpool).set({ erfassung: "einzeln" }).where(inArray(mitarbeiterpool.id, grobePools));
+    for (const p of vorher) zeilen.push({ aktion: "aendern", tabelle: "mitarbeiterpool", datensatzId: p.id, nachher: { ...p, erfassung: "einzeln", importLaufId: laufId } });
+  }
+  const zuteilungen = plan.zuteilungen.map((z) => ({ id: z.id, poolId: z.w.pool_id!, ...zuteilungAusZeile(z.w) }));
+  await blockweise(zuteilungen, (t) => tx.insert(mitarbeiterzuteilung).values(t));
+  for (const [i, z] of zuteilungen.entries()) zeilen.push({ aktion: "anlegen", tabelle: "mitarbeiterzuteilung", datensatzId: z.id, nachher: { ...zuteilungFuersProtokoll(z, plan.zuteilungen[i]!.w.organisation_id!), importLaufId: laufId } });
 
   // Zuordnung der Schlüssel (macht die Wiederholung möglich).
   const zuordnungen = [
@@ -270,6 +320,8 @@ export async function schreibePlan(tx: Tx, protokoll: Protokollant, plan: Plan, 
     ...plan.vorgaenge.map((x) => ({ objekt: "vorgang" as const, schluessel: x.schluessel, datensatzId: x.id })),
     ...plan.bewertungen.map((x) => ({ objekt: "bewertung" as const, schluessel: x.schluessel, datensatzId: x.id })),
     ...plan.bewegungen.map((x) => ({ objekt: "bewegung" as const, schluessel: x.schluessel, datensatzId: x.id })),
+    ...plan.zuteilungen.map((x) => ({ objekt: "zuteilung" as const, schluessel: x.schluessel, datensatzId: x.id })),
+    ...plan.kennzahlen.map((x) => ({ objekt: "kennzahl" as const, schluessel: x.schluessel, datensatzId: x.id })),
   ].map((z) => ({ ...z, laufId }));
   // Verwaiste Zuordnungen (Datensatz gelöscht) werden überschrieben, damit der Schlüssel wieder frei ist.
   await blockweise(zuordnungen, (t) =>

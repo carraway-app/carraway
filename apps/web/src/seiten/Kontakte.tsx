@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { keepPreviousData, useInfiniteQuery, useQuery } from "@tanstack/react-query";
-import { getRouteApi, useNavigate } from "@tanstack/react-router";
-import { Auswahl, BriefcaseIcon, BuildingsIcon, Button, CalendarCheckIcon, Dialog, Feld as Eingabe, Leer, Segment, Seitenkopf, Tabs, UserCircleIcon, type IconKomponente } from "@carraway/ui";
+import { getRouteApi, Link, useNavigate } from "@tanstack/react-router";
+import { Auswahl, BriefcaseIcon, BuildingsIcon, Button, CalendarCheckIcon, Detailbereich, Dialog, Feld as Eingabe, Leer, Segment, Seitenkopf, Tabs, UserCircleIcon, type IconKomponente } from "@carraway/ui";
 import {
   crmListen,
   crmSchluessel,
@@ -36,13 +36,14 @@ import { OrganisationNeuDialog } from "../komponenten/OrganisationDialoge";
 import { PersonDialog } from "../komponenten/PersonDialog";
 import { Wiedervorlagen } from "../komponenten/Wiedervorlagen";
 import { NaechsteTermine } from "../komponenten/NaechsteTermine";
-import { AufgabenListe } from "../komponenten/crm/Datensatzpanel";
+import { AufgabenListe, Datensatzpanel } from "../komponenten/crm/Datensatzpanel";
 import { useT } from "../i18n";
 import { useRechte } from "../lib/rechte";
-import { recordLink } from "../komponenten/crm/typen";
+import { recordLink, schnellName } from "../komponenten/crm/typen";
+import { DATENSPRACHE } from "../lib/datensprache";
 import { KontaktvorschlaegeHinweis } from "../komponenten/KontakteAusPostfach";
 
-const route = getRouteApi("/kontakte");
+const route = getRouteApi("/contacts");
 const OBJEKTE: Objekt[] = ["organisation", "person", "deal"];
 const OBJEKT_ICON: Record<Objekt, IconKomponente> = { organisation: BuildingsIcon, person: UserCircleIcon, deal: BriefcaseIcon };
 const SEITE = 100;
@@ -158,7 +159,19 @@ export function KontaktePage() {
     if (feld.listeId && listeId) return listenFelder.mutateAsync({ listeId, datensatzId: zeile.id, felder: { [feld.schluessel]: wert } });
     return aendern.mutateAsync({ id: zeile.id, ...(feld.system ? { system: { [feld.schluessel]: wert } } : { eigene: { [feld.schluessel]: wert } }) });
   };
-  const oeffneZeile = (zeile: Zeile) => void wechsel(recordLink(objekt, zeile.id) as never);
+  const oeffneZeile = (zeile: Zeile) => setzeDetail(zeile.id);
+  const setzeDetail = (id: string | undefined) => void navigate({ search: (alt) => ({ ...alt, datensatz: id }) });
+  const DETAIL_PFAD: Record<Objekt, RegExp> = { organisation: /^\/organizations\/([^/?#]+)$/, person: /^\/people\/([^/?#]+)$/, deal: /^\/deals\/([^/?#]+)$/ };
+  const oeffneImDetail = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    const link = (e.target as HTMLElement).closest?.("a[href]");
+    const treffer = link?.getAttribute("href")?.match(DETAIL_PFAD[objekt]);
+    if (!treffer || link?.closest(".cw-detailbereich")) return;
+    e.preventDefault();
+    setzeDetail(treffer[1]);
+  };
+  const detailId = suche.datensatz;
+  const detailZeile = zeilen.find((zeile) => zeile.id === detailId);
 
   const exportEingabe: AbfrageEingabe = { ...basis, spalten: spaltenKonfig.map((s) => ({ feld: s.feld })) };
   const ids = [...auswahl];
@@ -183,21 +196,13 @@ export function KontaktePage() {
       <Seitenkopf
         meta={t.crm.etikett}
         titel={t.crm.titel}
-        aktionen={
-          <>
-            {istVerwalter ? (
-              <Button variante="sekundaer" onClick={() => setOffen("felder")}>
-                {t.crm.felderVerwalten}
-              </Button>
-            ) : null}
-            {darfBearbeiten && objekt !== "deal" ? (
-              <Button variante="sekundaer" onClick={() => setOffen("import")}>
-                {t.crm.importieren}
-              </Button>
-            ) : null}
-            {darfAnlegen ? <Button onClick={() => setOffen("neu")}>{neuKnopf}</Button> : null}
-          </>
-        }
+        aktionen={darfAnlegen ? <Button onClick={() => setOffen("neu")}>{neuKnopf}</Button> : undefined}
+        mehr={[
+          ...(darfBearbeiten && objekt !== "deal" ? [{ id: "import", label: t.crm.importieren, onClick: () => setOffen("import") }] : []),
+          ...(darfBearbeiten && !heute ? [{ id: "liste", label: t.crm.neueListe, onClick: () => setOffen("liste") }] : []),
+          ...(darfListenfelder && !heute ? [{ id: "listenfelder", label: t.crm.listenfelder, onClick: () => setOffen("felder") }] : []),
+          ...(istVerwalter ? [{ id: "felder", label: t.crm.felderVerwalten, onClick: () => setOffen("felder"), trennerDavor: true }] : []),
+        ]}
       />
       <NurLesen />
       <KontaktvorschlaegeHinweis />
@@ -206,49 +211,13 @@ export function KontaktePage() {
         aria-label={t.crm.objekte.beschriftung}
         aktiv={ansichtTab}
         onWechsel={(id) => void navigate({ search: (alt) => ({ suche: alt.suche, objekt: id === "organisation" ? undefined : (id as "person" | "deal" | "heute") }), replace: false })}
+        fest
         tabs={[...OBJEKTE.filter((o) => o !== "deal" || darfDealsLesen).map((o) => ({ id: o as string, icon: OBJEKT_ICON[o], label: t.crm.objekte[o] })), { id: "heute", icon: CalendarCheckIcon, label: t.crm.tabHeute }]}
       >
         {heute ? (
           <HeuteTab />
         ) : (
         <section className="app-karte app-crm" aria-label={t.crm.objekte[objekt]}>
-          <div className="app-crm__listenzeile">
-            <Auswahl label={t.crm.liste} value={listeId ?? ""} onChange={(e) => setzeSuche({ liste: e.target.value || undefined, ansicht: undefined })} className="app-crm__listenwahl">
-              <option value="">{t.crm.alleDatensaetze(t.crm.objekte[objekt])}</option>
-              {(listen.data ?? []).map((l) => (
-                <option key={l.id} value={l.id}>
-                  {`${l.name} (${l.eintraege})`}
-                </option>
-              ))}
-            </Auswahl>
-            {darfBearbeiten ? (
-              <Button variante="sekundaer" onClick={() => setOffen("liste")}>
-                {t.crm.neueListe}
-              </Button>
-            ) : null}
-            {darfListenfelder ? (
-              <Button variante="sekundaer" onClick={() => setOffen("felder")}>
-                {t.crm.listenfelder}
-              </Button>
-            ) : null}
-            <Segment<"tabelle" | "kanban">
-              aria-label={t.crm.darstellung}
-              value={objekt === "deal" ? "tabelle" : z.art}
-              onChange={(wert) => {
-                if (objekt === "deal") {
-                  if (wert === "kanban") void wechsel({ to: "/dealflow", search: {} });
-                } else if (wert === "kanban") {
-                  // Spalten nach einem Auswahlfeld: das gewählte, sonst das erste eigene.
-                  const feld = auswahlFelder.find((f) => f.schluessel === z.konfig.gruppierung) ?? auswahlFelder.find((f) => !f.system) ?? auswahlFelder[0];
-                  z.setzeKonfig({ gruppierung: feld?.schluessel ?? null }, "kanban");
-                } else z.setzeKonfig({}, "tabelle");
-              }}
-              options={[
-                { wert: "tabelle", label: t.crm.darstellungTabelle },
-                { wert: "kanban", label: t.crm.darstellungBoard },
-              ]}
-            />
-          </div>
           {aktuelleListe?.beschreibung ? <p className="app-leer-text">{aktuelleListe.beschreibung}</p> : null}
 
           <Werkzeuge
@@ -261,6 +230,35 @@ export function KontaktePage() {
             istVerwalter={istVerwalter}
             mitSpalten
             exportEingabe={exportEingabe}
+            vorne={
+              <Auswahl kompakt labelVersteckt label={t.crm.liste} value={listeId ?? ""} onChange={(e) => setzeSuche({ liste: e.target.value || undefined, ansicht: undefined })} className="app-crm__listenwahl">
+                <option value="">{t.crm.alleDatensaetze(t.crm.objekte[objekt])}</option>
+                {(listen.data ?? []).map((l) => (
+                  <option key={l.id} value={l.id}>
+                    {`${l.name} (${l.eintraege})`}
+                  </option>
+                ))}
+              </Auswahl>
+            }
+            hinten={
+              <Segment<"tabelle" | "kanban">
+                aria-label={t.crm.darstellung}
+                value={objekt === "deal" ? "tabelle" : z.art}
+                onChange={(wert) => {
+                  if (objekt === "deal") {
+                    if (wert === "kanban") void wechsel({ to: "/dealflow", search: {} });
+                  } else if (wert === "kanban") {
+                    // Spalten nach einem Auswahlfeld: das gewählte, sonst das erste eigene.
+                    const feld = auswahlFelder.find((f) => f.schluessel === z.konfig.gruppierung) ?? auswahlFelder.find((f) => !f.system) ?? auswahlFelder[0];
+                    z.setzeKonfig({ gruppierung: feld?.schluessel ?? null }, "kanban");
+                  } else z.setzeKonfig({}, "tabelle");
+                }}
+                options={[
+                  { wert: "tabelle", label: t.crm.darstellungTabelle },
+                  { wert: "kanban", label: t.crm.darstellungBoard },
+                ]}
+              />
+            }
           />
 
           <FehlerHinweis fehler={(schreibFehler ?? aendern.error ?? seiten.error) as Error | null} />
@@ -288,6 +286,7 @@ export function KontaktePage() {
             </p>
           ) : null}
 
+          <div className={detailId ? "app-crm__mit-detail" : undefined} onClickCapture={oeffneImDetail}>
           <div aria-busy={seiten.isFetching} className="app-ergebnisse">
             {istBoard && z.bereit ? (
               boardFeld ? (
@@ -302,7 +301,7 @@ export function KontaktePage() {
                   beschriftung={`${t.crm.objekte[objekt]}: ${t.crm.darstellungBoard}`}
                 />
               ) : (
-                <Leer zeichen="K" titel={t.crm.boardFeldHinweis} />
+                <Leer titel={t.crm.boardFeldHinweis} />
               )
             ) : gruppiert && z.bereit ? (
               <GruppierteTabelle
@@ -329,7 +328,7 @@ export function KontaktePage() {
                 ))}
               </div>
             ) : zeilen.length === 0 ? (
-              <Leer zeichen="K" titel={t.crm.keine} beschreibung={t.crm.keineBeschreibung} />
+              <Leer titel={t.crm.keine} beschreibung={t.crm.keineBeschreibung} />
             ) : (
               <Datengitter
                 key={`${objekt}|${listeId ?? ""}`}
@@ -352,6 +351,22 @@ export function KontaktePage() {
                 onOeffnen={oeffneZeile}
               />
             )}
+          </div>
+          {detailId ? (
+            <Detailbereich
+              key={detailId}
+              titel={(detailZeile ? schnellName(objekt, detailZeile, bezuege) : undefined) || t.crm.objekte[objekt]}
+              titelSprache={DATENSPRACHE}
+              onSchliessen={() => setzeDetail(undefined)}
+              aktionen={
+                <Link to={recordLink(objekt, detailId).to as never} params={recordLink(objekt, detailId).params as never} className="cw-button cw-button--s">
+                  {t.crm.oeffnen}
+                </Link>
+              }
+            >
+              <Datensatzpanel objekt={objekt} id={detailId} darfSchreiben={darfBearbeiten} titel={(detailZeile ? schnellName(objekt, detailZeile, bezuege) : undefined) ?? ""} />
+            </Detailbereich>
+          ) : null}
           </div>
         </section>
         )}

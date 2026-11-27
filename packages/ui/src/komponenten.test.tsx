@@ -12,7 +12,6 @@ import {
   Herkunft,
   Hinweis,
   IconButton,
-  Initiale,
   Kennzahl,
   Leer,
   Logo,
@@ -204,17 +203,6 @@ describe("Herkunft", () => {
   });
 });
 
-describe("Initiale", () => {
-  it("zeigt den ersten Buchstaben groß, aria-hidden, mit Größe und Variante", () => {
-    const { container } = render(<Initiale name="  beispielfonds I" groesse="l" variante="akzent" />);
-    const el = container.firstElementChild!;
-    expect(el.getAttribute("data-buchstabe")).toBe("B");
-    expect(el.getAttribute("aria-hidden")).toBe("true");
-    expect(el.className).toContain("cw-initiale--l");
-    expect(el.className).toContain("cw-initiale--akzent");
-  });
-});
-
 describe("Tabelle", () => {
   interface Zeile { id: number; name: string; betrag: number }
   const zeilen: Zeile[] = [{ id: 1, name: "Unternehmen A", betrag: 100 }, { id: 2, name: "Unternehmen B", betrag: 200 }];
@@ -294,9 +282,9 @@ describe("Etikett, Leer, Seitenkopf, Logo", () => {
     render(<Etikett>Portfolio</Etikett>);
     expect(screen.getByText("Portfolio").className).toBe("cw-etikett");
   });
-  it("Leer nutzt Standardtexte, eigenes Zeichen und Aktion", () => {
-    const { container } = render(<Leer zeichen="A" aktion={<Button>Beteiligung erfassen</Button>} />);
-    expect(container.querySelector(".cw-leer__kachel")?.getAttribute("data-zeichen")).toBe("A");
+  it("Leer nutzt Standardtexte und Aktion, ohne Grafik", () => {
+    const { container } = render(<Leer aktion={<Button>Beteiligung erfassen</Button>} />);
+    expect(container.querySelector("[aria-hidden='true']")).toBeNull();
     expect(screen.getByText("Noch keine Einträge")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Beteiligung erfassen" })).toBeTruthy();
   });
@@ -328,13 +316,18 @@ describe("Feinschliff (Sichtprüfung Etappe 4)", () => {
   const css = readFileSync("src/styles/komponenten.css", "utf8");
   const regel = (selektor: string) => css.split("\n").find((z) => z.startsWith(`${selektor} {`)) ?? "";
 
-  it("Seitenkopf: Titel mit Sprache, Trennung statt Bruch im Wort", () => {
-    render(<Seitenkopf titel="Wachstumsfinanzierung Beispiel-Unternehmen" titelSprache="de" />);
+  it("Seitenkopf: einzeiliger Kontextkopf, Titel mit Sprache, gekürzt statt umbrochen", () => {
+    render(<Seitenkopf titel="Wachstumsfinanzierung Beispiel-Unternehmen" titelSprache="de" status={<span>Aktiv</span>} mehr={[{ id: "x", label: "Export" }]} info="Erklärung der Seite" />);
     const h1 = screen.getByRole("heading", { level: 1 });
     expect(h1.getAttribute("lang")).toBe("de");
     const titel = regel(".cw-seitenkopf__titel");
-    expect(titel).toContain("hyphens: auto");
+    expect(titel).toContain("white-space: nowrap");
+    expect(titel).toContain("text-overflow: ellipsis");
     expect(titel).not.toContain("anywhere");
+    // Weitere Aktionen sichtbar im Menü „⋯“, die Erklärung hinter einem Info-Symbol
+    expect(screen.getByRole("button", { name: "Weitere Aktionen" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Erklärung" })).toBeTruthy();
+    expect(screen.queryByText("Erklärung der Seite")).toBeNull();
   });
 
   it("Kennzahl: Wert einzeilig, Schrift schrumpft mit der Zeichenzahl", () => {
@@ -343,12 +336,6 @@ describe("Feinschliff (Sichtprüfung Etappe 4)", () => {
     expect(wert.style.getPropertyValue("--zeichen")).toBe("10");
     expect(regel(".cw-kennzahl__wert")).toContain("white-space: nowrap");
     expect(regel(".cw-kennzahl")).toContain("container-type: inline-size");
-  });
-
-  it("Initiale: kleine Größe wenig angeschnitten, m und l behalten den Anschnitt", () => {
-    expect(regel(".cw-initiale::after")).toContain("left: 12%");
-    expect(regel(".cw-initiale::after")).toContain("top: -14%");
-    expect(regel(".cw-initiale--m::after, .cw-initiale--l::after")).toContain("top: -40%");
   });
 });
 

@@ -5,5 +5,5 @@ import { Feld, type FeldProps } from "@carraway/ui";
  * Die Prüfung kommt aus `useFormular` mit `betragRegel` (`feld(name, serverFehler)` liefert `fehler` und `onBlur`).
  */
 export function BetragFeld(props: Omit<FeldProps, "zahl" | "type">) {
-  return <Feld zahl inputMode="decimal" autoComplete="off" spellCheck={false} {...props} />;
+  return <Feld zahl inputMode="decimal" spellCheck={false} {...props} />;
 }

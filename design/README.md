@@ -7,7 +7,7 @@ The application shares the mark, typefaces and palette defined in the Carraway w
 - **Two equally supported themes.** Dark is the default. Light uses the same semantic tokens. All text achieves at least 4.5:1 contrast in both themes, including 12 px labels.
 - **One accent for orientation.** Teal (`--cw-accent`) marks active navigation and keyboard focus. The active primary tab also has a light teal tint. Labels and primary buttons use neutral colours.
 - **Compact layout.** Body text and table values are 14 px, compact labels are 12 to 13 px and table rows are 36 px high. This keeps more content visible with less scrolling.
-- **One visible content block per page.** Additional sections sit behind tabs. See [Tabs and page patterns](#tabs-and-page-patterns).
+- **Sidebar for places, tabs for views, jump marks for sections read together.** See [Sidebar, tabs and page patterns](#tabs-and-page-patterns).
 - **Visible provenance.** Every calculated number has a provenance control (the `Herkunft` component). Numbers are right-aligned in monospace with tabular digits.
 - **Grid.** Page spacing and card gaps follow an 8 px grid (`s-1` to `s-8`). Controls and dense lists may use 4 and 12 px (`s-0`, `s-1h`). All dimensions are multiples of 4.
 
@@ -21,7 +21,7 @@ The application shares the mark, typefaces and palette defined in the Carraway w
 
 ## Colours
 
-The palette follows the website's 60-30-10 rule. Paper, white and ink are the base. Sage separates light surfaces and forest green separates dark surfaces. Teal and jade mark interactive controls. Gold highlights selected results. Dark surfaces and the gold for small print are adjusted for the app's contrast pairs.
+The palette follows the website's 60-30-10 rule. Paper, white and ink are the base. Sage separates light surfaces and forest green separates dark surfaces. Teal and jade mark interactive controls and the few highlighted results. Dark surfaces are adjusted for the app's contrast pairs. There is no gold, ochre or orange in the palette.
 
 ### Token structure
 
@@ -56,8 +56,8 @@ Teal marks the current view and keyboard focus. Highlighted metrics use only the
 | Active primary tab | 1 px `--cw-accent` outline, `--cw-accent-tint` fill and stronger label |
 | Active navigation | 1 px `--cw-accent` outline |
 | Selected table row | `--cw-accent-tint` fill without a side stripe |
-| Section label and mark | Gold line before the label, teal or jade dot in the mark |
-| Highlighted metric | `--cw-highlight` value with title in the normal text colour |
+| Section label and mark | Accent line before the label, teal or jade dot in the mark |
+| Highlighted metric | Value in `--cw-accent` and bold weight, title in the normal text colour |
 | Current step | Inverted tile with an accent ring |
 | Links | Underlined `--cw-text`, with a teal underline on hover |
 | Charts | At most one highlighted series or bar per chart (`--cw-chart-2`), e.g. the latest valuation |
@@ -95,7 +95,6 @@ The interaction accent is teal (`#096D69`) in light and jade (`#7CCFC2`) in dark
 | **Accent** | | | |
 | `--cw-accent` | `#7CCFC2` (jade) | `#096D69` (petrol-700) | Teal and jade for controls, selection and the brand dot. |
 | `--cw-accent-tint` | `rgba(124, 207, 194, 0.13)` | `rgba(9, 109, 105, 0.13)` | Light tint under the active primary tab. Use the normal text colour on top. |
-| `--cw-highlight` | `#C4A25A` (gold) | `#806429` (gold-text) | Sparse highlights for metrics and result rows. |
 | `--cw-focus` | `#7CCFC2` (jade) | `#096D69` (petrol-700) | 2 px focus ring. |
 | **Action** | | | |
 | `--cw-primary` | `#EEF3EE` (hellgruen) | `#18211D` (tinte-850) | Primary button uses an inverted surface and reverses foreground and background. |
@@ -243,8 +242,9 @@ Type scales in `tokens.json` generate `--fs-<name>` and `--lh-<name>`. Component
 
 ## Dimensions and shapes
 
-- Spacing: `s-0` 4 · `s-1` 8 · `s-1h` 12 · `s-2` 16 · `s-3` 24 · `s-4` 32 · `s-5` 40 · `s-6` 48 · `s-7` 64 · `s-8` 80. Page margin `s-3`, card padding `s-2`, gap `s-1` to `s-2`.
-- Radii: `r-s` 4 · `r-m` 6 · `r-l` 8 · `r-xl` 12 · `r-voll` · `r-initiale` 22%.
+- Spacing: `s-0` 4 · `s-1` 8 · `s-1h` 12 · `s-2` 16 · `s-3` 24 · `s-4` 32 · `s-5` 40 · `s-6` 48 · `s-7` 64 · `s-8` 80.
+- Spacing roles: 8 px inside components (`s-1`), 12 px between fields (`s-1h`), 16 px between cards (`s-2`), 24 px between sections and as the page margin (`s-3`). Monospace only for figures and codes.
+- Radii: `r-s` 4 · `r-m` 6 · `r-l` 8 · `r-xl` 12 · `r-voll`.
 - Heights: `h-xs` 28 (compact: subtabs, segments, filters) · `h-s` 32 (standard button, field, nav item) · `h-m` 40 (large button) · `h-l` 48 (header). Primary tab `h-hauptreiter` is at least 44 px wide and high. Table row `zeile` 36, table header `zeile-dicht` 32. Compact tables use narrower column spacing.
 - Hit areas are at least 24 × 24 px (WCAG 2.2, 2.5.8). For coarse pointers (touch), `h-xs` grows to 36 px and `h-s` to 40 px.
 - Sidebar `leiste` is 240 px, collapsed `leiste-schmal` is 56 px, on `--cw-surface`. Header is 48 px.
@@ -254,8 +254,6 @@ Type scales in `tokens.json` generate `--fs-<name>` and `--lh-<name>`. Component
 “Back to the source” consists of two open arcs around a dot. Through 32 px, each arc is 6 units thick on the 64-unit grid, and above 32 px it is 4.5 units. On light backgrounds the arcs are ink and the dot is teal. On dark backgrounds the arcs are light green and the dot is jade. The Carraway wordmark uses Instrument Sans at weight 650 and −0.02 em tracking. The narrow sidebar shows the mark alone. The browser, installed app, Excel add-in and report header use the appropriate size variant.
 
 Typst uses static TTF instances (400, 650 and 700) from the variable font at 100% width. Email templates prefer locally available Instrument Sans and fall back to Arial. Both font families use the SIL Open Font License 1.1.
-
-The initial tile for investments and funds shows the first letter at 1.75 times the tile size, clipped at the top and left, with radius `r-initiale` and fill `--cw-tile` (a warm tile in light theme). It substitutes for a logo until one is available.
 
 ## Icons
 
@@ -268,19 +266,23 @@ The initial tile for investments and funds shows the first letter at 1.75 times 
 
 Use 150 ms ease-out transitions for colour, opacity and position. Focus uses a 2 px `--cw-focus` ring with a 2 px offset. Disable transitions with `prefers-reduced-motion`.
 
-## Tabs and page patterns
+## Sidebar, tabs and page patterns
 
-**Show one content block.** A page has a heading, a metric row and one content block below it. Other sections are behind tabs or, on larger pages, a table of contents.
+**The sidebar changes context.** Globally it lists funds, the dashboard, deal flow and contacts, register and data import. Inside a fund it lists the places of that fund (Portfolio, Capital, Finance, Fund), including the fund-bound finance areas. Inside an object (holding, deal, organisation, person) and in the administration it lists the places of that object. A back link sits at the top, followed by the context header with a switcher (another fund). There is no second navigation column next to the content. On narrow windows (up to 807 px) the sidebar is a drawer from the left.
 
-- **`Tabs`** (first level) give page sections more room and outline the active tab. **`UnterTabs`** (second level) use a neutral segmented control for subsections of the active tab, such as “Rounds | Transactions | Cap table | Waterfall” under Financing. Two levels are the maximum.
-- Detail pages and workspaces with many sections (previously two tab levels or more than roughly five sections) use the **table of contents** (`Inhaltsverzeichnis`, `cw-inhalt`). A secondary column to the left of the content has group headings (small tracked capitals like the sidebar) and entries. The active entry uses `--cw-selected`. The heading and metrics stay above, with one section to the right of the list. **Tabs** suit step-by-step flows (report, regulatory reporting run, import), pages with two to five sections and the portal.
-- The table of contents keeps the URL format `?tab=…&unter=…` and existing identifiers (hook `useInhalt`). An entry targets `tab` and optionally `unter`. The first is the default and omitted from the URL. Switching writes both parameters in one navigation and creates a history entry. Entries are buttons with `aria-current="page"` inside a `nav` with lists. Tab reaches every enabled entry and Enter or Space selects it. User-initiated switches focus the named content section for screen readers. Initial display and URL-driven switches do not move focus. Only the active section is built, within its own Suspense boundary. Empty groups are omitted.
-- On narrow windows (up to 807 px), the table of contents becomes a “Section: Name” row that expands the grouped list (`aria-expanded`) and collapses after selection.
-- The app sidebar retains the person's wide or narrow setting. The table of contents is a second level beside it. Keeping the sidebar from collapsing automatically keeps the fund selector and navigation in the same place.
-- Tab state lives at `?tab=…&unter=…`. Switching adds a history entry for Back and resets `unter` when switching the primary tab. Unknown values fall back to the first tab.
+- **Sidebar = places.** An entry is an area with its own task and its own address. At most two levels (group, entry), groups from eight entries, at most about 14 entries per context. Detail pages register their places with `useObjektKontext`; the component `BereichsLeiste` renders the active place in full width and moves focus to it after a switch from the sidebar.
+- **Tabs = views of the same area.** Two to five equal views that are used one after another. Every tab has its own address (`?tab=…&subtab=…` or its own route), the most important view comes first, counts show content on other tabs. No tabs inside tabs and no wrapping. A page-level tab bar uses `fest` and stays below the context header while scrolling. Tabs are quiet: medium weight, the active tab carries the accent line and a heavier weight.
+- **Exception: records of the same type as tabs.** Financing rounds stay tabs inside the tab Financing (newest first), because they are records, not navigation. The open round has two quiet links to the chronologically previous and next round in its header row, directly below the tab bar; the choice is part of the address (`?roundId=…`) and keeps the tab bar and the menu “More” in step.
+- **Jump marks = sections read together.** Sections that are compared or read in sequence stand one below the other (`Sprungmarken`, `SprungAbschnitt`). The marks highlight the current section; older addresses that named a section jump to it.
+- **Context header** (`Seitenkopf`): one line with title, status and short details, on the right the as-at menu (`StichtagMenue`: as-at date first, knowledge date only as a date and only for finance editors or administrators), the main action and a menu “⋯” for further actions. It stays below the top bar while scrolling; the metric row below it scrolls away. Explanatory text sits behind an info symbol (`InfoKnopf`).
+- **Actions are visible on the page** (main action plus “⋯”). The search (⌘K) finds records, places of the sidebar and their tabs, but no actions.
+- **Lists with a detail panel** (`Detailbereich`): deal flow and contacts open a record in a non-modal panel on the right; the list stays visible. The record is part of the address (`?deal=…`, `?datensatz=…`). Ctrl or Cmd click opens the full page.
+- **Fixed layers** are driven by CSS variables (`--umgebung-h`, `--kopf-h`, `--kontextkopf-h`, `--fest-oben`) so that header, context header, tabs and jump marks never overlap.
 - Only build tab content when active. Each panel has its own Suspense boundary and the bar stays visible while it loads.
 - Left and Right arrows, Home and End move keyboard focus (one Tab stop in the bar). Enter and Space select. Disabled tabs are skipped.
-- When tabs overflow, the bar scrolls horizontally without scrollbars and fades at edges with more content. On switching, scroll the active tab into view. Both `Tabs` and `UnterTabs` handle this within the components (scroll-timeline mask and `scrollIntoView`).
+- **Overflow: “More”.** The bar shows as many tabs as fit; the active tab always stays visible. A button “+N More” at the end opens a menu with all tabs, looking like their heads (icon, name, details, count); the active one is checked, a click selects it. Arrow keys move between visible tabs; the menu follows the menu pattern (arrows, Home and End, Enter, Escape returns focus to “More”). Only if not even the active tab fits next to “More” does the bar scroll (with faded edges).
+- **Filters are chips, not tabs** (`FilterChips`): a filter of a list (for example the kind of transaction) sits as chips in the toolbar, like in deal flow and contacts; the choice is part of the address.
+- **Tables fit the width from 1280 px.** Row actions go into the row menu “⋯”, secondary values sit as a small second line in a cell (role below the name, share below the number of shares, history below the status), free text wraps. Exception: time series with periods as columns (key figures, ESG) scroll horizontally with the first column fixed.
 - Put counts on tabs when informative, such as number of entries or open tasks.
 - Use a separate card (`app-karte`) for each block in a section, with heading left and actions right on the same line. Separate them by the section gap and avoid nesting cards.
 - Tables scroll horizontally and keep the first column fixed. Only free text wraps. Fields in cells have no visible label.
@@ -308,12 +310,14 @@ All CSS classes live in `packages/ui/src/styles/komponenten.css`, use tokens onl
 | Status | `cw-status` | Record status. |
 | Kennzahl, KennzahlenReihe | `cw-kennzahl`, `cw-kennzahlen` | Shared surface with one highlighted metric and three columns on narrow windows. Individual metrics can be separate cards. If a calculation is available, a calculator icon appears and the whole card opens it. With `onZiel`, the card jumps to a location the page chooses and a separate small icon button opens the calculation. `hervorgehoben` changes weight and colour subtly without an outline, preserving the appearance of an unselected card. A teal tint indicates hover and an outline indicates keyboard focus. |
 | Herkunft | `cw-herkunft` | Calculation steps and sources for a value. |
-| Initiale | `cw-initiale` | Initial tile for investments and funds. |
 | Tabelle | `cw-tabelle` | Sticky header, right-aligned monospace numbers, subtle divider every fifth row, loading and empty states, row menu and a totals footer (`fusszeile`, first cell as row header, line above). Single-line and horizontally scrollable, with fixed first column (`festeSpalten`) and free-text columns that wrap with `umbruch`. |
 | NavLeiste | `cw-nav` | Sidebar with groups, mark and narrow mode. |
-| Tabs, UnterTabs | `cw-tabs`, `cw-untertabs` | First- and second-level tabs. |
-| Inhaltsverzeichnis | `cw-inhalt` | Grouped column at left with one section at right. Expands from a single row on narrow windows. |
-| Seitenkopf | `cw-seitenkopf` | Title, metadata line and actions. |
+| Tabs, UnterTabs | `cw-tabs`, `cw-untertabs` | First- and second-level tabs with overflow menu “More”. |
+| FilterChips | `cw-filterchips` | One filter of a list as chips in the toolbar (`aria-pressed`). |
+| Sprungmarken, SprungAbschnitt | `cw-sprungmarken`, `cw-sprungabschnitt` | Sections read together, one below the other, with marks that follow scrolling. |
+| Detailbereich | `cw-detailbereich` | Non-modal panel to the right of a list; Escape closes it. |
+| InfoKnopf | `cw-info` | Explanatory text behind an info symbol. |
+| Seitenkopf | `cw-seitenkopf` | Context header in one line: title, status, short details, as-at menu, main action and “⋯”. |
 | Werkzeugleiste | `cw-werkzeugleiste` | Search, filters and switches above a list. |
 | Fakten | `cw-fakten` | Label and value in a grid, `liste` (label left, value right for cards) or `reihe` (one wrapping line). |
 | Kennwerte | `cw-kennwerte` | Grouped facts: `gruppen[]` with `titel` and `eintraege[]` (`label`, `wert`, `primaer` for key numbers, `ruhig` for empty or default values, `hinweis`). Each group has an inset `--cw-surface-2` surface, sentence-case labels and tabular digits. Variants `kompakt` and `gedaempft` (completed item). The grid wraps and stacks at narrow widths. Use it for several groups within a card and keep `Fakten` for a short row or a label/value list. |
@@ -322,7 +326,7 @@ All CSS classes live in `packages/ui/src/styles/komponenten.css`, use tokens onl
 | Leer (`kompakt`) | `cw-leer--zeile` | Muted one-line empty state with an action at the end. |
 | Menue | `cw-menue` | Trigger with a list opening downward or upward. |
 | Dialog | `cw-dialog` | Centred compact or wide window, with margins on small screens. |
-| Leer | `cw-leer` | Empty state with icon and action. |
+| Leer | `cw-leer` | Empty state of an area: title, one sentence of explanation and the matching action (only with write access). No graphic. |
 | Hinweis | `cw-hinweis` | Page-level information and errors. |
 | Etikett | `cw-etikett` | Section label. |
 

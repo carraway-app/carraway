@@ -1,5 +1,6 @@
 import { Suspense, lazy, useId, useRef, useState, type ReactNode, type TextareaHTMLAttributes } from "react";
 import { klassen } from "../hilfen";
+import { OHNE_PASSWORTMANAGER } from "./ohnePasswortmanager";
 import { useUiTexte } from "../sprache";
 import { Button } from "./Button";
 
@@ -28,6 +29,7 @@ export function Textbereich({ label, hilfe, fehler, id, className, rows = 4, mar
   const zeigeVorschau = markdown && vorschau !== null;
   const feld = (
     <textarea
+      {...OHNE_PASSWORTMANAGER}
       {...rest}
       ref={eingabe}
       id={feldId}

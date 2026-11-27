@@ -35,7 +35,7 @@ function VorlageDialog({ dealId, fondsId, ersetzt, onSchliessen }: { dealId: str
         <FehlerHinweis fehler={einsetzen.error} />
         {abfrage.isSuccess && vorlagen.length === 0 ? (
           <Hinweis>
-            {b.keineVorlagen} <Link to="/beschlussvorlagen" search={{}}>{b.zuVorlagen}</Link>
+            {b.keineVorlagen} <Link to="/decision-proposals" search={{}}>{b.zuVorlagen}</Link>
           </Hinweis>
         ) : (
           <>

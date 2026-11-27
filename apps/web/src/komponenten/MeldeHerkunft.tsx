@@ -55,7 +55,7 @@ export function MeldeHerkunftDialog({ laufId, schluessel, titel, onSchliessen }:
                   schluessel: "name",
                   kopf: h.spalten.name,
                   zelle: (b) => (
-                    <Link to="/beteiligungen/$id" params={{ id: b.id }} search={{}} aria-label={h.beteiligungLink(b.name)}>
+                    <Link to="/investments/$id" params={{ id: b.id }} search={{}} aria-label={h.beteiligungLink(b.name)}>
                       {b.name}
                     </Link>
                   ),

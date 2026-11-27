@@ -41,4 +41,4 @@ export function sicheresZiel(wert: unknown): string | undefined {
 }
 
 /** Seiten ohne Rahmen der Anwendung; sie brauchen keine fertig angemeldete Person. */
-export const AUTH_SEITEN: readonly string[] = ["/anmelden", "/einrichtung", "/passwort-aendern", "/passwort-vergessen", "/passwort-setzen", "/zwei-faktor-einrichten", "/portal-hinweis"];
+export const AUTH_SEITEN: readonly string[] = ["/sign-in", "/setup", "/change-password", "/forgot-password", "/set-password", "/two-factor-setup", "/portal-notice"];

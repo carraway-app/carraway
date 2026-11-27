@@ -23,7 +23,7 @@ async function verweis() {
 describe("Vorschaukarte an Verweisen", () => {
   it("öffnet beim Überfahren mit Name, Unternehmen, Mail und Telefon, ist per aria-describedby mit dem Verweis verbunden und lädt nur einmal", async () => {
     const api = spieleApi(seite());
-    rendereApp(`/organisationen/${ORG_A}`);
+    rendereApp(`/organizations/${ORG_A}`);
     const nutzer = userEvent.setup();
     const link = await verweis();
     expect(api.anfragen("GET", "/api/v1/crm/datensaetze/person/p1/karte")).toHaveLength(0);
@@ -49,7 +49,7 @@ describe("Vorschaukarte an Verweisen", () => {
 
   it("öffnet beim Fokus per Tastatur, nimmt dem Verweis den Fokus nicht und schließt mit Escape", async () => {
     spieleApi(seite());
-    rendereApp(`/organisationen/${ORG_A}`);
+    rendereApp(`/organizations/${ORG_A}`);
     const nutzer = userEvent.setup();
     const link = await verweis();
     link.focus();
@@ -66,17 +66,17 @@ describe("Vorschaukarte an Verweisen", () => {
 
   it("zeigt bei einem Fehler nur „Keine Vorschau verfügbar“ und lässt den Verweis wie er ist", async () => {
     spieleApi(seite({ status: 404, koerper: { error: { code: "record_not_found", message: "Datensatz nicht gefunden." } } }));
-    rendereApp(`/organisationen/${ORG_A}`);
+    rendereApp(`/organizations/${ORG_A}`);
     const nutzer = userEvent.setup();
     const link = await verweis();
     await nutzer.hover(link);
     expect(await screen.findByText("Keine Vorschau verfügbar", {}, { timeout: 3000 })).toBeTruthy();
-    expect(link.getAttribute("href")).toBe("/personen/p1");
+    expect(link.getAttribute("href")).toBe("/people/p1");
   });
 
   it("öffnet auf Touch-Geräten keine Karte", async () => {
     const api = spieleApi(seite());
-    rendereApp(`/organisationen/${ORG_A}`);
+    rendereApp(`/organizations/${ORG_A}`);
     const link = await verweis();
     link.dispatchEvent(new PointerEvent("pointerover", { bubbles: true, pointerType: "touch" }));
     link.dispatchEvent(new PointerEvent("pointerenter", { pointerType: "touch" }));

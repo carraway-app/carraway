@@ -1,7 +1,7 @@
 import { lazy, Suspense, useState } from "react";
-import { useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { getRouteApi, Link } from "@tanstack/react-router";
-import { Auswahl, Button, ButtonLink, Feld, Hinweis, Inhaltsverzeichnis, Seitenkopf, Status, Tabelle, formatDatum, type TabelleSpalte } from "@carraway/ui";
+import { Auswahl, Button, ButtonLink, Feld, Hinweis, Seitenkopf, Status, Tabelle, formatDatum, type TabelleSpalte } from "@carraway/ui";
 import { fondsListe, type FondsEintrag } from "../api/abfragen";
 import { umgebungAbfrage } from "../api/anmeldung";
 import { DOKU_URL, EXPORT_URL } from "../api/import";
@@ -41,33 +41,39 @@ import { useFormular } from "../komponenten/formular";
 import { feldText } from "../i18n/fehler";
 import { aufzaehlung, useSprache, useT } from "../i18n";
 import { MINDESTLAENGE_PASSWORT } from "../lib/passwort";
-import { useInhalt, type InhaltsEintrag } from "../lib/tabs";
+import { aktiverEintrag, type InhaltsEintrag } from "../lib/tabs";
+import { BereichsLeiste } from "../komponenten/BereichsLeiste";
 import { ROLLEN, useRechte } from "../lib/rechte";
 import { formatZeitpunkt } from "../lib/zeit";
 
-const route = getRouteApi("/verwaltung");
+const route = getRouteApi("/administration");
 
 /** Rollen, Nutzergruppen und Fondszugriff: eigenes Paket, geladen erst beim Öffnen des Eintrags. */
 const RechteVerwaltung = lazy(() => import("../komponenten/RechteVerwaltung"));
 
-export const BEREICHE = ["benutzer", "rollen", "rechte", "schluessel", "sperre", "kennzahlen", "meldewesen", "profil", "kurse", "kontaktabgleich", "daten", "betrieb", "mail"] as const;
+const DataProviderSettings = lazy(() => import("../komponenten/DataProviderSettings"));
+const CrmIntegrationen = lazy(() => import("../komponenten/CrmIntegrationen"));
+
+export const BEREICHE = ["benutzer", "rollen", "rechte", "schluessel", "sperre", "kennzahlen", "meldewesen", "profil", "kurse", "kontaktabgleich", "integrationen", "datenanbieter", "daten", "betrieb", "mail"] as const;
 export type Bereich = (typeof BEREICHE)[number];
 
 type GruppenId = "zugaenge" | "vorgaben" | "betrieb";
 /** Gliederung des Inhaltsverzeichnisses; die Kennungen sind die bisherigen Reiter (`?tab=…`). Der erste Eintrag ist der Standard. */
 const GRUPPEN: readonly { id: GruppenId; bereiche: readonly Bereich[] }[] = [
   { id: "zugaenge", bereiche: ["benutzer", "rechte", "rollen", "schluessel"] },
-  { id: "vorgaben", bereiche: ["kennzahlen", "meldewesen", "profil", "kurse", "kontaktabgleich"] },
+  { id: "vorgaben", bereiche: ["kennzahlen", "meldewesen", "profil", "kurse", "kontaktabgleich", "integrationen", "datenanbieter"] },
   { id: "betrieb", bereiche: ["sperre", "daten", "betrieb", "mail"] },
 ];
+/** Bereiche, deren Inhalt keinen eigenen benannten Abschnitt mitbringt: Die Karte trägt den Namen des Eintrags. */
+const OHNE_EIGENEN_NAMEN: ReadonlySet<string> = new Set(["rollen", "sperre"]);
 /** Bereiche mit mehreren Blöcken: Sie legen jeden Block selbst als Karte an, alle anderen sind eine einzige Karte. */
 const MEHRERE_BLOECKE: ReadonlySet<string> = new Set(["kennzahlen", "meldewesen", "daten", "rechte", "mail"]);
 
-/** Gruppen samt den Bereichen der Erweiterungen (z. B. „Investoren“ des LP-Portals), jeweils hinter dem genannten Bereich des Kerns. */
-function gruppenMitErweiterungen(): { id: GruppenId; bereiche: string[] }[] {
+/** Gruppen samt den sichtbaren Bereichen der Erweiterungen (z. B. „Investoren“ des LP-Portals), jeweils hinter dem genannten Bereich des Kerns. */
+function gruppenMitErweiterungen(sichtbar: (id: string) => boolean): { id: GruppenId; bereiche: string[] }[] {
   return GRUPPEN.map((g) => {
     const bereiche: string[] = [...g.bereiche];
-    for (const z of alle("verwaltungBereiche").filter((x) => x.gruppe === g.id)) {
+    for (const z of alle("verwaltungBereiche").filter((x) => x.gruppe === g.id && sichtbar(x.id))) {
       const nach = bereiche.indexOf(z.nach);
       bereiche.splice(nach < 0 ? bereiche.length : nach + 1, 0, z.id);
     }
@@ -80,9 +86,13 @@ export function VerwaltungSeite() {
   const t = useT();
   const v = t.verwaltung;
   const suche = route.useSearch();
-  const navigate = route.useNavigate();
-  const gruppen = gruppenMitErweiterungen();
-  const { aktiv, setzeAktiv } = useInhalt(suche, navigate, gruppen.flatMap((g) => g.bereiche.map((b): InhaltsEintrag => ({ id: b, tab: b }))));
+  const mitBedingung = alle("verwaltungBereiche").filter((z) => z.sichtbar);
+  const bedingungen = useQueries({ queries: mitBedingung.map((z) => ({ queryKey: [...z.sichtbar!.schluessel], queryFn: z.sichtbar!.pruefe, staleTime: 60_000 })) });
+  const verborgen = new Set(mitBedingung.filter((_, i) => bedingungen[i]?.data !== true).map((z) => z.id));
+  const gruppen = gruppenMitErweiterungen((id) => !verborgen.has(id));
+  const alleBereiche = gruppen.flatMap((g) => g.bereiche);
+  const erster = alleBereiche[0];
+  const aktiv = aktiverEintrag(suche, alleBereiche.map((b): InhaltsEintrag => ({ id: b, tab: b })))?.id ?? "";
   const { ich } = useRechte();
   if (!ich?.globalVerwalter) return null;
   const zusatz = alle("verwaltungBereiche");
@@ -101,6 +111,8 @@ export function VerwaltungSeite() {
     profil: () => <ManagerProfilBereich />,
     kurse: () => <Wechselkurse />,
     kontaktabgleich: () => <KontaktabgleichVerwaltung />,
+    datenanbieter: () => <Suspense fallback={null}><DataProviderSettings /></Suspense>,
+    integrationen: () => <Suspense fallback={<section aria-busy="true" />}><CrmIntegrationen /></Suspense>,
     daten: () => <DatenBereich />,
     betrieb: () => <BetriebBereich />,
     mail: () => (
@@ -112,18 +124,21 @@ export function VerwaltungSeite() {
   return (
     <div className="app-seite">
       <Seitenkopf meta={v.etikett} titel={v.titel} />
-      <Inhaltsverzeichnis
+      <BereichsLeiste
         aria-label={v.bereiche}
         aktiv={aktiv}
-        onWechsel={setzeAktiv}
+        zurueck={{ label: t.nav.alleBereiche, ziel: { to: "/funds", search: {} } }}
+        kopf={{ titel: v.titel, untertitel: v.etikett }}
+        pfad={[{ label: t.nav.verwaltung }]}
         gruppen={gruppen.map((g) => ({
           id: g.id,
           label: v.gruppen[g.id],
           eintraege: g.bereiche.map((b) => {
+            const ziel = { to: "/administration" as const, search: { tab: b === erster ? undefined : b } };
             const z = zusatz.find((x) => x.id === b);
-            if (z) return { id: b, label: z.label(t), inhalt: () => <section className="app-karte">{z.inhalt()}</section> };
+            if (z) return { id: b, label: z.label(t), ziel, inhalt: () => <section className="app-karte" aria-label={z.label(t)}>{z.inhalt()}</section> };
             const k = b as Bereich;
-            return { id: b, label: v.reiter[k], inhalt: () => (MEHRERE_BLOECKE.has(k) ? inhalte[k]() : <section className="app-karte">{inhalte[k]()}</section>) };
+            return { id: b, label: v.reiter[k], ziel, inhalt: () => (MEHRERE_BLOECKE.has(k) ? inhalte[k]() : <section className="app-karte" aria-label={OHNE_EIGENEN_NAMEN.has(k) ? v.reiter[k] : undefined}>{inhalte[k]()}</section>) };
           }),
         }))}
       />
@@ -266,11 +281,11 @@ function BenutzerDialog({ onSchliessen, onAngelegt }: { onSchliessen: () => void
         }}
       >
         <FehlerHinweis fehler={anlegen.error} bekannt={["name", "email", "password", "globalAdmin"]} />
-        <Feld label={f.name} autoComplete="off" {...feld("name")} fehler={fehler("name")} />
-        <Feld label={f.email} type="email" autoComplete="off" {...feld("email")} fehler={fehler("email")} />
+        <Feld label={f.name} {...feld("name")} fehler={fehler("name")} />
+        <Feld label={f.email} type="email" {...feld("email")} fehler={fehler("email")} />
         {mailMoeglich ? <ZugangWahl wert={zugang} onWahl={setZugang} /> : null}
         {einladung ? null : (
-          <Feld
+          <Feld zugang
             label={f.passwort}
             type="password"
             autoComplete="new-password"
@@ -313,7 +328,7 @@ function RollenBereich() {
   const t = useT();
   const { data: fonds } = useSuspenseQuery(fondsListe());
   const [gewaehlt, setGewaehlt] = useState(fonds[0]?.id ?? "");
-  if (fonds.length === 0) return <p className="app-leer-text">{t.platzhalter.fondsAnlegen} <Link to="/fonds" search={{}}>{t.nav.fonds}</Link></p>;
+  if (fonds.length === 0) return <p className="app-leer-text">{t.platzhalter.fondsAnlegen} <Link to="/funds" search={{}}>{t.nav.fonds}</Link></p>;
   return (
     <>
       <h2 className="cw-t-untertitel app-karte__titel">{t.verwaltung.rollen.titel}</h2>
@@ -559,7 +574,7 @@ function SchluesselDialog({ fonds, onSchliessen }: { fonds: FondsEintrag[]; onSc
         }}
       >
         <FehlerHinweis fehler={anlegen.fehler} bekannt={["name", "scopes", "expiresAt"]} />
-        <Feld label={f.name} hilfe={f.nameHilfe} autoComplete="off" value={name} onChange={(e) => setName(e.target.value)} fehler={versucht && name.trim() === "" ? f.nameFehlt : feldText(t, anlegen.fehler, "name")} />
+        <Feld label={f.name} hilfe={f.nameHilfe} value={name} onChange={(e) => setName(e.target.value)} fehler={versucht && name.trim() === "" ? f.nameFehlt : feldText(t, anlegen.fehler, "name")} />
         <Auswahl label={f.laufzeit} value={String(laufzeit)} onChange={(e) => setLaufzeit(Number(e.target.value))} fehler={feldText(t, anlegen.fehler, "expiresAt")}>
           {LAUFZEITEN.map((tage) => (
             <option key={tage} value={tage}>
@@ -810,7 +825,7 @@ function SperreBereich() {
   const t = useT();
   const { data: fonds } = useSuspenseQuery(fondsListe());
   const [gewaehlt, setGewaehlt] = useState(fonds[0]?.id ?? "");
-  if (fonds.length === 0) return <p className="app-leer-text">{t.platzhalter.fondsAnlegen} <Link to="/fonds" search={{}}>{t.nav.fonds}</Link></p>;
+  if (fonds.length === 0) return <p className="app-leer-text">{t.platzhalter.fondsAnlegen} <Link to="/funds" search={{}}>{t.nav.fonds}</Link></p>;
   return (
     <>
       <h2 className="cw-t-untertitel app-karte__titel">{t.verwaltung.sperre.titel}</h2>

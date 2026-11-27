@@ -160,7 +160,7 @@ export function Board({ optionen, spalten, bezuege, beschriftung, spaltenZusatz,
             </SpaltenTitel>
             {summe ? <p className="app-board__summe app-zahl">{formatBetrag(spalte?.summe ?? "0", sprache)}</p> : null}
             {onNeu && wert !== null && !ohneNeu.includes(wert) ? (
-              <Button variante="ruhig" icon={<PlusIcon />} aria-label={txt.neu(name)} onClick={() => onNeu(wert)}>
+              <Button className="app-board__neu" variante="ruhig" icon={<PlusIcon />} aria-label={txt.neu(name)} onClick={() => onNeu(wert)}>
                 {txt.neuKurz}
               </Button>
             ) : onNeu ? <div className="app-board__anlage-platz" aria-hidden="true" /> : null}

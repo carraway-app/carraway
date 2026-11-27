@@ -27,6 +27,7 @@ const FELDER = {
   angelegt: "created",
   anker: "referenceDate",
   anlageDatum: "acquisitionDate",
+  anonymisiertAm: "anonymizedAt",
   anpassungen: "adjustments",
   anschrift: "address",
   anspruch: "entitlement",
@@ -58,18 +59,21 @@ const FELDER = {
   ausgegeben: "issued",
   ausgeuebt: "exercised",
   ausgezahlt: "paidOut",
+  ausloeser: "accelerationTrigger",
   ausstehend: "outstanding",
   austrittAm: "departureDate",
   austrittId: "departureId",
   austritte: "departures",
   ausuebungId: "exerciseId",
   ausuebungen: "exercises",
+  ausuebungsfristMonate: "exerciseWindowMonths",
   ausuebungspreis: "exercisePrice",
   auszahlungVorgangId: "disbursementId",
   auszahlungen: "disbursements",
   auszug: "extract",
   barzufluss: "cashProceeds",
   basispreis: "strikePrice",
+  basispreisMittel: "averageStrikePrice",
   bedingung: "condition",
   beginn: "startDate",
   begleicht: "settles",
@@ -105,6 +109,12 @@ const FELDER = {
   buchwert: "bookValue",
   buchwertAbgang: "carryingAmountDisposed",
   buchwertVorher: "priorCarryingAmount",
+  einzelSichtbar: "grantsVisible",
+  erfassung: "recordingMode",
+  kennung: "holderReference",
+  laufzeitAbgelaufen: "termExpired",
+  taktMonate: "vestingIntervalMonths",
+  vergeben: "grantedUnits",
   verzichtId: "waiverId",
   darlehensverkaufId: "loanSaleId",
   zinsverzichtBis: "interestWaivedThrough",
@@ -664,9 +674,13 @@ const ENUMS = {
   zugeteilt: "granted",
   zurueckgezahlt: "paid_back",
   zusage: "commitment",
+  grob: "rough",
+  einzeln: "individual",
+  einfach: "single_trigger",
+  doppelt: "double_trigger",
 } as const;
 
-const ENUM_FELDER = ["aggregation","aktion","anteileVorherQuelle","art","bedingung","beteiligung","code","darlehen","darlehenRest","erinnerung","fehlend","feld","felder","gevestet","gremium","grund","hinweise","instrument","kategorie","massgeblich","methode","periodizitaet","preisBasis","quelle","regel","rolle","schwere","standardSicht","status","szenario","typ","uebernommen","vorschlag","zahlung","zinsen","zinsenRest","zinsperiode"] as const;
+const ENUM_FELDER = ["aggregation","aktion","anteileVorherQuelle","art","ausloeser","bedingung","beteiligung","code","darlehen","darlehenRest","erfassung","erinnerung","fehlend","feld","felder","gevestet","gremium","grund","hinweise","instrument","kategorie","massgeblich","methode","periodizitaet","preisBasis","quelle","regel","rolle","schwere","standardSicht","status","szenario","typ","uebernommen","vorschlag","zahlung","zinsen","zinsenRest","zinsperiode"] as const;
 type EnumFeld = typeof ENUM_FELDER[number];
 
 type Tausch<N, M> = N extends keyof M ? M[N] : N;

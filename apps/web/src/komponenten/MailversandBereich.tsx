@@ -116,7 +116,7 @@ export function MailversandBereich() {
         </Auswahl>
         <FehlerHinweis fehler={auftraege.error} />
         {auftraege.isPending ? <Skelettzeilen /> : null}
-        {auftraege.data && auftraege.data.length === 0 ? <Leer zeichen="M" titel={v.korb.keine} beschreibung="" /> : null}
+        {auftraege.data && auftraege.data.length === 0 ? <Leer titel={v.korb.keine} beschreibung="" /> : null}
         {auftraege.data && auftraege.data.length > 0 ? <Tabelle beschriftung={v.korb.tabelle} spalten={spalten} zeilen={auftraege.data} zeilenSchluessel={(z) => z.id} /> : null}
       </section>
     </>

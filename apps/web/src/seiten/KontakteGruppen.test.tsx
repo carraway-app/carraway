@@ -60,7 +60,7 @@ function api(gruppierung?: string) {
 describe("Tabelle in Gruppen", () => {
   it("gruppiert über „Gruppieren“, zeigt Anzahl und Summen und lädt die Zeilen einer Gruppe mit einer Bedingung auf das Feld", async () => {
     const a = api();
-    rendereApp("/kontakte");
+    rendereApp("/contacts");
     const nutzer = userEvent.setup();
     await screen.findByRole("grid", { name: "Unternehmen" });
     await nutzer.click(screen.getByRole("button", { name: "Gruppieren" }));
@@ -82,7 +82,7 @@ describe("Tabelle in Gruppen", () => {
 
   it("klappt Gruppen mit Maus und Tastatur auf und zu, die Wahl liegt in der Ansicht und lässt sich speichern", async () => {
     const a = api("f-temp");
-    rendereApp("/kontakte");
+    rendereApp("/contacts");
     const nutzer = userEvent.setup();
     const kalt = await screen.findByRole("button", { name: /Kalt/ });
     expect(await screen.findByRole("grid", { name: "Unternehmen: Kalt" })).toBeTruthy();
@@ -117,7 +117,7 @@ describe("Tabelle in Gruppen", () => {
       });
     };
     const a = gruppe("f-haken", { gruppen: [{ wert: "true", anzahl: 1, summen: {} }, { wert: "false", anzahl: 1, summen: {} }], gesamt: 2, bezuege: {} });
-    const ansicht1 = rendereApp("/kontakte");
+    const ansicht1 = rendereApp("/contacts");
     await screen.findByRole("button", { name: /Nein/ });
     expect(screen.getByRole("button", { name: /Ja/ })).toBeTruthy();
     await screen.findByRole("grid", { name: "Unternehmen: Ja" });
@@ -126,7 +126,7 @@ describe("Tabelle in Gruppen", () => {
     ansicht1.unmount();
 
     gruppe("f-mutter", { gruppen: [{ wert: ORG_B, anzahl: 1, summen: {} }, { wert: "99999999-aaaa-4aaa-8aaa-999999999999", anzahl: 1, summen: {} }, { wert: null, anzahl: 1, summen: {} }], gesamt: 3, bezuege: { [`organisation:${ORG_B}`]: "Beta Kapital", "organisation:99999999-aaaa-4aaa-8aaa-999999999999": null } });
-    rendereApp("/kontakte");
+    rendereApp("/contacts");
     expect(await screen.findByRole("button", { name: /Beta Kapital/ })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Kein Zugriff/ })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Ohne Wert/ })).toBeTruthy();
@@ -138,7 +138,7 @@ describe("Tabelle in Gruppen", () => {
       "POST /api/v1/crm/objekte/organisation/gruppen": { koerper: { ...gruppenAntwort, abgeschnitten: true } },
       "POST /api/v1/crm/objekte/organisation/abfrage": { koerper: { daten: [orgA], gesamt: 1, limit: 100, offset: 0, bezuege: {} } },
     });
-    rendereApp("/kontakte");
+    rendereApp("/contacts");
     expect((await screen.findByRole("status", { name: "" }, { timeout: 3000 }).catch(() => null)) ?? true).toBeTruthy();
     expect(await screen.findByText(/gezeigt werden die 2 größten/)).toBeTruthy();
   });

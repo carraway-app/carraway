@@ -35,8 +35,8 @@ describe("Fondsstammdaten", () => {
     const neu = await json(angelegt);
     expect(neu).toEqual({ ...eingabe, id: expect.any(String), name: "Neuer Fonds", kurzname: "NF", waehrung: "USD" });
     expect(await json(await get(`/fonds/${neu.id}`))).toEqual(neu);
-    expect((await json(await get("/fonds"))).daten).toContainEqual(neu);
-    expect((await json(await get("/fonds", verwalter))).daten).not.toContainEqual(neu);
+    expect((await json(await get("/fonds"))).daten).toContainEqual({ ...neu, abgedeckt: "0.00", zusagenVollstaendig: true });
+    expect((await json(await get("/fonds", verwalter))).daten).not.toContainEqual(expect.objectContaining({ id: neu.id }));
 
     const doppelt = await post("/fonds", eingabe);
     expect(doppelt.status).toBe(409);
@@ -59,7 +59,7 @@ describe("Fondsstammdaten", () => {
     expect(fonds).toEqual({ ...english, id: expect.any(String) });
     const liste = await app.requestApi("/funds?changedSince=2020-01-01T00:00:00Z");
     expect(liste.status).toBe(200);
-    expect((await json(liste)).data).toContainEqual(fonds);
+    expect((await json(liste)).data).toContainEqual({ ...fonds, covered: "0.00", commitmentsComplete: true });
     expect((await app.requestApi("/fonds")).ok).toBe(false);
   });
 

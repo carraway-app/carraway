@@ -4,7 +4,7 @@ import { Auswahl, Button, Feld, Hinweis, Segment, Status, Tabelle, Textbereich, 
 import { parseWert, wertFuerFeld } from "../extern/abfrage";
 import { kennzahlKatalog, kennzahlReihe, useWertAendern, useWertAnlegen, useWertBestaetigen, useWertVerwerfen, SZENARIEN, type OffenerWert, type Punkt, type Reihe, type Szenario } from "../api/kennzahlen";
 import { aufzaehlung, useSprache, useT } from "../i18n";
-import { ABWEICHUNG_SCHWELLE, aktuellesQuartal, formatAbweichung, formatKennzahlWert, kennzahlName, periodeKurz, zeitraum, type Periodenart } from "../lib/kennzahlen";
+import { ABWEICHUNG_SCHWELLE, aktuellesQuartal, formatAbweichung, formatAbweichungKurz, formatKennzahlWert, kennzahlName, periodeKurz, zeitraum, type Periodenart } from "../lib/kennzahlen";
 import { useRechte } from "../lib/rechte";
 import { Seitenpanel } from "@carraway/ui";
 import { FehlerHinweis } from "./FehlerHinweis";
@@ -40,6 +40,7 @@ export function KennzahlenTab({ beteiligungId, fondsId, lesend }: { beteiligungI
   const spalten: TabelleSpalte<Reihe>[] = [
     {
       schluessel: "kennzahl",
+      umbruch: true,
       kopf: k.spalteKennzahl,
       zelle: (r) => (
         <span>
@@ -71,10 +72,11 @@ export function KennzahlenTab({ beteiligungId, fondsId, lesend }: { beteiligungI
             <span className="app-kz-zelle">
               <span className="app-zahl">{formatKennzahlWert(r.typ, w.wert, r.einheit, sprache, t)}</span>
               {abw ? (
-                <span className={`app-kz-abw app-kz-abw--${richtung}${stark ? " app-kz-abw--stark" : ""}`}>
+                // In der Tabelle kurz unter dem Wert (relative Abweichung), die Langform im Titel und für Screenreader; so passt die Tabelle in die Breite.
+                <span className={`app-kz-abw app-kz-abw--${richtung}${stark ? " app-kz-abw--stark" : ""}`} title={formatAbweichung(r.typ, r.einheit, abw.absolut, abw.prozent, sprache, t)}>
                   <span aria-hidden="true">{richtung === "neg" ? "▼ " : richtung === "pos" ? "▲ " : "± "}</span>
-                  <span className="cw-nur-lesen">{richtung === "neg" ? k.abweichungNeg : k.abweichungPos}: </span>
-                  {formatAbweichung(r.typ, r.einheit, abw.absolut, abw.prozent, sprache, t)}
+                  <span className="cw-nur-lesen">{richtung === "neg" ? k.abweichungNeg : k.abweichungPos}: {formatAbweichung(r.typ, r.einheit, abw.absolut, abw.prozent, sprache, t)}</span>
+                  <span aria-hidden="true">{formatAbweichungKurz(r.typ, r.einheit, abw.absolut, abw.prozent, sprache, t)}</span>
                 </span>
               ) : null}
             </span>

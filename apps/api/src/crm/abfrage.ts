@@ -265,10 +265,11 @@ export async function fuehreAbfrageAus(tx: Tx, objekt: Objekt, roh: AbfrageEinga
   });
   const auswahl = spalten.map((f, i) => sql`${f.ausgabe} AS ${sql.identifier(`c${i}`)}`);
   const ordnung = sortierSql(plan, normSortierung(eingabe.sortierung));
-  const [zeilen, zaehlung] = await Promise.all([
-    tx.execute<Record<string, unknown>>(sql`SELECT ${plan.def.tabelle.id} AS id${auswahl.length ? sql`, ${sql.join(auswahl, sql`, `)}` : sql``} FROM ${plan.von} ${plan.wo} ${ordnung} LIMIT ${eingabe.limit} OFFSET ${eingabe.offset}`),
-    tx.execute<{ n: number }>(sql`SELECT count(*)::int AS n FROM ${plan.von} ${plan.wo}`),
-  ]);
+  // Nacheinander: Abfragen auf demselben Client dürfen nicht parallel laufen.
+  const zeilen = await tx.execute<Record<string, unknown>>(
+    sql`SELECT ${plan.def.tabelle.id} AS id${auswahl.length ? sql`, ${sql.join(auswahl, sql`, `)}` : sql``} FROM ${plan.von} ${plan.wo} ${ordnung} LIMIT ${eingabe.limit} OFFSET ${eingabe.offset}`,
+  );
+  const zaehlung = await tx.execute<{ n: number }>(sql`SELECT count(*)::int AS n FROM ${plan.von} ${plan.wo}`);
   const daten = zeilen.rows.map((z) => {
     const aus: Record<string, unknown> = { id: z.id };
     spalten.forEach((f, i) => {

@@ -21,7 +21,7 @@ import { de } from "../i18n/de";
 import { feldpruefungTexte } from "../i18n/feldpruefung";
 import { en } from "../i18n/en";
 
-const URL_BERICHT = `/berichte/${BERICHT_ID}`;
+const URL_BERICHT = `/reports/${BERICHT_ID}`;
 const detail = (extra: Record<string, unknown>) => ({ koerper: { ...berichtDetailDaten, ...extra } });
 const STUFE = `POST /api/v1/reports/${BERICHT_ID}/stage`;
 const kontrolleRot = { [`/api/v1/reports/${BERICHT_ID}/checks`]: { koerper: berichtKontrolleRot } };
@@ -29,7 +29,7 @@ const kontrolleRot = { [`/api/v1/reports/${BERICHT_ID}/checks`]: { koerper: beri
 describe("Berichte mit Freigabe: Liste und Anlegen", () => {
   it("listet die Berichte des Fonds mit Status und aktueller Stufe", async () => {
     const api = spieleApi();
-    rendereApp("/berichte");
+    rendereApp("/reports");
     const tabelle = within(await screen.findByRole("region", { name: "Berichte mit Freigabe" }));
     const zeilen = tabelle.getAllByRole("row");
     expect(zeilen).toHaveLength(3);
@@ -37,7 +37,7 @@ describe("Berichte mit Freigabe: Liste und Anlegen", () => {
     expect(zeilen[1]!.textContent).toContain("Entwurf");
     expect(zeilen[1]!.textContent).toContain("Stufe 1 von 3: Investmentmanager");
     expect(zeilen[2]!.textContent).toContain("Alle Stufen erteilt");
-    expect(within(zeilen[1]!).getByRole("link", { name: /Bericht öffnen: LP-Bericht zum 30\.09\.2026/ }).getAttribute("href")).toBe(`/berichte/${BERICHT_ID}`);
+    expect(within(zeilen[1]!).getByRole("link", { name: /Bericht öffnen: LP-Bericht zum 30\.09\.2026/ }).getAttribute("href")).toBe(`/reports/${BERICHT_ID}`);
     expect(api.anfragen("GET", "/api/v1/reports")[0]!.query.get("fondsId")).toBe(FONDS_ID);
     expect(api.anfragen("GET", `/api/v1/fonds/${FONDS_ID}/uebersicht`)).toHaveLength(0);
     // die bisherigen Downloads bleiben
@@ -47,7 +47,7 @@ describe("Berichte mit Freigabe: Liste und Anlegen", () => {
 
   it("legt einen LP-Bericht an und öffnet ihn", async () => {
     const api = spieleApi({ "POST /api/v1/reports": { status: 201, koerper: berichtZeile } });
-    rendereApp("/berichte");
+    rendereApp("/reports");
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Bericht anlegen" }));
     const dialog = within(screen.getByRole("dialog"));
@@ -61,7 +61,7 @@ describe("Berichte mit Freigabe: Liste und Anlegen", () => {
 
   it("Währungssicht: Vergleich braucht einen Währungscode, gesendet wird nur für Berichte mit Zeilen je Beteiligung", async () => {
     const api = spieleApi({ "POST /api/v1/reports": { status: 201, koerper: berichtZeile } });
-    rendereApp("/berichte");
+    rendereApp("/reports");
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Bericht anlegen" }));
     const dialog = within(screen.getByRole("dialog"));
@@ -79,14 +79,15 @@ describe("Berichte mit Freigabe: Liste und Anlegen", () => {
 
   it("verlangt für den Quartalsbericht eine Beteiligung und sendet keinen Wissensstand aus der Zukunft", async () => {
     const api = spieleApi({ "POST /api/v1/reports": { status: 201, koerper: { ...berichtZeile, art: "quartalsbericht" } } });
-    rendereApp("/berichte");
+    rendereApp("/reports");
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Bericht anlegen" }));
     const dialog = within(screen.getByRole("dialog"));
     await nutzer.selectOptions(dialog.getByLabelText("Art"), "quartalsbericht");
     expect(dialog.getByLabelText("Beteiligung")).toBeTruthy();
     const zukunft = new Date(Date.now() + 48 * 3600_000);
-    const lokal = `${zukunft.getFullYear()}-${String(zukunft.getMonth() + 1).padStart(2, "0")}-${String(zukunft.getDate()).padStart(2, "0")}T10:00`;
+    // Wissensstand nur als Datum
+    const lokal = `${zukunft.getFullYear()}-${String(zukunft.getMonth() + 1).padStart(2, "0")}-${String(zukunft.getDate()).padStart(2, "0")}`;
     fireEvent.change(dialog.getByLabelText("Wissensstand (optional)"), { target: { value: lokal } });
     await nutzer.click(dialog.getByRole("button", { name: "Bericht anlegen" }));
     expect(await dialog.findByText(de.feldfehler.knowledge_date_in_future)).toBeTruthy();
@@ -97,9 +98,21 @@ describe("Berichte mit Freigabe: Liste und Anlegen", () => {
     expect(api.anfragen("POST", "/api/v1/reports")[0]!.koerper).toMatchObject({ art: "quartalsbericht", beteiligungId: "b1" });
   });
 
+  it("macht aus einem früheren Tag das Tagesende (Europe/Berlin) als Wissensstand", async () => {
+    const api = spieleApi({ "POST /api/v1/reports": { status: 201, koerper: berichtZeile } });
+    rendereApp("/reports");
+    const nutzer = userEvent.setup();
+    await nutzer.click(await screen.findByRole("button", { name: "Bericht anlegen" }));
+    const dialog = within(screen.getByRole("dialog"));
+    fireEvent.change(dialog.getByLabelText("Wissensstand (optional)"), { target: { value: "2026-06-30" } });
+    await nutzer.click(dialog.getByRole("button", { name: "Bericht anlegen" }));
+    await waitFor(() => expect(api.anfragen("POST", "/api/v1/reports")).toHaveLength(1));
+    expect(api.anfragen("POST", "/api/v1/reports")[0]!.koerper).toMatchObject({ stand: "2026-06-30T21:59:59.999999Z" });
+  });
+
   it("blendet das Anlegen für Betrachter aus", async () => {
     spieleApi({ "/api/v1/me": alsRolle("betrachter") });
-    rendereApp("/berichte");
+    rendereApp("/reports");
     await screen.findByRole("region", { name: "Berichte mit Freigabe" });
     expect(screen.queryByRole("button", { name: "Bericht anlegen" })).toBeNull();
   });
@@ -131,7 +144,7 @@ describe("Berichtigung anlegen", () => {
   it("verweist bei bestehender Berichtigung direkt auf die Nachfassung", async () => {
     spieleApi({ [`/api/v1/reports/${BERICHT_ID}`]: detail({ status: "freigegeben", nachfassungId: "folge" }) });
     rendereApp(URL_BERICHT);
-    expect((await screen.findByRole("link", { name: "Berichtigung öffnen" })).getAttribute("href")).toBe("/berichte/folge");
+    expect((await screen.findByRole("link", { name: "Berichtigung öffnen" })).getAttribute("href")).toBe("/reports/folge");
     expect(screen.queryByText("Bericht berichtigen")).toBeNull();
   });
 });
@@ -247,7 +260,7 @@ describe("Bericht: Stufen und Vier-Augen", () => {
         return { koerper: { ...berichtZeile, status: "freigegeben", naechsteStufe: 3 } };
       },
     });
-    rendereApp(`${URL_BERICHT}?tab=freigabe`);
+    rendereApp(`${URL_BERICHT}?tab=approval`);
     const nutzer = userEvent.setup();
     expect(await screen.findByText("Der Kontrollbericht zeigt Abweichungen.")).toBeTruthy();
     // die normale Freigabe gibt es hier nicht; die Überschreibung verlangt eine Begründung
@@ -312,7 +325,7 @@ describe("Bericht: Stufen und Vier-Augen", () => {
 describe("Bericht: Freitexte und Datei", () => {
   it("bearbeitet die Freitexte des LP-Berichts im Entwurf und speichert sie je Abschnitt", async () => {
     const api = spieleApi({ [`PUT /api/v1/reports/${BERICHT_ID}/sections/foreword`]: { koerper: { id: "a1", berichtId: BERICHT_ID, schluessel: "vorwort", textDe: "Liebe Investoren", textEn: "Dear investors", status: "entwurf", geaendertVon: ICH_ID, geaendertAm: "2026-11-20T10:00:00.000Z" } } });
-    rendereApp(`${URL_BERICHT}?tab=inhalt`);
+    rendereApp(`${URL_BERICHT}?tab=content`);
     const nutzer = userEvent.setup();
     const bereich = within(await screen.findByRole("region", { name: "Freitexte" }));
     expect(bereich.getByLabelText("Marktumfeld: Text deutsch")).toBeTruthy();
@@ -333,7 +346,7 @@ describe("Bericht: Freitexte und Datei", () => {
         abschnitte: [{ id: "a1", berichtId: BERICHT_ID, schluessel: "vorwort", textDe: "Liebe Investoren", textEn: "", status: "entwurf", geaendertVon: ANDERE_ID, geaendertAm: "2026-11-20T09:30:00.000Z" }],
       }),
     });
-    rendereApp(`${URL_BERICHT}?tab=inhalt`);
+    rendereApp(`${URL_BERICHT}?tab=content`);
     const bereich = within(await screen.findByRole("region", { name: "Freitexte" }));
     expect(await bereich.findByText("Liebe Investoren")).toBeTruthy();
     expect(bereich.getByText(de.bericht.abschnitte.gesperrt)).toBeTruthy();
@@ -343,7 +356,7 @@ describe("Bericht: Freitexte und Datei", () => {
 
   it("zeigt Freitexte nur beim LP-Bericht und bietet im Entwurf den Download mit Wasserzeichen", async () => {
     spieleApi({ [`/api/v1/reports/${BERICHT_ID}`]: detail({ art: "fondsbericht", konfiguration: { einheit: "EUR", abschnitte: ["kennzahlen"], kennzahlen: [], spalten: [] } }) });
-    rendereApp(`${URL_BERICHT}?tab=datei`);
+    rendereApp(`${URL_BERICHT}?tab=file`);
     const datei = within(await screen.findByRole("region", { name: "Datei" }));
     expect(datei.getByRole("link", { name: "Entwurf herunterladen (mit Wasserzeichen)" }).getAttribute("href")).toBe(`/api/v1/reports/${BERICHT_ID}/file`);
     expect(screen.queryByRole("region", { name: "Freitexte" })).toBeNull();

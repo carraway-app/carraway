@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { ArrowsClockwiseIcon, Auswahl, Button, Fakten, Feld, Hinweis, InfoIcon, ListIcon, QuestionIcon, Segment, StackIcon, Status, Tabelle, Tabs, formatBetrag, formatDatum, formatProzent, type Sprache, type TabelleSpalte } from "@carraway/ui";
+import { ArrowsClockwiseIcon, Auswahl, Button, CaretLeftIcon, CaretRightIcon, Fakten, Feld, Hinweis, InfoIcon, ListIcon, QuestionIcon, Segment, StackIcon, Status, Tabelle, UnterTabs, formatBetrag, formatDatum, formatProzent, type Sprache, type TabelleSpalte, type MenueEintrag } from "@carraway/ui";
 import { anteilsklassen, finanzierungsrunden, fondsListe, mitarbeiterpools, rundentransaktionen, rundenVorschau, vehikelDesInvestors, type Rundentransaktionen, type Finanzierungsrunde, type RundenPosition, type RundenVorschauEingabe } from "../api/abfragen";
 import { ApiFehler } from "../api/client";
 import { heuteIso } from "../api/datum";
@@ -172,6 +172,8 @@ export function RundenAbschnitt({
   organisationId,
   fondsId,
   lesend,
+  rundeId,
+  onRunde,
   verbotenOkay = false,
   onFelder,
 }: {
@@ -181,6 +183,9 @@ export function RundenAbschnitt({
   verbotenOkay?: boolean;
   /** Öffnet die eigenen Felder einer Runde (die Seite entscheidet, wo sie stehen); ohne Angabe gibt es den Knopf nicht. */
   onFelder?: (runde: { id: string; bezeichnung: string }) => void;
+  /** Gewählte Runde aus der Adresse; mit `onRunde` führt die Seite die Auswahl (sonst bleibt sie im Zustand der Komponente). */
+  rundeId?: string;
+  onRunde?: (id: string) => void;
 }) {
   const t = useT();
   const sprache = useSprache();
@@ -191,7 +196,9 @@ export function RundenAbschnitt({
   const loeschen = useRundeLoeschen();
   const positionEntfernen = useRundenPositionEntfernen();
   const [dialog, setDialog] = useState<RundenDialog | null>(null);
-  const [gewaehlt, setGewaehlt] = useState<string | null>(null);
+  const [eigeneWahl, setEigeneWahl] = useState<string | null>(null);
+  const gewaehlt = onRunde ? (rundeId ?? null) : eigeneWahl;
+  const setGewaehlt = (id: string) => (onRunde ? onRunde(id) : setEigeneWahl(id));
   const schreiben = darf("bearbeiter", fondsId, "portfolio") && !lesend;
   const verwalten = darf("verwalter", fondsId, "portfolio") && !lesend;
 
@@ -204,6 +211,27 @@ export function RundenAbschnitt({
   const reiterIds = [...runden.map((x) => x.id), ...(ohne.length > 0 ? [REITER_OHNE] : []), ...(tx && alle.length > 0 ? [REITER_ALLE] : [])];
   const aktiv = gewaehlt !== null && reiterIds.includes(gewaehlt) ? gewaehlt : ((runden.find((x) => x.art !== "bruecke" && x.status === "abgeschlossen") ?? runden[0])?.id ?? reiterIds[0]);
   const r = runden.find((x) => x.id === aktiv);
+  // Blättern in zeitlicher Folge: die Liste steht neueste zuerst, die vorherige Runde ist also die nächste in der Liste.
+  const position = r ? runden.indexOf(r) : -1;
+  const vorherige = position >= 0 ? runden[position + 1] : undefined;
+  const naechste = position > 0 ? runden[position - 1] : undefined;
+  const blaettern =
+    vorherige || naechste ? (
+      <nav className="app-runden__blaettern" aria-label={f.blaettern}>
+        {vorherige ? (
+          <button type="button" className="app-runden__blatt" aria-label={f.vorherigeRunde(vorherige.bezeichnung)} onClick={() => setGewaehlt(vorherige.id)}>
+            <CaretLeftIcon size={14} aria-hidden />
+            {vorherige.bezeichnung}
+          </button>
+        ) : null}
+        {naechste ? (
+          <button type="button" className="app-runden__blatt" aria-label={f.naechsteRunde(naechste.bezeichnung)} onClick={() => setGewaehlt(naechste.id)}>
+            {naechste.bezeichnung}
+            <CaretRightIcon size={14} aria-hidden />
+          </button>
+        ) : null}
+      </nav>
+    ) : null;
   const txFehler = transaktionen.error && !(transaktionen.error instanceof ApiFehler && transaktionen.error.status === 403) ? transaktionen.error : null;
   const rundenKurz: Rundentransaktionen["runden"] = tx?.runden ?? [];
   const zeilenVon = (id: string): TransaktionsZeile[] => {
@@ -227,7 +255,7 @@ export function RundenAbschnitt({
       {data === undefined && error && verbotenOkay ? <p className="app-leer-text">{f.keine}</p> : null}
       {data && data.length === 0 && reiterIds.length === 0 ? <p className="app-leer-text">{f.keine}</p> : null}
       {aktiv ? (
-        <Tabs
+        <UnterTabs
           aria-label={f.liste}
           aktiv={aktiv}
           onWechsel={setGewaehlt}
@@ -281,6 +309,7 @@ export function RundenAbschnitt({
             <RundeDetail
               key={r.id}
               runde={r}
+              blaettern={blaettern}
               fondsId={fondsId}
               schreiben={schreiben}
               verwalten={verwalten}
@@ -303,7 +332,7 @@ export function RundenAbschnitt({
               )}
             </div>
           )}
-        </Tabs>
+        </UnterTabs>
       ) : null}
       {dialog?.art === "neu" ? <NeueRundeDialog organisationId={organisationId} fondsId={fondsId} onAngelegt={setGewaehlt} onSchliessen={() => setDialog(null)} /> : null}
       {dialog?.art === "abschliessen" ? <AbschliessenDialog runde={dialog.runde} onSchliessen={() => setDialog(null)} /> : null}
@@ -318,6 +347,7 @@ export function RundenAbschnitt({
 
 function RundeDetail({
   runde: r,
+  blaettern,
   fondsId,
   schreiben,
   verwalten,
@@ -331,6 +361,8 @@ function RundeDetail({
   transaktionenFehler,
 }: {
   runde: Finanzierungsrunde;
+  /** Pfeile zur zeitlich vorherigen und nächsten Runde; links im Kopf, direkt unter der Reiterleiste. */
+  blaettern?: ReactNode;
   fondsId: string;
   schreiben: boolean;
   verwalten: boolean;
@@ -359,21 +391,31 @@ function RundeDetail({
   const fusszeile: Record<string, ReactNode> = {
     investor: f.summe,
     betrag: summeBetrag === null ? t.gemeinsam.keinWert : formatBetragCent(alsBetrag(summeBetrag), sprache),
-    anteile: summeAnteile === null ? t.gemeinsam.keinWert : formatAnzahl(alsZahl(summeAnteile), sprache),
-    anteil: anteilText(summeAnteil),
-    gezahlt: summeGezahlt === null ? null : formatBetragCent(alsBetrag(summeGezahlt), sprache),
-    offen: summeOffen === null ? null : formatBetragCent(alsBetrag(summeOffen), sprache),
+    anteile: (
+      <>
+        {summeAnteile === null ? t.gemeinsam.keinWert : formatAnzahl(alsZahl(summeAnteile), sprache)}
+        <span className="app-zelle-zusatz">{anteilText(summeAnteil)}</span>
+      </>
+    ),
+    offen:
+      summeOffen === null ? null : (
+        <>
+          {formatBetragCent(alsBetrag(summeOffen), sprache)}
+          {summeGezahlt === null ? null : <span className="app-zelle-zusatz">{`${f.spalten.gezahlt} ${formatBetragCent(alsBetrag(summeGezahlt), sprache)}`}</span>}
+        </>
+      ),
   };
   const spalten: TabelleSpalte<RundenPosition>[] = [
     {
       schluessel: "investor",
       kopf: f.spalten.investor,
+      umbruch: true,
       zelle: (p) => (
         <span className="app-zusammenhang">
           {p.investor.art === "organisation" ? (
             <span>
               {p.vehikel && p.vehikel.name !== p.investor.name ? `${p.vehikel.name} · ` : null}
-              <Link to="/organisationen/$id" params={{ id: p.investor.id }} search={{ tab: "engagement", unter: "vehikel" }}>
+              <Link to="/organizations/$id" params={{ id: p.investor.id }} search={{ tab: "engagement", unter: "vehikel" }}>
                 {p.investor.name}
               </Link>
             </span>
@@ -382,66 +424,60 @@ function RundeDetail({
           )}
           {p.investor.art === "fonds" && p.investor.id === fondsId ? <Status>{f.diesFonds}</Status> : null}
           {p.instrumentId && p.beteiligungId ? (
-            <Link to="/beteiligungen/$id" params={{ id: p.beteiligungId }} search={{ tab: "finanzierung", unter: "instrumente" }} aria-label={f.zumInstrumentFuer(positionsName(p))}>
+            <Link to="/investments/$id" params={{ id: p.beteiligungId }} search={{ tab: "finanzierung", unter: "instrumente" }} aria-label={f.zumInstrumentFuer(positionsName(p))}>
               {f.zumInstrument}
             </Link>
           ) : null}
+          {/* Rolle unter dem Namen statt in eigener Spalte, damit die Tabelle bei 1280 px passt. */}
+          <span className="app-zelle-zusatz" title={f.spalten.rolle}>{aufzaehlung(t.rundenRolle, p.rolle)}</span>
         </span>
       ),
     },
-    { schluessel: "rolle", kopf: f.spalten.rolle, zelle: (p) => aufzaehlung(t.rundenRolle, p.rolle) },
     { schluessel: "betrag", kopf: f.spalten.betrag, zahl: true, zelle: (p) => formatBetragCent(p.betrag, sprache) },
-    { schluessel: "anteile", kopf: f.spalten.anteile, zahl: true, zelle: (p) => formatAnzahl(p.anteile, sprache) },
-    { schluessel: "anteil", kopf: f.spalten.anteil, zahl: true, zelle: (p) => anteilText(anteilNachRunde(p.anteile, r.anteileGesamtNach)) },
+    {
+      schluessel: "anteile",
+      kopf: f.spalten.anteile,
+      zahl: true,
+      zelle: (p) => (
+        <>
+          {formatAnzahl(p.anteile, sprache)}
+          <span className="app-zelle-zusatz" title={f.spalten.anteil}>{anteilText(anteilNachRunde(p.anteile, r.anteileGesamtNach))}</span>
+        </>
+      ),
+    },
     { schluessel: "klasse", kopf: f.spalten.klasse, zelle: (p) => p.anteilsklasse?.name ?? f.stamm },
-    { schluessel: "gezahlt", kopf: f.spalten.gezahlt, zahl: true, zelle: (p) => (p.gezahlt === null ? t.gemeinsam.keinWert : formatBetragCent(p.gezahlt, sprache)) },
-    { schluessel: "offen", kopf: f.spalten.offen, zahl: true, zelle: (p) => (p.offen === null ? f.gebucht(p.buchungen.length) : formatBetragCent(p.offen, sprache)) },
-    ...(schreiben && entwurf
-      ? [
-          {
-            schluessel: "aktion",
-            kopf: f.spalten.aktion,
-            zelle: (p: RundenPosition) => (
-              <span className="app-aktionen">
-                <Button variante="sekundaer" aria-label={f.positionBearbeitenFuer(positionsName(p))} onClick={() => onDialog({ art: "positionAendern", runde: r, position: p })}>
-                  {f.positionBearbeiten}
-                </Button>
-                <Button variante="gefahr" aria-label={f.positionEntfernenFuer(positionsName(p))} disabled={sperrt} onClick={() => onPositionEntfernen(p.id)}>
-                  {t.gemeinsam.entfernen}
-                </Button>
-              </span>
-            ),
-          },
-        ]
-      : []),
-    ...(schreiben && !entwurf
-      ? [
-          {
-            schluessel: "aktion",
-            kopf: f.spalten.aktion,
-            zelle: (p: RundenPosition) =>
-              p.investor.art === "organisation" ? (
-                <span className="app-aktionen">
-                  {p.vehikel ? (
-                    <Button variante="sekundaer" aria-label={f.vehikelWechselnFuer(positionsName(p))} onClick={() => onDialog({ art: "positionAendern", runde: r, position: p })}>
-                      {f.vehikelWechseln}
-                    </Button>
-                  ) : null}
-                  <Button variante="sekundaer" aria-label={f.zahlungFuer(positionsName(p))} onClick={() => onDialog({ art: "zahlung", runde: r, position: p })}>
-                    {f.zahlungErfassen}
-                  </Button>
-                </span>
-              ) : null,
-          },
-        ]
-      : []),
+    {
+      schluessel: "offen",
+      kopf: f.spalten.offen,
+      zahl: true,
+      zelle: (p) => (
+        <>
+          {p.offen === null ? f.gebucht(p.buchungen.length) : formatBetragCent(p.offen, sprache)}
+          {p.gezahlt === null ? null : <span className="app-zelle-zusatz">{`${f.spalten.gezahlt} ${formatBetragCent(p.gezahlt, sprache)}`}</span>}
+        </>
+      ),
+    },
   ];
+  // Aktionen je Position im Menü „⋯“ (statt Knöpfen in einer eigenen Spalte), damit die Tabelle bei 1280 px passt.
+  const positionAktionen = (p: RundenPosition): MenueEintrag[] =>
+    schreiben && entwurf
+      ? [
+          { id: "bearbeiten", label: f.positionBearbeitenFuer(positionsName(p)), onClick: () => onDialog({ art: "positionAendern", runde: r, position: p }) },
+          { id: "entfernen", label: f.positionEntfernenFuer(positionsName(p)), gefahr: true, deaktiviert: sperrt, onClick: () => onPositionEntfernen(p.id) },
+        ]
+      : schreiben && p.investor.art === "organisation"
+        ? [
+            ...(p.vehikel ? [{ id: "vehikel", label: f.vehikelWechselnFuer(positionsName(p)), onClick: () => onDialog({ art: "positionAendern", runde: r, position: p }) }] : []),
+            { id: "zahlung", label: f.zahlungFuer(positionsName(p)), onClick: () => onDialog({ art: "zahlung", runde: r, position: p }) },
+          ]
+        : [];
   if (r.art === "bruecke") {
     const leer = transaktionen === null || transaktionen.zeilen.length === 0;
     return (
       <article className="app-rundendetail" aria-label={`${r.bezeichnung}, ${formatDatum(r.datum, sprache)}`}>
-        {schreiben || onFelder ? (
+        {schreiben || onFelder || blaettern ? (
           <header className="app-rundendetail__kopf">
+            {blaettern}
             <div className="app-aktionen app-rundendetail__aktionen">
               {onFelder ? (
                 <Button variante="sekundaer" aria-label={t.zusatzfelder.feldKnopfFuer(r.bezeichnung)} onClick={() => onFelder({ id: r.id, bezeichnung: r.bezeichnung })}>
@@ -469,8 +505,9 @@ function RundeDetail({
   }
   return (
     <article className="app-rundendetail" aria-label={`${r.bezeichnung}, ${formatDatum(r.datum, sprache)}`}>
-      {(schreiben && entwurf) || onFelder || (verwalten && !entwurf) ? (
+      {(schreiben && entwurf) || onFelder || (verwalten && !entwurf) || blaettern ? (
         <header className="app-rundendetail__kopf">
+          {blaettern}
           <div className="app-aktionen app-rundendetail__aktionen">
             {schreiben && entwurf ? <Button onClick={() => onDialog({ art: "abschliessen", runde: r })}>{f.abschliessen}</Button> : null}
             {schreiben && entwurf ? (
@@ -509,7 +546,7 @@ function RundeDetail({
           { label: b.anteileNach, wert: <span className="app-zahl">{r.anteileGesamtNach === null ? t.gemeinsam.keinWert : formatAnzahl(r.anteileGesamtNach, sprache)}</span> },
         ]}
       />
-      <Tabelle dicht beschriftung={f.tabelle(`${r.bezeichnung}, ${formatDatum(r.datum, sprache)}`)} spalten={spalten} zeilen={r.positionen} zeilenSchluessel={(p) => p.id} ausgewaehlt={(p) => p.investor.art === "fonds" && p.investor.id === fondsId} fusszeile={fusszeile} />
+      <Tabelle dicht beschriftung={f.tabelle(`${r.bezeichnung}, ${formatDatum(r.datum, sprache)}`)} spalten={spalten} zeilen={r.positionen} zeilenSchluessel={(p) => p.id} ausgewaehlt={(p) => p.investor.art === "fonds" && p.investor.id === fondsId} fusszeile={fusszeile} aktionen={schreiben ? positionAktionen : undefined} />
       {entwurf ? <Pruefung abweichungen={r.pruefung.abweichungen} /> : null}
       <FehlerHinweis fehler={transaktionenFehler} />
       {transaktionen ? <TransaktionenKarte zeilen={transaktionen.zeilen} runden={transaktionen.runden} beschriftung={r.bezeichnung} beschreibung={f.transaktionen.beschreibungRunde} leer={f.transaktionen.keine} lesend={lesend} /> : null}
@@ -570,7 +607,7 @@ function RundeBearbeitenDialog({ runde, onSchliessen }: { runde: Finanzierungsru
         }}
       >
         <FehlerHinweis fehler={aendern.error} bekannt={["bezeichnung", "datum", "preMoney", "preisJeAnteil", "postMoney", "anteileGesamtNach"]} />
-        <Feld label={form.bezeichnung} autoComplete="off" {...feld("bezeichnung")} fehler={fehler("bezeichnung")} />
+        <Feld label={form.bezeichnung} {...feld("bezeichnung")} fehler={fehler("bezeichnung")} />
         <Feld label={form.datum} type="date" required {...feld("datum", fehler("datum"))} />
         {bruecke ? null : (
           <>
@@ -884,7 +921,7 @@ function NeueRundeDialog({ organisationId, fondsId, onAngelegt, onSchliessen }: 
             { wert: "bruecke", label: f.artBruecke },
           ]}
         />
-        <Feld label={f.bezeichnung} autoComplete="off" {...feld("bezeichnung")} fehler={fehler("bezeichnung")} />
+        <Feld label={f.bezeichnung} {...feld("bezeichnung")} fehler={fehler("bezeichnung")} />
         <Feld label={f.datum} type="date" required {...feld("datum", fehler("datum"))} />
         {bruecke ? null : (
           <>
@@ -935,8 +972,8 @@ function NeueRundeDialog({ organisationId, fondsId, onAngelegt, onSchliessen }: 
                   ) : (
                     <FehlerHinweis fehler={orgAnlegen.error ?? vehikelAnlegen.error} bekannt={["name"]} />
                   )}
-                  <Feld label={f.organisationName} autoComplete="off" {...neuFormular.feld("neuName")} fehler={feldText(t, orgAnlegen.error, "name")} />
-                  <Feld label={f.vehikelName} autoComplete="off" {...neuFormular.feld("vehikelName")} fehler={feldText(t, vehikelAnlegen.error, "name")} />
+                  <Feld label={f.organisationName} {...neuFormular.feld("neuName")} fehler={feldText(t, orgAnlegen.error, "name")} />
+                  <Feld label={f.vehikelName} {...neuFormular.feld("vehikelName")} fehler={feldText(t, vehikelAnlegen.error, "name")} />
                   <div>
                     <Button variante="sekundaer" disabled={orgAnlegen.isPending || vehikelAnlegen.isPending || n.neuName.trim() === ""} onClick={() => organisationNeu(false)}>
                       {f.organisationAnlegen}
@@ -1099,7 +1136,7 @@ function AbschliessenDialog({ runde, onSchliessen }: { runde: Finanzierungsrunde
                         </option>
                       ))}
                     </Auswahl>
-                    <Feld label={a.instrumentBezeichnung} autoComplete="off" value={w.bezeichnung} onChange={(e) => aendere(p.id, { bezeichnung: e.target.value, bezeichnungGeaendert: true })} />
+                    <Feld label={a.instrumentBezeichnung} value={w.bezeichnung} onChange={(e) => aendere(p.id, { bezeichnung: e.target.value, bezeichnungGeaendert: true })} />
                     <label className="app-haken">
                       <input type="checkbox" checked={w.zusage} onChange={(e) => aendere(p.id, { zusage: e.target.checked })} /> {a.zusage(formatBetragCent(p.betrag, sprache))}
                     </label>
@@ -1153,7 +1190,7 @@ function WiederDialog({ runde, onSchliessen }: { runde: Finanzierungsrunde; onSc
         }}
       >
         <FehlerHinweis fehler={oeffnen.error} bekannt={["grund"]} />
-        <Feld label={w.grund} autoComplete="off" {...feld("grund")} fehler={feldText(t, oeffnen.error, "grund")} />
+        <Feld label={w.grund} {...feld("grund")} fehler={feldText(t, oeffnen.error, "grund")} />
         <div>
           <Button type="submit" variante="gefahr" disabled={oeffnen.isPending}>
             {w.oeffnen}
@@ -1201,7 +1238,7 @@ function ZahlungDialog({ position, onSchliessen }: { position: RundenPosition; o
           </Auswahl>
           <Feld label={z.datum} type="date" {...feld("datum")} fehler={feldText(t, anlegen.error, "datum")} />
           <Feld label={z.betrag} zahl inputMode="decimal" {...feld("betrag")} fehler={feldText(t, anlegen.error, "betrag")} />
-          <Feld label={z.bemerkung} autoComplete="off" {...feld("bemerkung")} fehler={feldText(t, anlegen.error, "bemerkung")} />
+          <Feld label={z.bemerkung} {...feld("bemerkung")} fehler={feldText(t, anlegen.error, "bemerkung")} />
           <div>
             <Button type="submit" disabled={anlegen.isPending}>
               {z.erfassen}

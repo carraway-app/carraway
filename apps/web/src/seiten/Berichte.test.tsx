@@ -1,7 +1,7 @@
 import { fireEvent, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
-import { BET_ID, FONDS_ID, rendereApp, spieleApi } from "../test/hilfen";
+import { BET_ID, FONDS_ID, rendereApp, spieleApi, feldImStichtagMenue, uebersichtDaten, waehleFonds } from "../test/hilfen";
 
 const link = (name: string | RegExp) => {
   const a = screen.getByRole("link", { name });
@@ -11,7 +11,7 @@ const link = (name: string | RegExp) => {
 describe("Berichte", () => {
   it("zeigt alle Berichte als Entwurf mit Downloads je Fonds und Stichtag", async () => {
     spieleApi();
-    rendereApp("/berichte?tab=downloads");
+    rendereApp("/reports?tab=downloads");
     expect(await screen.findByRole("heading", { level: 1, name: "Berichte" })).toBeTruthy();
     expect(await screen.findByText("Die Downloads sind Entwürfe.")).toBeTruthy();
     for (const titel of ["Fondsbericht", "Portfolioliste", "Quartalsbericht", "Gremienvorlage"]) {
@@ -20,13 +20,13 @@ describe("Berichte", () => {
     }
     expect(screen.getByRole("region", { name: "Fondsbericht" }).textContent).toContain("Kennzahlen und Beteiligungen");
     // Der Fonds der Kopfzeile ist der der Berichte
-    expect((screen.getByRole("combobox", { name: "Fonds" }) as HTMLSelectElement).value).toBe(FONDS_ID);
+    expect(await screen.findByText("Beispielfonds I", { selector: ".app-kontext__titel" })).toBeTruthy();
     expect(screen.getByRole("heading", { level: 1 }).closest("header")?.textContent).toContain("Beispielfonds I");
   });
 
   it("baut normale Download-Links mit Stichtag, Sprache und Format", async () => {
     spieleApi();
-    rendereApp("/berichte?tab=downloads");
+    rendereApp("/reports?tab=downloads");
     await screen.findByRole("heading", { level: 1, name: "Berichte" });
 
     await screen.findByRole("link", { name: "PDF herunterladen: Fondsbericht" });
@@ -53,7 +53,7 @@ describe("Berichte", () => {
 
   it("wählt die Sprache des Berichts unabhängig von der Oberfläche und folgt ihr ohne Wahl", async () => {
     spieleApi();
-    const { router } = rendereApp("/berichte?tab=downloads");
+    const { router } = rendereApp("/reports?tab=downloads");
     const nutzer = userEvent.setup();
     await screen.findByRole("heading", { level: 1, name: "Berichte" });
 
@@ -73,7 +73,7 @@ describe("Berichte", () => {
   it("nimmt die Oberflächensprache als Vorgabe für den Bericht", async () => {
     localStorage.setItem("carraway.sprache", "en");
     spieleApi();
-    rendereApp("/berichte?tab=downloads");
+    rendereApp("/reports?tab=downloads");
     expect(await screen.findByRole("heading", { level: 1, name: "Reports" })).toBeTruthy();
     expect(await screen.findByText("The downloads are drafts.")).toBeTruthy();
     const pdf = link("Download PDF: Fund report");
@@ -87,15 +87,15 @@ describe("Berichte", () => {
 
   it("übernimmt Stichtag und Wissensstand in alle Links", async () => {
     const api = spieleApi();
-    const { router } = rendereApp("/berichte?tab=downloads");
+    const { router } = rendereApp("/reports?tab=downloads");
     await screen.findByRole("heading", { level: 1, name: "Berichte" });
 
-    fireEvent.change(screen.getByLabelText("Stichtag"), { target: { value: "2026-06-30" } });
-    await userEvent.setup().click(screen.getByRole("button", { name: "Wissensstand" }));
-    fireEvent.change(screen.getByLabelText("Wissensstand", { selector: "input" }), { target: { value: "2026-07-15T08:30" } });
+    fireEvent.change(await feldImStichtagMenue(), { target: { value: "2026-06-30" } });
+    fireEvent.change(await feldImStichtagMenue("Wissensstand"), { target: { value: "2026-07-15" } });
 
-    const erwartet = new Date("2026-07-15T08:30").toISOString().replace(".000Z", "Z");
-    await screen.findByText(`Der Bericht wird beim Download erzeugt. Wissensstand: ${new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(erwartet))}.`);
+    // Wissensstand nur als Datum: das Ende des 15.07.2026 in Europe/Berlin
+    const erwartet = "2026-07-15T21:59:59.999999Z";
+    await screen.findByText("Der Bericht wird beim Download erzeugt. Wissensstand: 15.07.2026.");
     expect(router.state.location.search).toEqual({ tab: "downloads", stichtag: "2026-06-30", stand: erwartet });
     // Die Übersicht des Fonds wird mit beiden Angaben neu gefragt; die Links tragen den Stichtag der Antwort und den Wissensstand
     expect(api.anfragen("GET", `/api/v1/funds/${FONDS_ID}/uebersicht`).some((a) => a.query.get("stichtag") === "2026-06-30" && a.query.get("stand") === erwartet)).toBe(true);
@@ -107,13 +107,13 @@ describe("Berichte", () => {
 
   it("sagt ohne Wissensstand, dass der Bericht beim Download erzeugt wird", async () => {
     spieleApi();
-    rendereApp("/berichte?tab=downloads");
+    rendereApp("/reports?tab=downloads");
     expect(await screen.findByText("Der Bericht wird beim Download erzeugt. Wissensstand: Zeitpunkt des Downloads.")).toBeTruthy();
   });
 
   it("wählt die Beteiligung für den Quartalsbericht", async () => {
     spieleApi();
-    rendereApp("/berichte?tab=downloads");
+    rendereApp("/reports?tab=downloads");
     const nutzer = userEvent.setup();
     await screen.findByRole("heading", { level: 1, name: "Berichte" });
     const auswahl = await screen.findByLabelText<HTMLSelectElement>("Beteiligung");
@@ -125,6 +125,29 @@ describe("Berichte", () => {
     expect(quartal.url.pathname).toBe("/api/v1/investments/b2/reports/quarterly-report");
   });
 
+  it("sucht die Beteiligung für den Quartalsbericht, wenn der Fonds viele hat (Issue #296)", async () => {
+    const vorlage = uebersichtDaten.beteiligungen[0]!;
+    const viele = Array.from({ length: 20 }, (_, i) => ({ ...vorlage, id: `x${i}`, organisation: { ...vorlage.organisation, name: `Unternehmen ${String(i).padStart(2, "0")}` } }));
+    const treffer = { id: "x7", fondsId: FONDS_ID, instrument: "darlehen", status: "aktiv", organisation: { id: "o7", name: "Unternehmen 07", ort: "Köln" } };
+    const api = spieleApi({
+      [`/api/v1/funds/${FONDS_ID}/uebersicht`]: { koerper: { ...uebersichtDaten, beteiligungen: viele } },
+      "/api/v1/suche": { koerper: { q: "07", organisationen: [], personen: [], deals: [], beteiligungen: [treffer], dokumente: [] } },
+    });
+    rendereApp("/reports?tab=downloads");
+    const nutzer = userEvent.setup();
+    await screen.findByRole("heading", { level: 1, name: "Berichte" });
+    const feld = await screen.findByRole("combobox", { name: "Beteiligung" });
+    // Ohne Wahl gibt es keinen Download.
+    expect(screen.queryByRole("link", { name: /Quartalsbericht/ })).toBeNull();
+    await nutzer.type(feld, "Unternehmen 07");
+    await nutzer.click(await screen.findByRole("option", { name: /Unternehmen 07/ }));
+    const quartal = link("PDF herunterladen: Quartalsbericht, Unternehmen 07");
+    expect(quartal.url.pathname).toBe("/api/v1/investments/x7/reports/quarterly-report");
+    const suche = api.anfragen("GET", "/api/v1/suche").at(-1);
+    expect(suche?.query.get("objekt")).toBe("beteiligung");
+    expect(suche?.query.get("fondsId")).toBe(FONDS_ID);
+  });
+
   it("wechselt den Fonds über die Kopfzeile, ohne die Seite zu verlassen", async () => {
     const zweiterFonds = "22222222-2222-4222-8222-222222222222";
     spieleApi({
@@ -134,12 +157,12 @@ describe("Berichte", () => {
       ] } },
       [`/api/v1/funds/${zweiterFonds}/uebersicht`]: { koerper: { stichtag: "2026-03-31", snapshot: null, kennzahlen: {}, beteiligungen: [] } },
     });
-    const { router } = rendereApp("/berichte?tab=downloads");
+    const { router } = rendereApp("/reports?tab=downloads");
     await screen.findByRole("heading", { level: 1, name: "Berichte" });
 
-    await userEvent.setup().selectOptions(screen.getByRole("combobox", { name: "Fonds" }), "Beispielfonds II");
+    await waehleFonds("Beispielfonds II");
 
-    expect(router.state.location.pathname).toBe("/berichte");
+    expect(router.state.location.pathname).toBe("/reports");
     expect(router.state.location.search).toEqual({ fondsId: zweiterFonds });
     await userEvent.setup().click(await screen.findByRole("tab", { name: "Direkte Downloads" }));
     expect(await screen.findByText("Der Fonds hat zu diesem Stichtag keine Beteiligung.")).toBeTruthy();
@@ -149,7 +172,7 @@ describe("Berichte", () => {
 
   it("zeigt ohne Fonds einen Leerzustand", async () => {
     spieleApi({ "/api/v1/fonds": { koerper: { daten: [] } } });
-    rendereApp("/berichte?tab=downloads");
+    rendereApp("/reports?tab=downloads");
     expect(await within(await screen.findByRole("main")).findByText("Noch kein Fonds")).toBeTruthy();
   });
 });

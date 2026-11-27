@@ -92,6 +92,23 @@ export const BEFUND_CODES: Record<string, Eintrag> = {
   // Rechte
   KEINE_BERECHTIGUNG_FONDS: { de: "Keine Berechtigung am Fonds", en: "No permission for the fund", text: importBefundText.KEINE_BERECHTIGUNG_FONDS! },
   FONDS_NEU_NUR_VERWALTER: { de: "Neuer Fonds nur durch Verwalter", en: "New fund only by administrators", text: importBefundText.FONDS_NEU_NUR_VERWALTER! },
+  POOL_UNBEKANNT: { de: "Pool unbekannt", en: "Unknown pool", text: importBefundText.POOL_UNBEKANNT! },
+  KEINE_BERECHTIGUNG_EINZELZUTEILUNGEN: { de: "Keine Berechtigung für Einzelzuteilungen", en: "No permission for individual grants", text: importBefundText.KEINE_BERECHTIGUNG_EINZELZUTEILUNGEN! },
+  ZUTEILUNG_ABWEICHEND: { de: "Zuteilung weicht ab", en: "Grant differs", text: importBefundText.ZUTEILUNG_ABWEICHEND! },
+  ZUTEILUNG_UEBER_POOL: { de: "Zuteilungen über dem Pool", en: "Grants exceed the pool", text: importBefundText.ZUTEILUNG_UEBER_POOL! },
+  ZUTEILUNG_MONATE: { de: "Zu viele Monate", en: "Too many months", text: importBefundText.ZUTEILUNG_MONATE! },
+  ZUTEILUNG_STATUS_DATUM: { de: "Datum des Status fehlt", en: "Status date missing", text: importBefundText.ZUTEILUNG_STATUS_DATUM! },
+  // Übernahme aus einem Vorsystem und Kennzahlen
+  VORSYSTEM_ZUSAMMENGEFUEHRT: { de: "In der Quelle doppelt", en: "Duplicate in the source", text: importBefundText.VORSYSTEM_ZUSAMMENGEFUEHRT! },
+  VORSYSTEM_WANDLUNG: { de: "Wandlung nachtragen", en: "Record conversion", text: importBefundText.VORSYSTEM_WANDLUNG! },
+  VORSYSTEM_KENNZAHL_OHNE_ZUORDNUNG: { de: "Kennzahl ohne Zuordnung", en: "Metric not mapped", text: importBefundText.VORSYSTEM_KENNZAHL_OHNE_ZUORDNUNG! },
+  KENNZAHL_UNBEKANNT: { de: "Kennzahl unbekannt", en: "Metric unknown", text: importBefundText.KENNZAHL_UNBEKANNT! },
+  KENNZAHL_WERT_UNGUELTIG: { de: "Kennzahlenwert ungültig", en: "Metric value invalid", text: importBefundText.KENNZAHL_WERT_UNGUELTIG! },
+  KENNZAHL_ZEITRAUM_UNGUELTIG: { de: "Zeitraum ungültig", en: "Period invalid", text: importBefundText.KENNZAHL_ZEITRAUM_UNGUELTIG! },
+  KENNZAHL_VORHANDEN: { de: "Kennzahlenwert vorhanden", en: "Metric value exists", text: importBefundText.KENNZAHL_VORHANDEN! },
+  KENNZAHL_ABWEICHEND: { de: "Kennzahlenwert weicht ab", en: "Metric value differs", text: importBefundText.KENNZAHL_ABWEICHEND! },
+  VORGANG_RUNDE_FREMD: { de: "Runde eines anderen Unternehmens", en: "Round of another company", text: importBefundText.VORGANG_RUNDE_FREMD! },
+  KONTROLLSUMME_GROESSE_BETEILIGUNG: { de: "Größe je Beteiligung nicht möglich", en: "Measure not available per holding", text: importBefundText.KONTROLLSUMME_GROESSE_BETEILIGUNG! },
 };
 
 /** `params` der API als flache Werteliste; fehlt es (alte Läufe), bleibt die Liste leer und der Satz nennt „the value“. */

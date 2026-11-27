@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { alsRolle, BET_ID, fehler, ORG_A, rendereApp, spieleApi, letzteRegion } from "../test/hilfen";
 
-const url = `/beteiligungen/${BET_ID}?tab=foerderung`;
+const url = `/investments/${BET_ID}?tab=funding`;
 const SCHLUESSEL = `/api/v1/investments/${BET_ID}/accounting-keys`;
 const MELDEDATEN = `/api/v1/organizations/${ORG_A}/reporting-data`;
 const schmal = (text: string | null) => (text ?? "").replace(/\s+/g, " ");
@@ -37,7 +37,7 @@ describe("Förderung und Buchhaltung an der Beteiligung", () => {
     expect(abschnitt.queryByLabelText(/Sitzland/)).toBeNull();
     expect(abschnitt.queryByLabelText(/Region/)).toBeNull();
     expect(schmal(abschnitt.getByText(/Stammdaten des Unternehmens/).textContent)).toContain("Sitzland DE, Region Bayern");
-    expect(abschnitt.getByRole("link", { name: "Sitzland und Region bei der Organisation ändern" }).getAttribute("href")).toBe(`/organisationen/${ORG_A}`);
+    expect(abschnitt.getByRole("link", { name: "Sitzland und Region bei der Organisation ändern" }).getAttribute("href")).toBe(`/organizations/${ORG_A}`);
 
     fireEvent.change(abschnitt.getByLabelText("Partnernummer"), { target: { value: "PN-3" } });
     fireEvent.change(abschnitt.getByLabelText("Förderprogramm"), { target: { value: "" } });

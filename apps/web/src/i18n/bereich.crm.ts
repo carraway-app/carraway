@@ -277,6 +277,8 @@ export const crmBereichDe = {
     importDublette: (name: string) => `Ähnlich wie „${name}“. `,
     importStatus: { neu: "Neu", dublette: "Dublette", aktualisiert: "Aktualisiert", angelegt: "Angelegt", uebersprungen: "Übersprungen", fehler: "Fehler", leer: "Leer" },
     // Datensatzseiten
+    technischeAngaben: "Technische Angaben",
+    oeffnen: "Öffnen",
     attribute: "Attribute",
     wertLoeschen: "Wert entfernen",
     wertLoeschenFuer: (name: string) => `Wert entfernen: ${name}`,

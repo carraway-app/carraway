@@ -11,7 +11,7 @@ export function fundstellenLinks(fundstellen: Liste | undefined, objektTyp: stri
   return (fundstellen ?? [])
     .filter((f) => f.objektTyp === objektTyp)
     .flatMap((f) => {
-      const href = `/dokumente/${f.dokumentId}?seite=${f.seite}`;
+      const href = `/documents/${f.dokumentId}?page=${f.seite}`;
       if (gesehen.has(href)) return [];
       gesehen.add(href);
       return [{ label: beschriftung(f.dateiname, f.seite), href }];
@@ -29,7 +29,7 @@ export function Fundstellen({ fundstellen }: { fundstellen: Liste | undefined })
         {fundstellen.map((f, i) => (
           <li key={`${f.objektId}${f.feld}${i}`}>
             {f.feld}: <span className="app-zahl">{f.wert}</span> ·{" "}
-            <Link to="/dokumente/$id" params={{ id: f.dokumentId }} search={{ seite: f.seite }}>
+            <Link to="/documents/$id" params={{ id: f.dokumentId }} search={{ seite: f.seite }}>
               {d.fundstelle.aus(f.dateiname, f.seite)}
             </Link>
             {f.zitatQuelle === "ocr" ? <span className="app-leer-text"> ({d.fundstelle.ocr})</span> : null}

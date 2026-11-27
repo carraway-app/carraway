@@ -165,7 +165,7 @@ describe("Oberfläche vom selben Ursprung", () => {
   afterAll(() => rm(verzeichnis, { recursive: true, force: true }));
 
   it("index.html ohne Zwischenspeicher, auch unter / und als Rückfall für Deep-Links", async () => {
-    for (const pfad of ["/", "/index.html", "/portfolio/fonds/abc", "/anmelden"]) {
+    for (const pfad of ["/", "/index.html", "/funds/abc", "/sign-in"]) {
       const antwort = await app.request(pfad);
       expect(antwort.status, pfad).toBe(200);
       expect(antwort.headers.get("Content-Type")).toContain("text/html");
@@ -173,6 +173,22 @@ describe("Oberfläche vom selben Ursprung", () => {
       expect(antwort.headers.get("X-Content-Type-Options")).toBe("nosniff");
       expect(await antwort.text()).toContain("<title>Carraway</title>");
     }
+  });
+
+  it("liefert /setup ohne Referrer aus und schreibt den Token weder aus der Adresse noch aus dem Formular ins Zugriffslog", async () => {
+    const { zeilen, logger } = zeilenLogger();
+    const mitLog = erstelleApp(db, { logger, webVerzeichnis: verzeichnis });
+    const token = "test-only-secret-in-url";
+    const seite = await mitLog.request(`/setup?token=${token}`);
+    expect(seite.status).toBe(200);
+    expect(seite.headers.get("Referrer-Policy")).toBe("no-referrer");
+    expect(seite.headers.get("Cache-Control")).toBe("no-store");
+    await mitLog.request("/api/v1/setup", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token, name: "Test", email: "test@example.org", password: "test-only-password" }),
+    });
+    expect(zeilen.filter((z) => z.meldung === "anfrage")).toHaveLength(2);
+    expect(JSON.stringify(zeilen)).not.toContain(token);
   });
 
   it("Dateien mit Hash im Namen gelten ein Jahr, andere eine Stunde; ETag liefert 304", async () => {

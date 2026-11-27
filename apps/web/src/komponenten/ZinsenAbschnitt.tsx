@@ -34,7 +34,7 @@ export function ZinsenAbschnitt({ beteiligungId, fondsId, stichtag, stand, schre
     <section className="app-instrument" aria-label={a.titel}>
       <div className="app-abschnittskopf">
         <h2 className="cw-t-untertitel app-karte__titel">{a.titel}</h2>
-        <Link to="/zinslaeufe" search={{ fondsId }}>
+        <Link to="/interest-runs" search={{ fondsId }}>
           {a.zinslaeufe}
         </Link>
       </div>

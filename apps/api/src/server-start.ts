@@ -1,3 +1,4 @@
+import { initialisiereEinrichtung } from "./anmeldung/einrichtung";
 import type { Server } from "node:http";
 import { serve } from "@hono/node-server";
 import { erstelleDb } from "@carraway/db";
@@ -16,6 +17,7 @@ export async function starteServer(erweiterungen: readonly ApiErweiterung[] = []
   const { db, pool } = erstelleDb(datenbankUrl());
   await verlangeMigrationsstandBeimStart(db, "api", logger);
   const konfig = ladeKonfiguration();
+  await initialisiereEinrichtung(db, process.env.SETUP_TOKEN, (zeile) => process.stdout.write(`${zeile}\n`));
   const app = erstelleApp(db, { ...konfig, logger, pool, erweiterungen });
   const server = serve({ fetch: app.fetch, port, hostname: process.env.API_HOST || undefined }, (info) => {
     logger("info", "API gestartet", { port: info.port, umgebung: konfig.umgebung, weboberflaeche: konfig.webVerzeichnis !== undefined, metriken: konfig.metrikenToken !== undefined });

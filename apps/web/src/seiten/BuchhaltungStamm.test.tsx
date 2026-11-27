@@ -1,9 +1,9 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
-import { FONDS_ID, alsRolle, fehler, rendereApp, spieleApi } from "../test/hilfen";
+import { FONDS_ID, alsRolle, fehler, rendereApp, spieleApi, uebersichtDaten } from "../test/hilfen";
 
-const buchhaltungUrl = (bereich: string, unter?: string) => `/buchhaltung?${unter ? `tab=${bereich}&unter=${unter}` : `bereich=${bereich}`}`;
+const buchhaltungUrl = (bereich: string, unter?: string) => `/accounting?${unter ? `tab=${bereich}&subtab=${unter}` : `section=${bereich}`}`;
 const pfad = (rest: string) => `/api/v1/funds/${FONDS_ID}/${rest}`;
 
 /** Ordnet per Tastatur: Griff aufnehmen, mit den Pfeiltasten bewegen, ablegen. */
@@ -63,6 +63,32 @@ describe("Buchhaltung: Stammdaten bearbeiten", () => {
     expect(await karte.findByText("Konto entfernt.")).toBeTruthy();
   });
 
+  it("Sachkonten: wählt die Beteiligung über das Suchfeld, wenn der Fonds viele hat (Issue #298)", async () => {
+    const vorlage = uebersichtDaten.beteiligungen[0]!;
+    const viele = Array.from({ length: 20 }, (_, i) => ({ ...vorlage, id: `x${i}`, organisation: { ...vorlage.organisation, name: `Unternehmen ${String(i).padStart(2, "0")}` } }));
+    const treffer = { id: "x7", fondsId: FONDS_ID, instrument: "darlehen", status: "aktiv", organisation: { id: "o7", name: "Unternehmen 07", ort: "Köln" } };
+    const api = spieleApi({
+      ...basis,
+      [`/api/v1/fonds/${FONDS_ID}/uebersicht`]: { koerper: { ...uebersichtDaten, beteiligungen: viele } },
+      "/api/v1/suche": { koerper: { q: "07", organisationen: [], personen: [], deals: [], beteiligungen: [treffer], dokumente: [] } },
+      [`PUT ${pfad("accounts")}`]: { koerper: { data: [] } },
+    });
+    rendereApp(buchhaltungUrl("einstellungen", "konten"));
+    const nutzer = userEvent.setup();
+    const karte = within(await screen.findByRole("region", { name: "Sachkonten des Fonds" }));
+    await nutzer.click(karte.getByRole("button", { name: "Konto anlegen" }));
+    fireEvent.change(karte.getByLabelText("Nummer"), { target: { value: "1300" } });
+    fireEvent.change(karte.getByLabelText("Bezeichnung"), { target: { value: "Forderungen" } });
+    await nutzer.type(await karte.findByRole("combobox", { name: "Beteiligung" }), "Unternehmen 07");
+    await nutzer.click(await karte.findByRole("option", { name: /Unternehmen 07/ }));
+    await nutzer.click(karte.getByRole("button", { name: "Konto speichern" }));
+    await waitFor(() => expect(api.anfragen("PUT", pfad("accounts"))).toHaveLength(1));
+    expect(api.anfragen("PUT", pfad("accounts"))[0]!.koerper).toEqual({ accounts: [{ accountNumber: "1300", label: "Forderungen", type: "asset", investmentId: "x7" }] });
+    const suche = api.anfragen("GET", "/api/v1/suche").at(-1);
+    expect(suche?.query.get("objekt")).toBe("beteiligung");
+    expect(suche?.query.get("fondsId")).toBe(FONDS_ID);
+  });
+
   it("ohne Rolle Verwalter: nur Ansicht bei Sachkonten, Gliederung und Kontenzuordnung", async () => {
     spieleApi({ ...basis, "/api/v1/me": alsRolle("bearbeiter") });
     rendereApp(buchhaltungUrl("einstellungen", "konten"));
@@ -72,7 +98,7 @@ describe("Buchhaltung: Stammdaten bearbeiten", () => {
     expect(karte.queryByRole("button", { name: /bearbeiten/ })).toBeNull();
     expect(screen.queryByRole("region", { name: "Gliederung bearbeiten" })).toBeNull();
     expect(screen.queryByRole("button", { name: /Zuordnung speichern/ })).toBeNull();
-    await userEvent.setup().click(screen.getByRole("button", { name: "Buchungsregeln" }));
+    await userEvent.setup().click(within(screen.getByRole("navigation", { name: "Einstellungen" })).getByRole("link", { name: "Buchungsregeln" }));
     expect((await screen.findByLabelText("Konto: Zinsen")).matches(":disabled")).toBe(true);
   });
 

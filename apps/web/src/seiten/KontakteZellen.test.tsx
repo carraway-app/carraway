@@ -52,7 +52,7 @@ const patches = (a: ReturnType<typeof spieleApi>) => a.anfragen("PATCH", "/api/v
 
 async function oeffne() {
   const a = api();
-  rendereApp("/kontakte?objekt=person");
+  rendereApp("/contacts?object=person");
   const grid = await screen.findByRole("grid", { name: "Kontakte" });
   const zelle = (spalte: number) => grid.querySelector<HTMLElement>(`[data-z="0:${spalte}"]`)!;
   return { a, grid, zelle, nutzer: userEvent.setup() };
@@ -120,7 +120,7 @@ describe("Tabelle: Personen- und Verknüpfungsfelder in der Zelle bearbeiten", (
       "/api/v1/crm/zustaendige": { koerper: { daten: [{ id: "u2", name: "Max Muster" }] } },
       "PATCH /api/v1/crm/datensaetze/person/p1": { status: 400, koerper: { error: { code: "field_value_invalid", message: "x", fields: [{ field: "f-betreuer", code: "unknown_user", message: "Aktive Person nicht gefunden" }] } } },
     });
-    rendereApp("/kontakte?objekt=person");
+    rendereApp("/contacts?object=person");
     const grid = await screen.findByRole("grid", { name: "Kontakte" });
     const nutzer = userEvent.setup();
     grid.querySelector<HTMLElement>('[data-z="0:1"]')!.focus();

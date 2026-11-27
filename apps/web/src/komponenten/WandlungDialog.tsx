@@ -232,13 +232,13 @@ export function WandlungDialog({ beteiligungId, organisationId, instrumentId, vo
           {ansicht(gebucht, false)}
           {gebucht.zielBeteiligungId && gebucht.zielBeteiligungId !== beteiligungId ? (
             <p>
-              <Link to="/beteiligungen/$id" params={{ id: gebucht.zielBeteiligungId }} search={{}}>
+              <Link to="/investments/$id" params={{ id: gebucht.zielBeteiligungId }} search={{}}>
                 {f.zurZiel}
               </Link>
             </p>
           ) : gebucht.zielInstrumentId ? (
             <p>
-              <Link to="/beteiligungen/$id" params={{ id: beteiligungId }} search={{ tab: "finanzierung", unter: "instrumente" }} hash={`instrument-${gebucht.zielInstrumentId}`}>
+              <Link to="/investments/$id" params={{ id: beteiligungId }} search={{ tab: "finanzierung", unter: "instrumente" }} hash={`instrument-${gebucht.zielInstrumentId}`}>
                 {f.zumInstrument}
               </Link>
             </p>
@@ -320,7 +320,7 @@ export function WandlungDialog({ beteiligungId, organisationId, instrumentId, vo
               )
             ) : (
               <div className="app-feldgruppe">
-                <Feld label={f.neueBezeichnung} autoComplete="off" {...feld("neuBezeichnung", fehler("runde.neu.bezeichnung") ?? fehler("runde"))} />
+                <Feld label={f.neueBezeichnung} {...feld("neuBezeichnung", fehler("runde.neu.bezeichnung") ?? fehler("runde"))} />
                 <Feld label={f.neuDatum} type="date" {...feld("neuDatum", fehler("runde.neu.datum"))} />
                 <BetragFeld label={f.preMoney} {...feld("preMoney", fehler("runde.neu.preMoney"))} />
                 <BetragFeld label={f.postMoney} {...feld("postMoney", fehler("runde.neu.postMoney"))} />

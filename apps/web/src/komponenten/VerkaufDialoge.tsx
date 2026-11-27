@@ -165,7 +165,7 @@ export function VerkaufDialog({ beteiligungId, instrumente, onSchliessen }: { be
             {antwort.verkaeuferdarlehenBeteiligungId ? (
               <p>
                 {f.darlehenAngelegt}:{" "}
-                <Link to="/beteiligungen/$id" params={{ id: antwort.verkaeuferdarlehenBeteiligungId }} search={{}}>
+                <Link to="/investments/$id" params={{ id: antwort.verkaeuferdarlehenBeteiligungId }} search={{}}>
                   {f.zumDarlehen}
                 </Link>
               </p>
@@ -255,7 +255,7 @@ export function VerkaufStornoDialog({ verkauf, onSchliessen }: { verkauf: { id: 
         }}
       >
         <FehlerHinweis fehler={storno.error} bekannt={["grund"]} />
-        <Feld label={f.grund} autoComplete="off" {...feld("grund", feldText(t, storno.error, "grund"))} />
+        <Feld label={f.grund} {...feld("grund", feldText(t, storno.error, "grund"))} />
         <div>
           <Button type="submit" variante="gefahr" disabled={storno.isPending}>
             {f.stornieren}
@@ -301,7 +301,7 @@ export function AnpassungDialog({ beteiligungId, verkaeufe, onSchliessen }: { be
         ) : null}
         <Feld label={f.datum} type="date" {...feld("datum", fehler("datum"))} />
         <BetragFeld label={f.betrag} {...feld("betrag", fehler("betrag"))} />
-        <Feld label={f.grund} autoComplete="off" {...feld("grund", fehler("grund"))} />
+        <Feld label={f.grund} {...feld("grund", fehler("grund"))} />
         <div>
           <Button type="submit" disabled={anpassen.isPending}>
             {f.speichern}

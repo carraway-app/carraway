@@ -117,7 +117,7 @@ function DealPipelineBoard({ basis, label, gruppeName, board, onNeu, onListe }: 
   const anzahl = spalten.reduce((summe, spalte) => summe + spalte.anzahl, 0);
   const ausserhalb = anzahl - spalten.reduce((summe, spalte) => summe + spalte.karten.length, 0);
   if (anzahl === 0 && !gruppeName) {
-    return <Leer zeichen="D" titel={t.dealflow.keineDeals} beschreibung={t.dealflow.keineDealsBeschreibung}
+    return <Leer titel={t.dealflow.keineDeals} beschreibung={t.dealflow.keineDealsBeschreibung}
       aktion={onNeu ? <Button onClick={() => onNeu()}>{t.dealflow.neuerDeal}</Button> : undefined} />;
   }
   return (

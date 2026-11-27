@@ -298,7 +298,7 @@ export function meldelaufRouten(db: Db, speicher: Speicher = erstelleStandardSpe
         await protokoll("freigeben", "melde_lauf", id, stand({ status: vorher.status, naechsteStufe: vorher.naechsteStufe }), stand({ status: neu!.status, naechsteStufe: neu!.naechsteStufe }));
         // Interne Hinweise nur an Personen mit Opt-in (Etappe 17), wie bei Berichten; ohne Mailversand bleibt die Freigabe unberührt.
         const [fondsZeile] = await tx.select({ name: fonds.name }).from(fonds).where(eq(fonds.id, vorher.fondsId));
-        await sendeBerichtFreigegeben(tx, protokoll, c.get("mail"), { berichtId: id, bericht: "meldelauf", fondsId: vorher.fondsId, fondsName: fondsZeile?.name ?? null, linkPfad: `/meldungen/${id}`, bezugArt: "melde_lauf" });
+        await sendeBerichtFreigegeben(tx, protokoll, c.get("mail"), { berichtId: id, bericht: "meldelauf", fondsId: vorher.fondsId, fondsName: fondsZeile?.name ?? null, linkPfad: `/filings/${id}`, bezugArt: "melde_lauf" });
         return neu!;
       });
       const detail = await lese(db, (tx) => ladeDetail(tx, nachher));

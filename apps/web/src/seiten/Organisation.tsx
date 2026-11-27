@@ -2,13 +2,12 @@ import { DokumenteAbschnitt } from "../komponenten/DokumenteAbschnitt";
 import { AufgabenAbschnitt, Datensatzpanel, VerknuepftAbschnitt } from "../komponenten/crm/Datensatzpanel";
 import { Verbindungen, useVerbindungen } from "../komponenten/crm/Verbindungen";
 import { Schnellaktionen } from "../komponenten/crm/Zelle";
-import { useState, type ReactNode } from "react";
-import type { VerzeichnisEintrag, VerzeichnisGruppe } from "@carraway/ui";
+import { lazy, Suspense, useState, type ReactNode } from "react";
 import { alle as erweiterungsPunkt } from "../erweiterung";
 import { KontaktHerkunft } from "../komponenten/KontakteAusPostfach";
 import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { getRouteApi, Link } from "@tanstack/react-router";
-import { Button, Hinweis, Inhaltsverzeichnis, Seitenkopf, Status, Tabelle, formatBetrag, formatDatum, type StatusVariante, type TabelleSpalte } from "@carraway/ui";
+import { Button, Hinweis, Seitenkopf, Status, Tabelle, formatBetrag, formatDatum, type StatusVariante, type TabelleSpalte } from "@carraway/ui";
 import { dublettenSuche, organisationAktivitaeten, organisationDetail, type Organisation } from "../api/abfragen";
 import { AktivitaetDialog, AktivitaetenListe } from "../komponenten/Aktivitaeten";
 import { NaechsteTermine } from "../komponenten/NaechsteTermine";
@@ -20,14 +19,17 @@ import { VehikelAbschnitt } from "../komponenten/VehikelAbschnitt";
 import { ZusammenfuehrenDialog } from "../komponenten/Zusammenfuehren";
 import { NurLesen } from "../komponenten/NurLesen";
 import { aufzaehlung, useSprache, useT } from "../i18n";
+import { BereichsLeiste, mitZielen } from "../komponenten/BereichsLeiste";
 import { DATENSPRACHE } from "../lib/datensprache";
 import { useSichtbar } from "../lib/bereiche";
 import { useRechte } from "../lib/rechte";
 import { ExternerLink } from "../komponenten/ExternerLink";
-import { useInhalt } from "../lib/tabs";
+import { aktiverEintrag } from "../lib/tabs";
 import { Datensatzlink } from "../komponenten/crm/Datensatzlink";
 
-const route = getRouteApi("/organisationen/$id");
+const CompanyProviders = lazy(() => import("../komponenten/CompanyProviders"));
+
+const route = getRouteApi("/organizations/$id");
 
 type OrgDeal = Organisation["deals"][number];
 type OrgBeteiligung = Organisation["beteiligungen"][number];
@@ -35,7 +37,11 @@ type OrgBeteiligung = Organisation["beteiligungen"][number];
 const DEAL_STATUS: Record<string, StatusVariante> = { offen: "pruefung", investiert: "freigegeben", abgesagt: "fehlt" };
 const BETEILIGUNG_STATUS: Record<string, StatusVariante> = { aktiv: "freigegeben", exit: "entwurf", insolvent: "fehlt", abgeschrieben: "fehlt" };
 
-interface Eintrag extends VerzeichnisEintrag {
+interface Eintrag {
+  id: string;
+  label: string;
+  zaehler?: number | undefined;
+  inhalt: () => React.ReactNode;
   gruppe: string;
   tab: string;
   unter?: string;
@@ -48,13 +54,13 @@ export function OrganisationSeite() {
   const sprache = useSprache();
   const { id } = route.useParams();
   const suche = route.useSearch();
-  const navigate = route.useNavigate();
   const { data: o } = useSuspenseQuery(organisationDetail(id));
   const { data: aktivitaeten } = useSuspenseQuery(organisationAktivitaeten(id));
   const { darf } = useRechte();
   const [offen, setOffen] = useState<Offen>(null);
   const weg = o.zusammengefuehrtIn !== null;
-  const schreiben = darf("bearbeiter") && !weg;
+  const managedBy = o.providerSources?.find(source => source.mirrored)?.anbieter;
+  const schreiben = !managedBy && darf("bearbeiter") && !weg;
   const dubletten = useQuery({ ...dublettenSuche(o.name), enabled: offen === "zusammenfuehren" });
   const schliessen = () => setOffen(null);
   const keinWert = t.gemeinsam.keinWert;
@@ -81,7 +87,7 @@ export function OrganisationSeite() {
       schluessel: "fonds",
       kopf: s.fonds,
       zelle: (b) => (
-        <Link to="/fonds/$fondsId" params={{ fondsId: b.fonds.id }} search={{}}>
+        <Link to="/funds/$fundId" params={{ fundId: b.fonds.id }} search={{}}>
           {b.fonds.name}
         </Link>
       ),
@@ -90,7 +96,7 @@ export function OrganisationSeite() {
       schluessel: "instrument",
       kopf: s.instrument,
       zelle: (b) => (
-        <Link to="/beteiligungen/$id" params={{ id: b.id }} search={{}}>
+        <Link to="/investments/$id" params={{ id: b.id }} search={{}}>
           {aufzaehlung(t.instrument, b.instrument)}
         </Link>
       ),
@@ -134,7 +140,7 @@ export function OrganisationSeite() {
       ? [{ gruppe: "engagement", id: "vehikel", tab: "engagement", unter: "vehikel", label: t.finanzierungsrunden.vehikel.titel, zaehler: o.vehikelAnzahl, inhalt: () => <VehikelAbschnitt organisationId={o.id} schreiben={schreiben} /> }]
       : []),
     ...(unternehmen ? [{ gruppe: "kapital", id: "runden", tab: "runden", label: t.tabs.runden, inhalt: () => <RundenMitFondswahl organisationId={o.id} /> }] : []),
-    ...(unternehmen && !weg ? [{ gruppe: "kapital", id: "register", tab: "register", label: t.tabs.register, inhalt: () => <RegisterAbschnitt organisationId={o.id} /> }] : []),
+    ...(unternehmen && !weg ? [{ gruppe: "kapital", id: "register", tab: "register", label: t.tabs.register, inhalt: () => <><Suspense fallback={null}><CompanyProviders id={o.id} name={o.name} edit={schreiben} targets={o.beteiligungen.filter(b => darf("bearbeiter", b.fonds.id, "kennzahlen")).map(b => ({ id: b.id, label: b.fonds.name + " · " + b.erstinvestment }))} /></Suspense><RegisterAbschnitt organisationId={o.id} /></> }] : []),
     {
       gruppe: "zusammenarbeit",
       id: "aktivitaeten",
@@ -162,18 +168,24 @@ export function OrganisationSeite() {
   ];
   // Abschnitte anderer Bereiche (Deals, Beteiligungen, Runden, Dokumente) erscheinen nur mit dem Bereich (`lib/bereiche.ts`).
   const eintraege = useSichtbar("organisation", alle);
-  const { aktiv, setzeAktiv } = useInhalt(suche, navigate, eintraege);
+  const aktiv = aktiverEintrag(suche, eintraege)?.id ?? "";
   const gruppenNamen: Record<string, string> = { unternehmen: t.crm.verzeichnisUnternehmen, engagement: t.crm.verzeichnisEngagement, kapital: t.crm.verzeichnisKapital, zusammenarbeit: t.crm.verzeichnisZusammenarbeit, ablage: t.crm.verzeichnisAblage };
-  const gruppen: VerzeichnisGruppe[] = Object.keys(gruppenNamen).map((g) => ({
+  // Die Attribute sind ein Abschnitt des ersten Bereichs, keine dauerhafte dritte Spalte; Felder aus dem Kopf stehen dort nicht noch einmal.
+  const attribute = weg ? null : <Datensatzpanel objekt="organisation" id={o.id} darfSchreiben={schreiben} titel={o.name} doppelt={["art", "sektor", "website"]} />;
+  const gruppen = Object.keys(gruppenNamen).map((g) => ({
     id: g,
     label: gruppenNamen[g],
-    eintraege: eintraege.filter((e) => e.gruppe === g).map(({ gruppe: _g, tab: _t, unter: _u, ...e }) => e),
+    eintraege: eintraege
+      .filter((e) => e.gruppe === g)
+      .map(({ gruppe: _g, tab: _t, unter: _u, ...e }) => (e.id === eintraege[0]?.id ? { ...e, inhalt: () => <>{e.inhalt()}{attribute}</> } : e)),
   }));
 
-  const etikett = [aufzaehlung(t.organisationArt, o.art), o.sektor, o.ort].filter(Boolean).join(" · ");
+  // Ort und weitere Angaben stehen in den Attributen (bearbeitbar), hier nur Art und Sektor.
+  const etikett = [aufzaehlung(t.organisationArt, o.art), o.sektor].filter(Boolean).join(" · ");
 
   return (
     <div className="app-seite">
+      {managedBy && <Hinweis>{sprache === "de" ? "Wird in " + managedBy + " gepflegt." : "Managed in " + managedBy + "."}</Hinweis>}
       <Seitenkopf
         meta={
           <>
@@ -218,18 +230,20 @@ export function OrganisationSeite() {
       {weg ? (
         <Hinweis>
           {t.organisation.zusammengefuehrt}{" "}
-          <Link to="/organisationen/$id" params={{ id: o.zusammengefuehrtIn! }}>
+          <Link to="/organizations/$id" params={{ id: o.zusammengefuehrtIn! }}>
             {t.organisation.zumBleibenden}
           </Link>
         </Hinweis>
       ) : null}
 
-      <div className="app-datensatz">
-        <div className="app-datensatz__haupt">
-          <Inhaltsverzeichnis aria-label={t.tabs.bereiche} gruppen={gruppen} aktiv={aktiv} onWechsel={setzeAktiv} />
-        </div>
-        {weg ? null : <Datensatzpanel objekt="organisation" id={o.id} darfSchreiben={schreiben} titel={o.name} />}
-      </div>
+      <BereichsLeiste
+        aria-label={t.tabs.bereiche}
+        aktiv={aktiv}
+        zurueck={{ label: t.nav.kontakte, ziel: { to: "/contacts" } }}
+        kopf={{ titel: o.name, titelSprache: DATENSPRACHE, untertitel: etikett || undefined }}
+        pfad={[{ label: t.nav.kontakte, ziel: { to: "/contacts" } }, { label: o.name }]}
+        gruppen={mitZielen(gruppen, eintraege, { to: "/organizations/$id", params: { id: o.id } })}
+      />
 
       {offen === "zusammenfuehren" ? (
         <ZusammenfuehrenDialog

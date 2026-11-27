@@ -422,7 +422,7 @@ export function richteModellAus(d: Demodaten, optionen: ModellOptionen): void {
     // 6. Mitarbeiterbeteiligung: ESOP-Pool nach der Serie B (die Runden bleiben unverwässert gerechnet), Zuteilungen nach Kategorie ohne Namen.
     const poolDatum = plusTage(bDatum, 30);
     const poolId = modellId(b.organisationId, "esop");
-    d.mitarbeiterpools.push({ id: poolId, organisationId: b.organisationId, art: "esop", bezeichnung: "ESOP", regel: "wie_anteile" });
+    d.mitarbeiterpools.push({ id: poolId, organisationId: b.organisationId, art: "esop", bezeichnung: "ESOP", regel: "wie_anteile", erfassung: "einzeln" });
     d.poolAenderungen.push({ id: modellId(poolId, "schaffung"), poolId, datum: poolDatum, anzahl: "120000", beschluss: "Gesellschafterbeschluss zur Schaffung des Pools" });
     d.mitarbeiterzuteilungen.push(
       { id: modellId(poolId, "fuehrung"), poolId, kategorie: "fuehrung", anzahl: "40000", basispreis: "1.0000", zugeteiltAm: poolDatum, cliffMonate: 12, vestingMonate: 48, beschleunigung: "1.0000", leaverRegel: "Good Leaver behält gevestete Optionen" },

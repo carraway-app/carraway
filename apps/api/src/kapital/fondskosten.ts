@@ -6,6 +6,7 @@ import { bisStand } from "../kennzahlen/zeitstand";
 import { heute, type Protokollant } from "../schreiben";
 import type { Tx } from "../zeitlimit";
 import { ladeVerteilungsgrundlageZum, verteileBewegungsbetrag } from "../instrumente/lp-verteilung";
+import { pruefeZusagenVollstaendig } from "../instrumente/zusagen";
 import { pruefePeriodensperre } from "../instrumente/zustand";
 import { sperreFonds } from "../instrumente/fondsbewegung";
 
@@ -49,6 +50,8 @@ const ungueltig = (meldung: string, details: Record<string, unknown> = {}) => ne
 /** Rechnet Betrag und Aufteilung, ohne zu buchen (Vorschau und Buchung nutzen dieselbe Rechnung). */
 export async function rechneKosten(tx: Abfrage, f: Pick<Fonds, "id">, e: KostenEingabe): Promise<KostenVorschlag> {
   if ((e.betrag === undefined) === (e.berechnung === undefined)) throw new Fachfehler(400, "invalid_input", "Provide either an amount or a calculation from the annual rate.");
+  // Basis der Vergütung und Verteilung folgen den Zusagen; unvollständige Zusagen sperren die Kosten (Issue #275).
+  await pruefeZusagenVollstaendig(tx, f.id);
   let betrag: Decimal;
   let berechnung: Rechenschritt[] | null = null;
   if (e.berechnung) {

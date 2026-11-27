@@ -44,13 +44,13 @@ export function BelegPanel({ art, bezugArt, bezugId, fondsId, onSchliessen }: Be
           ev.preventDefault();
           erzeugen.mutate(
             { art: gewaehlt?.art ?? art, ...(gewaehlt?.eigeneArtId ? { eigeneArtId: gewaehlt.eigeneArtId } : {}), ...(Object.keys(werte).length ? { werte } : {}), bezugArt, bezugId, sprache: belegSprache },
-            { onSuccess: (beleg) => void navigieren({ to: "/belege/$id", params: { id: beleg.id } }) },
+            { onSuccess: (beleg) => void navigieren({ to: "/vouchers/$id", params: { id: beleg.id } }) },
           );
         }}
       >
         {vorhanden ? (
           <Hinweis>
-            <Link to="/belege/$id" params={{ id: vorhanden }}>
+            <Link to="/vouchers/$id" params={{ id: vorhanden }}>
               {e.oeffnen}
             </Link>
           </Hinweis>
@@ -86,6 +86,16 @@ export function BelegPanel({ art, bezugArt, bezugId, fondsId, onSchliessen }: Be
       </form>
     </Seitenpanel>
   );
+}
+
+/** Darf hier ein Beleg erzeugt werden? Für die Art „frei“ braucht es eine aktive eigene Belegart des Fonds (für Menüeinträge statt des Knopfs). */
+export function useBelegMoeglich(fondsId: string): (art: BelegArt) => boolean {
+  const { darf } = useRechte();
+  // Belege gehören zum Bereich Finanzen, auch wenn der Knopf auf einer Seite eines anderen Bereichs steht.
+  const berechtigt = darf("bearbeiter", fondsId, "finanzen");
+  const { data } = useQuery({ ...belegvorlagen(fondsId), enabled: berechtigt });
+  const frei = Boolean(data?.some((v) => v.art === "frei" && v.aktiv));
+  return (art) => berechtigt && (art !== "frei" || frei);
 }
 
 export function BelegKnopf({ art, bezugArt, bezugId, fondsId }: BelegBezug & { fondsId: string }) {

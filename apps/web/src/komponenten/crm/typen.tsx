@@ -67,8 +67,8 @@ export function zellText(feld: Feld, wert: unknown, bezuege: Record<string, stri
   }
 }
 
-export function recordLink(objekt: Objekt, id: string): { to: "/organisationen/$id" | "/personen/$id" | "/deals/$id"; params: { id: string } } {
-  return { to: objekt === "organisation" ? "/organisationen/$id" : objekt === "person" ? "/personen/$id" : "/deals/$id", params: { id } };
+export function recordLink(objekt: Objekt, id: string): { to: "/organizations/$id" | "/people/$id" | "/deals/$id"; params: { id: string } } {
+  return { to: objekt === "organisation" ? "/organizations/$id" : objekt === "person" ? "/people/$id" : "/deals/$id", params: { id } };
 }
 
 /** Das Feld, dessen Zelle den Datensatz öffnet (Name bzw. Titel). */

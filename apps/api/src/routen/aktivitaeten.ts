@@ -1,3 +1,4 @@
+import { sourceActive } from "../rechte/sichtbarkeit";
 import { kontaktJson, pruefeKontakt } from "../kontakte/http";
 import { and, asc, desc, eq, inArray, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
 import { Hono, type Context } from "hono";
@@ -49,7 +50,7 @@ export function aktivitaetRouten(db: Db) {
             .select(aktivitaetMitHerkunft(akteur.id))
             .from(aktivitaet)
             .leftJoin(aktivitaetSync, eq(aktivitaetSync.aktivitaetId, aktivitaet.id))
-            .where(and(dealId ? eq(aktivitaet.dealId, dealId) : undefined, personId ? or(eq(aktivitaet.personId, personId), sql`${aktivitaetSync.personIds} @> ${JSON.stringify([personId])}::jsonb`) : undefined, organisationId
+            .where(and(sourceActive("note", aktivitaet.id), dealId ? eq(aktivitaet.dealId, dealId) : undefined, personId ? or(eq(aktivitaet.personId, personId), sql`${aktivitaetSync.personIds} @> ${JSON.stringify([personId])}::jsonb`) : undefined, organisationId
                 ? or(eq(aktivitaet.organisationId, organisationId), inArray(aktivitaet.dealId, tx.select({ id: deal.id }).from(deal).where(eq(deal.organisationId, organisationId))))
                 : undefined,
               // Aktivitäten zu Deals fremder Fonds bleiben unsichtbar.
@@ -104,8 +105,8 @@ export function aktivitaetRouten(db: Db) {
         if (!herkunft) throw new Fachfehler(409, "not_synced_activity", "This activity does not come from a mailbox or calendar connection.");
         if (herkunft.benutzerId !== akteur.id) throw new Fachfehler(403, "synced_activity_foreign", "Only the person whose mailbox or calendar created the activity can remove it.");
         await tx.insert(syncAusschluss).values({ benutzerId: akteur.id, externHash: herkunft.externHash }).onConflictDoNothing();
-        await tx.delete(aktivitaet).where(eq(aktivitaet.id, id));
         await protokoll("loeschen", "aktivitaet", id, protokollSicht(vorher), null);
+        await tx.delete(aktivitaet).where(eq(aktivitaet.id, id));
       });
       return c.body(null, 204);
     })
@@ -165,6 +166,7 @@ async function ladeWiedervorlagen(tx: Tx, c: Context, bis: string, zustaendigId?
     .leftJoin(person, eq(person.id, aktivitaet.personId))
     .where(
       and(
+        sourceActive("note", aktivitaet.id),
         isNotNull(aktivitaet.wiedervorlage),
         lte(aktivitaet.wiedervorlage, bis),
         isNull(aktivitaet.wiedervorlageErledigtAm),

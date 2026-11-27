@@ -6,7 +6,7 @@ import { ORG_A, organisationDaten, rendereApp, spieleApi } from "../test/hilfen"
 describe("Organisation", () => {
   it("zeigt Kontakte (eine Tabelle, nicht doppelt), Deals und Beteiligungen", async () => {
     spieleApi();
-    rendereApp(`/organisationen/${ORG_A}`);
+    rendereApp(`/organizations/${ORG_A}`);
     expect(await screen.findByRole("heading", { level: 1, name: "Alpha Energie" })).toBeTruthy();
     const kontakte = await screen.findByRole("region", { name: "Kontakte des Unternehmens" });
     expect(await within(kontakte).findByText("Eva Muster")).toBeTruthy();
@@ -15,17 +15,35 @@ describe("Organisation", () => {
     expect(screen.queryByRole("region", { name: "Rollen" })).toBeNull();
     expect(screen.getAllByText("Eva Muster")).toHaveLength(1);
     const nutzer = userEvent.setup();
-    await nutzer.click(screen.getByRole("button", { name: /^Deals/ }));
+    await nutzer.click(within(screen.getByRole("navigation", { name: /^(Hauptnavigation|Main navigation)$/ })).getByRole("link", { name: /^Deals/ }));
     expect(within(await screen.findByRole("region", { name: "Deals" })).getByText("Alpha, Wachstum")).toBeTruthy();
-    await nutzer.click(screen.getByRole("button", { name: /^Beteiligungen/ }));
+    await nutzer.click(within(screen.getByRole("navigation", { name: /^(Hauptnavigation|Main navigation)$/ })).getByRole("link", { name: /^Beteiligungen/ }));
     const fonds = within(await screen.findByRole("region", { name: "Beteiligungen" })).getByRole("link", { name: "Beispielfonds I" });
-    expect(fonds.getAttribute("href")).toBe("/fonds/11111111-1111-4111-8111-111111111111");
-    expect(within(screen.getByRole("region", { name: "Beteiligungen" })).getByRole("link", { name: "Wandeldarlehen" }).getAttribute("href")).toBe("/beteiligungen/b1");
+    expect(fonds.getAttribute("href")).toBe("/funds/11111111-1111-4111-8111-111111111111");
+    expect(within(screen.getByRole("region", { name: "Beteiligungen" })).getByRole("link", { name: "Wandeldarlehen" }).getAttribute("href")).toBe("/investments/b1");
+  });
+
+  it("verknüpft eine neue Aktivität über das Suchfeld mit einem Deal", async () => {
+    const leer = { q: "x", organisationen: [], personen: [], deals: [], beteiligungen: [], dokumente: [] };
+    const api = spieleApi({
+      "/api/v1/suche": { koerper: { ...leer, deals: [{ id: "d-suche", titel: "Alpha, Wachstum", organisation: { id: ORG_A, name: "Alpha Energie" } }] } },
+      "POST /api/v1/aktivitaeten": { status: 201, koerper: { id: "a-neu" } },
+    });
+    const nutzer = userEvent.setup();
+    rendereApp(`/organizations/${ORG_A}?tab=activity`);
+    await nutzer.click(await screen.findByRole("button", { name: "Aktivität erfassen" }));
+    const dialog = within(await screen.findByRole("dialog"));
+    await nutzer.type(dialog.getByLabelText("Titel"), "Gespräch");
+    await nutzer.type(dialog.getByRole("combobox", { name: "Deal (optional)" }), "Alpha");
+    await nutzer.click(await dialog.findByRole("option", { name: /Alpha, Wachstum/ }));
+    await nutzer.click(dialog.getByRole("button", { name: "Aktivität speichern" }));
+    await waitFor(() => expect(api.anfragen("POST", "/api/v1/aktivitaeten")).toHaveLength(1));
+    expect(api.anfragen("POST", "/api/v1/aktivitaeten")[0]!.koerper).toMatchObject({ organisationId: ORG_A, dealId: "d-suche", titel: "Gespräch" });
   });
 
   it("macht die Website nur bei http und https zum Link, in neuem Tab ohne Rückbezug", async () => {
     spieleApi({ [`/api/v1/organisationen/${ORG_A}`]: { koerper: { ...organisationDaten, website: "https://example.org/start" } } });
-    rendereApp(`/organisationen/${ORG_A}`);
+    rendereApp(`/organizations/${ORG_A}`);
     const link = await screen.findByRole("link", { name: "https://example.org/start" });
     expect(link.getAttribute("href")).toBe("https://example.org/start");
     expect(link.getAttribute("target")).toBe("_blank");
@@ -34,7 +52,7 @@ describe("Organisation", () => {
 
   it.each(["javascript:alert(1)", "JaVaScRiPt:alert(1)", "data:text/html,<b>x</b>", "vbscript:x", "keine adresse"])("zeigt %s als einfachen Text ohne Link", async (website) => {
     spieleApi({ [`/api/v1/organisationen/${ORG_A}`]: { koerper: { ...organisationDaten, website } } });
-    rendereApp(`/organisationen/${ORG_A}`);
+    rendereApp(`/organizations/${ORG_A}`);
     const text = await screen.findByText(website);
     expect(text.closest("a")).toBeNull();
     expect(document.querySelector(`a[href^="javascript" i], a[href^="data" i], a[href^="vbscript" i]`)).toBeNull();
@@ -47,7 +65,7 @@ describe("Organisation", () => {
       [`PATCH /api/v1/organisationen/${ORG_A}`]: { koerper: organisationDaten },
     });
     const nutzer = userEvent.setup();
-    rendereApp(`/organisationen/${ORG_A}`);
+    rendereApp(`/organizations/${ORG_A}`);
     await nutzer.click(await screen.findByRole("button", { name: "Organisation bearbeiten" }));
     const dialog = await screen.findByRole("dialog");
     const land = within(dialog).getByLabelText(/Sitzland/) as HTMLInputElement;
@@ -66,28 +84,28 @@ describe("Organisation", () => {
 
   it("gliedert die Bereiche in Gruppen, ohne Reiter, und öffnet über alte Adressen den richtigen Eintrag", async () => {
     spieleApi();
-    const { unmount } = rendereApp(`/organisationen/${ORG_A}`);
+    const { unmount } = rendereApp(`/organizations/${ORG_A}`);
     await screen.findByRole("heading", { level: 1, name: "Alpha Energie" });
     expect(screen.queryByRole("tab")).toBeNull();
-    const nav = screen.getByRole("navigation", { name: "Bereiche" });
-    for (const gruppe of ["Unternehmen", "Engagement", "Kapital", "Zusammenarbeit", "Ablage"]) expect(within(nav).getByText(gruppe)).toBeTruthy();
+    const nav = screen.getByRole("navigation", { name: "Hauptnavigation" });
+    for (const gruppe of ["Unternehmen", "Engagement", "Kapital", "Zusammenarbeit", "Ablage"]) expect(within(nav).getByRole("button", { name: gruppe })).toBeTruthy();
     for (const eintrag of ["Kontakte", "Beziehungen", "Deals", "Beteiligungen", "Runden", "Register", "Aktivitäten", "Termine", "Aufgaben", "Dokumente", "Verknüpft"]) {
-      expect(within(nav).getByRole("button", { name: new RegExp(`^${eintrag}`) })).toBeTruthy();
+      expect(within(nav).getByRole("link", { name: new RegExp(`^${eintrag}`) })).toBeTruthy();
     }
-    expect(within(nav).getByRole("button", { name: /^Kontakte/ }).getAttribute("aria-current")).toBe("page");
+    await waitFor(() => expect(within(nav).getByRole("link", { name: /^Kontakte/ }).getAttribute("aria-current")).toBe("page"));
     unmount();
 
     for (const [suche, eintrag] of [
-      ["tab=aktivitaet&unter=termine", "Termine"],
-      ["tab=aktivitaet", "Aktivitäten"],
-      ["tab=engagement&unter=beteiligungen", "Beteiligungen"],
-      ["tab=uebersicht&unter=beziehungen", "Beziehungen"],
+      ["tab=activity&subtab=appointments", "Termine"],
+      ["tab=activity", "Aktivitäten"],
+      ["tab=engagement&subtab=investments", "Beteiligungen"],
+      ["tab=overview&subtab=relationships", "Beziehungen"],
       ["tab=register", "Register"],
-      ["tab=dokumente", "Dokumente"],
+      ["tab=documents", "Dokumente"],
     ] as const) {
       spieleApi();
-      const { unmount: weg } = rendereApp(`/organisationen/${ORG_A}?${suche}`);
-      const knopf = await screen.findByRole("button", { name: new RegExp(`^${eintrag}`) });
+      const { unmount: weg } = rendereApp(`/organizations/${ORG_A}?${suche}`);
+      const knopf = await within(await screen.findByRole("navigation", { name: /^(Hauptnavigation|Main navigation)$/ })).findByRole("link", { name: new RegExp(`^${eintrag}`) });
       expect(knopf.getAttribute("aria-current")).toBe("page");
       weg();
     }
@@ -113,7 +131,7 @@ describe("Organisation", () => {
       [`/api/v1/organisationen/${ORG_A}/vehikel`]: { koerper: { daten: vehikel } },
       [`POST /api/v1/organisationen/${ORG_A}/vehikel`]: { status: 201, koerper: { ...vehikel[1], id: "v3", name: "Alpha SPV" } },
     });
-    rendereApp(`/organisationen/${ORG_A}?tab=engagement&unter=vehikel`);
+    rendereApp(`/organizations/${ORG_A}?tab=engagement&subtab=vehicles`);
     const tabelle = within(await screen.findByRole("region", { name: "Vehikel des Investors" }));
     const seed = tabelle.getAllByRole("row").find((z) => z.textContent?.includes("Alpha Seedfonds I"))!;
     expect(within(seed).getByText("Standard")).toBeTruthy();
@@ -138,7 +156,7 @@ describe("Organisation", () => {
 
   it("Unternehmen ohne Vehikel: kein Abschnitt Vehikel", async () => {
     spieleApi();
-    rendereApp(`/organisationen/${ORG_A}`);
+    rendereApp(`/organizations/${ORG_A}`);
     await screen.findByRole("heading", { level: 1, name: "Alpha Energie" });
     expect(screen.queryByRole("button", { name: /^Vehikel/ })).toBeNull();
   });

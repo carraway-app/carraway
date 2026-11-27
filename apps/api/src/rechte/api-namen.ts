@@ -23,6 +23,7 @@ export const BEREICH_AN_API: Record<RegelBereich, string> = {
   dokumente: "documents",
   daten: "data",
   fondsverwaltung: "fund_administration",
+  einzelzuteilungen: "individual_grants",
 };
 const BEREICH_AUS_API = Object.fromEntries(Object.entries(BEREICH_AN_API).map(([de, en]) => [en, de])) as Record<string, Bereich>;
 

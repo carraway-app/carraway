@@ -153,8 +153,8 @@ describe("GET /fonds", () => {
     expect(antwort.status).toBe(200);
     const { daten } = await json(antwort);
     expect(daten).toEqual([
-      { id: ID.f1, name: "Testfonds Eins", kurzname: "TF1", vintage: 2022, zeichnungskapital: "10000000.00", waehrung: "EUR" },
-      { id: ID.f2, name: "Testfonds Zwei", kurzname: "TF2", vintage: 2024, zeichnungskapital: "5000000.00", waehrung: "EUR" },
+      { id: ID.f1, name: "Testfonds Eins", kurzname: "TF1", vintage: 2022, zeichnungskapital: "10000000.00", waehrung: "EUR", abgedeckt: "0.00", zusagenVollstaendig: true },
+      { id: ID.f2, name: "Testfonds Zwei", kurzname: "TF2", vintage: 2024, zeichnungskapital: "5000000.00", waehrung: "EUR", abgedeckt: "0.00", zusagenVollstaendig: true },
     ]);
   });
 });

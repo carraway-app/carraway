@@ -1,3 +1,4 @@
+import { einmaligeAntwort } from "../idempotenz";
 import { createHash, randomBytes } from "node:crypto";
 import { and, eq, isNull } from "drizzle-orm";
 import { Hono } from "hono";
@@ -63,6 +64,7 @@ export function einstellungenRouten(db: Db) {
       });
       const basis = c.get("mail")?.appBasis ?? "";
       const pfad = `/api/v1/calendar/${token}.ics`;
+      einmaligeAntwort(c);
       return c.json({ token, path: pfad, url: `${basis}${pfad}` }, 201);
     })
     .delete("/calendar-link", async (c) => {

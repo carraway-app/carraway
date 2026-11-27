@@ -49,11 +49,13 @@ export interface TransportAnfrage {
   /** Geprüfte Adresse, mit der verbunden werden muss; `url.hostname` bleibt der Name (Host-Kopfzeile, TLS-Servername). */
   ip: string;
   signal: AbortSignal;
+  headers?: Record<string, string>;
+  body?: string;
 }
 export type Transport = (a: TransportAnfrage) => Promise<TransportAntwort>;
 
 /** Echter Transport über `node:http(s)`: verbindet mit der geprüften Adresse, ohne Agent, Cookies oder Weiterleitungen. */
-export const echterTransport: Transport = ({ url, ip, signal }) =>
+export const echterTransport: Transport = ({ url, ip, signal, headers, body }) =>
   new Promise((aufloesen, ablehnen) => {
     const https = url.protocol === "https:";
     const anfrage = (https ? httpsAnfrage : httpAnfrage)(
@@ -61,9 +63,9 @@ export const echterTransport: Transport = ({ url, ip, signal }) =>
         host: ip,
         port: url.port ? Number(url.port) : https ? 443 : 80,
         path: `${url.pathname}${url.search}`,
-        method: "GET",
+        method: body === undefined ? "GET" : "POST",
         agent: false,
-        headers: { host: url.host, accept: "text/html,text/plain;q=0.9", "accept-language": "de,en;q=0.8", "user-agent": "Carraway-Abruf", connection: "close" },
+        headers: { host: url.host, accept: "text/html,text/plain;q=0.9", "accept-language": "de,en;q=0.8", "user-agent": "Carraway-Abruf", connection: "close", ...headers },
         ...(https ? { servername: url.hostname } : {}),
         signal,
       },
@@ -74,7 +76,7 @@ export const echterTransport: Transport = ({ url, ip, signal }) =>
       },
     );
     anfrage.on("error", ablehnen);
-    anfrage.end();
+    anfrage.end(body);
   });
 
 export interface AbrufOptionen {
@@ -121,7 +123,7 @@ export async function pruefeAbrufZiel(roh: string, aufloeser: Aufloeser = standa
 }
 
 /** Liest höchstens `max` Bytes aus dem Rumpf und bricht danach ab; gibt zurück, ob mehr da war. */
-async function leseBegrenzt(antwort: TransportAntwort, max: number): Promise<{ bytes: Buffer; gekuerzt: boolean }> {
+export async function leseBegrenzt(antwort: TransportAntwort, max: number): Promise<{ bytes: Buffer; gekuerzt: boolean }> {
   const stuecke: Buffer[] = [];
   let summe = 0;
   for await (const stueck of antwort.rumpf) {
@@ -137,18 +139,21 @@ async function leseBegrenzt(antwort: TransportAntwort, max: number): Promise<{ b
   return { bytes: Buffer.concat(stuecke), gekuerzt: false };
 }
 
+export function mitAbrufZeitlimit<T>(p: Promise<T>, signal: AbortSignal): Promise<T> {
+  return new Promise<T>((aufloesen, ablehnen) => {
+    const ab = () => ablehnen(new AbrufFehler("ABRUF_ZEITLIMIT"));
+    if (signal.aborted) return ab();
+    signal.addEventListener("abort", ab, { once: true });
+    p.then(aufloesen, ablehnen).finally(() => signal.removeEventListener("abort", ab));
+  });
+}
+
 /** Ruft eine öffentliche Seite ab (siehe Kopf der Datei). Wirft `AbrufFehler`; nie mit Inhalten oder Kopfzeilen in der Meldung. */
 export async function holeOeffentlicheSeite(adresse: string, opt: AbrufOptionen = {}): Promise<AbrufErgebnis> {
   const grenzen = { ...STANDARD_GRENZEN, ...opt.grenzen };
   const transport = opt.transport ?? echterTransport;
   const signal = AbortSignal.timeout(grenzen.zeitlimitMs);
-  const mitZeitlimit = <T>(p: Promise<T>): Promise<T> =>
-    new Promise<T>((aufloesen, ablehnen) => {
-      const ab = () => ablehnen(new AbrufFehler("ABRUF_ZEITLIMIT"));
-      if (signal.aborted) return ab();
-      signal.addEventListener("abort", ab, { once: true });
-      p.then(aufloesen, ablehnen).finally(() => signal.removeEventListener("abort", ab));
-    });
+  const mitZeitlimit = <T>(p: Promise<T>) => mitAbrufZeitlimit(p, signal);
 
   let aktuell = adresse;
   for (let schritt = 0; schritt <= grenzen.maxWeiterleitungen; schritt++) {

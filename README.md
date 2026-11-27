@@ -58,7 +58,7 @@ docker compose up -d --no-build
 docker compose ps --all
 ```
 
-When `carraway-migrate` has exited with code 0 and the API is healthy, open [the local setup page](http://localhost:8787/einrichtung) and create the first administrator. Finish setup before exposing the instance to a network, since the first account gets administrator privileges. For a source build, run `docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build`.
+When `carraway-migrate` has exited with code 0 and the API is healthy, open [the local setup page](http://localhost:8787/setup) and enter the token from the latest `Carraway /setup token:` line in `docker compose logs carraway` to create the first administrator. For a source build, run `docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build`.
 
 For a public deployment, follow the TLS and reverse proxy instructions in the [self-hosting guide](deploy/README.en.md).
 

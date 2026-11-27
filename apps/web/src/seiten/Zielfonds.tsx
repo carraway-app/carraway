@@ -24,7 +24,7 @@ import { Skelettzeilen } from "../komponenten/Skelett";
 import { useSprache, useT } from "../i18n";
 import { useRechte } from "../lib/rechte";
 
-const route = getRouteApi("/fonds/$fondsId/zielfonds");
+const route = getRouteApi("/funds/$fundId/target-funds");
 
 type Zeile = ZielfondsListe["data"][number];
 type BewegungArt = NeueZielfondsBewegung["type"];
@@ -37,7 +37,7 @@ export function ZielfondsSeite() {
   const t = useT();
   const z = t.waehrung.zielfonds;
   const sprache = useSprache();
-  const { fondsId } = route.useParams();
+  const { fundId: fondsId } = route.useParams();
   const { data, error, isPending } = useQuery(zielfondsListe(fondsId));
   const { darf } = useRechte();
   const schreiben = darf("bearbeiter", fondsId, "portfolio");
@@ -69,14 +69,13 @@ export function ZielfondsSeite() {
 
   return (
     <div className="app-seite">
-      <Bereichskopf titel={z.titel}>
+      <Bereichskopf info={z.beschreibung} titel={z.titel}>
         {schreiben ? (
           <Button groesse="s" onClick={() => setNeu(true)}>
             {z.neu}
           </Button>
         ) : null}
       </Bereichskopf>
-      <p className="app-leer-text">{z.beschreibung}</p>
       <section className="app-karte" aria-label={z.titel}>
         {isPending ? (
           <Skelettzeilen anzahl={3} />

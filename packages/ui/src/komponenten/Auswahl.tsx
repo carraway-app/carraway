@@ -1,5 +1,6 @@
 import { useId, type ReactNode, type SelectHTMLAttributes } from "react";
 import { klassen } from "../hilfen";
+import { OHNE_PASSWORTMANAGER } from "./ohnePasswortmanager";
 
 export interface AuswahlProps extends SelectHTMLAttributes<HTMLSelectElement> {
   label: ReactNode;
@@ -26,7 +27,7 @@ export function Auswahl({ label, hilfe, fehler, kompakt, labelVersteckt, breit, 
       <label className={klassen("cw-feld__label", labelVersteckt && "cw-nur-lesen")} htmlFor={feldId}>
         {label}
       </label>
-      <select {...rest} id={feldId} className="cw-feld__eingabe" aria-invalid={ungueltig || undefined} aria-describedby={meldung ? meldungId : undefined}>
+      <select {...OHNE_PASSWORTMANAGER} {...rest} id={feldId} className="cw-feld__eingabe" aria-invalid={ungueltig || undefined} aria-describedby={meldung ? meldungId : undefined}>
         {children}
       </select>
       {meldung ? (

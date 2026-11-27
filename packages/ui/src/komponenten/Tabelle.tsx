@@ -1,4 +1,4 @@
-import { lazy, Suspense, type Key, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useRef, useState, type Key, type ReactNode } from "react";
 import { DotsThreeIcon } from "../icons";
 import type { MenueEintrag } from "./Menue";
 
@@ -63,10 +63,32 @@ export function Tabelle<T>({ beschriftung, spalten, zeilen, zeilenSchluessel, au
   const spaltenzahl = spalten.length + (aktionen ? 1 : 0);
   const fest = Math.max(0, Math.min(2, Math.floor(festeSpalten), spalten.length));
   /** Klassen je Spalte: Zahl, Umbruch, feste Spalte (die letzte feste trägt die Kante). */
+  // Breite Tabellen scrollen waagerecht in ihrem eigenen Rahmen; eine Kante zeigt, dass links oder rechts noch Spalten folgen.
+  const huelle = useRef<HTMLDivElement>(null);
+  const [kanten, setKanten] = useState({ links: false, rechts: false });
+  useEffect(() => {
+    const el = huelle.current;
+    if (!el) return;
+    const pruefe = () => {
+      const links = el.scrollLeft > 1;
+      const rechts = el.scrollLeft + el.clientWidth < el.scrollWidth - 1;
+      setKanten((alt) => (alt.links === links && alt.rechts === rechts ? alt : { links, rechts }));
+    };
+    pruefe();
+    el.addEventListener("scroll", pruefe, { passive: true });
+    const beobachter = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(pruefe);
+    beobachter?.observe(el);
+    if (el.firstElementChild) beobachter?.observe(el.firstElementChild);
+    return () => {
+      el.removeEventListener("scroll", pruefe);
+      beobachter?.disconnect();
+    };
+  }, []);
   const zellKlasse = (s: TabelleSpalte<T>, i: number) =>
     klassen(s.zahl && "cw-zahl", s.umbruch && "cw-tabelle__umbruch", i < fest && "cw-fest", i < fest && i === fest - 1 && "cw-fest--kante", i === 1 && fest === 2 && "cw-fest--zweite") || undefined;
   return (
-    <div className={klassen("cw-tabelle-huelle", zeilen.length > langAb && "cw-tabelle-huelle--lang")} role="region" aria-label={beschriftung} tabIndex={0}>
+    <div className="cw-tabelle-rahmen" data-links={kanten.links || undefined} data-rechts={kanten.rechts || undefined}>
+    <div ref={huelle} className={klassen("cw-tabelle-huelle", zeilen.length > langAb && "cw-tabelle-huelle--lang")} role="region" aria-label={beschriftung} tabIndex={0}>
       <table className={klassen("cw-tabelle", fest === 2 && "cw-tabelle--fest-2", dicht && "cw-tabelle--dicht", className)} aria-busy={laedt ? true : undefined}>
         <thead>
           <tr>
@@ -160,6 +182,7 @@ export function Tabelle<T>({ beschriftung, spalten, zeilen, zeilenSchluessel, au
           </tfoot>
         ) : null}
       </table>
+    </div>
     </div>
   );
 }

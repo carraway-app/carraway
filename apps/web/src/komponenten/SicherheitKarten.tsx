@@ -111,8 +111,8 @@ function PasswortKarte({ daten }: { daten: Sicherheit }) {
         <form className="app-formular" onSubmit={speichern} noValidate>
           <p className="app-leer-text">{p.einleitung}</p>
           <FehlerHinweis fehler={fehler} />
-          <Feld label={p.aktuell} name="pw-aktuell" type="password" value={werte.aktuell} onChange={(e) => setWerte((w) => ({ ...w, aktuell: e.target.value }))} autoComplete="current-password" required />
-          <Feld
+          <Feld zugang label={p.aktuell} name="pw-aktuell" type="password" value={werte.aktuell} onChange={(e) => setWerte((w) => ({ ...w, aktuell: e.target.value }))} autoComplete="current-password" required />
+          <Feld zugang
             label={p.neu}
             hilfe={p.neuHilfe(MINDESTLAENGE_PASSWORT)}
             fehler={versucht && zuKurz ? p.zuKurz(MINDESTLAENGE_PASSWORT) : versucht && gleich ? p.gleich : undefined}
@@ -123,7 +123,7 @@ function PasswortKarte({ daten }: { daten: Sicherheit }) {
             autoComplete="new-password"
             required
           />
-          <Feld label={p.wiederholt} fehler={versucht && ungleich ? p.ungleich : undefined} name="pw-wiederholt" type="password" value={werte.wiederholt} onChange={(e) => setWerte((w) => ({ ...w, wiederholt: e.target.value }))} autoComplete="new-password" required />
+          <Feld zugang label={p.wiederholt} fehler={versucht && ungleich ? p.ungleich : undefined} name="pw-wiederholt" type="password" value={werte.wiederholt} onChange={(e) => setWerte((w) => ({ ...w, wiederholt: e.target.value }))} autoComplete="new-password" required />
           <label className="app-haken">
             <input type="checkbox" checked={andere} onChange={(e) => setAndere(e.target.checked)} />
             <span>
@@ -227,7 +227,7 @@ function CodesErneuern({ passwortNoetig, onSchliessen }: { passwortNoetig: boole
     <form className="app-formular" onSubmit={erzeugen} noValidate>
       <p className="app-leer-text">{z.codesErneuernEinleitung}</p>
       <FehlerHinweis fehler={fehler} />
-      {passwortNoetig ? <Feld label={z.passwort} name="codes-passwort" type="password" value={passwort} onChange={(e) => setPasswort(e.target.value)} autoComplete="current-password" required autoFocus /> : null}
+      {passwortNoetig ? <Feld zugang label={z.passwort} name="codes-passwort" type="password" value={passwort} onChange={(e) => setPasswort(e.target.value)} autoComplete="current-password" required autoFocus /> : null}
       <div className="app-aktionen__knoepfe">
         <Button type="submit" disabled={laeuft || (passwortNoetig && passwort === "")}>
           {z.codesErzeugen}

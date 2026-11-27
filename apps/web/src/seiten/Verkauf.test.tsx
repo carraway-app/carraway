@@ -6,7 +6,7 @@ import { de } from "../i18n/de";
 import { en } from "../i18n/en";
 import { feldpruefungTexte } from "../i18n/feldpruefung";
 
-const url = `/beteiligungen/${BET_ID}`;
+const url = `/investments/${BET_ID}`;
 const schmal = (text: string | null) => (text ?? "").replace(/\s/g, " ");
 const dialog = () => within(screen.getByRole("dialog"));
 const abschnitt = async () => within(await screen.findByRole("region", { name: "Instrument" }));

@@ -1,3 +1,4 @@
+import { einmaligeAntwort } from "../idempotenz";
 import { kontaktJson, pruefeKontakt } from "../kontakte/http";
 import { randomUUID } from "node:crypto";
 import { and, asc, eq, lt } from "drizzle-orm";
@@ -62,7 +63,7 @@ export function postfachRouten(db: Db, opt: PostfachRoutenOptionen) {
     if (!konfig.schluessel) throw new Fachfehler(409, "secret_missing", "GEHEIMNIS_SCHLUESSEL is not set; credentials cannot be stored without it.");
     return konfig.schluessel;
   };
-  const zurueck = (c: { redirect: (u: string, s?: 302) => Response }, parameter: Record<string, string>) => c.redirect(`${basis}/einstellungen/postfach?${new URLSearchParams(parameter).toString()}`, 302);
+  const zurueck = (c: { redirect: (u: string, s?: 302) => Response }, parameter: Record<string, string>) => c.redirect(`${basis}/settings/mailbox?${new URLSearchParams(parameter).toString()}`, 302);
 
   /** Speichert (ersetzt) die Verbindung der Person für den Bereich. */
   async function speichere(c: Parameters<typeof schreibe>[1], benutzerId: string, bereich: Bereich, anbieter: "microsoft" | "google" | "imap", zugang: Zugang, inhaltSpeichern: boolean) {
@@ -168,23 +169,24 @@ export function postfachRouten(db: Db, opt: PostfachRoutenOptionen) {
           ablauf: new Date(Date.now() + ZUSTAND_GUELTIG_MS),
         });
       });
+      einmaligeAntwort(c);
       return kontaktJson(c, { url: baueAutorisierungsUrl(anbieter, e.anbieter, e.bereich, { redirectUri: rueckrufUrl, state, nonce, challenge: pkce.challenge }) }, 200);
     })
     .get("/callback", pruefeKontakt("query", rueckrufAbfrage), async (c) => {
       const akteur = aktuellerAkteur(c);
       const { code, state, error } = c.req.valid("query");
-      if (!state) return zurueck(c, { fehler: "mailbox_state_invalid" });
+      if (!state) return zurueck(c, { error: "mailbox_state_invalid" });
       // Der Zustand ist einmalig: Er wird in jedem Fall verbraucht, auch wenn danach etwas schiefgeht.
       const zustand = await schreibe(db, c, async (tx) => {
         const [z] = await tx.select().from(oauthZustand).where(eq(oauthZustand.stateHash, sha256Hex(state))).for("update");
         if (z) await tx.delete(oauthZustand).where(eq(oauthZustand.id, z.id));
         return z ?? null;
       });
-      if (!zustand || zustand.ablauf.getTime() < Date.now() || zustand.benutzerId !== akteur.id) return zurueck(c, { fehler: "mailbox_state_invalid" });
+      if (!zustand || zustand.ablauf.getTime() < Date.now() || zustand.benutzerId !== akteur.id) return zurueck(c, { error: "mailbox_state_invalid" });
       const name = zustand.anbieter as Anbietername;
       const anbieter = konfig.postfach[name === "microsoft" ? "microsoft" : "google"];
-      if (!anbieter || (zustand.anbieter !== "microsoft" && zustand.anbieter !== "google")) return zurueck(c, { fehler: "mailbox_provider_disabled" });
-      if (error || !code) return zurueck(c, { fehler: "mailbox_connection_failed" });
+      if (!anbieter || (zustand.anbieter !== "microsoft" && zustand.anbieter !== "google")) return zurueck(c, { error: "mailbox_provider_disabled" });
+      if (error || !code) return zurueck(c, { error: "mailbox_connection_failed" });
       try {
         const ring = verlangeRing();
         const verifier = ring.entschluessele(zustand.verifierVerschluesselt, verifierAad(zustand.id));
@@ -195,9 +197,9 @@ export function postfachRouten(db: Db, opt: PostfachRoutenOptionen) {
         await speichere(c, akteur.id, zustand.bereich, name, { art: "oauth", accessToken: token.accessToken, refreshToken: token.refreshToken, ablaufMs: token.ablaufMs, adresse }, false);
       } catch (fehler) {
         if (fehler instanceof Fachfehler) throw fehler;
-        return zurueck(c, { fehler: "mailbox_connection_failed", grund: fehler instanceof PostfachFehler ? fehler.code : "UNBEKANNT" });
+        return zurueck(c, { error: "mailbox_connection_failed", reason: fehler instanceof PostfachFehler ? fehler.code : "UNBEKANNT" });
       }
-      return zurueck(c, { ergebnis: "verbunden", bereich: zustand.bereich });
+      return zurueck(c, { result: "connected", section: zustand.bereich === "kalender" ? "calendar" : "mail" });
     })
     .post("/imap", pruefeKontakt("json", imapEingabe), async (c) => {
       const { id: benutzerId } = aktuellerAkteur(c);

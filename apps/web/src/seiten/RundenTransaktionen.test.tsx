@@ -6,7 +6,7 @@ import { alsRolle, BET_ID, FONDS_ID, ORG_A, hauptInstrument, instrumentDaten, re
 
 /** Runden mit Brückenrunde, Transaktionen je Runde, „Ohne Runde“ und „Alle“; Runde ändern; Neue Runde als Brücke; Runde im Vorgangsdialog. */
 
-const rundenUrl = `/beteiligungen/${BET_ID}?tab=finanzierung`;
+const rundenUrl = `/investments/${BET_ID}?tab=financing`;
 const RUNDEN = `/api/v1/organisationen/${ORG_A}/finanzierungsrunden`;
 const TRANSAKTIONEN = `/api/v1/organisationen/${ORG_A}/rundentransaktionen`;
 const dialog = () => within(screen.getByRole("dialog"));
@@ -180,6 +180,35 @@ describe("Runden: Brückenrunde", () => {
   });
 });
 
+describe("Runden: Blättern", () => {
+  it("blättert in zeitlicher Folge zur vorherigen und nächsten Runde; die Wahl steht in der Adresse, Reiter und „Mehr“ folgen", async () => {
+    spieleApi(mitRunden());
+    const { router } = rendereApp(rundenUrl);
+    const nutzer = userEvent.setup();
+    const leiste = await reiter();
+    // Vorgabe: die neueste abgeschlossene Runde (Serie A); sie ist die letzte, deshalb gibt es nur den Pfeil zurück
+    expect(leiste.getByRole("tab", { name: /^Serie A/ }).getAttribute("aria-selected")).toBe("true");
+    const blaettern = within(await screen.findByRole("navigation", { name: "Runden blättern" }));
+    expect(blaettern.queryByRole("button", { name: /^Nächste Runde/ })).toBeNull();
+    await nutzer.click(blaettern.getByRole("button", { name: "Vorherige Runde: Brücke 2022" }));
+    await waitFor(() => expect(leiste.getByRole("tab", { name: /^Brücke 2022/ }).getAttribute("aria-selected")).toBe("true"));
+    expect(router.state.location.search).toMatchObject({ rundeId: "rb" });
+    const weiter = within(screen.getByRole("navigation", { name: "Runden blättern" }));
+    expect(weiter.getByRole("button", { name: "Nächste Runde: Serie A" })).toBeTruthy();
+    await nutzer.click(weiter.getByRole("button", { name: "Vorherige Runde: Seed" }));
+    await waitFor(() => expect(leiste.getByRole("tab", { name: /^Seed/ }).getAttribute("aria-selected")).toBe("true"));
+    expect(router.state.location.search).toMatchObject({ rundeId: "r1" });
+    // Am Anfang entfällt der Pfeil zurück
+    expect(within(screen.getByRole("navigation", { name: "Runden blättern" })).queryByRole("button", { name: /^Vorherige Runde/ })).toBeNull();
+  });
+
+  it("öffnet die Runde aus der Adresse", async () => {
+    spieleApi(mitRunden());
+    rendereApp(`${rundenUrl}&roundId=r1`);
+    expect((await reiter()).getByRole("tab", { name: /^Seed/ }).getAttribute("aria-selected")).toBe("true");
+  });
+});
+
 describe("Runden: Transaktionen", () => {
   it("zeigt je Runde Datum, Fonds, Instrument, Art, Tranche, Betrag und Anteile; Stornos sind durchgestrichen und markiert", async () => {
     spieleApi(mitRunden());
@@ -189,7 +218,7 @@ describe("Runden: Transaktionen", () => {
     const karte = await screen.findByRole("region", { name: "Transaktionen" });
     const zeilen = tabellenZeilen(karte);
     expect(zeilen).toHaveLength(3); // Kopf und zwei Vorgänge
-    expect(within(zeilen[0]!).getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Datum", "Fonds", "Instrument", "Art", "Tranche", "Betrag", "Anteile", "Aktion"]);
+    expect(within(zeilen[0]!).getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Datum", "Fonds", "Instrument", "Art", "Tranche", "Betrag", "Anteile", "Weitere Aktionen"]);
     const erste = schmal(zeilen[1]!.textContent);
     expect(erste).toContain("20.03.2022");
     expect(erste).toContain("Beispielfonds I");
@@ -197,7 +226,7 @@ describe("Runden: Transaktionen", () => {
     expect(erste).toContain("1. Erste Rate");
     expect(erste).toContain("100.000,00 €");
     const link = within(zeilen[1]!).getByRole("link", { name: "Instrument Wandeldarlehen 2021 öffnen" });
-    expect(link.getAttribute("href")).toContain(`/beteiligungen/${BET_ID}`);
+    expect(link.getAttribute("href")).toContain(`/investments/${BET_ID}`);
     // Storno
     expect(within(zeilen[1]!).queryByText("Storniert")).toBeNull();
     expect(within(zeilen[2]!).getByText("Storniert")).toBeTruthy();
@@ -239,13 +268,26 @@ describe("Runden: Transaktionen", () => {
   });
 });
 
+/** „Runde ändern“ steht im Zeilenmenü „⋯“: öffnet die Menüs der Reihe nach, bis der Eintrag `name` erscheint, und liefert ihn. */
+async function rundeAendern(nutzer: ReturnType<typeof userEvent.setup>, name: RegExp) {
+  const karte = within(await screen.findByRole("region", { name: "Transaktionen" }));
+  const knoepfe = await karte.findAllByRole("button", { name: "Weitere Aktionen" });
+  for (const k of knoepfe) {
+    await nutzer.click(k);
+    const eintrag = screen.queryByRole("menuitem", { name });
+    if (eintrag) return eintrag;
+    await nutzer.keyboard("{Escape}");
+  }
+  throw new Error(`kein Eintrag ${name}`);
+}
+
 describe("Runden: Runde ändern", () => {
   it("ordnet einen Vorgang über PUT einer anderen Runde zu", async () => {
     const api = spieleApi(mitRunden(transaktionenDaten, { "PUT /api/v1/transactions/t-o1/round": { koerper: { transactionId: "t-o1", roundId: "rb", source: "manual", changed: true } } }));
     rendereApp(rundenUrl);
     const nutzer = userEvent.setup();
     await nutzer.click((await reiter()).getByRole("tab", { name: /Ohne Runde/ }));
-    await nutzer.click(await screen.findByRole("button", { name: /^Runde ändern: Zinszahlung vom 10\.01\.2022/ }));
+    await nutzer.click(await rundeAendern(nutzer, /^Runde ändern: Zinszahlung vom 10\.01\.2022/));
     const d = dialog();
     const auswahl = d.getByLabelText("Runde") as HTMLSelectElement;
     expect(Array.from(auswahl.options).map((o) => schmal(o.textContent))).toEqual(["Keiner Runde zuordnen", "Serie A · 30.06.2023", "Brücke 2022 · 15.03.2022 (Brückenrunde)", "Seed · 31.05.2021"]);
@@ -262,7 +304,7 @@ describe("Runden: Runde ändern", () => {
     rendereApp(rundenUrl);
     const nutzer = userEvent.setup();
     await nutzer.click((await reiter()).getByRole("tab", { name: /Seed/ }));
-    await nutzer.click(await screen.findByRole("button", { name: /^Runde ändern: Zusage vom 30\.06\.2021/ }));
+    await nutzer.click(await rundeAendern(nutzer, /^Runde ändern: Zusage vom 30\.06\.2021/));
     const d = dialog();
     expect((d.getByLabelText("Runde") as HTMLSelectElement).value).toBe("r1");
     await nutzer.selectOptions(d.getByLabelText("Runde"), "");
@@ -278,7 +320,7 @@ describe("Runden: Runde ändern", () => {
     await nutzer.click((await reiter()).getByRole("tab", { name: /Ohne Runde/ }));
     const karte = within(await screen.findByRole("region", { name: "Transaktionen" }));
     expect(karte.getAllByRole("row")).toHaveLength(2);
-    expect(karte.queryByRole("button", { name: /^Runde ändern/ })).toBeNull();
+    expect(karte.queryByRole("button", { name: "Weitere Aktionen" })).toBeNull();
   });
 });
 
@@ -313,7 +355,7 @@ describe("Vorgang erfassen: Runde", () => {
     [VORGANG]: { status: 201, koerper: { vorgang: {}, buchwert: "1100000.00" } },
   };
   const oeffne = async () => {
-    rendereApp(`/beteiligungen/${BET_ID}`);
+    rendereApp(`/investments/${BET_ID}`);
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Vorgang erfassen" }));
     const d = await screen.findByRole("dialog").then((e) => within(e));
@@ -359,7 +401,7 @@ describe("Vorgang erfassen: Runde", () => {
 describe("Instrument anlegen: Runden", () => {
   it("bietet Eigenkapital keine Brückenrunde an, Darlehen schon", async () => {
     spieleApi(mitRunden());
-    rendereApp(`/beteiligungen/${BET_ID}?tab=finanzierung&unter=instrumente`);
+    rendereApp(`/investments/${BET_ID}?tab=financing&subtab=instruments`);
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: /^Instrument anlegen/ }));
     const d = await screen.findByRole("dialog").then((e) => within(e));

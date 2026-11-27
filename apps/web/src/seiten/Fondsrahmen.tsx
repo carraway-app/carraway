@@ -1,28 +1,29 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
-import { getRouteApi, Outlet, useRouterState } from "@tanstack/react-router";
+import { getRouteApi, Link, Outlet, useRouterState } from "@tanstack/react-router";
 import { Button, Hinweis, Kennzahl, KennzahlenReihe, Seitenkopf, formatBetrag, formatMultiple, formatProzent } from "@carraway/ui";
 import { fondsListe, fondsUebersicht } from "../api/abfragen";
 import { useNeuberechnen } from "../api/mutationen";
 import { fondsWaehrungssicht } from "../api/waehrung";
 import { FehlerHinweis } from "../komponenten/FehlerHinweis";
-import { Fondsleiste, type FondsTab } from "../komponenten/Fondsleiste";
+import { FondsBereiche, type FondsTab } from "../komponenten/FondsBereiche";
 import { HerkunftDialog } from "../komponenten/HerkunftDialog";
 import { NurLesen } from "../komponenten/NurLesen";
-import { SeitenStichtag } from "../komponenten/SeitenStichtag";
-import { WissensstandWahl } from "../komponenten/Wissensstand";
+import { StichtagMenue } from "../komponenten/StichtagMenue";
+import { ZusagenAbdeckung } from "../komponenten/ZusagenAbdeckung";
 import { useSprache, useT } from "../i18n";
 import { DATENSPRACHE } from "../lib/datensprache";
 import { useRechte } from "../lib/rechte";
 import type { WaehrungSuche } from "../lib/waehrung";
 import { formatZeitpunkt } from "../lib/zeit";
+import { formatWissensstand } from "../lib/wissensstand";
 import { merkeFonds } from "../zustand";
 import { alle } from "../erweiterung";
 
 const NavHerkunft = lazy(() => import("../komponenten/NavHerkunft"));
 
-const route = getRouteApi("/fonds/$fondsId");
-const uebersichtRoute = getRouteApi("/fonds/$fondsId/");
+const route = getRouteApi("/funds/$fundId");
+const uebersichtRoute = getRouteApi("/funds/$fundId/");
 
 /** Nach „Neu berechnen“ fragt die Seite alle `ABSTAND_MS` nach, solange der Worker rechnet, höchstens `HOECHSTDAUER_MS`. */
 const ABSTAND_MS = 1000;
@@ -32,29 +33,29 @@ type KennzahlName = "nav" | "tvpi" | "dpi" | "rvpi" | "irr";
 const REIHENFOLGE: KennzahlName[] = ["nav", "tvpi", "dpi", "rvpi", "irr"];
 
 const TAB_DER_ROUTE: Record<string, FondsTab> = {
-  "/fonds/$fondsId/": "uebersicht",
-  "/fonds/$fondsId/kennzahlen": "kennzahlen",
-  "/fonds/$fondsId/szenarien": "szenarien",
-  "/fonds/$fondsId/reserven": "reserven",
-  "/fonds/$fondsId/zinsen": "zinsen",
-  "/fonds/$fondsId/bewertungsrunde": "bewertungsrunde",
-  "/fonds/$fondsId/zielfonds": "zielfonds",
+  "/funds/$fundId/": "uebersicht",
+  "/funds/$fundId/metrics": "kennzahlen",
+  "/funds/$fundId/scenarios": "szenarien",
+  "/funds/$fundId/reserves": "reserven",
+  "/funds/$fundId/interest": "zinsen",
+  "/funds/$fundId/valuation-round": "bewertungsrunde",
+  "/funds/$fundId/target-funds": "zielfonds",
 };
 
-/** Reiter zur Route: die des Kerns oder einer Erweiterung (Route `/fonds/$fondsId/<pfad>`). */
+/** Reiter zur Route: die des Kerns oder einer Erweiterung (Route `/funds/$fundId/<pfad>`). */
 function tabDerRoute(routeId: string): FondsTab {
-  return TAB_DER_ROUTE[routeId] ?? alle("fondsReiter").find((r) => routeId === `/fonds/$fondsId/${r.pfad}`)?.id ?? "uebersicht";
+  return TAB_DER_ROUTE[routeId] ?? alle("fondsReiter").find((r) => routeId === `/funds/$fundId/${r.pfad}`)?.id ?? "uebersicht";
 }
 
 /**
- * Rahmen aller Fondsseiten: Fondsname, Kennzahlen und Stand stehen über dem Inhaltsverzeichnis des Fonds und bleiben beim Wechsel
- * zwischen den Bereichen stehen. Stichtag, Wissensstand und Währungssicht gelten nur auf der Übersicht; auf den anderen Bereichen
+ * Rahmen aller Fondsseiten: Fondsname, Kennzahlen und Stand stehen über dem Bereich und bleiben beim Wechsel zwischen den Bereichen
+ * stehen; die Bereiche selbst stehen in der Seitenleiste (Fondskontext). Stichtag, Wissensstand und Währungssicht gelten nur auf der Übersicht; auf den anderen Bereichen
  * zeigen die Kennzahlen den aktuellen Stand (`bewertungsrunde` hat einen eigenen `stichtag`, der hier nicht mitzählt).
  */
 export function Fondsrahmen() {
   const t = useT();
   const sprache = useSprache();
-  const { fondsId } = route.useParams();
+  const { fundId: fondsId } = route.useParams();
   const aktiv = useRouterState({ select: (s) => tabDerRoute(s.matches.at(-1)?.routeId ?? "") });
   const aufUebersicht = aktiv === "uebersicht";
   const suche = uebersichtRoute.useSearch({ shouldThrow: false });
@@ -102,7 +103,7 @@ export function Fondsrahmen() {
   const k = u.kennzahlen;
   const keinWert = t.gemeinsam.keinWert;
   const werte: Record<KennzahlName, string> = {
-    nav: k.nav.wert === null ? t.portfolio.navLuecke : formatBetrag(k.nav.wert, sprache, { kompakt: true, waehrung: fonds?.waehrung }),
+    nav: k.nav.wert === null ? keinWert : formatBetrag(k.nav.wert, sprache, { kompakt: true, waehrung: fonds?.waehrung }),
     tvpi: k.tvpi.wert === null ? keinWert : formatMultiple(k.tvpi.wert, sprache),
     dpi: k.dpi.wert === null ? keinWert : formatMultiple(k.dpi.wert, sprache),
     rvpi: k.rvpi.wert === null ? keinWert : formatMultiple(k.rvpi.wert, sprache),
@@ -112,11 +113,11 @@ export function Fondsrahmen() {
   // NAV in der Vergleichs- oder Hauswährung (Kurs des Stichtags); sonst die Fondswährung.
   const navSicht = !ws ? null : sicht === "vergleich" && ws.waehrungen.vergleich ? { wert: ws.navVergleich, waehrung: ws.waehrungen.vergleich } : sicht === "haus" && ws.waehrungen.haus !== ws.waehrungen.fonds ? { wert: ws.navHaus, waehrung: ws.waehrungen.haus } : null;
   const summeVergleich = navSicht && navSicht.wert != null ? formatBetrag(navSicht.wert, sprache, { kompakt: true, waehrung: navSicht.waehrung }) : null;
-  const navImVergleich = k.nav.wert === null ? t.portfolio.navLuecke : summeVergleich ?? (!ws ? keinWert : t.waehrung.luecke);
+  const navImVergleich = k.nav.wert === null ? keinWert : summeVergleich ?? (!ws ? keinWert : t.waehrung.luecke);
   const titel = (name: KennzahlName) => t.portfolio[name];
   const offen = herkunft ? k[herkunft] : null;
   const standText = stand
-    ? t.portfolio.snapshot.liveStand(formatZeitpunkt(stand, sprache))
+    ? t.portfolio.snapshot.liveStand(formatWissensstand(stand, sprache))
     : u.snapshot
       ? t.portfolio.snapshot.berechnet(formatZeitpunkt(u.snapshot.berechnetAm, sprache))
       : t.portfolio.snapshot.live;
@@ -129,10 +130,13 @@ export function Fondsrahmen() {
         titelSprache={DATENSPRACHE}
         zeitbezug={
           aufUebersicht ? (
-            <div className="app-werkzeug" role="group" aria-label={t.portfolio.snapshot.werkzeuge}>
-              <WissensstandWahl stand={stand} onWahl={(neu) => void navigate({ search: (alt) => ({ ...alt, stand: neu }), replace: true })} />
-              <SeitenStichtag title={t.portfolio.stichtagWaehlen} value={u.stichtag} onChange={(neu) => void navigate({ search: (alt) => ({ ...alt, stichtag: neu }), replace: true })} />
-            </div>
+            <StichtagMenue
+              fondsId={fondsId}
+              stichtag={u.stichtag}
+              onStichtag={(neu) => void navigate({ search: (alt) => ({ ...alt, stichtag: neu }), replace: true })}
+              stand={stand}
+              onStand={(neu) => void navigate({ search: (alt) => ({ ...alt, stand: neu }), replace: true })}
+            />
           ) : undefined
         }
       />
@@ -151,18 +155,27 @@ export function Fondsrahmen() {
           </Hinweis>
         ) : null}
         {dauertLaenger ? <Hinweis>{t.portfolio.snapshot.dauertLaenger}</Hinweis> : null}
+        {/* Unvollständige LP-Zusagen sperren Abrufe, Ausschüttungen und LP-Berichte; der Hinweis verschwindet bei 100 %. */}
+        {fonds?.zusagenVollstaendig === false ? (
+          <ZusagenAbdeckung
+            abgedeckt={fonds.abgedeckt}
+            zeichnungskapital={fonds.zeichnungskapital}
+            waehrung={fonds.waehrung}
+            aktion={darf("verwalter", fondsId, "fondsverwaltung") ? <Link to="/funds" search={{ fondsId, tab: "investoren" }}>{t.portfolio.zusagen.zumVervollstaendigen}</Link> : undefined}
+          />
+        ) : null}
       </section>
 
       <KennzahlenReihe aria-label={t.portfolio.kennzahlen}>
         <Kennzahl titel={t.portfolio.portfoliowert} wert={formatBetrag(u.portfoliowert, sprache, { kompakt: true, waehrung: fonds?.waehrung })} />
         {REIHENFOLGE.map((name) => (
-          <Kennzahl key={name} titel={name === "nav" && summeVergleich && navSicht ? t.waehrung.kennzahlIn(titel(name), navSicht.waehrung) : titel(name)} wert={name === "nav" && navSicht ? navImVergleich : werte[name]} hervorgehoben={name === "tvpi"} onHerkunft={() => setHerkunft(name)} />
+          <Kennzahl key={name} titel={name === "nav" && summeVergleich && navSicht ? t.waehrung.kennzahlIn(titel(name), navSicht.waehrung) : titel(name)} wert={name === "nav" && navSicht ? navImVergleich : werte[name]} hervorgehoben={name === "tvpi" && k.tvpi.wert !== null} hinweis={name === "nav" && k.nav.wert === null ? t.portfolio.navLuecke : undefined} onHerkunft={() => setHerkunft(name)} />
         ))}
       </KennzahlenReihe>
 
-      <Fondsleiste aktiv={aktiv} fondsId={fondsId}>
+      <FondsBereiche aktiv={aktiv} fondsId={fondsId}>
         <Outlet />
-      </Fondsleiste>
+      </FondsBereiche>
 
       {herkunft === "nav" ? (
         <Suspense fallback={null}><NavHerkunft fondsId={fondsId} waehrung={fonds?.waehrung} stichtag={u.stichtag} stand={stand ?? u.quellenstand} schritte={k.nav.schritte} onSchliessen={() => setHerkunft(null)} /></Suspense>

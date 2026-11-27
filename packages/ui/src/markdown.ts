@@ -27,6 +27,7 @@ const MAX_TIEFE = 5;
 /** Erlaubte Adressen in Links: http, https, mailto und Pfade der eigenen Anwendung. Alles andere (javascript:, data: …) nicht. */
 export function sichereUrl(href: string): boolean {
   const h = href.trim();
+  if (h.includes("\\")) return false;
   if (/^https?:\/\/[^\s]+$/i.test(h)) return true;
   if (/^mailto:[^\s]+$/i.test(h)) return true;
   return /^\/(?!\/)[^\s]*$/.test(h);

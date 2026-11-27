@@ -18,14 +18,14 @@ const bezuege = { [`organisation:${ORG_A}`]: "Alpha Energie" };
 describe("Schnellaktionen überall", () => {
   it("Unternehmen: Kopfzeile mit Telefon und LinkedIn, Mail als Knopf, Website in der Metazeile", async () => {
     spieleApi({ [`/api/v1/organisationen/${ORG_A}`]: { koerper: kontaktOrg } });
-    rendereApp(`/organisationen/${ORG_A}`);
+    rendereApp(`/organizations/${ORG_A}`);
     await screen.findByRole("heading", { level: 1, name: "Alpha Energie" });
     const kopf = screen.getByRole("heading", { level: 1 }).closest("header") ?? document.body;
     expect(within(kopf).getByRole("link", { name: "Anrufen: Alpha Energie" }).getAttribute("href")).toBe("tel:+49401234 56".replace(" ", ""));
     expect(within(kopf).getByRole("link", { name: "LinkedIn: Alpha Energie" })).toBeTruthy();
     expect(within(kopf).getByRole("link", { name: "E-Mail schreiben" }).getAttribute("href")).toBe("mailto:info@alpha.example");
-    // und in der Attributleiste das ganze Set
-    const attribute = await screen.findByRole("complementary", { name: "Attribute" });
+    // und in den Attributen das ganze Set
+    const attribute = await screen.findByRole("region", { name: "Attribute" });
     expect(within(attribute).getByRole("link", { name: "E-Mail an Alpha Energie" })).toBeTruthy();
   });
 
@@ -35,7 +35,7 @@ describe("Schnellaktionen überall", () => {
         koerper: { id: "p1", vorname: "Anna", nachname: "Berger", email: "anna@alpha.example", funktion: "CFO", telefon: "+49 40 111", linkedin: "https://www.linkedin.com/in/anna-berger-beispiel", organisationId: ORG_A, zusammengefuehrtIn: null, organisation: { id: ORG_A, name: "Alpha Energie" }, rollen: [], letzteAktivitaet: null },
       },
     });
-    rendereApp("/personen/p1");
+    rendereApp("/people/p1");
     await screen.findByRole("heading", { level: 1, name: "Anna Berger" });
     const kopf = screen.getByRole("heading", { level: 1 }).closest("header") ?? document.body;
     expect(within(kopf).getByRole("link", { name: "Anrufen: Anna Berger" })).toBeTruthy();
@@ -47,7 +47,7 @@ describe("Schnellaktionen überall", () => {
       "/api/v1/crm/objekte/deal/felder": { koerper: { daten: dealFelder } },
       "POST /api/v1/crm/objekte/deal/abfrage": { koerper: { daten: [dealZeile], gesamt: 1, limit: 100, offset: 0, bezuege } },
     });
-    rendereApp("/kontakte?objekt=deal");
+    rendereApp("/contacts?object=deal");
     const grid = await screen.findByRole("grid", { name: "Deals" });
     expect(await within(grid).findByRole("link", { name: "E-Mail an Alpha Energie" })).toBeTruthy();
     expect(within(grid).getByRole("link", { name: "Anrufen: Alpha Energie" })).toBeTruthy();
@@ -81,7 +81,7 @@ describe("Schnellaktionen überall", () => {
         },
       },
     });
-    rendereApp("/kontakte");
+    rendereApp("/contacts");
     const nutzer = userEvent.setup();
     await screen.findByRole("grid", { name: "Unternehmen" });
     fireEvent.keyDown(document, { key: "k", ctrlKey: true });

@@ -2,7 +2,7 @@ import { BelegKnopf, BelegPanel } from "./BelegKnopf";
 import { lazy, Suspense, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { Button, CaretDownIcon, Fakten, Hinweis, IconButton, Karte, KartenRaster, Kennzahl, KennzahlenReihe, Kennwerte, Leer, Menue, PencilSimpleIcon, PlusIcon, Status, Tabelle, formatDatum, type MenueEintrag, type TabelleSpalte } from "@carraway/ui";
+import { Button, DotsThreeIcon, Fakten, Hinweis, IconButton, Karte, KartenRaster, Kennzahl, KennzahlenReihe, Kennwerte, Leer, Menue, PencilSimpleIcon, PlusIcon, Status, Tabelle, formatDatum, type MenueEintrag, type TabelleSpalte } from "@carraway/ui";
 import { instrumentdaten, type Instrumentdaten } from "../api/abfragen";
 import { aufzaehlung, useSprache, useT } from "../i18n";
 import { useNamen } from "../lib/namen";
@@ -65,45 +65,44 @@ export function InstrumentAbschnitt({ beteiligungId, schreibgeschuetzt, wegenSta
  * Aktionen der Beteiligung im Seitenkopf: „Vorgang erfassen“ als Hauptknopf, alles Weitere (Beleg, Verkauf, Kaufpreisanpassung, Insolvenz)
  * im Menü „Weitere Aktionen“. Hält die Dialoge dieser Aktionen selbst; die Wandlung gehört zum Instrument (Bereich Instrumente).
  */
-export function InstrumentAktionen({ beteiligungId, schreibgeschuetzt }: { beteiligungId: string; schreibgeschuetzt: boolean }) {
+/**
+ * Aktionen der Beteiligung im Kontextkopf: „Vorgang erfassen“ als Hauptaktion, alles Weitere im Menü „⋯“.
+ * `weitere` sind Einträge der Seite (zum Beispiel der Quartalsbericht); sie stehen auch ohne Schreibrecht im Menü.
+ */
+export function InstrumentAktionen({ beteiligungId, schreibgeschuetzt, weitere = [] }: { beteiligungId: string; schreibgeschuetzt: boolean; weitere?: MenueEintrag[] }) {
   const t = useT();
   const a = t.inst.aktionen;
   const { data } = useQuery(instrumentdaten(beteiligungId));
   const { darf } = useRechte();
   const [offen, setOffen] = useState<"vorgang" | "tranche" | "verkauf" | "anpassung" | "insolvenz" | "beleg" | null>(null);
   const schliessen = () => setOffen(null);
-  if (!data || schreibgeschuetzt) return null;
-  const aktiv = data.beteiligung.status === "aktiv";
-  const eintraege: MenueEintrag[] = [
+  const schreiben = Boolean(data) && !schreibgeschuetzt;
+  const aktiv = data?.beteiligung.status === "aktiv";
+  const eigene: MenueEintrag[] = !data || !schreiben ? [] : [
     ...(darf("bearbeiter", data.beteiligung.fondsId, "finanzen") ? [{ id: "beleg", label: t.buchhaltung.erzeugen.knopf, onClick: () => setOffen("beleg") }] : []),
     ...(aktiv ? [{ id: "verkauf", label: a.verkauf, onClick: () => setOffen("verkauf") }] : []),
     ...(data.verkaeufe.length > 0 ? [{ id: "anpassung", label: a.anpassung, onClick: () => setOffen("anpassung") }] : []),
     ...(aktiv ? [{ id: "insolvenz", label: a.insolvenz, onClick: () => setOffen("insolvenz"), gefahr: true, trennerDavor: true }] : []),
   ];
+  const eintraege = [...weitere, ...eigene.map((e, i) => (i === 0 && weitere.length > 0 ? { ...e, trennerDavor: true } : e))];
   return (
     <>
-      <Button onClick={() => setOffen("vorgang")}>{a.vorgang}</Button>
+      {schreiben ? <Button onClick={() => setOffen("vorgang")}>{a.vorgang}</Button> : null}
       {eintraege.length > 0 ? (
-        <Menue
-          aria-label={a.weitere}
-          ausloeser={
-            <>
-              {a.weitere}
-              <CaretDownIcon />
-            </>
-          }
-          ausloeserKlasse="cw-button cw-button--sekundaer"
-          eintraege={eintraege}
-        />
+        <Menue aria-label={a.weitere} title={a.weitere} ausloeser={<DotsThreeIcon size={18} />} ausloeserKlasse="cw-button cw-button--sekundaer cw-seitenkopf__mehr" eintraege={eintraege} />
       ) : null}
-      <Suspense fallback={null}>
-        {offen === "vorgang" ? <VorgangDialog daten={data} onTrancheAnlegen={() => setOffen("tranche")} onSchliessen={schliessen} /> : null}
-        {offen === "tranche" ? <TrancheAnlegenDialog instrumente={data.instrumente} onSchliessen={schliessen} /> : null}
-      </Suspense>
-      {offen === "beleg" ? <BelegPanel art="vertragsanlage" bezugArt="beteiligung" bezugId={data.beteiligung.id} fondsId={data.beteiligung.fondsId} onSchliessen={schliessen} /> : null}
-      {offen === "verkauf" ? <VerkaufDialog beteiligungId={beteiligungId} instrumente={data.instrumente} onSchliessen={schliessen} /> : null}
-      {offen === "anpassung" ? <AnpassungDialog beteiligungId={beteiligungId} verkaeufe={data.verkaeufe} onSchliessen={schliessen} /> : null}
-      {offen === "insolvenz" ? <InsolvenzDialog beteiligungId={beteiligungId} onSchliessen={schliessen} /> : null}
+      {data && schreiben ? (
+        <>
+          <Suspense fallback={null}>
+            {offen === "vorgang" ? <VorgangDialog daten={data} onTrancheAnlegen={() => setOffen("tranche")} onSchliessen={schliessen} /> : null}
+            {offen === "tranche" ? <TrancheAnlegenDialog instrumente={data.instrumente} onSchliessen={schliessen} /> : null}
+          </Suspense>
+          {offen === "beleg" ? <BelegPanel art="vertragsanlage" bezugArt="beteiligung" bezugId={data.beteiligung.id} fondsId={data.beteiligung.fondsId} onSchliessen={schliessen} /> : null}
+          {offen === "verkauf" ? <VerkaufDialog beteiligungId={beteiligungId} instrumente={data.instrumente} onSchliessen={schliessen} /> : null}
+          {offen === "anpassung" ? <AnpassungDialog beteiligungId={beteiligungId} verkaeufe={data.verkaeufe} onSchliessen={schliessen} /> : null}
+          {offen === "insolvenz" ? <InsolvenzDialog beteiligungId={beteiligungId} onSchliessen={schliessen} /> : null}
+        </>
+      ) : null}
     </>
   );
 }
@@ -193,11 +192,11 @@ function Inhalt({ daten, schreibgeschuetzt, onWahl, onHerkunft, children }: { da
               <BelegKnopf art="wandlung" bezugArt="wandlung" bezugId={daten.wandlung.id} fondsId={daten.beteiligung.fondsId} />
               {/* Das Ziel ist ein neues Instrument derselben Beteiligung; nur bei Altdaten liegt es in einer anderen Beteiligung. */}
               {daten.wandlung.zielBeteiligungId && daten.wandlung.zielBeteiligungId !== daten.wandlung.darlehenBeteiligungId ? (
-                <Link to="/beteiligungen/$id" params={{ id: daten.wandlung.zielBeteiligungId }} search={{}}>
+                <Link to="/investments/$id" params={{ id: daten.wandlung.zielBeteiligungId }} search={{}}>
                   {t.inst.wandlung.ziel}
                 </Link>
               ) : daten.wandlung.zielInstrumentId ? (
-                <Link to="/beteiligungen/$id" params={{ id: daten.beteiligung.id }} search={{ tab: "finanzierung", unter: "instrumente" }} hash={`instrument-${daten.wandlung.zielInstrumentId}`}>
+                <Link to="/investments/$id" params={{ id: daten.beteiligung.id }} search={{ tab: "finanzierung", unter: "instrumente" }} hash={`instrument-${daten.wandlung.zielInstrumentId}`}>
                   {t.inst.wandlung.zumInstrument}
                 </Link>
               ) : null}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { aufteilung, Decimal, einheitenBeimExit, gevesteteEinheiten, poolStand, type Leaver, rundeVollVerwaessert, volleMonate, wasserfall, wasserfallKnicke, wasserfallKurve, type WasserfallEingabe } from "../index.js";
+import { aufteilung, Decimal, einheitenBeimExit, gevesteteEinheiten, poolStand, poolStandGrob, type Leaver, rundeVollVerwaessert, volleMonate, wasserfall, wasserfallKnicke, wasserfallKurve, type WasserfallEingabe } from "../index.js";
 import { REFERENZ_FAELLE } from "./wasserfall.referenz.js";
 
 // Erwartungswerte aus referenz/referenz_mitarbeiterbeteiligung.py (exakte Brüche, Monate über einen Kalender-Zähler). Alle Zahlen erfunden.
@@ -139,6 +139,27 @@ describe("Pool", () => {
     expect([vorher.groesse, vorher.ausstehend, vorher.ausgeuebt, vorher.frei].map((d) => d.toFixed(0))).toEqual(["100000", "55000", "0", "45000"]);
     const nachher = poolStand(aenderungen, zuteilungen, "2025-12-31");
     expect([nachher.groesse, nachher.ausstehend, nachher.ausgeuebt, nachher.frei, nachher.vollVerwaessert].map((d) => d.toFixed(0))).toEqual(["150000", "60000", "5000", "85000", "145000"]);
+  });
+});
+
+describe("Vesting-Takt", () => {
+  const plan = { anzahl: "48000", beginn: "2024-01-15", cliffMonate: 12, vestingMonate: 48 };
+
+  it("vestet in Stufen von 1, 3, 6 oder 12 Monaten, am Cliff der aufgelaufene Teil", () => {
+    expect([1, 3, 6, 12].map((taktMonate) => gevesteteEinheiten({ ...plan, taktMonate }, "2026-10-14").toFixed(0))).toEqual(["32000", "30000", "30000", "24000"]);
+    expect(gevesteteEinheiten({ ...plan, taktMonate: 12 }, "2025-01-15").toFixed(0)).toBe("12000");
+    expect(() => gevesteteEinheiten({ ...plan, taktMonate: 2 }, "2025-01-15")).toThrow();
+  });
+});
+
+describe("Pool grob", () => {
+  it("vergebene Einheiten sind ausstehend, höchstens die Größe; der Rest ist frei", () => {
+    const stand = (groesse: string, vergeben: string | null) => poolStandGrob([{ datum: "2023-01-01", anzahl: groesse }], vergeben, "2024-01-01");
+    expect([stand("100000", "60000").ausstehend, stand("100000", "60000").frei, stand("100000", "60000").vollVerwaessert].map((d) => d.toFixed(0))).toEqual(["60000", "40000", "100000"]);
+    expect([stand("50000", "60000").ausstehend, stand("50000", "60000").frei].map((d) => d.toFixed(0))).toEqual(["50000", "0"]);
+    expect(stand("100000", null).frei.toFixed(0)).toBe("100000");
+    expect(poolStandGrob([{ datum: "2025-01-01", anzahl: "100000" }], "5000", "2024-01-01").ausstehend.toFixed(0)).toBe("0");
+    expect(() => stand("100", "-1")).toThrow();
   });
 });
 

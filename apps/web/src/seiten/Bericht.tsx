@@ -19,7 +19,7 @@ import { formatZeitpunkt } from "../lib/zeit";
 import { merkeFonds } from "../zustand";
 import { alle } from "../erweiterung";
 
-const route = getRouteApi("/berichte/$id");
+const route = getRouteApi("/reports/$id");
 
 type Protokoll = BerichtDetail["protokoll"][number];
 type Abschnitt = BerichtDetail["abschnitte"][number];
@@ -51,7 +51,7 @@ export function BerichtSeite() {
       <Seitenkopf
         meta={
           <>
-            <Link to="/berichte" search={b.fondsId ? { fondsId: b.fondsId } : {}}>
+            <Link to="/reports" search={b.fondsId ? { fondsId: b.fondsId } : {}}>
               {d.zurListe}
             </Link>
             {fondsName ? ` · ${fondsName}` : ""}
@@ -119,14 +119,14 @@ function Berichtigung({ b }: { b: BerichtDetail }) {
   const [grund, setGrund] = useState("");
   return (
     <>
-      {b.vorfassungId && <p><Link to="/berichte/$id" params={{ id: b.vorfassungId }}>{d.vorfassung}</Link> · {d.berichtigungsgrund}: {b.berichtigungsgrund}</p>}
-      {b.nachfassungId ? <Link to="/berichte/$id" params={{ id: b.nachfassungId }}>{d.nachfassung}</Link> :
+      {b.vorfassungId && <p><Link to="/reports/$id" params={{ id: b.vorfassungId }}>{d.vorfassung}</Link> · {d.berichtigungsgrund}: {b.berichtigungsgrund}</p>}
+      {b.nachfassungId ? <Link to="/reports/$id" params={{ id: b.nachfassungId }}>{d.nachfassung}</Link> :
         b.status === "freigegeben" && b.fondsId && darf("bearbeiter", b.fondsId, "berichte") && (
           <details>
             <summary>{d.berichtigen}</summary>
             <form className="cw-formularraster" onSubmit={(e) => {
               e.preventDefault();
-              if (grund.trim()) anlegen.mutate(grund.trim(), { onSuccess: (neu) => void navigate({ to: "/berichte/$id", params: { id: neu.id } }) });
+              if (grund.trim()) anlegen.mutate(grund.trim(), { onSuccess: (neu) => void navigate({ to: "/reports/$id", params: { id: neu.id } }) });
             }}>
               <Textbereich label={d.berichtigungsgrund} hilfe={d.grundHilfe} rows={2} required maxLength={1000} value={grund} onChange={(e) => setGrund(e.target.value)} fehler={feldText(t, anlegen.error, "grund")} />
               <FehlerHinweis fehler={anlegen.error} bekannt={["grund"]} />

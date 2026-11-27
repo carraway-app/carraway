@@ -315,6 +315,7 @@ export const BEREICH_EN: Record<string, string> = {
   dokumente: "documents",
   daten: "data",
   fondsverwaltung: "fund_administration",
+  einzelzuteilungen: "individual_grants",
 };
 export const STUFE_EN: Record<string, string> = { betrachter: "viewer", bearbeiter: "editor", freigeber: "approver", verwalter: "admin" };
 

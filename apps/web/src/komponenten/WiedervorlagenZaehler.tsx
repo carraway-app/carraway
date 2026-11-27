@@ -9,7 +9,7 @@ export function WiedervorlagenZaehler() {
   const { data: z } = useQuery(wiedervorlagenAnzahl);
   return (
     <Link
-      to="/wiedervorlagen"
+      to="/follow-ups"
       search={{ zustaendig: "ich" }}
       className="app-zaehler"
       aria-label={z ? t.wiedervorlagenSeite.zaehlerName(z.total, z.overdue) : t.wiedervorlagenSeite.zaehlerText}

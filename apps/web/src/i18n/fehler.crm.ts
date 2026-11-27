@@ -2,6 +2,16 @@
 
 export const crmFehlerDe = {
   query_invalid: "Die Abfrage ist ungültig. Bitte Filter, Sortierung und Spalten prüfen.",
+  provider_key_missing: "Für diesen Anbieter fehlt der Schlüssel.",
+  provider_key_invalid: "Der Anbieter hat den Schlüssel abgelehnt.",
+  provider_quota_exceeded: "Das Abrufkontingent ist ausgeschöpft.",
+  provider_rate_limited: "Das Abruflimit ist erreicht. Bitte später erneut versuchen.",
+  website_unavailable: "Die Unternehmenswebsite ist derzeit nicht erreichbar.",
+  provider_unavailable: "Der Anbieter ist derzeit nicht erreichbar.",
+  provider_response_invalid: "Die Antwort des Anbieters ist ungültig.",
+  provider_not_found: "Der Anbieter hat keinen passenden Datensatz.",
+  provider_review_stale: "Die Daten wurden inzwischen geändert. Bitte erneut abrufen.",
+  provider_managed: "Dieser Datensatz wird im angebundenen CRM gepflegt.",
   field_value_invalid: "Mindestens ein Feldwert passt nicht zum Typ des Feldes. Bitte die Eingabe prüfen.",
   field_not_found: "Dieses Feld gibt es nicht.",
   fields_immutable: "Die Werte eines Vorgangs lassen sich nicht ändern. Ein Storno und ein neuer Vorgang tragen die richtigen Werte.",

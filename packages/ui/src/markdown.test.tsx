@@ -60,8 +60,9 @@ describe("Markdown: Sicherheit", () => {
     }
     expect(sichereUrl("https://beispiel.test/a?b=1")).toBe(true);
     expect(sichereUrl("mailto:a@beispiel.test")).toBe(true);
-    expect(sichereUrl("/organisationen/1")).toBe(true);
+    expect(sichereUrl("/organizations/1")).toBe(true);
     expect(sichereUrl("//evil.test")).toBe(false);
+    expect(sichereUrl(String.raw`/ordner\datei`)).toBe(false);
   });
 
   it("setzt rel=noopener noreferrer und öffnet externe Links in neuem Tab", () => {

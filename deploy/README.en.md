@@ -41,26 +41,23 @@ Generate random values with `openssl rand -hex 24` (database passwords) and `ope
 ## Coolify
 
 1. In your project, add a **Public Repository** resource for `https://github.com/carraway-app/carraway`. Choose the **Docker Compose** build pack. Ignore “Dockerfile suggested”.
-2. Set **Base directory** to `/deploy` and **Compose file** to `/docker-compose.yml`. Save and load the Compose definition.
-3. Under **Environment Variables**, enter the required values from `.env.example`. Set `APP_ORIGIN` to the HTTPS address users enter in their browser. Under **Domains**, select **carraway**. If Coolify asks for an internal port, enter **8787** (or use `https://fund.example.org:8787` in a combined domain field). Restrict access until the first administrator completes setup.
-4. Select **Deploy**. The stack appears as one application. Open its **Deployments** and select the deployment log for image pulls or startup failures. In the application's **Logs**, select each service for its container output. Check `postgres` first, then `carraway-migrate` (exit code 0), then `carraway` and `carraway-worker`. If no containers were created, use the deployment log.
-5. Before updating, take a backup. Select the new release commit or image tag and **Redeploy**. A deploy webhook or automatic deployment on a Git push can trigger the same update. For a moving image tag, set the Compose **Custom Build Command** to `docker compose pull` so the redeploy fetches its current image. The migration runs before the application and worker start. [Coolify Docker Compose guide](https://coolify.io/docs/applications/builds/docker-compose)
+2. Coolify prefills **Compose file** with `/deploy/docker-compose.yml`. Set **Base directory** to `/deploy`, then click **Use /docker-compose.yml**. Save and load the Compose definition.
+3. Under **Environment Variables**, enter the required values from `.env.example`. Coolify enables **Available at Buildtime** by default. This Compose setup pulls a prebuilt image, so the setting has no effect. You can clear it for secrets.
+4. Under **Domains**, select **carraway** and enter the HTTPS address without a port, for example `https://fund.example.org`. Coolify sets the internal port to **8787**. Use the same address for `APP_ORIGIN`. Behind the Coolify proxy, set `TRUST_PROXY=1`. [Reverse proxy and TLS](#reverse-proxy-and-tls)
+5. Select **Deploy**. The stack appears as one application. Open its **Deployments** and select the deployment log for image pulls or startup failures. In the application's **Logs**, select each service for its container output. Check `postgres` first, then `carraway-migrate` (exit code 0), then `carraway` and `carraway-worker`. If no containers were created, use the deployment log.
+6. Before updating, take a backup. Select the new release commit or image tag and **Redeploy**. A deploy webhook or automatic deployment on a Git push can trigger the same update. For a moving image tag, set the Compose **Custom Build Command** to `docker compose pull` so the redeploy fetches its current image. The migration runs before the application and worker start. [Coolify Docker Compose guide](https://coolify.io/docs/applications/builds/docker-compose)
 
-### First administrator (`/einrichtung`)
+### First administrator (`/setup`)
 
-As long as no person exists, `/einrichtung` is open: whoever opens the page first becomes global administrator. So set up first,
-then expose to the network:
+Public certificate transparency logs can reveal the hostname as soon as a TLS certificate is issued. Creating the first administrator requires the operator’s setup token.
 
-1. The stack only listens on `127.0.0.1:8787` (`API_BIND`). Open `http://localhost:8787/einrichtung` through an SSH tunnel
-   (`ssh -L 8787:127.0.0.1:8787 server`). `APP_ORIGIN` must equal the address in the browser; for this step set
-   `APP_ORIGIN=http://localhost:8787` and switch it to the public address afterwards (`docker compose up -d carraway`).
-2. Enter name, e-mail address and a password of at least 12 characters.
-3. Sign in. With `REQUIRE_TWO_FACTOR=1` (default) the app guides you through setting up the authenticator app; store the backup
-   codes safely.
-4. Further people are created by the administration under "Verwaltung" (start password, to be changed at first sign-in), or they
-   sign in with company sign-in (Entra ID/Google, `OIDC_*`) if they were created beforehand with the same address.
+1. Read the latest `Carraway /setup token:` line in `docker compose logs carraway`. In Coolify, open the application’s **Logs** and select the **carraway** service. Each API start before setup replaces the generated token.
+2. Open `/setup` at your configured `APP_ORIGIN`. Enter the token, your name, email address and a password of at least 12 characters. Completing setup consumes the token and closes `POST /api/v1/setup`.
+3. Sign in. With `REQUIRE_TWO_FACTOR=1` (default), follow the authenticator setup and store the backup codes safely. Create further accounts under **Administration**.
 
-Afterwards `/einrichtung` answers `registration_closed`.
+For automated installations, set the optional secret `SETUP_TOKEN` before starting the API. Generate a value with `openssl rand -hex 32`. The API uses this value across restarts until setup succeeds and omits it from the startup log. Send it in the JSON field `token` alongside `name`, `email` and `password` to `POST /api/v1/setup`. You can then remove the secret from the deployment settings.
+
+The form also accepts `/setup?token=…` and clears the query from the browser address. If using a URL, configure any reverse proxy to omit query strings from access logs.
 
 ## Environments: demo, test, echt (production)
 

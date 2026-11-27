@@ -31,7 +31,7 @@ export function BuchungsStornoDialog({ zeile, waehrung, onSchliessen, onErfolg }
         }}
       >
         <FehlerHinweis fehler={mutation.error} bekannt={["grund", "valuta"]} />
-        <Feld label={f.grund} autoComplete="off" {...feld("grund")} fehler={feldText(t, mutation.error, "grund")} />
+        <Feld label={f.grund} {...feld("grund")} fehler={feldText(t, mutation.error, "grund")} />
         <Feld label={f.valuta} type="date" min={zeile.valuta} hilfe={f.valutaHilfe} {...feld("valuta")} fehler={feldText(t, mutation.error, "valuta")} />
         <div>
           <Button type="submit" variante="gefahr" disabled={mutation.isPending}>

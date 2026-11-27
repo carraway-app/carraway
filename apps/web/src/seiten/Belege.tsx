@@ -2,7 +2,7 @@ import { KeinFonds } from "./Platzhalter";
 import { useState } from "react";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { getRouteApi, Link } from "@tanstack/react-router";
-import { Auswahl, Seitenkopf, Status, Tabelle, formatDatum, type StatusVariante, type TabelleSpalte } from "@carraway/ui";
+import { Auswahl, Seitenkopf, Status, Tabelle, formatDatum, type StatusVariante, type TabelleSpalte, Leer } from "@carraway/ui";
 import { belegListe, type BelegZeile } from "../api/buchhaltung";
 import { fondsListe } from "../api/abfragen";
 import { aufzaehlung, useSprache, useT } from "../i18n";
@@ -10,7 +10,7 @@ import { wirksamerFonds } from "../lib/fonds";
 import { formatBetragCent } from "../lib/zahl";
 import { merkeFonds } from "../zustand";
 
-const route = getRouteApi("/belege");
+const route = getRouteApi("/vouchers");
 
 export const BELEG_STATUS: Record<string, StatusVariante> = { entwurf: "entwurf", geprueft: "pruefung", freigegeben: "freigegeben", storniert: "fehlt" };
 
@@ -44,7 +44,7 @@ function BelegeFuerFonds({ fondsId, fondsName }: { fondsId: string; fondsName: s
       schluessel: "aktion",
       kopf: b.spalten.aktion,
       zelle: (z) => (
-        <Link to="/belege/$id" params={{ id: z.id }} aria-label={b.oeffnenFuer(artText(z), z.belegnummer ?? b.ohneNummer)}>
+        <Link to="/vouchers/$id" params={{ id: z.id }} aria-label={b.oeffnenFuer(artText(z), z.belegnummer ?? b.ohneNummer)}>
           {b.oeffnen}
         </Link>
       ),
@@ -65,7 +65,7 @@ function BelegeFuerFonds({ fondsId, fondsName }: { fondsId: string; fondsName: s
             ))}
           </Auswahl>
         </div>
-        {belege.length === 0 ? <p className="app-leer-text">{b.keine}</p> : <Tabelle dicht beschriftung={b.liste} spalten={spalten} zeilen={belege} zeilenSchluessel={(z) => z.id} />}
+        {belege.length === 0 ? <Leer titel={b.keine} beschreibung="" /> : <Tabelle dicht beschriftung={b.liste} spalten={spalten} zeilen={belege} zeilenSchluessel={(z) => z.id} />}
       </section>
     </div>
   );

@@ -200,7 +200,7 @@ export function erzeugeOpenApi(app: Hono, version = "0.1.0", regelwerk: Regelwer
           name: "Idempotency-Key",
           in: "header",
           required: false,
-          description: "Any unique key (1 to 200 printable ASCII characters). Same key and body: same response for 24 hours; different body: 409 idempotency_conflict.",
+          description: "Any unique key (1 to 200 printable ASCII characters). A matching request replays its response for 24 hours. One-time responses return 409 idempotency_replay_unavailable on retry. Different content returns 409 idempotency_conflict.",
           schema: { type: "string", minLength: 1, maxLength: 200 },
         },
       },
@@ -251,15 +251,15 @@ const maske = (t: unknown) => String(t).replace(/[&<>"']/g, (z) => ({ "&": "&amp
 /**
  * Farben der Hilfeseite: die Werte der semantischen Tokens des Designsystems (`design/tokens.json`, gleiche Namen), in beiden Themen. Die Seite hat
  * keine Skripte und keine Datei dazu, sie folgt dem Betriebssystem (`prefers-color-scheme`); ohne Angabe gilt wie in der Anwendung Dunkel. Ein Test
- * hält die Werte gleich mit den Tokens und prüft den Kontrast. Petrol und Jade kennzeichnen Fokus und Links. Gold hebt Titel und Rubriken hervor.
+ * hält die Werte gleich mit den Tokens und prüft den Kontrast. Petrol und Jade kennzeichnen Fokus, Links und die Striche an Titel und Rubriken.
  */
 export const DOCS_PALETTE = {
-  dunkel: { bg: "#0E2621", surface: "#102922", text: "#EEF3EE", "text-muted": "#B9CFC4", line: "#3D5C53", "line-strong": "#536A60", accent: "#7CCFC2", highlight: "#C4A25A" },
-  hell: { bg: "#FAF9F6", surface: "#FFFFFF", text: "#18211D", "text-muted": "#505E56", line: "#D3D9D3", "line-strong": "#8A9A91", accent: "#096D69", highlight: "#806429" },
+  dunkel: { bg: "#0E2621", surface: "#102922", text: "#EEF3EE", "text-muted": "#B9CFC4", line: "#3D5C53", "line-strong": "#536A60", accent: "#7CCFC2" },
+  hell: { bg: "#FAF9F6", surface: "#FFFFFF", text: "#18211D", "text-muted": "#505E56", line: "#D3D9D3", "line-strong": "#8A9A91", accent: "#096D69" },
 } as const;
 
 const docsVariablen = (p: Record<keyof (typeof DOCS_PALETTE)["dunkel"], string>) =>
-  `--bg:${p.bg};--surface:${p.surface};--text:${p.text};--muted:${p["text-muted"]};--line:${p.line};--line-strong:${p["line-strong"]};--accent:${p.accent};--highlight:${p.highlight}`;
+  `--bg:${p.bg};--surface:${p.surface};--text:${p.text};--muted:${p["text-muted"]};--line:${p.line};--line-strong:${p["line-strong"]};--accent:${p.accent}`;
 
 /** Dokumentationsseite ohne Skripte und ohne externe Dateien, aus dem Dokument gerendert. */
 export function erzeugeDocsHtml(doc: OpenApiDokument): string {
@@ -290,8 +290,8 @@ ${koerper ? Object.entries(koerper).map(([typ, c]) => `<p>Body <code>${maske(typ
 @media (prefers-color-scheme:light){:root{color-scheme:light;${docsVariablen(DOCS_PALETTE.hell)}}}
 body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 "Instrument Sans",system-ui,sans-serif}
 main{max-width:60rem;margin:0 auto;padding:1.5rem 1rem 4rem}
-h1{font-weight:650;letter-spacing:-.02em;font-size:1.6rem;margin:0 0 .25rem}h1::after{content:"";display:block;width:2.5rem;height:2px;margin-top:.5rem;background:var(--highlight)}
-h2{display:flex;align-items:center;gap:.5rem;font-size:.8rem;margin:2rem 0 .5rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}h2::before{content:"";width:.75rem;height:2px;background:var(--highlight)}
+h1{font-weight:650;letter-spacing:-.02em;font-size:1.6rem;margin:0 0 .25rem}h1::after{content:"";display:block;width:2.5rem;height:2px;margin-top:.5rem;background:var(--accent)}
+h2{display:flex;align-items:center;gap:.5rem;font-size:.8rem;margin:2rem 0 .5rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}h2::before{content:"";width:.75rem;height:2px;background:var(--accent)}
 p.lead{color:var(--muted);margin-top:.75rem}a{color:var(--text);text-decoration:underline;text-underline-offset:2px}a:hover{text-decoration-color:var(--accent);text-decoration-thickness:2px}
 details{border-bottom:1px solid var(--line);padding:.4rem 0}summary{cursor:pointer;display:flex;gap:.6rem;align-items:baseline;flex-wrap:wrap}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px}

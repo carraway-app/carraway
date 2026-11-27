@@ -87,6 +87,10 @@ export function statischeDateien(verzeichnis: string, optionen: { hsts?: boolean
       "Referrer-Policy": "same-origin",
       "X-Frame-Options": "DENY",
     };
+    if (istIndex && /^\/setup\/?$/i.test(pfad)) {
+      kopf["Referrer-Policy"] = "no-referrer";
+      kopf["Cache-Control"] = "no-store";
+    }
     if (istIndex) kopf["Content-Security-Policy"] = "frame-ancestors 'none'";
     // Das Excel-Add-in (Etappe 22) lädt seine Seiten in einem Rahmen von Excel; nur dort erlaubt, nie von beliebigen Seiten.
     // Nur die HTML-Seiten des Add-ins (Skripte und Metadaten brauchen keinen Rahmen).

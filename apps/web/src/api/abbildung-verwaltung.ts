@@ -5,7 +5,7 @@ import { VON_API, bereichVonApi, stufeVonApi, stufenJeBereichVonApi } from "./ab
 const STUFE_AN_API: Record<Stufe, string> = { betrachter: "viewer", bearbeiter: "editor", freigeber: "approver", verwalter: "admin" };
 const BEREICH_AN_API = Object.fromEntries(Object.entries(VON_API).filter(([en]) => !["viewer", "editor", "approver", "admin"].includes(en)).map(([en, de]) => [de, en])) as Record<BereichName, string>;
 export const stufeAnApi = (s: Stufe) => STUFE_AN_API[s] as "viewer" | "editor" | "approver" | "admin";
-export const bereichAnApi = (b: BereichName) => (BEREICH_AN_API[b] ?? b) as "portfolio" | "finance" | "metrics" | "reports" | "regulatory_reporting" | "dealflow" | "contacts" | "documents" | "data" | "fund_administration";
+export const bereichAnApi = (b: BereichName) => (BEREICH_AN_API[b] ?? b) as "portfolio" | "finance" | "metrics" | "reports" | "regulatory_reporting" | "dealflow" | "contacts" | "documents" | "data" | "fund_administration" | "individual_grants";
 
 interface BenutzerApi {
   id: string;

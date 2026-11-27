@@ -1,3 +1,4 @@
+import { credentialAad } from "../integrationen/connection";
 import { sql } from "drizzle-orm";
 import type { Db } from "@carraway/db";
 import type { Schluesselring } from "./krypto";
@@ -23,6 +24,7 @@ interface Ziel {
 }
 
 const ZIELE: Ziel[] = [
+  { tabelle: "provider_connection", spalte: "credential", aad: credentialAad },
   { tabelle: "postfach_verbindung", spalte: "zugang_verschluesselt", aad: zugangAad },
   { tabelle: "mail_auftrag", spalte: "inhalt_verschluesselt", aad: (id) => `mail_auftrag:${id}` },
   { tabelle: "oauth_zustand", spalte: "verifier_verschluesselt", aad: verifierAad },

@@ -4,13 +4,12 @@ import { Hinweis, Karte, Kennzahl, KennzahlenReihe, Leer, Status, Tabelle, forma
 import { fondsZinsen, type FondsZinsen } from "../api/zinsen";
 import { Bereichskopf } from "../komponenten/Bereichskopf";
 import { FehlerHinweis } from "../komponenten/FehlerHinweis";
-import { SeitenStichtag } from "../komponenten/SeitenStichtag";
 import { Skelettzeilen } from "../komponenten/Skelett";
-import { WissensstandWahl } from "../komponenten/Wissensstand";
+import { StichtagMenue } from "../komponenten/StichtagMenue";
 import { aufzaehlung, useSprache, useT } from "../i18n";
 import { formatSatz } from "../lib/zahl";
 
-const route = getRouteApi("/fonds/$fondsId/zinsen");
+const route = getRouteApi("/funds/$fundId/interest");
 
 type Zeile = FondsZinsen["instrumente"][number];
 
@@ -22,7 +21,7 @@ export function FondsZinsenSeite() {
   const t = useT();
   const sprache = useSprache();
   const z = t.fondsZinsen;
-  const { fondsId } = route.useParams();
+  const { fundId: fondsId } = route.useParams();
   const { stichtag, stand } = route.useSearch();
   const navigate = route.useNavigate();
   const { data, error, isPending } = useQuery(fondsZinsen(fondsId, stichtag, stand));
@@ -34,7 +33,7 @@ export function FondsZinsenSeite() {
       schluessel: "unternehmen",
       kopf: z.spalten.unternehmen,
       zelle: (r) => (
-        <Link to="/beteiligungen/$id" params={{ id: r.beteiligungId }} search={{ tab: "finanzierung", unter: "zinsen", ...(data ? { stichtag: data.stichtag } : {}) }} aria-label={z.zurBeteiligung(r.organisation.name)}>
+        <Link to="/investments/$id" params={{ id: r.beteiligungId }} search={{ tab: "finanzierung", unter: "zinsen", ...(data ? { stichtag: data.stichtag } : {}) }} aria-label={z.zurBeteiligung(r.organisation.name)}>
           {r.organisation.name}
         </Link>
       ),
@@ -58,14 +57,18 @@ export function FondsZinsenSeite() {
 
   return (
     <div className="app-seite">
-      <Bereichskopf titel={z.titel}>
-        <WissensstandWahl stand={stand} onWahl={(neu) => void navigate({ search: (alt) => ({ ...alt, stand: neu }), replace: true })} />
-        <SeitenStichtag title={z.stichtagWaehlen} value={data?.stichtag ?? stichtag ?? ""} onChange={(neu) => void navigate({ search: (alt) => ({ ...alt, stichtag: neu }), replace: true })} />
-        <Link to="/zinslaeufe" search={{ fondsId }}>
+      <Bereichskopf info={z.beschreibung} titel={z.titel}>
+        <StichtagMenue
+          fondsId={fondsId}
+          stichtag={data?.stichtag ?? stichtag ?? ""}
+          onStichtag={(neu) => void navigate({ search: (alt) => ({ ...alt, stichtag: neu }), replace: true })}
+          stand={stand}
+          onStand={(neu) => void navigate({ search: (alt) => ({ ...alt, stand: neu }), replace: true })}
+        />
+        <Link to="/interest-runs" search={{ fondsId }}>
           {z.zinslaeufe}
         </Link>
       </Bereichskopf>
-      <p className="app-leer-text">{z.beschreibung}</p>
       {isPending ? <Skelettzeilen anzahl={3} /> : null}
       {error ? <FehlerHinweis fehler={error} /> : null}
       {data ? (

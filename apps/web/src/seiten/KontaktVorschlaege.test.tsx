@@ -16,7 +16,7 @@ describe("Neue Kontakte aus Postfach und Kalender", () => {
       "/api/v1/kontaktvorschlaege": { koerper: { modus: "vorschlag", daten: [vorschlag] } },
       [`POST /api/v1/kontaktvorschlaege/${vorschlag.id}/uebernehmen`]: { koerper: { personId: "00000000-0000-4000-8000-000000000702" } },
     });
-    rendereApp("/kontakte/vorschlaege");
+    rendereApp("/contacts/suggestions");
     const nutzer = userEvent.setup();
     const tabelle = within(await screen.findByRole("region", { name: k.listeTitel }));
     expect(await tabelle.findByText("max@neu.example.com")).toBeTruthy();
@@ -26,6 +26,24 @@ describe("Neue Kontakte aus Postfach und Kalender", () => {
     expect(await screen.findByText(k.uebernommen)).toBeTruthy();
   });
 
+  it("führt einen Vorschlag mit einer über das Suchfeld gefundenen Person zusammen", async () => {
+    const api = spieleApi({
+      "/api/v1/me": alsRolle("bearbeiter"),
+      "/api/v1/kontaktvorschlaege": { koerper: { modus: "vorschlag", daten: [vorschlag] } },
+      "/api/v1/suche": { koerper: { q: "eva", organisationen: [], personen: [{ id: "p-eva", vorname: "Eva", nachname: "Muster", email: null, telefon: null, linkedin: null, organisation: null, score: 1 }], deals: [], beteiligungen: [], dokumente: [] } },
+      [`POST /api/v1/kontaktvorschlaege/${vorschlag.id}/zusammenfuehren`]: { koerper: { personId: "p-eva" } },
+    });
+    rendereApp("/contacts/suggestions");
+    const nutzer = userEvent.setup();
+    await nutzer.click(await screen.findByRole("button", { name: k.zusammenfuehrenFuer("max@neu.example.com") }));
+    const dialog = within(await screen.findByRole("dialog", { name: k.zusammenfuehrenTitel }));
+    await nutzer.type(dialog.getByRole("combobox", { name: k.zielPerson }), "eva");
+    await nutzer.click(await dialog.findByRole("option", { name: /^Eva Muster/ }));
+    await nutzer.click(dialog.getByRole("button", { name: k.zusammenfuehren }));
+    await waitFor(() => expect(api.anfragen("POST", `/api/v1/kontaktvorschlaege/${vorschlag.id}/zusammenfuehren`)).toHaveLength(1));
+    expect(api.anfragen("POST", `/api/v1/kontaktvorschlaege/${vorschlag.id}/zusammenfuehren`)[0]!.koerper).toEqual({ personId: "p-eva" });
+  });
+
   it("eigene Teilnahme und Sperrliste in den Einstellungen speichern", async () => {
     const api = spieleApi({
       "/api/v1/me": alsRolle("bearbeiter"),
@@ -33,7 +51,7 @@ describe("Neue Kontakte aus Postfach und Kalender", () => {
       "/api/v1/postfach/kontakte": { koerper: { modus: "vorschlag", teilnehmen: false, sperrliste: [], darfAnlegen: true } },
       "PUT /api/v1/postfach/kontakte": { koerper: { modus: "vorschlag", teilnehmen: true, sperrliste: ["familie.example"], darfAnlegen: true } },
     });
-    rendereApp("/einstellungen/postfach?tab=postfach");
+    rendereApp("/settings/mailbox?tab=mailbox");
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByLabelText(k.teilnehmen));
     await nutzer.type(screen.getByLabelText(k.sperrliste), "familie.example");

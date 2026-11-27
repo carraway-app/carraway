@@ -1,8 +1,13 @@
+import { createHash } from "node:crypto";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { hashPassword } from "better-auth/crypto";
 import { Hono } from "hono";
 import { z } from "zod";
 import { apiSchluessel, benutzer, fondsrolle, investorBenutzer, konto, nutzergruppeMitglied, sitzung, wirksameFondsrolle, type Db } from "@carraway/db";
+import { entferneEinrichtungsToken, gueltigesEinrichtungsToken, sperreEinrichtung } from "../anmeldung/einrichtung";
+import { fehlversuche, merkeFehlversuch } from "../anmeldung/begrenzung";
+import { clientIp } from "../anmeldung/schutz";
+import type { Konfiguration } from "../konfiguration";
 import { aktuellerAkteur, sichtbareFonds, type SchluesselScope } from "../anmeldung/akteur";
 import { MINDESTLAENGE_PASSWORT, type Auth } from "../anmeldung/auth";
 import { einladungOffen, stelleEinladungAus } from "../anmeldung/zuruecksetzen";
@@ -24,7 +29,7 @@ const neuerBenutzer = z.object({
   /** Sprache der Einladung; Standard Deutsch. */
   language: z.enum(["de", "en"]).default("de"),
 });
-const einrichtung = neuerBenutzer.omit({ globalAdmin: true, language: true }).extend({ password: z.string().min(MINDESTLAENGE_PASSWORT).max(128) });
+const einrichtung = neuerBenutzer.omit({ globalAdmin: true, language: true }).extend({ token: z.string().min(1).max(1024), password: z.string().min(MINDESTLAENGE_PASSWORT).max(128) });
 const einladungEingabe = z.object({ language: z.enum(["de", "en"]).default("de") });
 
 const aenderungBenutzer = z
@@ -49,23 +54,36 @@ export async function verlangeKeinenInvestor(tx: Tx, benutzerId: string) {
 const rolleEingabe = z.object({ role: stufeEingabe });
 
 /**
- * Einrichtung einer leeren Installation: legt die erste Person als globale Verwalterin an (ohne Anmeldung, nur solange
- * es noch keine Person gibt; danach 403 `registration_closed`). Die Registrierung in Better Auth bleibt geschlossen.
+ * Einrichtung einer leeren Installation mit Einrichtungs-Token. Tokenverbrauch und Anlage des ersten Verwalters
+ * erfolgen in derselben Transaktion. Danach meldet die Route 403 `registration_closed`.
  */
-export function einrichtungRouten(db: Db) {
+export function einrichtungRouten(db: Db, konfig: Konfiguration) {
   return new Hono().post("/", pruefe("json", einrichtung), async (c) => {
     const eingabe = c.req.valid("json");
-    const hash = await hashPassword(eingabe.password);
+    const adresse = createHash("sha256").update(eingabe.email).digest("hex");
+    const zaehler = [`setup:ip:${clientIp(c, konfig)}`, `setup:email:${adresse}`];
+    const { versuche, fensterMs } = konfig.anmeldeLimit;
     const neu = await schreibe(db, "system", async (tx, protokoll) => {
-      await tx.execute(sql`SELECT pg_advisory_xact_lock(80001)`);
-      const { rows } = await tx.execute<{ n: number }>(sql`SELECT count(*)::int AS n FROM benutzer WHERE NOT technisch`);
-      if ((rows[0]?.n ?? 0) > 0) throw new Fachfehler(403, "registration_closed", "The installation is already set up; new users are created by the admins.");
+      if (!await sperreEinrichtung(tx)) throw new Fachfehler(403, "registration_closed", "The installation is already set up.");
+      for (const schluessel of zaehler) {
+        if (await fehlversuche(tx, schluessel, fensterMs) >= versuche) {
+          c.header("Retry-After", String(Math.ceil(fensterMs / 1000)));
+          throw new Fachfehler(429, "too_many_attempts", "Too many failed attempts. Please try again later.");
+        }
+      }
+      if (!await gueltigesEinrichtungsToken(tx, eingabe.token)) {
+        await merkeFehlversuch(tx, zaehler, fensterMs);
+        return null; // Den Fehlversuch festschreiben, bevor die Route den Fehler zurückgibt.
+      }
+      const hash = await hashPassword(eingabe.password);
+      await entferneEinrichtungsToken(tx);
       const [zeile] = await tx.insert(benutzer).values({ name: eingabe.name, email: eingabe.email, emailVerified: true, globalVerwalter: true }).returning();
       if (!zeile) throw new Error("Benutzer nicht angelegt");
       await tx.insert(konto).values({ accountId: zeile.id, providerId: "credential", userId: zeile.id, password: hash });
       await protokoll("anlegen", "benutzer", zeile.id, null, { id: zeile.id, name: zeile.name, email: zeile.email, globalVerwalter: true, einrichtung: true });
       return zeile;
     });
+    if (!neu) throw new Fachfehler(403, "setup_token_invalid", "The setup token is invalid.");
     return c.json({ id: neu.id, name: neu.name, email: neu.email, globalAdmin: true }, 201);
   });
 }

@@ -14,7 +14,7 @@ import { aufzaehlung, useSprache, useT } from "../i18n";
 /** PDF.js ist ein eigener Block und wird nur auf dieser Seite geladen. */
 const PdfBetrachter = lazy(() => import("../komponenten/PdfBetrachter"));
 
-const route = getRouteApi("/dokumente/$id");
+const route = getRouteApi("/documents/$id");
 
 /**
  * Betrachter eines Dokuments: das Dokument im Rahmen des Browsers (PDF und Bilder, mit Sandbox ohne Rechte und strenger Schutzkopfzeile der API,
@@ -59,7 +59,7 @@ export function DokumentSeite() {
         {data.ersetztDurch ? (
           <Hinweis>
             {d.ansicht.ersetztDurch}{" "}
-            <Link to="/dokumente/$id" params={{ id: data.ersetztDurch }} search={{ stand, stichtag }}>
+            <Link to="/documents/$id" params={{ id: data.ersetztDurch }} search={{ stand, stichtag }}>
               {d.ansicht.neuereVersion}
             </Link>
           </Hinweis>
@@ -92,7 +92,7 @@ export function DokumentSeite() {
         <ul className="app-liste-klein">
           {data.fundstellen.map((f, i) => (
             <li key={i}>
-              <Link to="/dokumente/$id" params={{ id }} search={{ stand, stichtag, seite: f.seite }}>
+              <Link to="/documents/$id" params={{ id }} search={{ stand, stichtag, seite: f.seite }}>
                 {d.ansicht.fundstelle(f.feld, f.wert, f.seite)}
               </Link>
             </li>
@@ -105,7 +105,7 @@ export function DokumentSeite() {
           <ul className="app-liste-klein">
             {data.vorgaenger.map((v) => (
               <li key={v.id}>
-                <Link to="/dokumente/$id" params={{ id: v.id }} search={{ stand, stichtag }}>
+                <Link to="/documents/$id" params={{ id: v.id }} search={{ stand, stichtag }}>
                   {v.dateiname}
                 </Link>{" "}
                 · {formatDatum(v.hochgeladenAm.slice(0, 10), sprache)}

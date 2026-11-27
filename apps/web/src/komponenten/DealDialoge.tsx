@@ -36,7 +36,7 @@ export function AbsageDialog({ dealId, onSchliessen }: { dealId: string; onSchli
         }}
       >
         <FehlerHinweis fehler={absagen.error} bekannt={["grund"]} />
-        <Feld label={f.grund} hilfe={f.grundHilfe} autoComplete="off" {...feld("grund")} fehler={feldText(t, absagen.error, "grund")} />
+        <Feld label={f.grund} hilfe={f.grundHilfe} {...feld("grund")} fehler={feldText(t, absagen.error, "grund")} />
         <div>
           <Button type="submit" variante="gefahr" disabled={absagen.isPending}>
             {f.absagen}
@@ -87,7 +87,7 @@ export function BeschlussDialog({ dealId, dealFondsId, fonds, onSchliessen }: { 
         }}
       >
         <FehlerHinweis fehler={anlegen.error} bekannt={BESCHLUSS_FELDER} />
-        <Feld label={f.gremium} autoComplete="off" {...feld("gremium")} fehler={fehler("gremium")} />
+        <Feld label={f.gremium} {...feld("gremium")} fehler={fehler("gremium")} />
         <Feld label={f.datum} type="date" {...feld("datum")} fehler={fehler("datum")} />
         <Auswahl label={f.ergebnis} {...feld("ergebnis")} fehler={fehler("ergebnis")}>
           {BESCHLUSS_ERGEBNISSE.map((e) => (
@@ -155,7 +155,7 @@ export function UebernahmeDialog({ deal, fonds, onSchliessen }: { deal: DealDeta
     } catch {
       stichtag = undefined;
     }
-    await navigate({ to: "/fonds/$fondsId", params: { fondsId: neu.fondsId }, search: { hervorgehoben: neu.id, ...(stichtag ? { stichtag } : {}) } });
+    await navigate({ to: "/funds/$fundId", params: { fundId: neu.fondsId }, search: { hervorgehoben: neu.id, ...(stichtag ? { stichtag } : {}) } });
   }
 
   return (
@@ -176,7 +176,7 @@ export function UebernahmeDialog({ deal, fonds, onSchliessen }: { deal: DealDeta
         <FehlerHinweis fehler={uebernehmen.error} bekannt={UEBERNAHME_FELDER} />
         {vorhanden ? (
           <p>
-            <Link to="/beteiligungen/$id" params={{ id: vorhanden }} search={{}}>
+            <Link to="/investments/$id" params={{ id: vorhanden }} search={{}}>
               {f.zurVorhandenen}
             </Link>
           </p>

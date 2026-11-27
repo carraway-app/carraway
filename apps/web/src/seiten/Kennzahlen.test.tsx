@@ -78,7 +78,7 @@ afterEach(() => vi.unstubAllGlobals());
 describe("Beteiligung: Reiter Kennzahlen", () => {
   it("zeigt Werte je Zeitraum und Szenario, die Abweichung gegen den Plan mit Hervorhebung und die Verdichtung", async () => {
     spieleApi(kennzahlenAntworten);
-    rendereApp(`/beteiligungen/${BET_ID}?ansicht=kennzahlen`);
+    rendereApp(`/investments/${BET_ID}?view=metrics`);
     const nutzer = userEvent.setup();
     const tabelle = await screen.findByRole("region", { name: "Kennzahlen des Unternehmens, Ist" });
     const kopf = within(tabelle).getAllByRole("columnheader").map((h) => h.textContent);
@@ -104,7 +104,7 @@ describe("Beteiligung: Reiter Kennzahlen", () => {
 
   it("Diagramme mit Textfassung und Tabelle als Alternative; Ja/Nein ohne Diagramm", async () => {
     spieleApi(kennzahlenAntworten);
-    rendereApp(`/beteiligungen/${BET_ID}?ansicht=kennzahlen`);
+    rendereApp(`/investments/${BET_ID}?view=metrics`);
     const nutzer = userEvent.setup();
     await screen.findByRole("region", { name: /Kennzahlen des Unternehmens, Ist/ });
     await nutzer.click(screen.getByRole("button", { name: "Diagramme" }));
@@ -121,9 +121,9 @@ describe("Beteiligung: Reiter Kennzahlen", () => {
   it("Englisch: Reiter, Szenarien, Bezeichnungen und Abweichung in englischer Schreibweise", async () => {
     localStorage.setItem("carraway.sprache", "en");
     spieleApi(kennzahlenAntworten);
-    rendereApp(`/beteiligungen/${BET_ID}?ansicht=kennzahlen`);
+    rendereApp(`/investments/${BET_ID}?view=metrics`);
     const tabelle = await screen.findByRole("region", { name: "Company key figures, Actual" });
-    expect(screen.getByRole("button", { name: "KPIs" }).getAttribute("aria-current")).toBe("page");
+    expect(screen.getByRole("tab", { name: "KPIs" }).getAttribute("aria-selected")).toBe("true");
     const umsatz = within(tabelle).getByRole("row", { name: /Revenue/ });
     expect(schmal(umsatz.textContent)).toContain("€1,234,567.89");
     expect(schmal(umsatz.textContent)).toContain("Deviation -€65,432.11 (-5.0%)");
@@ -132,20 +132,21 @@ describe("Beteiligung: Reiter Kennzahlen", () => {
 
   it("der Reiter wechselt zwischen Überblick und Kennzahlen über die Adresse", async () => {
     spieleApi(kennzahlenAntworten);
-    const { router } = rendereApp(`/beteiligungen/${BET_ID}`);
+    const { router } = rendereApp(`/investments/${BET_ID}`);
     const nutzer = userEvent.setup();
-    expect(await screen.findByRole("button", { name: "Übersicht" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Übersicht" }).getAttribute("aria-current")).toBe("page");
-    await nutzer.click(screen.getByRole("button", { name: "Kennzahlen" }));
+    const leiste = within(await screen.findByRole("navigation", { name: /^(Hauptnavigation|Main navigation)$/ }));
+    expect(await leiste.findByRole("link", { name: "Übersicht" })).toBeTruthy();
+    expect(leiste.getByRole("link", { name: "Übersicht" }).getAttribute("aria-current")).toBe("page");
+    await nutzer.click(leiste.getByRole("link", { name: "Unternehmen" }));
     expect(await screen.findByRole("region", { name: /Kennzahlen des Unternehmens, Ist/ })).toBeTruthy();
-    expect(router.state.location.search).toMatchObject({ tab: "kennzahlen" });
-    await nutzer.click(screen.getByRole("button", { name: "Übersicht" }));
+    expect(router.state.location.search).toMatchObject({ tab: "unternehmen" });
+    await nutzer.click(leiste.getByRole("link", { name: "Übersicht" }));
     expect(await screen.findByRole("heading", { level: 2, name: "Deal" })).toBeTruthy();
   });
 
   it("Erfassen: Dezimalkomma wird zum kanonischen Wert, Zeitraum und Szenario gehen an die API; Fehler stehen am Feld", async () => {
     const api = spieleApi({ ...kennzahlenAntworten, ...alsRoleAntwort(), [`POST /api/v1/beteiligungen/${BET_ID}/kennzahlen/werte`]: { status: 201, koerper: { id: "neu" } } });
-    rendereApp(`/beteiligungen/${BET_ID}?ansicht=kennzahlen`);
+    rendereApp(`/investments/${BET_ID}?view=metrics`);
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Wert erfassen" }));
     fireEvent.change(dialog().getByLabelText("Kennzahl"), { target: { value: "ebitda" } });
@@ -172,7 +173,7 @@ describe("Beteiligung: Reiter Kennzahlen", () => {
       "POST /api/v1/kennzahlen/werte/o2/verwerfen": { koerper: { id: "o2" } },
       "PATCH /api/v1/kennzahlen/werte/o1": { koerper: { id: "o1" } },
     });
-    rendereApp(`/beteiligungen/${BET_ID}?ansicht=kennzahlen`);
+    rendereApp(`/investments/${BET_ID}?view=metrics`);
     const nutzer = userEvent.setup();
     const offen = within(await screen.findByRole("region", { name: "Offene Kennzahlenwerte" }));
     const zeile1 = offen.getByRole("row", { name: /Umsatz/ });
@@ -197,7 +198,7 @@ describe("Beteiligung: Reiter Kennzahlen", () => {
 
   it("Betrachter: lesen ja, Wert erfassen, Bestätigen und Ändern nein", async () => {
     spieleApi({ ...kennzahlenAntworten, "/api/v1/me": alsRolle("betrachter") });
-    rendereApp(`/beteiligungen/${BET_ID}?ansicht=kennzahlen`);
+    rendereApp(`/investments/${BET_ID}?view=metrics`);
     await screen.findByRole("region", { name: "Offene Kennzahlenwerte" });
     expect(screen.queryByRole("button", { name: "Wert erfassen" })).toBeNull();
     expect(screen.queryByRole("button", { name: /bestätigen/ })).toBeNull();
@@ -236,7 +237,7 @@ const uebersichtDaten = (abfrage: Record<string, unknown> | null, extra: Record<
 });
 
 describe("Fonds: Kennzahlen-Abfragen", () => {
-  const seite = `/fonds/${FONDS_ID}/kennzahlen`;
+  const seite = `/funds/${FONDS_ID}/metrics`;
   const uebersichtPfad = `/api/v1/fonds/${FONDS_ID}/kennzahlen/uebersicht`;
   const listePfad = `/api/v1/fonds/${FONDS_ID}/kennzahlen/abfragen`;
 
@@ -253,7 +254,7 @@ describe("Fonds: Kennzahlen-Abfragen", () => {
     expect(alpha.textContent).toContain("Offen");
     expect(alpha.textContent).toContain("fällig 15.10.2026");
     expect(alpha.textContent).toContain("Umsatz, EBITDA");
-    expect(within(alpha).getByRole("link", { name: "Alpha Energie" }).getAttribute("href")).toBe(`/beteiligungen/${BET_ID}?tab=kennzahlen`);
+    expect(within(alpha).getByRole("link", { name: "Alpha Energie" }).getAttribute("href")).toBe(`/investments/${BET_ID}?tab=metrics`);
     expect(tabelle.getByRole("row", { name: /Beta Medizin/ }).textContent).toContain("keine Anfrage");
     expect(screen.getByText("Gesamt: 4 angefordert, 3 eingereicht, 2 bestätigt.")).toBeTruthy();
     // der Zeitraum geht als Kurzform an die API: das laufende Quartal
@@ -273,7 +274,7 @@ describe("Fonds: Kennzahlen-Abfragen", () => {
       ...alsRoleAntwort(),
       [uebersichtPfad]: { koerper: uebersichtDaten(null) },
       [listePfad]: { koerper: { daten: [] } },
-      [`POST /api/v1/beteiligungen/${BET_ID}/kennzahlen/abfragen`]: { status: 201, koerper: { abfrage: { id: "a9" }, link: { token, pfad: `/extern/abfrage/${token}`, ablauf: "2099-11-30T10:00:00.000Z" } } },
+      [`POST /api/v1/beteiligungen/${BET_ID}/kennzahlen/abfragen`]: { status: 201, koerper: { abfrage: { id: "a9" }, link: { token, pfad: `/external/requests/${token}`, ablauf: "2099-11-30T10:00:00.000Z" } } },
     });
     rendereApp(seite);
     const nutzer = userEvent.setup();
@@ -283,7 +284,7 @@ describe("Fonds: Kennzahlen-Abfragen", () => {
     await nutzer.type(dialog().getByLabelText("Hinweis an das Unternehmen (optional)"), "Bitte bis zum Stichtag.");
     await nutzer.click(dialog().getByRole("button", { name: "Anfrage anlegen" }));
     const link = await screen.findByLabelText("Link zum Kopieren");
-    expect((link as HTMLInputElement).value).toBe(`${window.location.origin}/extern/abfrage/${token}`);
+    expect((link as HTMLInputElement).value).toBe(`${window.location.origin}/external/requests/${token}`);
     expect(screen.getByText(/Dieser Link wird nur jetzt angezeigt/)).toBeTruthy();
     const body = api.anfragen("POST", `/api/v1/beteiligungen/${BET_ID}/kennzahlen/abfragen`)[0]!.koerper as Record<string, unknown>;
     const q = Math.floor(new Date().getMonth() / 3);
@@ -292,7 +293,7 @@ describe("Fonds: Kennzahlen-Abfragen", () => {
     expect(body.schluessel).toEqual(["umsatz"]);
     await nutzer.click(screen.getByRole("button", { name: "Link kopieren" }));
     expect(await screen.findByText("Link kopiert.")).toBeTruthy();
-    expect(await navigator.clipboard.readText()).toBe(`${window.location.origin}/extern/abfrage/${token}`);
+    expect(await navigator.clipboard.readText()).toBe(`${window.location.origin}/external/requests/${token}`);
   });
 
   it("neuer Link zeigt den neuen Link, Zurückziehen ruft die API; bei Betrachtern fehlen die Knöpfe", async () => {
@@ -302,7 +303,7 @@ describe("Fonds: Kennzahlen-Abfragen", () => {
       ...alsRoleAntwort(),
       [uebersichtPfad]: { koerper: uebersichtDaten({ id: "a1", status: "offen", faelligAm: "2099-10-15", erinnerung: null, abgelaufen: false }) },
       [listePfad]: { koerper: { daten: [] } },
-      "POST /api/v1/kennzahlen/abfragen/a1/neuer-link": { koerper: { abfrage: { id: "a1" }, link: { token, pfad: `/extern/abfrage/${token}`, ablauf: "2099-12-01T10:00:00.000Z" } } },
+      "POST /api/v1/kennzahlen/abfragen/a1/neuer-link": { koerper: { abfrage: { id: "a1" }, link: { token, pfad: `/external/requests/${token}`, ablauf: "2099-12-01T10:00:00.000Z" } } },
       "POST /api/v1/kennzahlen/abfragen/a1/widerrufen": { koerper: { id: "a1" } },
     });
     rendereApp(seite);
@@ -353,7 +354,7 @@ describe("Fonds: Kennzahlen-Abfragen", () => {
       [listePfad]: { koerper: { daten: [] } },
       [`PUT /api/v1/fonds/${FONDS_ID}/kennzahlen/auswahl`]: { koerper: { schluessel: ["umsatz", "ebitda"] } },
     });
-    rendereApp(`${seite}?tab=auswahl`);
+    rendereApp(`${seite}?tab=selection`);
     const nutzer = userEvent.setup();
     const gruppe = within(await screen.findByRole("group", { name: "Kennzahlen auswählen" }));
     expect((gruppe.getByRole("checkbox", { name: /^Umsatz/ }) as HTMLInputElement).checked).toBe(true);
@@ -367,7 +368,7 @@ describe("Fonds: Kennzahlen-Abfragen", () => {
 
   it("Bearbeiter sieht die Auswahl nur und kann sie nicht speichern", async () => {
     spieleApi({ ...kennzahlenAntworten, "/api/v1/me": alsRolle("bearbeiter"), [uebersichtPfad]: { koerper: uebersichtDaten(null) }, [listePfad]: { koerper: { daten: [] } } });
-    rendereApp(`${seite}?tab=auswahl`);
+    rendereApp(`${seite}?tab=selection`);
     await screen.findByRole("group", { name: "Kennzahlen auswählen" });
     expect(screen.getByText("Die Auswahl ändern Verwalter des Fonds.")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Auswahl speichern" })).toBeNull();
@@ -384,7 +385,7 @@ describe("Verwaltung: Kennzahlenkatalog", () => {
       "DELETE /api/v1/kennzahlen/katalog/ebitda": { koerper: { ...EBITDA, gueltigBis: "2026-11-19" } },
       "POST /api/v1/kennzahlen/katalog": { status: 201, koerper: { ...UMSATZ, schluessel: "kunden_wert" } },
     });
-    rendereApp("/verwaltung?bereich=kennzahlen");
+    rendereApp("/administration?section=metrics");
     const nutzer = userEvent.setup();
     const tabelle = within(await screen.findByRole("region", { name: "Kennzahlenkatalog" }));
     expect(tabelle.getByRole("row", { name: /umsatz/ }).textContent).toContain("Umsatz");
@@ -417,7 +418,7 @@ describe("Verwaltung: Kennzahlenkatalog", () => {
       ...kennzahlenAntworten,
       "POST /api/v1/kennzahlen/katalog": { status: 409, koerper: { error: { code: "metric_exists", message: "x" } } },
     });
-    rendereApp("/verwaltung?bereich=kennzahlen");
+    rendereApp("/administration?section=metrics");
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Neue Kennzahl" }));
     await nutzer.type(dialog().getByLabelText("Schlüssel"), "umsatz");

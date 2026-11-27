@@ -90,7 +90,7 @@ describe("Ausgangskorb und Versand", () => {
     expect(await verarbeite(mailer)).toMatchObject({ gesendet: 1, wiederholt: 0, fehlgeschlagen: 0 });
     expect(mailer.gesendet).toHaveLength(1);
     const m = mailer.gesendet[0]!;
-    const link = `${TESTORIGIN}/extern/abfrage/${token}`;
+    const link = `${TESTORIGIN}/external/requests/${token}`;
     expect(m.an).toBe("anna@alpha.example.com");
     expect(m.betreff).toBe("Kennzahlen-Abfrage: Alpha Beispiel");
     expect(m.text).toContain(link);
@@ -116,7 +116,7 @@ describe("Ausgangskorb und Versand", () => {
     for (const z of zeilen) expect(z.nachher).toMatchObject({ empfaenger: "anna@alpha.example.com", vorlage: "kennzahl_abfrage", bezugArt: "kennzahl_abfrage", bezugId: daten.abfrage.id });
     const alles = JSON.stringify(zeilen);
     expect(alles).not.toContain(token);
-    expect(alles).not.toContain("extern/abfrage");
+    expect(alles).not.toContain("external/requests");
     expect(alles).not.toMatch(/inhalt|html|betreff/i);
     // Auch die Änderungsabfrage und der Vollexport führen den Korb nicht.
     expect(await (await get("/changes?limit=1000", verwalter)).text()).not.toContain("mail_auftrag");
@@ -157,7 +157,7 @@ describe("Ausgangskorb und Versand", () => {
     expect((await t.request(`/extern/abfragen/${neu}`, { als: null })).status).toBe(200);
     const mailer = new FakeMailer();
     await verarbeite(mailer);
-    expect(mailer.gesendet[0]!.text).toContain(`/extern/abfrage/${neu}`);
+    expect(mailer.gesendet[0]!.text).toContain(`/external/requests/${neu}`);
     expect(mailer.gesendet[0]!.text).not.toContain(link.token);
     // Eine widerrufene Anfrage bekommt keinen Link per Mail.
     await post(`/kennzahlen/abfragen/${abfrage.id}/widerrufen`, undefined, bearbeiter);
@@ -418,7 +418,7 @@ describe("Berichtsfreigabe: interne Hinweise mit Opt-in", () => {
     await verarbeite(mailer);
     expect(mailer.gesendet.map((m) => m.an)).toEqual([optIn.email]);
     expect(mailer.gesendet[0]!.betreff).toBe("Report released: Fund report");
-    expect(mailer.gesendet[0]!.text).toContain(`${TESTORIGIN}/berichte/${bericht.id}`);
+    expect(mailer.gesendet[0]!.text).toContain(`${TESTORIGIN}/reports/${bericht.id}`);
     // Ohne Mailversand bleibt die Freigabe wie sie war (ohne Fehler).
     const bericht2 = await json(await post("/reports", { art: "fondsbericht", fondsId }, autor));
     let letzte2: Response | undefined;

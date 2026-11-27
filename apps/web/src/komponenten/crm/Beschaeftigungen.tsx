@@ -3,7 +3,8 @@ import { useQuery } from "@tanstack/react-query";
 import { Button, Feld as Eingabe } from "@carraway/ui";
 import { crmDealKontakte, useDealKontaktHinzufuegen } from "../../api/crm";
 import { FehlerHinweis } from "../FehlerHinweis";
-import { KontaktAuswahl, type Treffer } from "../KontaktAuswahl";
+import { PersonSuchfeld } from "../NeuAnlegenFelder";
+import type { SuchfeldTreffer } from "../Suchfeld";
 import { useT } from "../../i18n";
 import { Datensatzlink } from "./Datensatzlink";
 import { Schnellaktionen } from "./Zelle";
@@ -13,7 +14,7 @@ export function DealKontakteAbschnitt({ dealId, schreiben }: { dealId: string; s
   const t = useT();
   const abfrage = useQuery(crmDealKontakte(dealId));
   const hinzufuegen = useDealKontaktHinzufuegen(dealId);
-  const [gewaehlt, setGewaehlt] = useState<Treffer | null>(null);
+  const [gewaehlt, setGewaehlt] = useState<SuchfeldTreffer | null>(null);
   const [rolle, setRolle] = useState("");
   const zeilen = abfrage.data ?? [];
   return (
@@ -49,7 +50,7 @@ export function DealKontakteAbschnitt({ dealId, schreiben }: { dealId: string; s
             );
           }}
         >
-          <KontaktAuswahl art="person" label={t.crm.kontaktWaehlen} gewaehlt={gewaehlt} onWaehlen={setGewaehlt} />
+          <PersonSuchfeld label={t.crm.kontaktWaehlen} wert={gewaehlt} onWahl={setGewaehlt} />
           <Eingabe label={t.crm.rolle} value={rolle} onChange={(e) => setRolle(e.target.value)} />
           <div>
             <Button type="submit" disabled={!gewaehlt || hinzufuegen.isPending}>

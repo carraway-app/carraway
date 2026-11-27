@@ -45,7 +45,7 @@ const adressHash = (email: string) => createHash("sha256").update(email).digest(
 class ZurueckrollenAbsicht extends Error {}
 
 /** Link der Oberfläche zum Festlegen des Passworts; das Token steht im Fragment und gelangt damit weder in Zugriffsprotokolle noch in den Referer. */
-export const passwortLink = (basis: string, token: string) => `${basis}/passwort-setzen#token=${token}`;
+export const passwortLink = (basis: string, token: string) => `${basis}/set-password#token=${token}`;
 
 /**
  * Legt ein neues Token für die Person an (frühere Token der Person verfallen) und gibt es zurück.

@@ -54,7 +54,7 @@ describe("Laden mit der Seite", () => {
     expect(t.nav.beschriftung).toBe(de.nav.beschriftung);
     expect("buchhaltung" in t).toBe(false);
     expect(t.fehler.voucher_not_found).toBeUndefined();
-    await ladeSeitentexte("/belege");
+    await ladeSeitentexte("/vouchers");
     expect(t.buchhaltung.nav.belege).toBe(de.buchhaltung.nav.belege);
     expect(t.fehler.voucher_not_found).toBe(de.fehler.voucher_not_found);
     // allgemeine Fehlertexte kommen mit jeder Seite nach der Anmeldung
@@ -78,14 +78,14 @@ describe("Laden mit der Seite", () => {
 
   it("die Seiten vor der Anmeldung laden nur den Rahmen", async () => {
     setzeTexteZurueck();
-    await ladeSeitentexte("/anmelden");
+    await ladeSeitentexte("/sign-in");
     const t = tabelleFuer("de");
     expect(t.anmeldung.titel).toBe(de.anmeldung.titel);
     expect(t.fehler.INVALID_EMAIL_OR_PASSWORD).toBe(de.fehler.INVALID_EMAIL_OR_PASSWORD);
     expect(t.fehler.fund_not_found).toBeUndefined();
     // Außer dem Rahmen kommt nur der kleine Bereich „konto“ (Anmeldung, Passwort, zweiter Faktor), nie die Fehlertexte der übrigen Seiten.
-    expect(bereicheFuerPfad("/anmelden")).toEqual(["konto"]);
-    expect(bereicheFuerPfad("/passwort-setzen")).toEqual(["konto"]);
+    expect(bereicheFuerPfad("/sign-in")).toEqual(["konto"]);
+    expect(bereicheFuerPfad("/set-password")).toEqual(["konto"]);
   });
 
   it("ein nicht geladener Bereich hält die Darstellung an, lädt nach und liefert danach die Texte", async () => {
@@ -106,7 +106,7 @@ describe("Laden mit der Seite", () => {
 
   it("beim Umschalten der Sprache kommen die schon gebrauchten Bereiche in der neuen Sprache mit", async () => {
     setzeTexteZurueck();
-    await ladeSeitentexte("/belege", "de");
+    await ladeSeitentexte("/vouchers", "de");
     const englisch = await ladeTexte("en");
     expect(englisch.buchhaltung.nav.belege).toBe(en.buchhaltung.nav.belege);
   });
@@ -119,12 +119,12 @@ describe("Laden mit der Seite", () => {
 
 describe("Adressen und Bereiche", () => {
   it("ordnet die Seiten ihren Bereichen zu; unbekannte Adressen brauchen nur die allgemeinen Fehlertexte", () => {
-    expect(bereicheFuerPfad("/berichte")).toEqual(["berichte", "stamm", "fehlertexte"]);
-    expect(bereicheFuerPfad("/berichte/vorlagen")).toEqual(["berichte", "kennzahlen", "stamm", "fehlertexte"]);
-    expect(bereicheFuerPfad("/berichte/abc")).toEqual(["berichte", "stamm", "fehlertexte"]);
-    expect(bereicheFuerPfad("/fonds/abc")).toContain("kennzahlen");
-    expect(bereicheFuerPfad("/fonds/abc/journal")).toEqual(["buchhaltung", "instrumente", "journal", "stamm", "fehlertexte"]);
-    expect(bereicheFuerPfad("/verwaltung")).toContain("verwaltung");
+    expect(bereicheFuerPfad("/reports")).toEqual(["berichte", "stamm", "fehlertexte"]);
+    expect(bereicheFuerPfad("/reports/templates")).toEqual(["berichte", "kennzahlen", "stamm", "fehlertexte"]);
+    expect(bereicheFuerPfad("/reports/abc")).toEqual(["berichte", "stamm", "fehlertexte"]);
+    expect(bereicheFuerPfad("/funds/abc")).toContain("kennzahlen");
+    expect(bereicheFuerPfad("/funds/abc/journal")).toEqual(["buchhaltung", "instrumente", "journal", "stamm", "fehlertexte"]);
+    expect(bereicheFuerPfad("/administration")).toContain("verwaltung");
     expect(bereicheFuerPfad("/gibt-es-nicht")).toEqual(["fehlertexte"]);
   });
 });

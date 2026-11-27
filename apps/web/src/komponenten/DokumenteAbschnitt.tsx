@@ -116,7 +116,7 @@ export function DokumenteAbschnitt({ zielTyp, zielId, fondsId, lesend = false }:
       kopf: d.spalten.name,
       zelle: (z) => (
         <>
-          <Link to="/dokumente/$id" params={{ id: z.id }} search={{}}>
+          <Link to="/documents/$id" params={{ id: z.id }} search={{}}>
             {z.dateiname}
           </Link>
           {z.vertraulich ? <>{" · "}<span className="app-leer-text">{d.vertraulich}</span></> : null}

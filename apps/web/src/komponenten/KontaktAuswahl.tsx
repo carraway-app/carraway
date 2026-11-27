@@ -42,7 +42,6 @@ export function KontaktAuswahl({
       <Feld
         type="search"
         label={label}
-        autoComplete="off"
         value={eingabe}
         onChange={(e) => setEingabe(e.target.value)}
         hilfe={gewaehlt ? t.auswahl.gewaehlt(gewaehlt.label) : t.auswahl.hinweis}

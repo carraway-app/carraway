@@ -1,5 +1,5 @@
 /**
- * Währungssicht in der Adresse (Etappe 21): `?sicht=lokal|vergleich` und `?vergleich=USD`. Ohne Angabe gilt die Fondswährung (die Sicht „Fonds“), die Seite zeigt dann
+ * Währungssicht in der Adresse (Etappe 21): `?currencyView=local|vergleich` und `?comparison=USD`. Ohne Angabe gilt die Fondswährung (die Sicht „Fonds“), die Seite zeigt dann
  * genau die Zahlen der Kennzahlen. Die gewählte Sicht steht in der Adresse, damit ein Link dieselbe Sicht zeigt.
  */
 

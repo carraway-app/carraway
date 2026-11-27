@@ -17,7 +17,7 @@ import { wirksamerFonds } from "../lib/fonds";
 import { useRechte } from "../lib/rechte";
 import { merkeFonds } from "../zustand";
 
-const route = getRouteApi("/berichte/vorlagen");
+const route = getRouteApi("/reports/templates");
 
 /** Die wählbaren Listen und die gespeicherte Konfiguration kommen aus der API (`erlaubt`); die Oberfläche führt keine eigene Abschrift. */
 type Erlaubt = Vorlage["erlaubt"];
@@ -69,7 +69,7 @@ function VorlagenFuerFonds({ fondsId, fondsName }: { fondsId: string; fondsName:
       <Seitenkopf
         meta={
           <>
-            <Link to="/berichte" search={{ fondsId }}>
+            <Link to="/reports" search={{ fondsId }}>
               {t.vorlagen.zurueck}
             </Link>
             {" · "}
@@ -152,7 +152,7 @@ function StufenFormular({ speichern, start }: { speichern: ReturnType<typeof use
         texte={{ griff: s.griff, hinweis: s.bedienung, aufgenommen: s.aufgenommen, verschoben: s.verschoben, abgelegt: s.abgelegt, abgebrochen: s.abgebrochen }}
         zeile={(x) => (
           <div className="app-stufenzeile">
-            <Feld label={s.name(stufen.findIndex((y) => y.id === x.id) + 1)} autoComplete="off" value={x.name} onChange={(e) => setStufen((alt) => alt.map((y) => (y.id === x.id ? { ...y, name: e.target.value } : y)))} />
+            <Feld label={s.name(stufen.findIndex((y) => y.id === x.id) + 1)} value={x.name} onChange={(e) => setStufen((alt) => alt.map((y) => (y.id === x.id ? { ...y, name: e.target.value } : y)))} />
             <Button variante="ruhig" disabled={stufen.length <= 2} aria-label={s.entfernen(anzeige(x.name))} onClick={() => setStufen((alt) => alt.filter((y) => y.id !== x.id))}>
               ×
             </Button>

@@ -138,7 +138,7 @@ describe("Thema: Einstellungen", () => {
     wurzel().dataset.theme = "hell";
     const api = einstellungenApi({ "PATCH /api/v1/theme": (a) => ({ koerper: a.koerper }) });
     const nutzer = userEvent.setup();
-    rendereApp("/einstellungen/postfach?tab=darstellung");
+    rendereApp("/settings/mailbox?tab=display");
     const gruppe = await screen.findByRole("group", { name: "Thema" });
     expect(within(gruppe).getByRole("button", { name: "Hell" }).getAttribute("aria-pressed")).toBe("true");
     expect(within(gruppe).getByRole("button", { name: "System" }).getAttribute("aria-pressed")).toBe("false");
@@ -151,7 +151,7 @@ describe("Thema: Einstellungen", () => {
   it("zeigt den Reiter auf Englisch", async () => {
     localStorage.setItem("carraway.sprache", "en");
     einstellungenApi();
-    rendereApp("/einstellungen/postfach?tab=darstellung");
+    rendereApp("/settings/mailbox?tab=display");
     const gruppe = await screen.findByRole("group", { name: "Theme" });
     expect(within(gruppe).getAllByRole("button").map((b) => b.textContent)).toEqual(["System", "Light", "Dark"]);
     expect(screen.getByRole("tab", { name: "Appearance" })).toBeTruthy();

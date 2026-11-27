@@ -347,7 +347,7 @@ function FondsErgebnis({ f }: { f: FondsSummen }) {
   const betrag = (wert: string | null) => (wert === null ? t.gemeinsam.keinWert : formatBetragCent(wert, sprache));
   const kontrollen = f.kontrollsummen;
   const spalten: TabelleSpalte<FondsSummen["kontrollsummen"][number]>[] = [
-    { schluessel: "groesse", kopf: d.spalten.groesse, zelle: (k) => aufzaehlung(d.groessen, k.groesse) },
+    { schluessel: "groesse", kopf: d.spalten.groesse, zelle: (k) => `${aufzaehlung(d.groessen, k.groesse)}${k.beteiligung ? ` · ${k.beteiligung}` : ""}` },
     { schluessel: "quelle", kopf: d.spalten.quelle, zahl: true, zelle: (k) => betrag(k.quelle) },
     { schluessel: "ist", kopf: d.spalten.ist, zahl: true, zelle: (k) => betrag(k.ist) },
     { schluessel: "differenz", kopf: d.spalten.differenz, zahl: true, zelle: (k) => betrag(k.differenz) },
@@ -374,7 +374,7 @@ function FondsErgebnis({ f }: { f: FondsSummen }) {
           <dd className="app-zahl">{betrag(f.nav)}</dd>
         </div>
       </dl>
-      {kontrollen.length > 0 ? <Tabelle beschriftung={d.kontrollTabelle(f.name)} spalten={spalten} zeilen={kontrollen} zeilenSchluessel={(k) => `${k.groesse}-${k.stichtag ?? ""}`} /> : null}
+      {kontrollen.length > 0 ? <Tabelle beschriftung={d.kontrollTabelle(f.name)} spalten={spalten} zeilen={kontrollen} zeilenSchluessel={(k) => `${k.groesse}-${k.beteiligung ?? ""}-${k.stichtag ?? ""}`} /> : null}
     </div>
   );
 }

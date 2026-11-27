@@ -137,7 +137,7 @@ export function KontaktImportSeite() {
         meta={k.etikett}
         titel={k.titel}
         aktionen={
-          <Link to="/kontakte" className="cw-button cw-button--sekundaer">
+          <Link to="/contacts" className="cw-button cw-button--sekundaer">
             {k.zuKontakten}
           </Link>
         }

@@ -1,64 +1,76 @@
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
-import { BERICHT_ID, FONDS_ID, ICH_ID, ZL_ID, alsRolle, beteiligungDaten, fondsDaten, ichDaten, rendereApp, spieleApi, uebersichtDaten } from "../test/hilfen";
+import { BERICHT_ID, FONDS_ID, ICH_ID, ZL_ID, alsRolle, beteiligungDaten, fondsDaten, ichDaten, rendereApp, spieleApi, uebersichtDaten, waehleFonds } from "../test/hilfen";
 
-const url = `/fonds/${FONDS_ID}`;
+const url = `/funds/${FONDS_ID}`;
 const NAV_SCHLUESSEL = `carraway.nav.${ICH_ID}`;
 
 /** Rahmen der Anwendung (Etappe 19): Seitenleiste mit Gruppen, Schmal-Modus, Konto unten links, Pfad in der Kopfzeile. */
 describe("Rahmen: Seitenleiste", () => {
-  it("gruppiert die Navigation und zeigt Zeichen vor jedem Eintrag", async () => {
+  it("wechselt in den Fondskontext: Rückweg, Fonds mit Umschalter, Orte des Fonds mit Zeichen", async () => {
     spieleApi();
     rendereApp(url);
-    const nav = await screen.findByRole("navigation", { name: "Hauptnavigation" });
-    for (const gruppe of ["Dealflow & CRM", "Finanzen", "Daten"]) expect(within(nav).getByRole("button", { name: gruppe })).toBeTruthy();
-    expect(within(nav).getAllByRole("link").slice(0, 3).map((link) => link.textContent)).toEqual(["Fonds", "Dashboard", "Portfolio"]);
-    for (const eintrag of ["Fonds", "Dashboard", "Portfolio", "Dealflow", "Kontakte", "Journal", "Zinsen", "Belege", "Buchhaltung", "Meldungen", "Berichte", "Register", "Datenübernahme"]) {
-      const link = within(nav).getByRole("link", { name: eintrag });
-      expect(link.querySelector("svg[data-glyph]")).not.toBeNull();
+    const leiste = within(await screen.findByRole("complementary", { name: "Seitenleiste" }));
+    const nav = within(leiste.getByRole("navigation", { name: "Hauptnavigation" }));
+    expect(leiste.getByRole("link", { name: "Alle Bereiche" }).getAttribute("href")).toBe("/funds");
+    // Mit nur einem Fonds steht der Kopf ohne Umschalter da.
+    expect(leiste.getByText("Beispielfonds I", { selector: ".app-kontext__titel" })).toBeTruthy();
+    expect(leiste.queryByRole("button", { name: /Fonds auswählen$/ })).toBeNull();
+    for (const gruppe of ["Portfolio", "Kapital", "Finanzen", "Fonds"]) expect(nav.getByRole("button", { name: gruppe })).toBeTruthy();
+    for (const eintrag of ["Übersicht", "Kennzahlen", "Planung", "Bewertungsrunde", "Zielfonds", "Investoren", "Journal", "Belege", "Zinsen", "Buchhaltung", "Meldungen", "Berichte", "Stammdaten", "Dokumente"]) {
+      expect(nav.getByRole("link", { name: eintrag }).querySelector("svg[data-glyph]")).not.toBeNull();
     }
-    expect(within(nav).getByRole("link", { name: "Portfolio" }).getAttribute("aria-current")).toBe("page");
-    // Verwaltung steht im Kontomenü, nicht in der Seitenleiste.
-    expect(within(nav).queryByRole("link", { name: "Verwaltung" })).toBeNull();
+    expect(nav.getByRole("link", { name: "Übersicht" }).getAttribute("aria-current")).toBe("page");
+    expect(nav.getByRole("link", { name: "Belege" }).getAttribute("href")).toBe(`/vouchers?fundId=${FONDS_ID}`);
+    // Keine Fondsauswahl als eigenes Feld mehr, keine globalen Einträge im Fondskontext; Verwaltung steht im Kontomenü.
+    expect(screen.queryByRole("combobox", { name: "Fonds" })).toBeNull();
+    expect(nav.queryByRole("link", { name: "Dealflow" })).toBeNull();
+    expect(nav.queryByRole("link", { name: "Verwaltung" })).toBeNull();
   });
 
-  it("öffnet die Fondsliste und hält den Kapitalreiter beim Wechsel des Fonds", async () => {
+  it("global: Fonds, Dashboard, Dealflow und Kontakte, Daten; die Finanzbereiche stehen nur im Fonds", async () => {
+    spieleApi();
+    rendereApp("/dealflow");
+    const nav = within(await screen.findByRole("navigation", { name: "Hauptnavigation" }));
+    expect(nav.getAllByRole("link").map((l) => l.textContent)).toEqual(["Fonds", "Dashboard", "Dealflow", "Kontakte", "Register", "Datenübernahme"]);
+    expect(nav.getByRole("link", { name: "Dealflow" }).getAttribute("aria-current")).toBe("page");
+    expect(screen.queryByRole("link", { name: "Alle Bereiche" })).toBeNull();
+  });
+  it("führt von der Fondsliste in den Fonds und hält beim Wechsel über den Umschalter den Bereich", async () => {
     const zweiter = { ...fondsDaten.daten[0]!, id: "22222222-2222-4222-8222-222222222222", name: "Beispielfonds II" };
     spieleApi({
       "/api/v1/fonds": { koerper: { daten: [...fondsDaten.daten, zweiter] } },
       [`/api/v1/fonds/${zweiter.id}/bewegungen`]: { koerper: { daten: [] } },
     });
     const nutzer = userEvent.setup();
-    const { router } = rendereApp(url);
-    const nav = within(await screen.findByRole("navigation", { name: "Hauptnavigation" }));
-    await nutzer.click(nav.getByRole("link", { name: "Fonds" }));
+    const { router } = rendereApp("/funds");
     await screen.findByRole("region", { name: "Fondsliste" });
-    const auswahl = screen.getByRole<HTMLSelectElement>("combobox", { name: "Fonds" });
-    expect(auswahl.selectedOptions[0]?.textContent).toBe("Fonds auswählen");
-    await nutzer.selectOptions(auswahl, FONDS_ID);
-    await nutzer.click(await screen.findByRole("button", { name: "Kapitaltransaktionen" }));
-    await nutzer.selectOptions(screen.getByRole("combobox", { name: "Fonds" }), zweiter.id);
+    // Global ist „Fonds“ aktiv; ein Fonds führt auf seine Übersicht (Fonds und Portfolio sind ein Ziel).
+    expect(within(screen.getByRole("navigation", { name: "Hauptnavigation" })).getByRole("link", { name: "Fonds" }).getAttribute("aria-current")).toBe("page");
+    await nutzer.click(within(screen.getByRole("main")).getByRole("link", { name: "Beispielfonds I" }));
+    await waitFor(() => expect(router.state.location.pathname).toBe(url));
+    const nav = within(await screen.findByRole("navigation", { name: "Hauptnavigation" }));
+    await nutzer.click(nav.getByRole("link", { name: "Investoren" }));
+    await waitFor(() => expect(router.state.location.search).toMatchObject({ fondsId: FONDS_ID, tab: "kapital" }));
+    await waehleFonds("Beispielfonds II");
     await waitFor(() => expect(router.state.location.search).toMatchObject({ fondsId: zweiter.id, tab: "kapital" }));
     expect(await screen.findByRole("heading", { level: 1, name: zweiter.name })).toBeTruthy();
-    expect(nav.getByRole("link", { name: "Fonds" }).getAttribute("aria-current")).toBe("page");
-    expect(nav.getByRole("link", { name: "Portfolio" }).getAttribute("aria-current")).toBeNull();
+    expect(within(screen.getByRole("navigation", { name: "Hauptnavigation" })).getByRole("link", { name: "Investoren" }).getAttribute("aria-current")).toBe("page");
   });
-
-  it("zeigt beim direkten Aufruf einer Beteiligung den zugehörigen Fonds im Journal-Link", async () => {
+  it("zeigt beim direkten Aufruf einer Beteiligung den Rückweg zum zugehörigen Fonds", async () => {
     const zweiter = { ...fondsDaten.daten[0]!, id: "22222222-2222-4222-8222-222222222222", name: "Beispielfonds II" };
     localStorage.setItem("carraway.fonds", zweiter.id);
     spieleApi({ "/api/v1/fonds": { koerper: { daten: [...fondsDaten.daten, zweiter] } } });
-    rendereApp(`/beteiligungen/${beteiligungDaten.beteiligung.id}`);
+    rendereApp(`/investments/${beteiligungDaten.beteiligung.id}`);
     await screen.findByRole("heading", { name: beteiligungDaten.organisation.name, level: 1 });
-    const nav = within(screen.getByRole("navigation", { name: "Hauptnavigation" }));
-    expect(nav.getByRole("link", { name: "Journal" }).getAttribute("href")).toBe(`/fonds/${FONDS_ID}/journal`);
-    await waitFor(() => expect(screen.getByRole<HTMLSelectElement>("combobox", { name: "Fonds" }).value).toBe(FONDS_ID));
+    // Objektkontext: der Rückweg führt zum Fonds der Beteiligung, nicht zum zuletzt gemerkten
+    const leiste = within(screen.getByRole("complementary", { name: "Seitenleiste" }));
+    expect((await leiste.findByRole("link", { name: "Beispielfonds I" })).getAttribute("href")).toBe(`/funds/${FONDS_ID}`);
   });
-
   it.each([
-    [`/berichte/${BERICHT_ID}`, "/berichte"],
-    [`/zinslaeufe/${ZL_ID}`, "/zinslaeufe"],
+    [`/reports/${BERICHT_ID}`, "/reports"],
+    [`/interest-runs/${ZL_ID}`, "/interest-runs"],
   ])("nimmt beim Direktlink %s den Fonds aus den Detaildaten", async (pfad, liste) => {
     const zweiter = { ...fondsDaten.daten[0]!, id: "22222222-2222-4222-8222-222222222222", name: "Beispielfonds II" };
     localStorage.setItem("carraway.fonds", zweiter.id);
@@ -68,38 +80,46 @@ describe("Rahmen: Seitenleiste", () => {
     });
     const { router } = rendereApp(pfad);
     const nav = within(await screen.findByRole("navigation", { name: "Hauptnavigation" }));
-    const auswahl = screen.getByRole<HTMLSelectElement>("combobox", { name: "Fonds" });
-    expect(auswahl.value).toBe(FONDS_ID);
-    expect(nav.getByRole("link", { name: "Journal" }).getAttribute("href")).toBe(`/fonds/${FONDS_ID}/journal`);
-    await userEvent.selectOptions(auswahl, zweiter.id);
+    expect(await screen.findByRole("button", { name: /^Beispielfonds I .*, Fonds auswählen$/ })).toBeTruthy();
+    expect(nav.getByRole("link", { name: "Journal" }).getAttribute("href")).toBe(`/funds/${FONDS_ID}/journal`);
+    await waehleFonds("Beispielfonds II");
     await waitFor(() => expect(router.state.location.pathname).toBe(liste));
     expect(router.state.location.search).toEqual({ fondsId: zweiter.id });
   });
-
-  it.each(["/berichte/vorlagen", "/beschlussvorlagen"])("bleibt auf %s und verwendet nur die Fondsauswahl der Seitenleiste", async (pfad) => {
+  it("bleibt auf /reports/templates und wechselt den Fonds nur über den Umschalter der Leiste", async () => {
     const zweiter = { ...fondsDaten.daten[0]!, id: "22222222-2222-4222-8222-222222222222", name: "Beispielfonds II" };
     spieleApi({
       "/api/v1/fonds": { koerper: { daten: [...fondsDaten.daten, zweiter] } },
       "/api/v1/resolution-templates": { koerper: { daten: [], platzhalter: [] } },
     });
-    const { router } = rendereApp(`${pfad}?fondsId=${FONDS_ID}`);
-    const auswahl = await screen.findByRole<HTMLSelectElement>("combobox", { name: "Fonds" });
+    const { router } = rendereApp(`/reports/templates?fundId=${FONDS_ID}`);
+    await screen.findByRole("button", { name: /^Beispielfonds I .*, Fonds auswählen$/ });
+    await waehleFonds("Beispielfonds II");
+    await waitFor(() => expect(router.state.location.search).toEqual({ fondsId: zweiter.id }));
+    expect(router.state.location.pathname).toBe("/reports/templates");
+    expect(within(screen.getByRole("main")).queryByRole("combobox", { name: "Fonds" })).toBeNull();
+  });
+  it("wechselt auf /decision-proposals den Fonds über die Auswahl der Seite (Dealflow, globale Leiste)", async () => {
+    const zweiter = { ...fondsDaten.daten[0]!, id: "22222222-2222-4222-8222-222222222222", name: "Beispielfonds II" };
+    spieleApi({
+      "/api/v1/fonds": { koerper: { daten: [...fondsDaten.daten, zweiter] } },
+      "/api/v1/resolution-templates": { koerper: { daten: [], platzhalter: [] } },
+    });
+    const { router } = rendereApp(`/decision-proposals?fundId=${FONDS_ID}`);
+    const auswahl = await within(await screen.findByRole("main")).findByRole<HTMLSelectElement>("combobox", { name: "Fonds" });
     expect(auswahl.value).toBe(FONDS_ID);
     await userEvent.selectOptions(auswahl, zweiter.id);
     await waitFor(() => expect(router.state.location.search).toEqual({ fondsId: zweiter.id }));
-    expect(router.state.location.pathname).toBe(pfad);
-    expect(within(screen.getByRole("main")).queryByRole("combobox", { name: "Fonds" })).toBeNull();
+    expect(router.state.location.pathname).toBe("/decision-proposals");
   });
 
   it("meldet die leere Fondsliste und verlinkt zur Einrichtung", async () => {
     spieleApi({ "/api/v1/fonds": { koerper: { daten: [] } } });
     rendereApp("/");
-    const auswahl = await screen.findByRole<HTMLSelectElement>("combobox", { name: "Fonds" });
-    await waitFor(() => expect(auswahl.selectedOptions[0]?.textContent).toBe("Noch kein Fonds"));
-    const main = within(screen.getByRole("main"));
-    expect(main.getByRole("link", { name: "Fonds" }).getAttribute("href")).toBe("/fonds");
+    const main = within(await screen.findByRole("main"));
+    expect((await main.findByRole("link", { name: "Fonds" })).getAttribute("href")).toBe("/funds");
+    expect(screen.queryByRole("link", { name: "Alle Bereiche" })).toBeNull();
   });
-
   it("klebt am Rand und scrollt für sich (Seitenleiste ist eine eigene Landmarke)", async () => {
     spieleApi();
     rendereApp(url);
@@ -111,7 +131,7 @@ describe("Rahmen: Seitenleiste", () => {
   it("klappt Gruppen ein und merkt das je Person; die Gruppe mit der aktiven Seite zeigt nur diese", async () => {
     spieleApi();
     const nutzer = userEvent.setup();
-    const { unmount } = rendereApp(`/zinslaeufe`);
+    const { unmount } = rendereApp(`/interest-runs`);
     const nav = await screen.findByRole("navigation", { name: "Hauptnavigation" });
     const kopf = within(nav).getByRole("button", { name: "Finanzen" });
     expect(kopf.getAttribute("aria-expanded")).toBe("true");
@@ -124,14 +144,13 @@ describe("Rahmen: Seitenleiste", () => {
 
     // Neuer Aufruf: der Zustand kommt aus dem Speicher.
     spieleApi();
-    rendereApp(`/dealflow`);
+    rendereApp(`/interest-runs`);
     const nav2 = await screen.findByRole("navigation", { name: "Hauptnavigation" });
     expect(within(nav2).getByRole("button", { name: "Finanzen" }).getAttribute("aria-expanded")).toBe("false");
-    expect(within(nav2).getByRole("button", { name: "Dealflow & CRM" }).getAttribute("aria-expanded")).toBe("true");
+    expect(within(nav2).getByRole("button", { name: "Portfolio" }).getAttribute("aria-expanded")).toBe("true");
     await nutzer.click(within(nav2).getByRole("button", { name: "Finanzen" }));
     expect(within(nav2).getByRole("link", { name: "Belege" })).toBeTruthy();
   });
-
   it("schaltet auf die schmale Leiste um: nur Zeichen mit Tooltip, per Tastatur bedienbar, gemerkt", async () => {
     spieleApi();
     const nutzer = userEvent.setup();
@@ -154,14 +173,13 @@ describe("Rahmen: Seitenleiste", () => {
     expect((await screen.findByRole("complementary", { name: "Seitenleiste" })).getAttribute("data-schmal")).toBe("ja");
   });
 
-  it("zeigt oben die Fondsauswahl und wechselt den Fonds", async () => {
+  it("der Rückweg führt aus dem Fonds in die globale Leiste", async () => {
     spieleApi();
-    const { router } = rendereApp("/dealflow");
-    const auswahl = within(await screen.findByRole("complementary", { name: "Seitenleiste" })).getByLabelText("Fonds");
-    await waitFor(() => expect((auswahl as HTMLSelectElement).disabled).toBe(false));
-    expect((auswahl as HTMLSelectElement).value).toBe(FONDS_ID);
-    fireEvent.change(auswahl, { target: { value: FONDS_ID } });
-    await waitFor(() => expect(router.state.location.pathname).toBe(url));
+    const nutzer = userEvent.setup();
+    const { router } = rendereApp(url);
+    await nutzer.click(await screen.findByRole("link", { name: "Alle Bereiche" }));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/funds"));
+    expect(within(screen.getByRole("navigation", { name: "Hauptnavigation" })).getByRole("link", { name: "Dealflow" })).toBeTruthy();
   });
 });
 
@@ -178,8 +196,8 @@ describe("Rahmen: Konto unten links", () => {
     expect(menue.parentElement?.className).toContain("cw-menue--oben");
     expect(within(menue).getByRole("menuitemradio", { name: "Deutsch" }).getAttribute("aria-checked")).toBe("true");
     expect(within(menue).getByRole("menuitemradio", { name: "English" }).getAttribute("aria-checked")).toBe("false");
-    expect(within(menue).getByRole("menuitem", { name: "Einstellungen" }).getAttribute("href")).toBe("/einstellungen/postfach");
-    expect(within(menue).getByRole("menuitem", { name: "Verwaltung" }).getAttribute("href")).toBe("/verwaltung");
+    expect(within(menue).getByRole("menuitem", { name: "Einstellungen" }).getAttribute("href")).toBe("/settings/mailbox");
+    expect(within(menue).getByRole("menuitem", { name: "Verwaltung" }).getAttribute("href")).toBe("/administration");
     expect(within(menue).queryByRole("menuitem", { name: "API-Hilfe" })).toBeNull();
     expect(within(menue).queryByRole("menuitem", { name: "Mailversand" })).toBeNull();
     expect(within(menue).getAllByRole("menuitem").map((e) => e.textContent)).toEqual(["Einstellungen", "Verwaltung", "Abmelden"]);
@@ -207,23 +225,22 @@ describe("Rahmen: Konto unten links", () => {
     expect(screen.queryByRole("menu")).toBeNull();
     await nutzer.click(screen.getByRole("button", { name: /Kontomenü/ }));
     await nutzer.click(screen.getByRole("menuitem", { name: "Einstellungen" }));
-    await waitFor(() => expect(router.state.location.pathname).toBe("/einstellungen/postfach"));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/settings/mailbox"));
   });
 });
 
 describe("Rahmen: Kopfzeile", () => {
   it("zeigt den Pfad zur Seite und die Suche", async () => {
     spieleApi();
-    rendereApp(`/beteiligungen/b1`);
+    rendereApp(`/funds/${FONDS_ID}/scenarios`);
     const pfad = await screen.findByRole("navigation", { name: "Pfad" });
     const eintraege = within(pfad).getAllByRole("listitem");
-    expect(eintraege.map((e) => e.textContent)).toEqual(["Portfolio", "Beteiligung"]);
-    expect(eintraege[1]!.getAttribute("aria-current")).toBe("page");
-    expect(within(pfad).getByRole("link", { name: "Portfolio" })).toBeTruthy();
+    await waitFor(() => expect(eintraege.map((e) => e.textContent)).toEqual(["Fonds", "Beispielfonds I", "Planung"]));
+    expect(within(pfad).getAllByRole("listitem").at(-1)!.getAttribute("aria-current")).toBe("page");
+    expect(within(pfad).getByRole("link", { name: "Beispielfonds I" }).getAttribute("href")).toBe(url);
     const kopf = screen.getByRole("banner", { name: "Kopfzeile" });
     expect(within(kopf).getByRole("button", { name: /Suche/ })).toBeTruthy();
   });
-
   it("nennt die Gruppe im Pfad", async () => {
     spieleApi();
     rendereApp("/dealflow");
@@ -234,59 +251,35 @@ describe("Rahmen: Kopfzeile", () => {
   it("auf englisch: Pfad und Gruppen übersetzt", async () => {
     localStorage.setItem("carraway.sprache", "en");
     spieleApi({ "/api/v1/me": { koerper: { ...ichDaten } } });
-    rendereApp("/zinslaeufe");
+    rendereApp("/interest-runs");
     const pfad = await screen.findByRole("navigation", { name: "Path" });
-    expect(within(pfad).getAllByRole("listitem").map((e) => e.textContent)).toEqual(["Finance", "Interest"]);
+    await waitFor(() => expect(within(pfad).getAllByRole("listitem").map((e) => e.textContent)).toEqual(["Funds", "Beispielfonds I", "Interest"]));
   });
 });
 
-describe("Rahmen: Reiterleiste des Fonds", () => {
-  it("zeigt auf allen Portfolio-Seiten den Seitenkopf vor den Reitern und behält beim Wechsel den Fokus", async () => {
+describe("Rahmen: Bereiche des Fonds in der Seitenleiste", () => {
+  it("zeigt auf allen Fondsseiten den Kopf über dem Bereich; ein Wechsel in der Leiste ist eine eigene Adresse", async () => {
     spieleApi();
     const nutzer = userEvent.setup();
     const { router } = rendereApp(url);
-    const leiste = await screen.findByRole("navigation", { name: "Bereiche des Portfolios" });
-    expect(within(leiste).getByRole("button", { name: "Übersicht" }).getAttribute("aria-current")).toBe("page");
-    for (const name of ["Szenarien", "Reserven", "Zinsen", "Kennzahlen", "Bewertungsrunde"]) expect(within(leiste).getByRole("button", { name })).toBeTruthy();
-    // Reiter der Erweiterungen (ESG) gibt es nur im Build „Voll“ (ee/web/src/kern-tests/Rahmen.test.tsx).
-    expect(within(leiste).queryByRole("button", { name: "ESG" })).toBeNull();
-    expect(within(leiste).queryByRole("button", { name: "Buchhaltung" })).toBeNull();
-    // Gliederung: Gruppenköpfe mit ihren Einträgen
-    const gruppen = within(leiste).getAllByRole("list").map((liste) => [liste.getAttribute("aria-labelledby") ? document.getElementById(liste.getAttribute("aria-labelledby")!)?.textContent : null, within(liste).getAllByRole("button").map((k) => k.textContent)]);
-    expect(gruppen).toEqual([
-      ["Bestand", ["Übersicht", "Kennzahlen", "Zinsen", "Zielfonds"]],
-      ["Planung", ["Szenarien", "Reserven"]],
-      ["Bewertung", ["Bewertungsrunde"]],
-    ]);
-    function pruefeReihenfolge() {
+    const nav = within(await screen.findByRole("navigation", { name: "Hauptnavigation" }));
+    expect(nav.getByRole("link", { name: "Übersicht" }).getAttribute("aria-current")).toBe("page");
+    // Bereiche der Erweiterungen (ESG) gibt es nur im Build „Voll“ (ee/web/src/kern-tests/Rahmen.test.tsx).
+    expect(nav.queryByRole("link", { name: "ESG" })).toBeNull();
+    for (const [name, pfad] of [["Kennzahlen", `${url}/metrics`], ["Planung", `${url}/scenarios`], ["Bewertungsrunde", `${url}/valuation-round`], ["Zielfonds", `${url}/target-funds`], ["Übersicht", url]] as const) {
+      await nutzer.click(nav.getByRole("link", { name }));
+      await waitFor(() => expect(router.state.location.pathname).toBe(pfad));
+      await waitFor(() => expect(nav.getByRole("link", { name }).getAttribute("aria-current")).toBe("page"));
       const haupt = screen.getByRole("main");
-      const titel = within(haupt).getByRole("heading", { level: 1 });
-      const verzeichnis = within(haupt).getByRole("navigation", { name: "Bereiche des Portfolios" });
-      expect(titel.compareDocumentPosition(verzeichnis) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-      return verzeichnis;
+      expect(within(haupt).getAllByRole("heading", { level: 1 })).toHaveLength(1);
     }
-    pruefeReihenfolge();
-    // Nach einem Wechsel über die Tastatur oder die Maus liegt der Fokus auf dem Inhaltsbereich, benannt nach dem Eintrag.
-    within(leiste).getByRole("button", { name: "Zinsen" }).focus();
-    await nutzer.keyboard("{Enter}");
-    await waitFor(() => expect(within(pruefeReihenfolge()).getByRole("button", { name: "Zinsen" }).getAttribute("aria-current")).toBe("page"));
-    await waitFor(() => expect(document.activeElement).toBe(screen.getAllByRole("region", { name: "Zinsen" }).find((e) => e.classList.contains("cw-inhalt__bereich"))));
-
-    for (const [id, name] of [["szenarien", "Szenarien"], ["reserven", "Reserven"], ["kennzahlen", "Kennzahlen"], ["bewertungsrunde", "Bewertungsrunde"], ["", "Übersicht"]]) {
-      await nutzer.click(within(pruefeReihenfolge()).getByRole("button", { name }));
-      await waitFor(() => expect(within(pruefeReihenfolge()).getByRole("button", { name }).getAttribute("aria-current")).toBe("page"));
-      expect(router.state.location.pathname).toBe(id ? `${url}/${id}` : url);
-      await waitFor(() => expect((document.activeElement as HTMLElement | null)?.classList.contains("cw-inhalt__bereich")).toBe(true));
-      expect(document.activeElement?.getAttribute("role")).toBe("region");
-    }
-    pruefeReihenfolge();
   });
 
   it("fehlt dort, wo kein Fonds im Mittelpunkt steht", async () => {
     spieleApi();
     rendereApp("/dealflow");
-    await screen.findByRole("navigation", { name: "Hauptnavigation" });
-    expect(screen.queryByRole("navigation", { name: "Bereiche des Portfolios" })).toBeNull();
+    const nav = within(await screen.findByRole("navigation", { name: "Hauptnavigation" }));
+    expect(nav.queryByRole("link", { name: "Planung" })).toBeNull();
   });
 });
 
@@ -317,8 +310,8 @@ describe("Rahmen: schmale Fenster", () => {
     const nutzer = userEvent.setup();
     const { router } = rendereApp(url);
     await nutzer.click(await screen.findByRole("button", { name: "Menü öffnen" }));
-    await nutzer.click(within(screen.getByRole("navigation", { name: "Hauptnavigation" })).getByRole("link", { name: "Kontakte" }));
-    await waitFor(() => expect(router.state.location.pathname).toBe("/kontakte"));
+    await nutzer.click(within(screen.getByRole("navigation", { name: "Hauptnavigation" })).getByRole("link", { name: "Zinsen" }));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/interest-runs"));
     expect(screen.getByRole("complementary", { name: "Seitenleiste" }).getAttribute("data-mobil-offen")).toBeNull();
   });
 });

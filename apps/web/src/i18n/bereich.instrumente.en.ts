@@ -350,7 +350,6 @@ export const instrumenteBereichEn: typeof instrumenteBereichDe = {
   fondsZinsen: {
     titel: "Interest",
     beschreibung: "Interest on all interest-bearing instruments of the fund at the reporting date and knowledge cut-off of this page; the KPIs above show the current state. An interest entry is a receivable; only the interest payment is the cash receipt.",
-    stichtagWaehlen: "Reporting date of the interest",
     zinslaeufe: "Interest runs",
     summe: "Total",
     tabelle: (datum: string) => `Interest per instrument, as at ${datum}`,
@@ -524,6 +523,7 @@ export const instrumenteBereichEn: typeof instrumenteBereichDe = {
     titel: "Interest",
     neu: "New interest run",
     keine: "This fund has no interest run yet.",
+    keineHilfe: "An interest run calculates the interest of all loans of the fund as at a reporting date and books it after review and approval.",
     liste: "Interest runs of this fund",
     spalten: { stichtag: "Reporting date", status: "Status", positionen: "Positions", summe: "Interest booked", berechnet: "Calculated", aktion: "Action" },
     oeffnen: "Open",

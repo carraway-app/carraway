@@ -29,6 +29,52 @@ import { DUBLETTEN_SCHWELLE } from "../dubletten";
 import { berechneZustand, buchwertVon, istDarlehensartig, offenesKapital, pruefeInstrumentInvarianten, type BeteiligungZeile, type VorgangDaten } from "../instrumente/zustand";
 import { pruefeDatumsfenster } from "../instrumente/stichtag";
 import type { Tx } from "../zeitlimit";
+import { geltendeDefinition, kanonischerWert, pruefeZeitraum } from "../kpi/wert";
+import { bestandDesPools, pruefeBestand } from "../routen/mitarbeiterbeteiligung";
+import { verlangeRundenrecht } from "../kapital/runden";
+import { fuerBereich } from "../anmeldung/akteur";
+import { hatBereich } from "../rechte/bereiche";
+import type { ZuteilungKern } from "../kapital/pool";
+
+/** Darf die Person Einzelzuteilungen des Unternehmens mit der Stufe `mindest` schreiben (Bereich Einzelzuteilungen)? */
+async function darfEinzelzuteilungen(tx: Tx, akteur: Akteur, organisationId: string, mindest: FondsRolle): Promise<boolean> {
+  if (akteur.globalVerwalter) return true;
+  if (!hatBereich(akteur, "einzelzuteilungen")) return false;
+  try {
+    await verlangeRundenrecht(tx, fuerBereich(akteur, "einzelzuteilungen"), organisationId, mindest);
+    return true;
+  } catch (e) {
+    if (e instanceof Fachfehler && e.status === 403) return false;
+    throw e;
+  }
+}
+
+/** Werte einer Zeile des Blatts Mitarbeiterzuteilungen mit den Vorgaben der API. */
+export function zuteilungAusZeile(w: Record<string, string>) {
+  return {
+    kategorie: w.kategorie as "gruender" | "fuehrung" | "mitarbeitende" | "beirat" | "sonstige",
+    kennung: w.kennung ?? null,
+    bezeichnung: w.bezeichnung ?? null,
+    anzahl: w.anzahl!,
+    basispreis: w.basispreis ?? "0",
+    zugeteiltAm: w.zugeteilt_am!,
+    vestingBeginn: w.vesting_beginn ?? null,
+    cliffMonate: Number(w.cliff_monate ?? 12),
+    vestingMonate: Number(w.vesting_monate ?? 48),
+    taktMonate: Number(w.vesting_takt ?? 1),
+    beschleunigung: w.beschleunigung ?? "0",
+    ausloeser: (w.ausloeser ?? "einfach") as "einfach" | "doppelt",
+    status: (w.status ?? "zugeteilt") as "zugeteilt" | "gevestet" | "verfallen" | "ausgeuebt",
+    statusAm: w.status_am ?? null,
+    ausuebungsfristMonate: w.ausuebungsfrist_monate === undefined ? null : Number(w.ausuebungsfrist_monate),
+    laufzeitBis: w.laufzeit_bis ?? null,
+  };
+}
+
+function zuteilungKernAusZeile(w: Record<string, string>): ZuteilungKern {
+  const z = zuteilungAusZeile(w);
+  return { anzahl: z.anzahl, zugeteiltAm: z.zugeteiltAm, vestingBeginn: z.vestingBeginn, cliffMonate: z.cliffMonate, vestingMonate: z.vestingMonate, taktMonate: z.taktMonate, beschleunigung: z.beschleunigung, basispreis: z.basispreis, status: z.status, statusAm: z.statusAm, austritte: [] };
+}
 
 /**
  * Prüfung eines Import-Laufs gegen den Bestand, ohne etwas zu schreiben. Sie liest die Datei, wendet die Regeln des Pakets an
@@ -41,7 +87,7 @@ import type { Tx } from "../zeitlimit";
 
 /** Objektarten in `import_zuordnung`. */
 /** `instrument`: der Schlüssel einer Zeile des Blatts Beteiligungen zeigt auf die Beteiligung (`beteiligung`) und auf ihr Instrument (`instrument`). */
-export type Objekt = "organisation" | "person" | "beteiligung" | "instrument" | "runde" | "vorgang" | "bewertung" | "bewegung";
+export type Objekt = "organisation" | "person" | "beteiligung" | "instrument" | "runde" | "vorgang" | "bewertung" | "bewegung" | "kennzahl" | "zuteilung";
 
 const TABELLE: Record<Objekt, string> = {
   organisation: "organisation",
@@ -52,6 +98,8 @@ const TABELLE: Record<Objekt, string> = {
   vorgang: "vorgang",
   bewertung: "bewertung",
   bewegung: "fonds_bewegung",
+  kennzahl: "kennzahl_wert",
+  zuteilung: "mitarbeiterzuteilung",
 };
 
 type W = Record<string, string>;
@@ -96,12 +144,16 @@ export interface Plan {
   konditionen: Neu[];
   vorgaenge: Neu[];
   bewertungen: Neu[];
+  /** Kennzahlenwerte: `w.beteiligung_id`, `w.definition_id` und `w.wert` (kanonisch) sind aufgelöst. */
+  kennzahlen: Neu[];
   bewegungen: Neu[];
+  /** Einzelzuteilungen der Mitarbeiterbeteiligung: `w.pool_id` und `w.organisation_id` sind aufgelöst, `w.pool_grob` = "ja", wenn der Pool noch grob erfasst ist. */
+  zuteilungen: Neu[];
   /** Neue Zuordnungen von Schlüssel zu Datensatz (auch für gebundene bestehende Organisationen). */
   zuordnungen: { objekt: Objekt; schluessel: string; datensatzId: string }[];
   zaehler: Record<Blatt, Zaehler>;
   /** Kontrollsummen der Quelle je Fonds und Größe. */
-  kontrollsummen: { fondsKurzname: string; groesse: string; betrag: string; stichtag: string | null; zeile: number }[];
+  kontrollsummen: { fondsKurzname: string; beteiligungSchluessel: string | null; groesse: string; betrag: string; stichtag: string | null; zeile: number }[];
 }
 
 export interface Pruefergebnis {
@@ -151,7 +203,9 @@ export async function pruefeLauf(tx: Tx, daten: Uint8Array, dateiname: string, a
     konditionen: [],
     vorgaenge: [],
     bewertungen: [],
+    kennzahlen: [],
     bewegungen: [],
+    zuteilungen: [],
     zuordnungen: [],
     zaehler: leereZaehler(),
     kontrollsummen: [],
@@ -189,6 +243,8 @@ export async function pruefeLauf(tx: Tx, daten: Uint8Array, dateiname: string, a
     vorgang: alsListe([...schluesselVon("vorgaenge", "vorgang_schluessel"), ...referenziert.vorgaenge]),
     bewertung: alsListe(schluesselVon("bewertungen", "bewertung_schluessel")),
     bewegung: alsListe(schluesselVon("fondsbewegungen", "bewegung_schluessel")),
+    kennzahl: alsListe(schluesselVon("kennzahlen", "kennzahl_wert_schluessel")),
+    zuteilung: alsListe(schluesselVon("mitarbeiterzuteilungen", "zuteilung_schluessel")),
   };
   const bekannt = {} as Record<Objekt, Map<string, string>>;
   for (const objekt of Object.keys(gesucht) as Objekt[]) {
@@ -207,13 +263,14 @@ export async function pruefeLauf(tx: Tx, daten: Uint8Array, dateiname: string, a
   if (idsVon("beteiligung").length) for (const r of await abfrage<{ id: string; fonds_id: string }>(tx, sql`SELECT id, fonds_id FROM beteiligung WHERE id = ANY(${liste(idsVon("beteiligung"), "uuid")})`)) fondsVon.set(`beteiligung|${r.id}`, r.fonds_id);
   if (idsVon("vorgang").length) for (const r of await abfrage<{ id: string; fonds_id: string }>(tx, sql`SELECT v.id, b.fonds_id FROM vorgang v JOIN beteiligung b ON b.id = v.beteiligung_id WHERE v.id = ANY(${liste(idsVon("vorgang"), "uuid")})`)) fondsVon.set(`vorgang|${r.id}`, r.fonds_id);
   if (idsVon("bewertung").length) for (const r of await abfrage<{ id: string; fonds_id: string }>(tx, sql`SELECT w.id, b.fonds_id FROM bewertung w JOIN beteiligung b ON b.id = w.beteiligung_id WHERE w.id = ANY(${liste(idsVon("bewertung"), "uuid")})`)) fondsVon.set(`bewertung|${r.id}`, r.fonds_id);
+  if (idsVon("kennzahl").length) for (const r of await abfrage<{ id: string; fonds_id: string }>(tx, sql`SELECT w.id, b.fonds_id FROM kennzahl_wert w JOIN beteiligung b ON b.id = w.beteiligung_id WHERE w.id = ANY(${liste(idsVon("kennzahl"), "uuid")})`)) fondsVon.set(`kennzahl|${r.id}`, r.fonds_id);
   if (idsVon("bewegung").length) for (const r of await abfrage<{ id: string; fonds_id: string }>(tx, sql`SELECT id, fonds_id FROM fonds_bewegung WHERE id = ANY(${liste(idsVon("bewegung"), "uuid")})`)) fondsVon.set(`bewegung|${r.id}`, r.fonds_id);
   const rundenFonds = new Map<string, string[]>();
   if (idsVon("runde").length) for (const r of await abfrage<{ runde_id: string; fonds_id: string }>(tx, sql`SELECT DISTINCT runde_id, fonds_id FROM rundenposition WHERE fonds_id IS NOT NULL AND runde_id = ANY(${liste(idsVon("runde"), "uuid")})`)) (rundenFonds.get(r.runde_id) ?? rundenFonds.set(r.runde_id, []).get(r.runde_id)!).push(r.fonds_id);
   // Bereiche je Fonds: Die Übernahme schreibt Portfolio und Finanzen des Fonds; die Stufe muss in beiden Bereichen an diesem Fonds reichen.
   const darf = (fid: string) => hatRolle(akteur, fid, mindest) && hatRolle(akteur, fid, mindest, "portfolio") && hatRolle(akteur, fid, mindest, "finanzen");
-  const gesperrteSchluessel: Record<Objekt, Set<string>> = { organisation: new Set(), person: new Set(), beteiligung: new Set(), instrument: new Set(), runde: new Set(), vorgang: new Set(), bewertung: new Set(), bewegung: new Set() };
-  for (const objekt of ["beteiligung", "vorgang", "bewertung", "bewegung", "runde"] as Objekt[]) {
+  const gesperrteSchluessel: Record<Objekt, Set<string>> = { organisation: new Set(), person: new Set(), beteiligung: new Set(), instrument: new Set(), runde: new Set(), vorgang: new Set(), bewertung: new Set(), bewegung: new Set(), kennzahl: new Set(), zuteilung: new Set() };
+  for (const objekt of ["beteiligung", "vorgang", "bewertung", "bewegung", "runde", "kennzahl"] as Objekt[]) {
     for (const [schluessel, id] of [...bekannt[objekt]]) {
       const verboten = objekt === "runde" ? (rundenFonds.get(id)?.length ?? 0) > 0 && !rundenFonds.get(id)!.some(darf) : (fondsVon.get(`${objekt}|${id}`) ?? null) !== null && !darf(fondsVon.get(`${objekt}|${id}`)!);
       if (verboten) {
@@ -238,6 +295,8 @@ export async function pruefeLauf(tx: Tx, daten: Uint8Array, dateiname: string, a
     { blatt: "bewertungen", spalte: "beteiligung_schluessel", objekt: "beteiligung" },
     { blatt: "bewertungen", spalte: "bewertung_schluessel", objekt: "bewertung" },
     { blatt: "konditionen", spalte: "beteiligung_schluessel", objekt: "beteiligung" },
+    { blatt: "kennzahlen", spalte: "beteiligung_schluessel", objekt: "beteiligung" },
+    { blatt: "kennzahlen", spalte: "kennzahl_wert_schluessel", objekt: "kennzahl" },
     { blatt: "fondsbewegungen", spalte: "bewegung_schluessel", objekt: "bewegung" },
     { blatt: "finanzierungsrunden", spalte: "runde_schluessel", objekt: "runde" },
     { blatt: "rundenpositionen", spalte: "runde_schluessel", objekt: "runde" },
@@ -532,6 +591,65 @@ export async function pruefeLauf(tx: Tx, daten: Uint8Array, dateiname: string, a
   }
   plan.zaehler.rundenpositionen.neu = plan.positionen.length;
 
+  // Mitarbeiterzuteilungen ---------------------------------------------------------------------------------------------------------
+  // Der Pool muss am Unternehmen bestehen. Einzelzuteilungen gehören zum Bereich Einzelzuteilungen: Stufe `mindest` in diesem Bereich an einem
+  // Fonds mit Rechtsgrundlage am Unternehmen (wie beim Schreiben über die API). Übernommene Zuteilungen werden verglichen, nicht geändert.
+  if (typisiert.mitarbeiterzuteilungen.length > 0) {
+    const orgsDerZeilen = alsListe(gueltige("mitarbeiterzuteilungen").map((z) => orgIds.get(z.w.organisation_schluessel!)).filter((x): x is string => x !== undefined));
+    // Rechte vor Existenz: Pools werden nur für Unternehmen geladen, an denen die Person Einzelzuteilungen schreiben darf; sonst verriete der Befund, welche Pools es gibt.
+    const darfOrg = new Map<string, boolean>();
+    for (const orgId of orgsDerZeilen) darfOrg.set(orgId, await darfEinzelzuteilungen(tx, akteur, orgId, mindest));
+    const erlaubteOrgs = orgsDerZeilen.filter((o) => darfOrg.get(o));
+    // Bei der Übernahme (`freigeber`) sind die Pools bis zum Schreiben gesperrt, in fester Reihenfolge wie bei den Routen (`ladePool` mit Sperre):
+    // Eine gleichzeitige Zuteilung über die API oder eine zweite Übernahme kann den geprüften Bestand nicht überzeichnen.
+    const sperre = mindest === "freigeber" ? sql` ORDER BY id FOR UPDATE` : sql` ORDER BY id`;
+    const pools = erlaubteOrgs.length
+      ? await abfrage<{ id: string; organisation_id: string; bezeichnung: string; erfassung: string }>(tx, sql`SELECT id, organisation_id, bezeichnung, erfassung::text FROM mitarbeiterpool WHERE organisation_id = ANY(${liste(erlaubteOrgs, "uuid")})${sperre}`)
+      : [];
+    const poolVon = (orgId: string, name: string) => pools.find((p) => p.organisation_id === orgId && normalisiereText(p.bezeichnung) === normalisiereText(name));
+    const zutBestandIds = [...bekannt.zuteilung.values()];
+    const zutBestand = new Map(
+      (zutBestandIds.length ? await abfrage<{ id: string; pool_id: string; anzahl: string; zugeteilt_am: string }>(tx, sql`SELECT id, pool_id, anzahl::text, zugeteilt_am::text FROM mitarbeiterzuteilung WHERE id = ANY(${liste(zutBestandIds, "uuid")})`) : []).map((z) => [z.id, z]),
+    );
+    for (const z of gueltige("mitarbeiterzuteilungen")) {
+      const k = z.w.zuteilung_schluessel!;
+      const orgId = orgIds.get(z.w.organisation_schluessel!);
+      if (orgId === undefined) continue;
+      if (!darfOrg.get(orgId)) {
+        melde("mitarbeiterzuteilungen", z, "organisation_schluessel", "KEINE_BERECHTIGUNG_EINZELZUTEILUNGEN", `Für Einzelzuteilungen dieses Unternehmens fehlt die Berechtigung (Bereich Einzelzuteilungen, ${mindest}).`, { rolle: mindest });
+        continue;
+      }
+      const pool = poolVon(orgId, z.w.pool!);
+      if (!pool) {
+        melde("mitarbeiterzuteilungen", z, "pool", "POOL_UNBEKANNT", `Das Unternehmen hat keinen Pool „${z.w.pool}“; Pools werden in der Anwendung angelegt.`, { wert: z.w.pool ?? "" });
+        continue;
+      }
+      const id = bekannt.zuteilung.get(k);
+      if (id) {
+        const b = zutBestand.get(id);
+        if (b && (b.pool_id !== pool.id || b.anzahl !== z.w.anzahl || b.zugeteilt_am !== z.w.zugeteilt_am)) {
+          plan.zaehler.mitarbeiterzuteilungen.abweichend++;
+          melde("mitarbeiterzuteilungen", z, null, "ZUTEILUNG_ABWEICHEND", `Die Zuteilung „${k}“ ist schon übernommen, aber anders; sie wird nicht geändert.`, { schluessel: k }, "warnung");
+        } else plan.zaehler.mitarbeiterzuteilungen.unveraendert++;
+        continue;
+      }
+      plan.zuteilungen.push({ id: randomUUID(), schluessel: k, zeile: z, w: { ...z.w, pool_id: pool.id, organisation_id: orgId, ...(pool.erfassung === "grob" ? { pool_grob: "ja" } : {}) } });
+    }
+    // Je Pool: Bestand mit den neuen Zuteilungen (Zuteilungen nie über der Größe, wie beim Anlegen über die API).
+    for (const poolId of alsListe(plan.zuteilungen.map((z) => z.w.pool_id!))) {
+      const neue = plan.zuteilungen.filter((z) => z.w.pool_id === poolId);
+      const bestand = await bestandDesPools(tx, poolId);
+      try {
+        pruefeBestand(bestand.aenderungen, [...bestand.zuteilungen, ...neue.map((z) => zuteilungKernAusZeile(z.w))]);
+      } catch (fehler) {
+        if (!(fehler instanceof Fachfehler)) throw fehler;
+        const zusatz = (fehler.zusatz ?? {}) as { datum?: string; groesse?: string; zugeteilt?: string };
+        melde("mitarbeiterzuteilungen", neue[0]!.zeile, "anzahl", "ZUTEILUNG_UEBER_POOL", `Mit diesen Zuteilungen übersteigen die Zuteilungen des Pools seine Größe${zusatz.datum ? ` am ${zusatz.datum}` : ""}.`, { datum: zusatz.datum ?? "", groesse: zusatz.groesse ?? "", zugeteilt: zusatz.zugeteilt ?? "" });
+      }
+    }
+  }
+  plan.zaehler.mitarbeiterzuteilungen.neu = plan.zuteilungen.length;
+
   // Sperren der Periode ------------------------------------------------------------------------------------------------------
   const alleFondsIds = alsListe([...plan.fonds.values()].filter((f) => !f.neu).map((f) => f.id));
   const sperren = new Map<string, string>();
@@ -576,7 +694,9 @@ export async function pruefeLauf(tx: Tx, daten: Uint8Array, dateiname: string, a
     if (bid === undefined) continue;
     const instr = loeseInstrumentZeile("vorgaenge", z, bid);
     if (!instr) continue;
-    const neu: Neu = { id: randomUUID(), schluessel: k, zeile: z, w: { ...z.w, beteiligung_id: bid, instrument_art: instr.art, ...(instr.id ? { instrument_id: instr.id } : {}) } };
+    const rid = z.w.runde_schluessel ? rundeIds.get(z.w.runde_schluessel) : undefined;
+    const rundeOrg = rid ? (plan.runden.find((r) => r.id === rid)?.w.organisation_id ?? rundeBestand.get(rid)?.organisation_id) : undefined;
+    const neu: Neu = { id: randomUUID(), schluessel: k, zeile: z, w: { ...z.w, beteiligung_id: bid, instrument_art: instr.art, ...(instr.id ? { instrument_id: instr.id } : {}), ...(rid ? { runde_id: rid } : {}), ...(rundeOrg ? { runde_organisation_id: rundeOrg } : {}) } };
     vorgangNeu.push(neu);
     vorgangIds.set(k, neu.id);
     dateiVorgang.set(k, z);
@@ -633,6 +753,9 @@ export async function pruefeLauf(tx: Tx, daten: Uint8Array, dateiname: string, a
     const b = betDaten.get(bid);
     const neue = vorgangNeu.filter((v) => v.w.beteiligung_id === bid);
     if (!b) continue;
+    for (const v of neue) {
+      if (v.w.runde_organisation_id && v.w.runde_organisation_id !== b.organisationId) melde("vorgaenge", v.zeile, "runde_schluessel", "VORGANG_RUNDE_FREMD", `Die Runde „${v.w.runde_schluessel}“ gehört zu einem anderen Unternehmen als die Beteiligung.`, { wert: v.w.runde_schluessel ?? "" });
+    }
     const neueDaten: VorgangDaten[] = neue.map((v) => ({
       id: v.id,
       beteiligungId: bid,
@@ -722,6 +845,62 @@ export async function pruefeLauf(tx: Tx, daten: Uint8Array, dateiname: string, a
     plan.bewertungen.push({ id: randomUUID(), schluessel: k, zeile: z, w: { ...z.w, beteiligung_id: bid } });
   }
   plan.zaehler.bewertungen.neu = plan.bewertungen.length;
+
+  // Kennzahlen -----------------------------------------------------------------------------------------------------------------
+  // Zuordnung zum Katalog über den Schlüssel (Version zum Zeitraum), Zeitraum und Wert wie bei der Eingabe von Hand. Übernommene Werte werden
+  // nie geändert; ein bestätigter Wert derselben Reihe ohne diesen Schlüssel bleibt stehen (die Zeile wird übersprungen).
+  {
+    const bekannteWerte = new Map<string, { wert: string }>();
+    const kennzahlIds = [...bekannt.kennzahl.values()];
+    if (kennzahlIds.length) for (const r of await abfrage<{ id: string; wert: string }>(tx, sql`SELECT id, wert FROM kennzahl_wert WHERE id = ANY(${liste(kennzahlIds, "uuid")})`)) bekannteWerte.set(r.id, r);
+    const definitionen = new Map<string, Awaited<ReturnType<typeof geltendeDefinition>> | null>();
+    const bestaetigt = new Set<string>();
+    const bestandBets = alsListe(gueltige("kennzahlen").map((z) => betIds.get(z.w.beteiligung_schluessel!)).filter((id): id is string => id !== undefined && !plan.beteiligungen.some((b) => b.id === id)));
+    if (bestandBets.length) {
+      for (const r of await abfrage<{ reihe: string }>(tx, sql`SELECT w.beteiligung_id || '|' || k.schluessel || '|' || w.periode_beginn::text || '|' || w.periode_ende::text || '|' || w.szenario::text AS reihe FROM kennzahl_wert w JOIN kennzahl_definition k ON k.id = w.definition_id WHERE w.status = 'bestaetigt' AND w.beteiligung_id = ANY(${liste(bestandBets, "uuid")})`)) bestaetigt.add(r.reihe);
+    }
+    for (const z of gueltige("kennzahlen")) {
+      const k = z.w.kennzahl_wert_schluessel!;
+      const bid = betIds.get(z.w.beteiligung_schluessel!);
+      if (bid === undefined) continue;
+      const dk = `${z.w.kennzahl}|${z.w.periode_ende}`;
+      if (!definitionen.has(dk)) definitionen.set(dk, await geltendeDefinition(tx, z.w.kennzahl!, z.w.periode_ende!).catch(() => null));
+      const definition = definitionen.get(dk);
+      if (!definition) {
+        melde("kennzahlen", z, "kennzahl", "KENNZAHL_UNBEKANNT", `Die Kennzahl „${z.w.kennzahl}“ gibt es im Katalog für diesen Zeitraum nicht.`, { schluessel: z.w.kennzahl ?? "" });
+        continue;
+      }
+      try {
+        pruefeZeitraum(z.w.periode_beginn!, z.w.periode_ende!, definition);
+      } catch {
+        melde("kennzahlen", z, "periode_beginn", "KENNZAHL_ZEITRAUM_UNGUELTIG", "Der Zeitraum muss ein ganzer Kalendermonat, ein Quartal oder ein Jahr sein und darf nicht feiner sein als die Erhebung der Kennzahl.");
+        continue;
+      }
+      let wert: string;
+      try {
+        wert = kanonischerWert(definition.typ, definition.typ === "betrag" || definition.typ === "zahl" || definition.typ === "prozent" ? z.w.wert!.replace(",", ".") : z.w.wert!);
+      } catch (fehler) {
+        melde("kennzahlen", z, "wert", "KENNZAHL_WERT_UNGUELTIG", `Der Wert passt nicht zur Kennzahl (${definition.typ}).`, { grund: fehler instanceof Fachfehler ? String(fehler.zusatz?.grund ?? definition.typ) : definition.typ });
+        continue;
+      }
+      const id = bekannt.kennzahl.get(k);
+      if (id) {
+        const vorhanden = bekannteWerte.get(id);
+        if (vorhanden && vorhanden.wert !== wert) {
+          plan.zaehler.kennzahlen.abweichend++;
+          melde("kennzahlen", z, "wert", "KENNZAHL_ABWEICHEND", `Der Wert „${k}“ ist schon mit ${vorhanden.wert} übernommen; bestätigte Werte werden nicht geändert.`, { schluessel: k, wert: vorhanden.wert }, "warnung");
+        } else plan.zaehler.kennzahlen.unveraendert++;
+        continue;
+      }
+      if (bestaetigt.has([bid, z.w.kennzahl, z.w.periode_beginn, z.w.periode_ende, z.w.szenario].join("|"))) {
+        plan.zaehler.kennzahlen.abweichend++;
+        melde("kennzahlen", z, null, "KENNZAHL_VORHANDEN", "Für diese Beteiligung, Kennzahl, diesen Zeitraum und dieses Szenario gibt es schon einen bestätigten Wert ohne diesen Schlüssel; er bleibt, die Zeile wird übersprungen.", {}, "warnung");
+        continue;
+      }
+      plan.kennzahlen.push({ id: randomUUID(), schluessel: k, zeile: z, w: { ...z.w, beteiligung_id: bid, definition_id: definition.id, wert } });
+    }
+    plan.zaehler.kennzahlen.neu = plan.kennzahlen.length;
+  }
 
   // Konditionen -----------------------------------------------------------------------------------------------------------------
   const kondBetIds = alsListe(gueltige("konditionen").map((z) => betIds.get(z.w.beteiligung_schluessel!)).filter((x): x is string => x !== undefined));
@@ -816,19 +995,37 @@ export async function pruefeLauf(tx: Tx, daten: Uint8Array, dateiname: string, a
     const zusageZeile = vorgangNeu.find((v) => betDaten.get(v.w.beteiligung_id!)?.fondsId === f.id && v.w.art === "zusage")?.zeile ?? null;
     if (zusagen.greaterThan(kapital) && zusageZeile) melde("vorgaenge", zusageZeile, "betrag", "ZUSAGEN_UEBER_ZEICHNUNGSKAPITAL", `Die Zusagen des Fonds „${f.kurzname}“ (${zusagen.toFixed(2)}) übersteigen das Zeichnungskapital (${kapital.toFixed(2)}).`, { fonds: f.kurzname, summe: zusagen.toFixed(2), kapital: kapital.toFixed(2) }, "warnung");
   }
+  // Summen je Beteiligung (alle Instrumente): Bestand plus neue Vorgänge.
+  const sumBeteiligung = new Map<string, Decimal>(); // beteiligungId|art
+  const kontrollBeteiligungen = alsListe(gueltige("kontrollsummen").flatMap((z) => (z.w.beteiligung_schluessel ? [betIds.get(z.w.beteiligung_schluessel)] : [])).filter((x): x is string => x !== undefined));
+  const bestandBeteiligungen = kontrollBeteiligungen.filter((id) => !plan.beteiligungen.some((b) => b.id === id));
+  if (bestandBeteiligungen.length) {
+    for (const r of await abfrage<{ beteiligung_id: string; art: string; summe: string }>(tx, sql`SELECT beteiligung_id, art::text, sum(betrag)::text AS summe FROM vorgang WHERE beteiligung_id = ANY(${liste(bestandBeteiligungen, "uuid")}) GROUP BY beteiligung_id, art`)) sumBeteiligung.set(`${r.beteiligung_id}|${r.art}`, d(r.summe));
+  }
+  for (const v of vorgangNeu) sumBeteiligung.set(`${v.w.beteiligung_id}|${v.w.art}`, (sumBeteiligung.get(`${v.w.beteiligung_id}|${v.w.art}`) ?? d(0)).plus(v.w.betrag!));
+  const ART_DER_GROESSE: Record<string, string> = { zusagen: "zusage", auszahlungen: "auszahlung", rueckfluesse: "rueckfluss" };
   for (const z of gueltige("kontrollsummen")) {
     const f = plan.fonds.get(z.w.fonds_kurzname!);
     if (!f) continue;
-    plan.kontrollsummen.push({ fondsKurzname: f.kurzname, groesse: z.w.groesse!, betrag: z.w.betrag!, stichtag: z.w.stichtag ?? null, zeile: z.zeile });
-    const nachUebernahme: Record<string, Decimal | undefined> = {
-      zusagen: sumVorgang.get(`${f.id}|zusage`) ?? d(0),
-      auszahlungen: sumVorgang.get(`${f.id}|auszahlung`) ?? d(0),
-      rueckfluesse: sumVorgang.get(`${f.id}|rueckfluss`) ?? d(0),
-      zeichnungskapital: d(f.zeichnungskapital),
-    };
-    const ist = nachUebernahme[z.w.groesse!];
+    const betKey = z.w.beteiligung_schluessel ?? null;
+    plan.kontrollsummen.push({ fondsKurzname: f.kurzname, beteiligungSchluessel: betKey, groesse: z.w.groesse!, betrag: z.w.betrag!, stichtag: z.w.stichtag ?? null, zeile: z.zeile });
+    let ist: Decimal | undefined;
+    if (betKey) {
+      const bid = betIds.get(betKey);
+      const art = ART_DER_GROESSE[z.w.groesse!];
+      if (bid && art) ist = sumBeteiligung.get(`${bid}|${art}`) ?? d(0);
+    } else {
+      const nachUebernahme: Record<string, Decimal | undefined> = {
+        zusagen: sumVorgang.get(`${f.id}|zusage`) ?? d(0),
+        auszahlungen: sumVorgang.get(`${f.id}|auszahlung`) ?? d(0),
+        rueckfluesse: sumVorgang.get(`${f.id}|rueckfluss`) ?? d(0),
+        zeichnungskapital: d(f.zeichnungskapital),
+      };
+      ist = nachUebernahme[z.w.groesse!];
+    }
     if (ist && !ist.equals(z.w.betrag!)) {
-      melde("kontrollsummen", z, "betrag", "KONTROLLSUMME_ABWEICHEND", `Die Summe laut Quelle (${d(z.w.betrag).toFixed(2)}) weicht von der Summe nach der Übernahme (${ist.toFixed(2)}) ab (${z.w.groesse}, Fonds „${f.kurzname}“).`, { quelle: d(z.w.betrag).toFixed(2), uebernahme: ist.toFixed(2), groesse: z.w.groesse ?? "", fonds: f.kurzname });
+      const wo = betKey ? `Beteiligung „${betKey}“` : `Fonds „${f.kurzname}“`;
+      melde("kontrollsummen", z, "betrag", "KONTROLLSUMME_ABWEICHEND", `Die Summe laut Quelle (${d(z.w.betrag).toFixed(2)}) weicht von der Summe nach der Übernahme (${ist.toFixed(2)}) ab (${z.w.groesse}, ${wo}).`, { quelle: d(z.w.betrag).toFixed(2), uebernahme: ist.toFixed(2), groesse: z.w.groesse ?? "", fonds: f.kurzname, ...(betKey ? { beteiligung: betKey } : {}) });
     }
   }
 

@@ -6,7 +6,7 @@ import { fehler, ORG_A, rendereApp, spieleApi } from "../test/hilfen";
 describe("Globale Suchpalette", () => {
   it("filtert Befehle sofort, nimmt nach Pfeilnavigation weiter Eingaben an und gibt den Fokus zurück", async () => {
     const api = spieleApi();
-    rendereApp("/kontakte");
+    rendereApp("/contacts");
     const nutzer = userEvent.setup();
     const ausloeser = await screen.findByRole("button", { name: /^Suchen/ });
     await nutzer.click(ausloeser);
@@ -30,13 +30,14 @@ describe("Globale Suchpalette", () => {
 
   it("öffnet die Fondsverwaltung über den Kurznamen eines sichtbaren Fonds", async () => {
     spieleApi();
-    rendereApp("/kontakte");
+    rendereApp("/contacts");
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: /^Suchen/ }));
     const dialog = within(await screen.findByRole("dialog", { name: "Suche" }));
     await nutzer.type(dialog.getByRole("searchbox"), "bf i");
-    await nutzer.click(await dialog.findByRole("button", { name: /Beispielfonds I/ }));
-    expect((await screen.findByRole("button", { name: "Stammdaten" })).getAttribute("aria-current")).toBe("page");
+    await nutzer.click(await dialog.findByRole("button", { name: /^Beispielfonds I.*BF I$/ }));
+    // Fonds und Portfolio sind ein Ziel: der Treffer führt auf die Übersicht des Fonds
+    expect((await within(await screen.findByRole("navigation", { name: "Hauptnavigation" })).findByRole("link", { name: "Übersicht" })).getAttribute("aria-current")).toBe("page");
   });
 
   it("entfernt alte Treffer sofort und überspringt Schnellaktionen nur bei Pfeilnavigation", async () => {
@@ -53,7 +54,7 @@ describe("Globale Suchpalette", () => {
         },
       }),
     });
-    rendereApp("/kontakte");
+    rendereApp("/contacts");
     const nutzer = userEvent.setup();
     await screen.findByRole("grid", { name: "Unternehmen" });
     fireEvent.keyDown(document, { key: "k", ctrlKey: true });
@@ -78,7 +79,7 @@ describe("Globale Suchpalette", () => {
         ? fehler(503, "DIENST_NICHT_VERFUEGBAR")
         : { koerper: { organisationen: [], personen: [], deals: [], dokumente: [] } },
     });
-    rendereApp("/kontakte");
+    rendereApp("/contacts");
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: /^Suchen/ }));
     const dialog = within(await screen.findByRole("dialog", { name: "Suche" }));
@@ -95,24 +96,22 @@ describe("Globale Suchpalette", () => {
     expect(versuch).toBe(2);
   });
 
-  it("öffnet über den Importbefehl den Kontaktimport", async () => {
+  it("bietet keine Aktionen an: Import und Anlegen stehen sichtbar auf der Seite", async () => {
     spieleApi();
-    rendereApp("/kontakte");
+    rendereApp("/contacts");
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: /^Suchen/ }));
     const dialog = within(await screen.findByRole("dialog", { name: "Suche" }));
-    await nutzer.click(dialog.getByRole("button", { name: /^Kontakte importieren/ }));
-    expect(await screen.findByRole("heading", { name: "Kontaktimport" })).toBeTruthy();
-    expect(screen.queryByRole("dialog", { name: "Suche" })).toBeNull();
+    expect(dialog.queryByRole("button", { name: /^Kontakte importieren/ })).toBeNull();
+    expect(dialog.queryByRole("button", { name: "Neues Unternehmen anlegen" })).toBeNull();
+    expect(dialog.getByRole("button", { name: "Dealflow & CRM · Kontakte" })).toBeTruthy();
   });
 
   it("übergibt den Fokus an ein Zielformular und schließt bei Escape nur die obere Ebene", async () => {
     spieleApi();
-    rendereApp("/kontakte");
+    rendereApp("/contacts");
     const nutzer = userEvent.setup();
-    await nutzer.click(await screen.findByRole("button", { name: /^Suchen/ }));
-    const dialog = within(await screen.findByRole("dialog", { name: "Suche" }));
-    await nutzer.click(dialog.getByRole("button", { name: "Neues Unternehmen anlegen" }));
+    await nutzer.click(await screen.findByRole("button", { name: "Neues Unternehmen" }));
 
     const formular = await screen.findByRole("dialog", { name: "Neue Organisation" });
     const feld = within(formular).getByRole("textbox", { name: /^Name/ });

@@ -50,7 +50,7 @@ describe("Option Pool Shuffle im Dialog „Neue Finanzierungsrunde“", () => {
       [`POST ${RUNDEN}/vorschau`]: { koerper: { postMoney: "15000000.00", anteileGesamtNach: "1416667", pruefung: { volumen: "0.00", postMoneyErwartet: "0", anteileErwartet: "0", anteileVergeben: "0", abweichungen: [], schliessbar: true }, dubletten: [] } },
       [`POST ${RUNDEN}`]: { status: 201, koerper: { id: "r9", dubletten: [] } },
     });
-    rendereApp(`/beteiligungen/${BET_ID}?tab=finanzierung`);
+    rendereApp(`/investments/${BET_ID}?tab=financing`);
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Neue Runde" }));
     const d = within(screen.getByRole("dialog"));
@@ -83,7 +83,7 @@ describe("Option Pool Shuffle im Dialog „Neue Finanzierungsrunde“", () => {
       [`POST ${RUNDEN}/pool-vorschlag`]: { koerper: { anteileVorher: null, anteileVorherQuelle: null, poolVorher: "0", vorschlag: null, grund: "ohne_anteile", kennwerte: null } },
       [`POST ${RUNDEN}`]: anlegen,
     });
-    rendereApp(`/beteiligungen/${BET_ID}?tab=finanzierung`);
+    rendereApp(`/investments/${BET_ID}?tab=financing`);
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Neue Runde" }));
     const d = within(screen.getByRole("dialog"));

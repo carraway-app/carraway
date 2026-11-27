@@ -10,7 +10,7 @@ const detailPfad = `/api/v1/fonds/${FONDS_ID}`;
 const bestand = fondsDaten.daten[0]!;
 
 async function rendereStammdaten(fondsId?: string) {
-  await ladeSeitentexte("/fonds", "de");
+  await ladeSeitentexte("/funds", "de");
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const onFondsWahl = vi.fn();
   render(

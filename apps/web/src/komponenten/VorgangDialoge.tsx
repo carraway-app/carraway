@@ -166,7 +166,7 @@ export function VorgangDialog({ daten, vorgabe, onTrancheAnlegen, onSchliessen }
               ))}
             </Auswahl>
           ) : null}
-          <Feld label={f.bemerkung} autoComplete="off" {...feld("bemerkung")} fehler={fehler("bemerkung")} />
+          <Feld label={f.bemerkung} {...feld("bemerkung")} fehler={fehler("bemerkung")} />
           <FelderEingabe objekt="vorgang" onChange={setEigeneFelder} />
           <div>
             <Button type="submit" disabled={anlegen.isPending || gesperrt || instrumentId === "" || alleArten.length === 0} aria-describedby={gesperrt ? "tranche-gesperrt" : undefined}>
@@ -208,7 +208,7 @@ export function StornoDialog({ vorgang, onSchliessen }: { vorgang: StornoZiel; o
         }}
       >
         <FehlerHinweis fehler={storno.error} bekannt={["grund", "valuta"]} />
-        <Feld label={f.grund} autoComplete="off" required {...feld("grund", fehler("grund"))} />
+        <Feld label={f.grund} required {...feld("grund", fehler("grund"))} />
         <Feld label={f.valuta} type="date" min={vorgang.valuta} hilfe={f.valutaHilfe} {...feld("valuta", fehler("valuta"))} />
         <div>
           <Button type="submit" variante="gefahr" disabled={storno.isPending}>

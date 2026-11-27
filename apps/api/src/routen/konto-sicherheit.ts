@@ -1,10 +1,12 @@
-import { and, desc, eq, like, ne, sql } from "drizzle-orm";
+import { einmaligeAntwort } from "../idempotenz";
+import { and, desc, eq, like, ne } from "drizzle-orm";
 import { Hono, type Context } from "hono";
 import { symmetricDecrypt, symmetricEncrypt, generateRandomString } from "better-auth/crypto";
 import { z } from "zod";
 import { benutzer, konto, sitzung, verifizierung, zweiFaktor, type Db } from "@carraway/db";
 import { aktuellerAkteur } from "../anmeldung/akteur";
 import { MINDESTLAENGE_PASSWORT, RESET_KENNUNG_PRAEFIX, type Auth } from "../anmeldung/auth";
+import { reserviereVersuch } from "../anmeldung/begrenzung";
 import { clientIp } from "../anmeldung/schutz";
 import { totpAdresse, totpPasst } from "../anmeldung/totp";
 import { Fachfehler } from "../fehler";
@@ -55,30 +57,12 @@ export function kontoSicherheitRouten(db: Db, auth: Auth, konfig: Konfiguration)
    * gibt `freigeben` die reservierten Einträge wieder frei (nur Fehlversuche zählen); sonst bleiben sie stehen.
    */
   const pruefeSperre = async (c: Context, benutzerId: string) => {
-    const zaehler = [`ip:${clientIp(c, konfig)}`, `konto-sicherheit:${benutzerId}`].sort();
-    const { versuche, fensterMs } = konfig.anmeldeLimit;
-    const ids = await db.transaction(async (tx) => {
-      for (const z of zaehler) await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${z}, 0))`);
-      for (const z of zaehler) {
-        const { rows } = await tx.execute<{ n: number }>(
-          sql`SELECT count(*)::int AS n FROM anmeldeversuch WHERE schluessel = ${z} AND am > now() - ${`${Math.round(fensterMs / 1000)} seconds`}::interval`,
-        );
-        if ((rows[0]?.n ?? 0) >= versuche) return null;
-      }
-      const eingetragen: string[] = [];
-      for (const z of zaehler) {
-        const { rows } = await tx.execute<{ id: string }>(sql`INSERT INTO anmeldeversuch (schluessel) VALUES (${z}) RETURNING id`);
-        eingetragen.push(rows[0]!.id);
-      }
-      return eingetragen;
-    });
-    if (!ids) {
-      c.header("Retry-After", String(Math.round(fensterMs / 1000)));
+    const freigeben = await reserviereVersuch(db, [`ip:${clientIp(c, konfig)}`, `konto-sicherheit:${benutzerId}`], konfig.anmeldeLimit);
+    if (!freigeben) {
+      c.header("Retry-After", String(Math.round(konfig.anmeldeLimit.fensterMs / 1000)));
       throw new Fachfehler(429, "too_many_attempts", "Too many failed attempts. Please try again later.");
     }
-    return async () => {
-      await db.execute(sql`DELETE FROM anmeldeversuch WHERE id IN (${sql.join(ids.map((i) => sql`${i}::uuid`), sql`, `)})`);
-    };
+    return freigeben;
   };
 
   const passwortZeile = (benutzerId: string) =>
@@ -103,13 +87,13 @@ export function kontoSicherheitRouten(db: Db, auth: Auth, konfig: Konfiguration)
   return new Hono()
     .get("/security", async (c) => {
       const akteur = nurPerson(c);
-      const [konten, zeile, sitzungen] = await lese(db, async (tx) =>
-        Promise.all([
-          tx.select({ anbieter: konto.providerId, aktualisiertAm: konto.updatedAt, passwort: konto.password }).from(konto).where(eq(konto.userId, akteur.id)),
-          tx.select().from(zweiFaktor).where(eq(zweiFaktor.userId, akteur.id)),
-          tx.select({ id: sitzung.id }).from(sitzung).where(eq(sitzung.userId, akteur.id)),
-        ]),
-      );
+      // Nacheinander: Abfragen auf demselben Client dürfen nicht parallel laufen.
+      const [konten, zeile, sitzungen] = await lese(db, async (tx) => {
+        const konten = await tx.select({ anbieter: konto.providerId, aktualisiertAm: konto.updatedAt, passwort: konto.password }).from(konto).where(eq(konto.userId, akteur.id));
+        const zeile = await tx.select().from(zweiFaktor).where(eq(zweiFaktor.userId, akteur.id));
+        const sitzungen = await tx.select({ id: sitzung.id }).from(sitzung).where(eq(sitzung.userId, akteur.id));
+        return [konten, zeile, sitzungen] as const;
+      });
       let codesUebrig: number | null = null;
       const z = zeile[0];
       if (akteur.zweiFaktorAktiv && z) {
@@ -214,6 +198,7 @@ export function kontoSicherheitRouten(db: Db, auth: Auth, konfig: Konfiguration)
         await tx.insert(verifizierung).values({ identifier: NEU_KENNUNG(akteur.id), value: wert, expiresAt: new Date(Date.now() + NEU_SEKUNDEN * 1000) });
         await protokoll("zwei_faktor_neu_beginnen", "benutzer", akteur.id, null, { ablaufSekunden: NEU_SEKUNDEN });
       });
+      einmaligeAntwort(c);
       return c.json({ totpUri: totpAdresse(geheimnis, "Carraway", akteur.email), recoveryCodes: codes, expiresInSeconds: NEU_SEKUNDEN }, 200);
     })
     .post("/two-factor/restart/confirm", pruefe("json", bestaetigen), async (c) => {
@@ -253,6 +238,7 @@ export function kontoSicherheitRouten(db: Db, auth: Auth, konfig: Konfiguration)
         await tx.update(zweiFaktor).set({ backupCodes: verschluesselt }).where(eq(zweiFaktor.id, zeile.id));
         await protokoll("wiederherstellungscodes_erneuern", "benutzer", akteur.id, null, { anzahl: codes.length });
       });
+      einmaligeAntwort(c);
       return c.json({ recoveryCodes: codes }, 200);
     });
 }

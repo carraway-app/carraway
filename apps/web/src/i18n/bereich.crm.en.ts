@@ -271,6 +271,8 @@ export const crmBereichEn: typeof crmBereichDe = {
     importHinweis: "Note",
     importDublette: (name: string) => `Similar to “${name}”. `,
     importStatus: { neu: "New", dublette: "Duplicate", aktualisiert: "Updated", angelegt: "Created", uebersprungen: "Skipped", fehler: "Error", leer: "Empty" },
+    technischeAngaben: "Technical details",
+    oeffnen: "Open",
     attribute: "Attributes",
     wertLoeschen: "Remove value",
     wertLoeschenFuer: (name: string) => `Remove value: ${name}`,

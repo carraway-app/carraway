@@ -31,7 +31,7 @@ export function alsStand(eingabe: string | undefined): string | undefined {
 
 const ISO_MIT_ZONE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/;
 
-/** Liest `?stand=` aus der URL: nur Zeitstempel mit Zeitzone, sonst `undefined`. Ein `+` im Versatz, das als Leerzeichen ankam, wird zurückgeholt. */
+/** Liest `?knowledgeDate=` aus der URL: nur Zeitstempel mit Zeitzone, sonst `undefined`. Ein `+` im Versatz, das als Leerzeichen ankam, wird zurückgeholt. */
 export function standAusUrl(wert: unknown): string | undefined {
   if (typeof wert !== "string") return undefined;
   const text = wert.replace(/ (\d{2}:\d{2})$/, "+$1");

@@ -1,3 +1,4 @@
+import { connections } from "./integrationen/routes";
 import { sql } from "drizzle-orm";
 import { Hono, type Context } from "hono";
 import { HTTPException } from "hono/http-exception";
@@ -32,11 +33,13 @@ import { openapiRouten } from "./routen/openapi";
 import { stapelRouten } from "./routen/stapel";
 import { idempotenz } from "./idempotenz";
 import { importRouten } from "./routen/import";
+import { vorsystemRouten } from "./routen/vorsystem";
 import { externRouten } from "./routen/extern";
 import { kennzahlRouten } from "./routen/kennzahlen";
 import { beteiligungRouten } from "./routen/beteiligungen";
 import { aktivitaetRouten, wiedervorlageRouten } from "./routen/aktivitaeten";
 import { dealflowRouten } from "./routen/dealflow";
+import { dataRoutes } from "./data-providers/routes";
 import { crmRouten } from "./routen/crm";
 import { dealRouten } from "./routen/deals";
 import { beschlussvorlageRouten } from "./routen/beschlussvorlagen";
@@ -123,6 +126,7 @@ export function behandleFehler(fehler: unknown, c: Context, logger: Logger = sta
     if (fehler.status === 404) return fehlerAntwort(c, 404, "not_found", "The requested resource does not exist.");
     if (fehler.status === 400) return fehlerAntwort(c, 400, "invalid_input", "The request is invalid.");
   }
+  if (hatFehlercode(fehler, "CM001")) return fehlerAntwort(c, 409, "provider_managed", "This record is managed by its CRM provider.");
   if (istPeriodensperre(fehler)) {
     // Der Trigger legt das Sperrdatum in `DETAIL` (PostgreSQL-Fehler `detail`), wie die API-Prüfung nennt sie `gesperrtBis`.
     const gesperrtBis = sperrdatumAus(fehler);
@@ -150,6 +154,7 @@ export interface AppOptionen {
   /** DNS-Auflösung für die Prüfung der IMAP-Ziele (Tests). */
   aufloeser?: Aufloeser;
   /** Quelle für Registerdaten (Etappe 18); ohne Angabe aus der Umgebung (`REGISTER_ANBIETER`), sonst keine. */
+  providerHttp?: import("./http/oeffentlicher-abruf").AbrufOptionen;
   registerAnbieter?: RegisterAnbieter | null;
   /** Erweiterungen (Open Core, `ee/`): Routen, Regeln, Anmeldeanbieter, Angaben im Betriebsstatus. Der Kern allein läuft ohne. */
   erweiterungen?: readonly ApiErweiterung[];
@@ -160,7 +165,7 @@ export interface AppOptionen {
  * die Konfiguration aus den Umgebungsvariablen (Tests, ohne `process.env` zu verändern).
  */
 export function erstelleApp(db: Db, optionen: Partial<Konfiguration> & AppOptionen = {}) {
-  const { speicher, logger, pool, abrufer, imapFabrik, aufloeser, registerAnbieter, erweiterungen = [], ...konfigOptionen } = optionen;
+  const { speicher, logger, pool, abrufer, imapFabrik, aufloeser, registerAnbieter, providerHttp, erweiterungen = [], ...konfigOptionen } = optionen;
   const anbieter = registerAnbieter === undefined ? erstelleRegisterAnbieter() : registerAnbieter;
   const konfig: Konfiguration = { ...ladeKonfiguration(), ...konfigOptionen };
   setzeStandardSicht(konfig.kapitalSicht);
@@ -222,7 +227,7 @@ export function erstelleApp(db: Db, optionen: Partial<Konfiguration> & AppOption
     .route("/", kontoRouten(konfig, db, Object.keys(anmeldeanbieter.socialProviders)))
     .route("/account", kontoSicherheitRouten(db, auth, konfig))
     .route("/auth", authRouten(auth, konfig))
-    .route("/setup", einrichtungRouten(db))
+    .route("/setup", einrichtungRouten(db, konfig))
     .route("/password", passwortRouten(db, auth, konfig))
     .route("/users", benutzerRouten(db, auth))
     .route("/permissions", rechteRouten(db))
@@ -280,6 +285,8 @@ export function erstelleApp(db: Db, optionen: Partial<Konfiguration> & AppOption
     .route("/activities", anhangRouten(anhaenge))
     .route("/follow-ups", wiedervorlageRouten(db))
     .route("/dealflow", dealflowRouten(db))
+    .route("/", dataRoutes(db, konfig.schluessel, erweiterungen.flatMap(e => e.dataProviders ?? []), providerHttp))
+    .route("/integrations", connections(db, konfig.schluessel, erweiterungen.some(e => e.name === "crm-sync")))
     .route("/crm", crmRouten(db))
     .route("/transactions", vorgangRouten(db))
     .route("/transactions", vorgangFelderRouten(db))
@@ -311,6 +318,7 @@ export function erstelleApp(db: Db, optionen: Partial<Konfiguration> & AppOption
     .route("/mailbox", postfachRouten(db, { konfig, abrufer: abrufer ?? fetch, imapFabrik: imapFabrik ?? erstelleEchteImapVerbindung, aufloeser }))
     .route("/meetings", terminRouten(db))
     .route("/calendar", kalenderOeffentlichRouten(db, konfig))
+    .route("/import/sources", vorsystemRouten(db, konfig.schluessel, erweiterungen.flatMap((e) => e.vorsysteme ?? []), providerHttp))
     .route("/import", importRouten(db))
     .route("/export", exportRoute(db, dateiSpeicher))
     .route("/changes", aenderungenRouten(db))

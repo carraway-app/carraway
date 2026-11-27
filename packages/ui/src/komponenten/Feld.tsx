@@ -1,5 +1,6 @@
 import { useId, type InputHTMLAttributes, type ReactNode } from "react";
 import { klassen } from "../hilfen";
+import { OHNE_PASSWORTMANAGER } from "./ohnePasswortmanager";
 
 export interface FeldProps extends Omit<InputHTMLAttributes<HTMLInputElement>, "children"> {
   label: ReactNode;
@@ -14,9 +15,15 @@ export interface FeldProps extends Omit<InputHTMLAttributes<HTMLInputElement>, "
   kompakt?: boolean;
   /** Im Formularraster über zwei Spalten (lange Werte, Auswahl mit langen Optionen). */
   breit?: boolean;
+  /**
+   * Zugangsfeld (Anmeldung, Einrichtung, Passwort, zweiter Faktor): Passwortmanager dürfen es befüllen, `autoComplete` trägt das passende
+   * Token (`username`, `current-password`, `new-password`, `one-time-code`). Ohne diese Angabe ist das Feld ein Fachfeld, das
+   * Passwortmanager nicht anbieten (`autoComplete="off"` und die Ignore-Attribute der verbreiteten Passwortmanager).
+   */
+  zugang?: boolean;
 }
 
-export function Feld({ label, hilfe, fehler, zahl, labelVersteckt, kompakt, breit, id, className, ...rest }: FeldProps) {
+export function Feld({ label, hilfe, fehler, zahl, labelVersteckt, kompakt, breit, zugang, id, className, ...rest }: FeldProps) {
   const erzeugt = useId();
   const feldId = id ?? erzeugt;
   const meldung = fehler ?? hilfe;
@@ -28,6 +35,7 @@ export function Feld({ label, hilfe, fehler, zahl, labelVersteckt, kompakt, brei
         {label}
       </label>
       <input
+        {...(zugang ? {} : OHNE_PASSWORTMANAGER)}
         {...rest}
         id={feldId}
         className={klassen("cw-feld__eingabe", zahl && "cw-feld__eingabe--zahl")}

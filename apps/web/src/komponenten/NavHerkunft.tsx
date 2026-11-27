@@ -26,9 +26,9 @@ export default function NavHerkunft({ fondsId, waehrung, stichtag, stand, schrit
   const portfolio: EinzelwertZeile[] = (data?.portfolio ?? []).map((p) => ({
     id: p.bewertungId, datum: p.datum, betrag: p.wert,
     quelle: <>
-      <Link to="/beteiligungen/$id" params={{ id: p.beteiligungId }} search={{ ...schnitt, tab: "bewertung", unter: "bewertungen", bewertungId: p.bewertungId }}>{p.bezeichnung}</Link>
+      <Link to="/investments/$id" params={{ id: p.beteiligungId }} search={{ ...schnitt, tab: "bewertung", unter: "bewertungen", bewertungId: p.bewertungId }}>{p.bezeichnung}</Link>
       {p.nachweise.map((n) => <div key={n.dokumentId + n.seite}>
-        <Link to="/dokumente/$id" params={{ id: n.dokumentId }} search={{ ...schnitt, seite: n.seite ?? undefined }}>{n.seite ? t.dokumente.fundstelle.aus(n.dateiname, n.seite) : n.dateiname}</Link>
+        <Link to="/documents/$id" params={{ id: n.dokumentId }} search={{ ...schnitt, seite: n.seite ?? undefined }}>{n.seite ? t.dokumente.fundstelle.aus(n.dateiname, n.seite) : n.dateiname}</Link>
       </div>)}
     </>,
   }));
@@ -38,7 +38,7 @@ export default function NavHerkunft({ fondsId, waehrung, stichtag, stand, schrit
   const gruppen = [portfolio, ...zielfonds, ...["bank", "sonstiges", "schulden"].map((gruppe) =>
     (data?.salden ?? []).filter((s) => s.gruppe === gruppe).map((s) => ({
       id: s.id, datum: stichtag, betrag: s.saldo,
-      quelle: <Link to="/buchhaltung" search={{ ...schnitt, fondsId, laufId: s.laufId, konto: s.konto }}>{s.konto} {s.bezeichnung}</Link>,
+      quelle: <Link to="/accounting" search={{ ...schnitt, fondsId, laufId: s.laufId, konto: s.konto }}>{s.konto} {s.bezeichnung}</Link>,
     })))];
   return <HerkunftDialog titel={t.portfolio.nav} stichtag={stichtag} schritte={schritte.map((s) => ({ ...s, wert: /^-?\d/.test(s.wert) ? formatBetragCent(s.wert, sprache, waehrung) : s.wert }))} onSchliessen={onSchliessen}
     hinweis={<><Quellenstand {...schnitt} /><FehlerHinweis fehler={error} />{isLoading ? <Skelettzeilen anzahl={2} /> : null}</>}

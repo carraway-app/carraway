@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { initialisiereEinrichtung } from "../anmeldung/einrichtung";
 import { sql } from "drizzle-orm";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { istZweiFaktorOffen } from "../anmeldung/akteur";
@@ -17,9 +19,14 @@ import {
   totpCode,
 } from "./hilfen-auth";
 
+const SETUP_TOKEN = "test-only-setup-token";
+const startAusgabe: string[] = [];
+const starteEinrichtung = (vorgabe?: string) => initialisiereEinrichtung(db, vorgabe, (zeile) => startAusgabe.push(zeile));
+
 const { db, pool } = oeffneTestdb();
 
 beforeEach(async () => {
+  startAusgabe.length = 0;
   await leeren(db);
   await db.execute(sql`DELETE FROM anmeldeversuch`);
   await db.execute(sql`DELETE FROM benutzer`);
@@ -41,15 +48,60 @@ const roh = (t: ReturnType<typeof erstelleTestApp>, pfad: string, optionen: { me
 const melden = (t: ReturnType<typeof erstelleTestApp>, email: string, passwort = TESTPASSWORT, kopf?: Record<string, string>) =>
   roh(t, "/auth/sign-in/email", { body: { email, password: passwort }, kopf });
 
+describe("Einrichtungs-Token", () => {
+  const eingabe = { name: "Erste Person", email: "erste@test.example", password: TESTPASSWORT };
+  const gespeicherteToken = async () => (await db.execute(sql`SELECT value FROM verifizierung WHERE identifier = 'carraway:initial-setup'`)).rows;
+
+  it("rotiert beim Start, speichert nur den Hash und verbraucht das Token mit dem ersten Konto", async () => {
+    const t = erstelleTestApp(db);
+    const einrichten = (token?: string) => roh(t, "/setup", { body: { ...eingabe, token } });
+    await starteEinrichtung();
+    const erstes = startAusgabe[0]!.split(" ").at(-1)!;
+    await starteEinrichtung();
+    expect(startAusgabe).toHaveLength(2);
+    expect(startAusgabe[1]).toMatch(/^Carraway \/setup token: [A-Za-z0-9_-]{43}$/);
+    const aktuelles = startAusgabe[1]!.split(" ").at(-1)!;
+    expect(aktuelles).not.toBe(erstes);
+    expect(await gespeicherteToken()).toEqual([{ value: createHash("sha256").update(aktuelles).digest("hex") }]);
+    expect((await einrichten()).status).toBe(400);
+    expect((await einrichten(erstes)).status).toBe(403);
+    expect((await einrichten("falsch")).status).toBe(403);
+    expect((await einrichten(aktuelles)).status).toBe(201);
+    expect(await gespeicherteToken()).toEqual([]);
+    await starteEinrichtung();
+    expect(startAusgabe).toHaveLength(2);
+    expect(await gespeicherteToken()).toEqual([]);
+    expect((await json(await einrichten(aktuelles))).error.code).toBe("registration_closed");
+  });
+
+  it("verwendet die Vorgabe ohne Logausgabe und sperrt das Raten je IP und Adresse auch bei gleichzeitigen Anfragen", async () => {
+    await starteEinrichtung();
+    await starteEinrichtung(SETUP_TOKEN);
+    expect(startAusgabe).toHaveLength(1);
+    expect(startAusgabe.join("")).not.toContain(SETUP_TOKEN);
+    const t = erstelleTestApp(db, { proxyVertrauen: true, anmeldeLimit: { versuche: 2, fensterMs: 60_000 } });
+    const versuch = (token: string, ip = "192.0.2.1", email = eingabe.email) => roh(t, "/setup", { body: { ...eingabe, email, token }, kopf: { "X-Forwarded-For": ip } });
+    const antworten = await Promise.all(Array.from({ length: 4 }, () => versuch("falsch")));
+    expect(antworten.map((a) => a.status).sort()).toEqual([403, 403, 429, 429]);
+    const gesperrt = await versuch(SETUP_TOKEN);
+    expect(gesperrt.status).toBe(429);
+    expect(gesperrt.headers.get("Retry-After")).toBe("60");
+    expect((await versuch(SETUP_TOKEN, "192.0.2.2")).status).toBe(429);
+    expect((await versuch(SETUP_TOKEN, "192.0.2.1", "andere@test.example")).status).toBe(429);
+    expect((await versuch(SETUP_TOKEN, "192.0.2.2", "andere@test.example")).status).toBe(201);
+  });
+});
+
 describe("Registrierung, Anmeldung und Abmeldung", () => {
   it("Registrierung über Better Auth ist geschlossen; die erste Person richtet die Installation über /setup ein, danach ist auch das zu", async () => {
+    await starteEinrichtung(SETUP_TOKEN);
     const t = erstelleTestApp(db);
     const zu = await roh(t, "/auth/sign-up/email", { body: { name: "Erste Person", email: "erste@test.example", password: TESTPASSWORT } });
     expect(zu.status).toBeGreaterThanOrEqual(400); // disableSignUp der Bibliothek
     expect((await db.execute(sql`SELECT count(*)::int AS n FROM benutzer`)).rows[0]).toEqual({ n: 0 });
     expect((await json(await roh(t, "/environment"))).setupOpen).toBe(true);
 
-    const erste = await roh(t, "/setup", { body: { name: "Erste Person", email: "erste@test.example", password: TESTPASSWORT } });
+    const erste = await roh(t, "/setup", { body: { token: SETUP_TOKEN, name: "Erste Person", email: "erste@test.example", password: TESTPASSWORT } });
     expect(erste.status).toBe(201);
     const melde = await melden(t, "erste@test.example");
     const cookie = cookieKopf(melde.headers.getSetCookie());
@@ -57,23 +109,25 @@ describe("Registrierung, Anmeldung und Abmeldung", () => {
     expect(ich).toMatchObject({ email: "erste@test.example", globalAdmin: true, technicalUser: false, twoFactorEnabled: false, twoFactorSetupRequired: true });
 
     expect((await json(await roh(t, "/environment"))).setupOpen).toBe(false);
-    const zweite = await roh(t, "/setup", { body: { name: "Zweite Person", email: "zweite@test.example", password: TESTPASSWORT } });
+    const zweite = await roh(t, "/setup", { body: { token: SETUP_TOKEN, name: "Zweite Person", email: "zweite@test.example", password: TESTPASSWORT } });
     expect(zweite.status).toBe(403);
     expect((await json(zweite)).error.code).toBe("registration_closed");
   });
 
   it("gleichzeitige Einrichtungen ergeben genau eine Verwalterin", async () => {
+    await starteEinrichtung(SETUP_TOKEN);
     const t = erstelleTestApp(db);
-    const antworten = await Promise.all([1, 2, 3, 4].map((n) => roh(t, "/setup", { body: { name: `Person ${n}`, email: `p${n}@test.example`, password: TESTPASSWORT } })));
+    const antworten = await Promise.all([1, 2, 3, 4].map((n) => roh(t, "/setup", { body: { token: SETUP_TOKEN, name: `Person ${n}`, email: `p${n}@test.example`, password: TESTPASSWORT } })));
     expect(antworten.filter((a) => a.status === 201)).toHaveLength(1);
     expect((await db.execute(sql`SELECT count(*)::int AS n FROM benutzer`)).rows[0]).toEqual({ n: 1 });
   });
 
-  it("mit REGISTRIERUNG_OFFEN können sich Personen registrieren: die erste mit Verwaltung, weitere ohne Rolle", async () => {
+  it("offene Registrierung setzt eine abgeschlossene Einrichtung voraus und vergibt keine Verwaltung", async () => {
+    await starteEinrichtung(SETUP_TOKEN);
     const t = erstelleTestApp(db, { registrierungOffen: true });
     const erste = await roh(t, "/auth/sign-up/email", { body: { name: "Erste Person", email: "erste@test.example", password: TESTPASSWORT } });
-    expect(erste.status).toBe(200);
-    expect((await json(await roh(t, "/me", { cookie: cookieKopf(erste.headers.getSetCookie()) }))).globalAdmin).toBe(true);
+    expect(erste.status).toBe(403);
+    expect((await roh(t, "/setup", { body: { token: SETUP_TOKEN, name: "Erste Person", email: "erste@test.example", password: TESTPASSWORT } })).status).toBe(201);
     const zweite = await roh(t, "/auth/sign-up/email", { body: { name: "Zweite Person", email: "zweite@test.example", password: TESTPASSWORT } });
     expect(zweite.status).toBe(200);
     const ich = await json(await roh(t, "/me", { cookie: cookieKopf(zweite.headers.getSetCookie()) }));
@@ -150,7 +204,8 @@ describe("Abweichende Pfadschreibweisen umgehen weder die Registrierungssperre n
 
   it("Registrierung bei geschlossener Registrierung: keine Variante legt einen Benutzer an", async () => {
     const t = erstelleTestApp(db);
-    await roh(t, "/setup", { body: { name: "Erste Person", email: "erste@test.example", password: TESTPASSWORT } });
+    await starteEinrichtung(SETUP_TOKEN);
+    await roh(t, "/setup", { body: { token: SETUP_TOKEN, name: "Erste Person", email: "erste@test.example", password: TESTPASSWORT } });
     const eindringling = { name: "Eindringling", email: "eindringling@test.example", password: TESTPASSWORT };
     for (const variante of ["/auth/sign-up/email", "/auth/sign-up/email/", "/auth//sign-up/email", "/auth/SIGN-UP/email", "/auth/sign-up%2Femail", "/auth/sign-up/%65mail"]) {
       expect((await post(t, variante, eindringling, jsonKopf())).status, variante).toBeGreaterThanOrEqual(400);
@@ -370,6 +425,22 @@ describe("Begrenzung der Fehlversuche", () => {
     for (let i = 0; i < 10; i++) expect((await melden(t, `niemand${i}@test.example`, "falsches-Passwort-123", ip(7))).status).toBe(401);
     expect((await melden(t, p.email, TESTPASSWORT, ip(7))).status).toBe(429);
     expect((await melden(t, p.email, TESTPASSWORT, ip(8))).status).toBe(200);
+  });
+
+  it("prüft die Grenze beim Bestätigen des Passworts je Sitzungskonto und IP", async () => {
+    const t = erstelleTestApp(db, { proxyVertrauen: true, anmeldeLimit: { versuche: 1, fensterMs: 60_000 } });
+    const p = person("passwort-pruefen", { zweiFaktor: false });
+    await legePersonAn(db, p);
+    const cookie = await meldeAn(t.app, p);
+    const pruefen = (nr: number) => roh(t, "/auth/verify-password", { cookie, body: { password: TESTPASSWORT }, kopf: ip(nr) });
+    expect((await pruefen(1)).status).toBe(200);
+    const versuche = await Promise.all([1, 2].map(() => roh(t, "/auth/verify-password", { cookie, body: { password: "abweichend" }, kopf: ip(1) })));
+    expect(versuche.map(v => v.status).sort()).toEqual([400, 429]);
+    expect((await pruefen(2)).status).toBe(429);
+    expect((await db.execute(sql`SELECT schluessel FROM anmeldeversuch ORDER BY schluessel`)).rows).toEqual([
+      { schluessel: "ip:203.0.113.1" }, { schluessel: `konto:${p.email}` },
+    ]);
+    expect((await roh(t, "/auth/verify-password/", { cookie, body: { password: TESTPASSWORT } })).status).toBe(404);
   });
 
   it("Fehlversuche beim zweiten Faktor zählen je IP-Adresse ebenfalls", async () => {

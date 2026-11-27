@@ -5,7 +5,9 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./beispiel": "./src/beispiel.ts"
+    "./beispiel": "./src/beispiel.ts",
+    "./vorsystem": "./src/vorsystem/index.ts",
+    "./vorsystem-beispiel": "./src/vorsystem/beispiel.ts"
   },
   "scripts": {
     "beispiel": "tsx scripts/beispiel-erzeugen.ts",

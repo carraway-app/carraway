@@ -1,7 +1,7 @@
 import { useId, useRef, useState, type KeyboardEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
-import { ArrowRightIcon, BankIcon, BuildingsIcon, BriefcaseIcon, Button, Dialog, FileTextIcon, IconButton, MagnifyingGlassIcon, UserCircleIcon, XIcon } from "@carraway/ui";
+import { useNavigate, type NavigateOptions } from "@tanstack/react-router";
+import { ArrowRightIcon, BankIcon, BuildingsIcon, BriefcaseIcon, Button, Dialog, FileTextIcon, IconButton, MagnifyingGlassIcon, OHNE_PASSWORTMANAGER, UserCircleIcon, XIcon } from "@carraway/ui";
 import { fondsListe, suche } from "../api/abfragen";
 import { crmListen } from "../api/crm";
 import { useRechte } from "../lib/rechte";
@@ -10,7 +10,7 @@ import { Schnellaktionen } from "./crm/Zelle";
 import { useEntprellt } from "./formular";
 import "./SuchDialog.css";
 
-type Ziel = { to: "/organisationen/$id" | "/personen/$id" | "/deals/$id" | "/dokumente/$id"; id: string; seite?: number } | { to: "/fonds"; fondsId: string };
+type Ziel = { to: "/organizations/$id" | "/people/$id" | "/deals/$id" | "/documents/$id"; id: string; seite?: number } | { to: "/funds"; fondsId: string };
 interface Eintrag {
   schluessel: string;
   gruppe: "fonds" | "organisationen" | "personen" | "deals" | "dokumente";
@@ -26,8 +26,18 @@ interface Eintrag {
 const MAX_SUCHBEGRIFF = 100;
 const gruppenIcons = { fonds: BankIcon, organisationen: BuildingsIcon, personen: UserCircleIcon, deals: BriefcaseIcon, dokumente: FileTextIcon };
 
-/** Globale Suche: serverseitig gerankt und nach Rechten gefiltert; mit Pfeiltasten wählen, mit Eingabe öffnen. */
-export default function SuchDialog({ onSchliessen }: { onSchliessen: () => void }) {
+/** Ein Ort der Seitenleiste oder ein Reiter, den die Suche findet (Name, Zusammenhang, Ziel). */
+export interface SuchOrt {
+  schluessel: string;
+  label: string;
+  ziel: NavigateOptions;
+}
+
+/**
+ * Globale Suche und Navigation: Datensätze (serverseitig gerankt und nach Rechten gefiltert), die Orte der Seitenleiste und ihre Reiter.
+ * Aktionen (Anlegen, Importieren) stehen sichtbar auf den Seiten, nicht hier. Mit Pfeiltasten wählen, mit Eingabe öffnen.
+ */
+export default function SuchDialog({ onSchliessen, orte = [] }: { onSchliessen: () => void; orte?: readonly SuchOrt[] }) {
   const t = useT();
   const navigate = useNavigate();
   const [eingabe, setEingabe] = useState("");
@@ -45,11 +55,11 @@ export default function SuchDialog({ onSchliessen }: { onSchliessen: () => void 
     ? fonds.data?.filter((f) => [f.name, f.kurzname].some((name) => name.toLowerCase().includes(normalisiert))).slice(0, 8)
     : [];
   const eintraege: Eintrag[] = [
-    ...(fondsTreffer ?? []).map((f): Eintrag => ({ schluessel: `f${f.id}`, gruppe: "fonds", label: f.name, info: f.kurzname, ziel: { to: "/fonds", fondsId: f.id } })),
-    ...(daten?.organisationen ?? []).map((o): Eintrag => ({ schluessel: `o${o.id}`, gruppe: "organisationen", label: o.name, info: [aufzaehlung(t.organisationArt, o.art), o.ort].filter(Boolean).join(" · "), ziel: { to: "/organisationen/$id", id: o.id }, kontakt: o, kontaktName: o.name })),
-    ...(daten?.personen ?? []).map((p): Eintrag => ({ schluessel: `p${p.id}`, gruppe: "personen", label: `${p.vorname} ${p.nachname}`, info: p.organisation?.name ?? t.suche.ohneOrganisation, ziel: { to: "/personen/$id", id: p.id }, kontakt: p, kontaktName: `${p.vorname} ${p.nachname}` })),
+    ...(fondsTreffer ?? []).map((f): Eintrag => ({ schluessel: `f${f.id}`, gruppe: "fonds", label: f.name, info: f.kurzname, ziel: { to: "/funds", fondsId: f.id } })),
+    ...(daten?.organisationen ?? []).map((o): Eintrag => ({ schluessel: `o${o.id}`, gruppe: "organisationen", label: o.name, info: [aufzaehlung(t.organisationArt, o.art), o.ort].filter(Boolean).join(" · "), ziel: { to: "/organizations/$id", id: o.id }, kontakt: o, kontaktName: o.name })),
+    ...(daten?.personen ?? []).map((p): Eintrag => ({ schluessel: `p${p.id}`, gruppe: "personen", label: `${p.vorname} ${p.nachname}`, info: p.organisation?.name ?? t.suche.ohneOrganisation, ziel: { to: "/people/$id", id: p.id }, kontakt: p, kontaktName: `${p.vorname} ${p.nachname}` })),
     ...(daten?.deals ?? []).map((d): Eintrag => ({ schluessel: `d${d.id}`, gruppe: "deals", label: d.titel, info: `${d.organisation.name} · ${aufzaehlung(t.dealPhase, d.phase)}`, ziel: { to: "/deals/$id", id: d.id }, kontakt: d.organisation, kontaktName: d.organisation.name })),
-    ...(daten?.dokumente ?? []).map((x): Eintrag => ({ schluessel: `x${x.id}-${x.seite}`, gruppe: "dokumente", label: x.dateiname, info: `${t.suche.dokumentSeite(x.seite)}${x.quelle === "ocr" ? ` (${t.suche.dokumentOcr})` : ""} · ${x.ausschnitt.replaceAll("\u27e6", "").replaceAll("\u27e7", "")}`, ziel: { to: "/dokumente/$id", id: x.id, seite: x.seite } })),
+    ...(daten?.dokumente ?? []).map((x): Eintrag => ({ schluessel: `x${x.id}-${x.seite}`, gruppe: "dokumente", label: x.dateiname, info: `${t.suche.dokumentSeite(x.seite)}${x.quelle === "ocr" ? ` (${t.suche.dokumentOcr})` : ""} · ${x.ausschnitt.replaceAll("\u27e6", "").replaceAll("\u27e7", "")}`, ziel: { to: "/documents/$id", id: x.id, seite: x.seite } })),
   ];
 
   const { darf } = useRechte();
@@ -63,31 +73,27 @@ export default function SuchDialog({ onSchliessen }: { onSchliessen: () => void 
     return navigate(optionen);
   };
   const alleBefehle: { schluessel: string; label: string; aktion: () => void }[] = [
-    ...(darf("bearbeiter", null, "kontakte")
-      ? [
-          { schluessel: "neu-o", label: b.neuUnternehmen, aktion: () => geheZu({ to: "/kontakte", search: { neu: "1" } }) },
-          { schluessel: "neu-p", label: b.neuKontakt, aktion: () => geheZu({ to: "/kontakte", search: { objekt: "person", neu: "1" } }) },
-          { schluessel: "import", label: b.importieren, aktion: () => geheZu({ to: "/kontakte/import" }) },
-        ]
-      : []),
-    ...(darf("bearbeiter", null, "dealflow") ? [{ schluessel: "neu-d", label: b.neuDeal, aktion: () => geheZu({ to: "/dealflow", search: { neu: "1" } }) }] : []),
-    { schluessel: "fonds", label: b.fonds, aktion: () => geheZu({ to: "/fonds", search: {} }) },
+    // Orte der aktuellen Leiste und ihre Reiter zuerst
+    ...orte.map((o) => ({ schluessel: `ort-${o.schluessel}`, label: o.label, aktion: () => void geheZu(o.ziel) })),
+    { schluessel: "fonds", label: b.fonds, aktion: () => geheZu({ to: "/funds", search: {} }) },
     ...(kontakteLesen ? [
-      { schluessel: "o", label: b.unternehmen, aktion: () => geheZu({ to: "/kontakte", search: {} }) },
-      { schluessel: "p", label: b.kontakte, aktion: () => geheZu({ to: "/kontakte", search: { objekt: "person" } }) },
-      { schluessel: "h", label: b.heute, aktion: () => geheZu({ to: "/kontakte", search: { objekt: "heute" } }) },
-      ...(dealsLesen ? [{ schluessel: "dt", label: b.dealTabelle, aktion: () => geheZu({ to: "/kontakte", search: { objekt: "deal" } }) }] : []),
-      ...(listen.data ?? []).filter((l) => l.objekt !== "deal" || dealsLesen).map((l) => ({ schluessel: `l${l.id}`, label: b.liste(l.name), aktion: () => geheZu({ to: "/kontakte", search: { liste: l.id, ...(l.objekt === "organisation" ? {} : { objekt: l.objekt }) } }) })),
+      { schluessel: "o", label: b.unternehmen, aktion: () => geheZu({ to: "/contacts", search: {} }) },
+      { schluessel: "p", label: b.kontakte, aktion: () => geheZu({ to: "/contacts", search: { objekt: "person" } }) },
+      { schluessel: "h", label: b.heute, aktion: () => geheZu({ to: "/contacts", search: { objekt: "heute" } }) },
+      ...(dealsLesen ? [{ schluessel: "dt", label: b.dealTabelle, aktion: () => geheZu({ to: "/contacts", search: { objekt: "deal" } }) }] : []),
+      ...(listen.data ?? []).filter((l) => l.objekt !== "deal" || dealsLesen).map((l) => ({ schluessel: `l${l.id}`, label: b.liste(l.name), aktion: () => geheZu({ to: "/contacts", search: { liste: l.id, ...(l.objekt === "organisation" ? {} : { objekt: l.objekt }) } }) })),
     ] : []),
     ...(dealsLesen ? [{ schluessel: "db", label: b.board, aktion: () => geheZu({ to: "/dealflow", search: {} }) }] : []),
   ];
-  const befehle = alleBefehle.filter((x) => x.label.toLowerCase().includes(normalisiert)).slice(0, 14);
+  // Orte der Leiste und ihre Reiter vollständig (höchstens etwa 30), dazu bis zu 14 weitere Befehle.
+  const passt = (x: { label: string }) => x.label.toLowerCase().includes(normalisiert);
+  const befehle = [...alleBefehle.filter((x) => x.schluessel.startsWith("ort-") && passt(x)).slice(0, 30), ...alleBefehle.filter((x) => !x.schluessel.startsWith("ort-") && passt(x)).slice(0, 14)];
 
   // Mit den Pfeiltasten wandert der Fokus über die Treffer; die Schnellaktionen daneben erreicht man mit dem Tabulator.
   const knoepfe = () => Array.from(liste.current?.querySelectorAll<HTMLElement>("button.app-auswahlliste__knopf") ?? []);
   function oeffne({ ziel }: Eintrag) {
-    if (ziel.to === "/fonds") {
-      void geheZu({ to: ziel.to, search: { fondsId: ziel.fondsId } });
+    if (ziel.to === "/funds") {
+      void (darf("betrachter", ziel.fondsId, "portfolio") ? geheZu({ to: "/funds/$fundId", params: { fundId: ziel.fondsId }, search: {} }) : geheZu({ to: ziel.to, search: { fondsId: ziel.fondsId } }));
     } else {
       void geheZu({ to: ziel.to, params: { id: ziel.id }, ...(ziel.seite ? { search: { seite: ziel.seite } } : {}) });
     }
@@ -157,7 +163,7 @@ export default function SuchDialog({ onSchliessen }: { onSchliessen: () => void 
           aria-describedby={hinweisId}
           placeholder={t.suche.eingabePlatzhalter}
           maxLength={MAX_SUCHBEGRIFF}
-          autoComplete="off"
+          {...OHNE_PASSWORTMANAGER}
           value={eingabe}
           onChange={(e) => setEingabe(e.target.value.slice(0, MAX_SUCHBEGRIFF))}
           onKeyDown={beiEingabeTaste}

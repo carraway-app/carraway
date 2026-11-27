@@ -1,15 +1,15 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
-import { BET_ID, INSTR_ID, KLASSE_ID, MS_OFFEN, beteiligungDaten, fehler, hauptInstrument, instrumentDaten, instrumentZeile, rendereApp, spieleApi, trancheZeile, waehleAktion, zinsenDaten } from "../test/hilfen";
+import { BET_ID, INSTR_ID, KLASSE_ID, MS_OFFEN, beteiligungDaten, fehler, hauptInstrument, instrumentDaten, instrumentZeile, rendereApp, spieleApi, trancheZeile, waehleAktion, zinsenDaten, feldImStichtagMenue, zeilenAktion } from "../test/hilfen";
 import type { Anfrage } from "../test/hilfen";
 
 /** Bereiche Instrumente, Zinsen, Transaktionen, Vorgang erfassen und Wertberichtigung bei einer Beteiligung mit zwei Instrumenten (Darlehen und Eigenkapital). */
 
-const url = `/beteiligungen/${BET_ID}`;
-const instrumenteUrl = `${url}?tab=finanzierung&unter=instrumente`;
-const zinsenUrl = `${url}?tab=finanzierung&unter=zinsen`;
-const vorgaengeUrl = `${url}?tab=finanzierung&unter=transaktionen`;
+const url = `/investments/${BET_ID}`;
+const instrumenteUrl = `${url}?tab=financing&subtab=instruments`;
+const zinsenUrl = `${url}?tab=financing&subtab=interest`;
+const vorgaengeUrl = `${url}?tab=financing&subtab=transactions`;
 const SEED_ID = "i2";
 const T_SEED = "t-seed";
 const schmal = (text: string | null) => (text ?? "").replace(/\s/g, " ");
@@ -204,7 +204,7 @@ describe("Tranche anlegen", () => {
     const api = spieleApi({ ...zweiInstrumente, [`PATCH /api/v1/tranchen/${MS_OFFEN}`]: { koerper: {} } });
     rendereApp(instrumenteUrl);
     const nutzer = userEvent.setup();
-    await nutzer.click(await screen.findByRole("button", { name: "Tranche Umsatzziel bearbeiten" }));
+    await nutzer.click((await zeilenAktion("Tranche Umsatzziel bearbeiten"))!);
     const d = await screen.findByRole("dialog").then((e) => within(e));
     expect((d.getByLabelText("Betrag in Euro") as HTMLInputElement).value).toBe("600000");
     await nutzer.clear(d.getByLabelText("Betrag in Euro"));
@@ -383,7 +383,7 @@ describe("Bereich Zinsen", () => {
     expect(zeilen[2]!.textContent).toContain("Offen");
     expect(zeilen[3]!.textContent).toContain("laufend");
     expect(zeilen[3]!.textContent).toContain("Aufgelaufen");
-    expect(bereich.getByRole("link", { name: "Zinsläufe des Fonds" }).getAttribute("href")).toContain("/zinslaeufe");
+    expect(bereich.getByRole("link", { name: "Zinsläufe des Fonds" }).getAttribute("href")).toContain("/interest-runs");
   });
 
   it("zeigt gewandelte Zinsen als Stand „Gewandelt“ statt „Offen“", async () => {
@@ -409,7 +409,7 @@ describe("Bereich Zinsen", () => {
     rendereApp(zinsenUrl);
     expect(await screen.findByRole("region", { name: "Summe" })).toBeTruthy();
     expect(api.anfragen("GET", `/api/v1/beteiligungen/${BET_ID}/zinsen`)[0]!.query.get("stichtag")).toBe("2026-09-30");
-    fireEvent.change(screen.getByLabelText("Stichtag"), { target: { value: "2026-06-30" } });
+    fireEvent.change(await feldImStichtagMenue(), { target: { value: "2026-06-30" } });
     await waitFor(() => expect(api.anfragen("GET", `/api/v1/beteiligungen/${BET_ID}/zinsen`).some((a) => a.query.get("stichtag") === "2026-06-30")).toBe(true));
     await waitFor(() => expect(schmal(screen.getByRole("region", { name: "Summe" }).textContent)).toContain("7.777 €"));
   });
@@ -427,9 +427,10 @@ describe("Bereich Zinsen", () => {
   it("fehlt im Verzeichnis, wenn kein Instrument Zinsen trägt", async () => {
     spieleApi({ [`/api/v1/beteiligungen/${BET_ID}`]: { koerper: { ...beteiligungDaten, instrumente: [seed] } } });
     rendereApp(url);
-    const nav = await screen.findByRole("navigation", { name: "Bereiche der Beteiligung" });
-    expect(within(nav).queryByRole("button", { name: "Zinsen" })).toBeNull();
-    expect(within(nav).getByRole("button", { name: "Instrumente" })).toBeTruthy();
+    await userEvent.setup().click(await within(await screen.findByRole("navigation", { name: /^(Hauptnavigation|Main navigation)$/ })).findByRole("link", { name: /^Finanzierung/ }));
+    const reiter = await screen.findByRole("tablist", { name: "Finanzierung" });
+    expect(within(reiter).queryByRole("tab", { name: "Zinsen" })).toBeNull();
+    expect(within(reiter).getByRole("tab", { name: "Instrumente" })).toBeTruthy();
   });
 });
 
@@ -469,7 +470,7 @@ describe("Transaktionen mit Instrument", () => {
 });
 
 describe("Wertberichtigung unter Bewertungen", () => {
-  const bewertungenUrl = `${url}?tab=bewertung&unter=bewertungen`;
+  const bewertungenUrl = `${url}?tab=valuation&subtab=valuations`;
 
   it("bucht eine bilanzielle Wertberichtigung auf das gewählte Instrument und erklärt, dass sie den Buchwert senkt", async () => {
     const api = spieleApi({ ...zweiInstrumente, [`POST /api/v1/investments/${BET_ID}/transactions`]: { status: 201, koerper: { transaction: {}, bookValue: "982000.00" } } });

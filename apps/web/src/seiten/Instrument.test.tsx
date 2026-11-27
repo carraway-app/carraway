@@ -1,12 +1,12 @@
-import { fireEvent, screen, within } from "@testing-library/react";
+import { fireEvent, screen, within, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
-import { BET_ID, INSTR_ID, MS_ERFUELLT, MS_OFFEN, fehler, instrumentDaten, rendereApp, spieleApi, waehleAktion } from "../test/hilfen";
+import { BET_ID, INSTR_ID, MS_ERFUELLT, MS_OFFEN, fehler, instrumentDaten, rendereApp, spieleApi, waehleAktion, zeilenAktion } from "../test/hilfen";
 import { feldpruefungTexte } from "../i18n/feldpruefung";
 
-const url = `/beteiligungen/${BET_ID}`;
-const vorgaengeUrl = `${url}?tab=finanzierung&unter=transaktionen`;
-const instrumenteUrl = `${url}?tab=finanzierung&unter=instrumente`;
+const url = `/investments/${BET_ID}`;
+const vorgaengeUrl = `${url}?tab=financing&subtab=transactions`;
+const instrumenteUrl = `${url}?tab=financing&subtab=instruments`;
 const schmal = (text: string | null) => (text ?? "").replace(/\s/g, " ");
 const abschnitt = async () => within(await screen.findByRole("region", { name: "Instrument" }));
 const dialog = () => within(screen.getByRole("dialog"));
@@ -75,7 +75,8 @@ describe("Instrument: Anzeige", () => {
     const inst = await abschnitt();
     await nutzer.click(await inst.findByRole("button", { name: /^Carrying amount /, description: "Show origin of Carrying amount" }));
     expect(within(screen.getByRole("dialog")).getByText("Capitalised interest")).toBeTruthy();
-    await nutzer.click(screen.getByRole("button", { name: "Instruments" }));
+    await nutzer.click(within(screen.getByRole("navigation", { name: /^(Hauptnavigation|Main navigation)$/ })).getByRole("link", { name: /^Financing/ }));
+    await nutzer.click(await screen.findByRole("tab", { name: "Instruments" }));
     expect(await screen.findByRole("button", { name: "Terms: Wandeldarlehen 2021" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Add tranche: Wandeldarlehen 2021" })).toBeTruthy();
     localStorage.removeItem("carraway.sprache");
@@ -83,7 +84,7 @@ describe("Instrument: Anzeige", () => {
 
   it("sperrt Änderungen mit einem Wissensstand in der URL", async () => {
     spieleApi();
-    rendereApp(`${url}?stand=2026-11-01T10:00:00Z`);
+    rendereApp(`${url}?knowledgeDate=2026-11-01T10:00:00Z`);
     const inst = await abschnitt();
     await inst.findByText("Jahresüberschüsse");
     expect(screen.queryByRole("button", { name: "Vorgang erfassen" })).toBeNull();
@@ -160,12 +161,25 @@ describe("Vorgang erfassen", () => {
   });
 });
 
+/** Öffnet das Menü „⋯“ der Zeile mit dem Text und liefert die Einträge (Aktionen je Vorgang stehen im Zeilenmenü). */
+async function zeilenmenue(nutzer: ReturnType<typeof userEvent.setup>, text: RegExp) {
+  // Die Menüs laden nach (lazy); warten, bis die Zeile ihren Knopf hat.
+  const zeile = await waitFor(() => {
+    const z = screen.getAllByRole("row").find((r) => text.test(r.textContent ?? "") && within(r).queryByRole("button", { name: "Weitere Aktionen" }));
+    if (!z) throw new Error("Zeile ohne Menü");
+    return z;
+  });
+  await nutzer.click(within(zeile).getByRole("button", { name: "Weitere Aktionen" }));
+  return screen.findAllByRole("menuitem");
+}
+
 describe("Storno", () => {
   it("storniert mit Grund und Valuta nicht vor dem Original", async () => {
     const api = spieleApi({ "POST /api/v1/transactions/v4/reverse": { status: 201, koerper: { reversal: {}, original: {} } } });
     rendereApp(vorgaengeUrl);
     const nutzer = userEvent.setup();
-    await nutzer.click(await screen.findByRole("button", { name: "Auszahlung vom 31.07.2021 stornieren" }));
+    await zeilenmenue(nutzer, /31\.07\.2021.*Auszahlung/);
+    await nutzer.click(screen.getByRole("menuitem", { name: "Auszahlung vom 31.07.2021 stornieren" }));
     const d = dialog();
     expect(d.getByLabelText("Valuta des Storno (optional)").getAttribute("min")).toBe("2021-07-31");
     await nutzer.type(d.getByLabelText("Grund"), "Doppelt gebucht");
@@ -180,8 +194,20 @@ describe("Storno", () => {
     });
     rendereApp(vorgaengeUrl);
     const nutzer = userEvent.setup();
-    expect(await screen.findAllByRole("button", { name: /stornieren$/ })).toHaveLength(2); // v1 und v4; v2 ist storniert, v3 ist ein Storno
-    await nutzer.click(screen.getByRole("button", { name: "Auszahlung vom 31.07.2021 stornieren" }));
+    // Stornieren steht nur im Menü von v1 und v4; v2 ist storniert, v3 ist ein Storno
+    await waitFor(() => expect(screen.getAllByRole("button", { name: "Weitere Aktionen" }).length).toBeGreaterThan(0));
+    const zeilen = screen.getAllByRole("row").slice(1);
+    const mitStorno: string[] = [];
+    for (const z of zeilen) {
+      const knopf = within(z).queryByRole("button", { name: "Weitere Aktionen" });
+      if (!knopf) continue;
+      await nutzer.click(knopf);
+      if (screen.queryAllByRole("menuitem", { name: /stornieren$/ }).length > 0) mitStorno.push(z.textContent ?? "");
+      await nutzer.keyboard("{Escape}");
+    }
+    expect(mitStorno).toHaveLength(2);
+    await zeilenmenue(nutzer, /31\.07\.2021.*Auszahlung/);
+    await nutzer.click(screen.getByRole("menuitem", { name: "Auszahlung vom 31.07.2021 stornieren" }));
     const d = dialog();
     // Ohne Grund geht nichts an die API; die Pflichtangabe steht am Feld.
     await nutzer.click(d.getByRole("button", { name: "Stornieren" }));
@@ -224,7 +250,7 @@ describe("Konditionen, Tranchen, Jahresüberschüsse", () => {
     const api = spieleApi({ [`POST /api/v1/tranchen/${MS_OFFEN}/erfuellt`]: { koerper: {} } });
     rendereApp(instrumenteUrl);
     const nutzer = userEvent.setup();
-    await nutzer.click(await screen.findByRole("button", { name: "Bedingung erfüllt: Tranche Umsatzziel" }));
+    await nutzer.click((await zeilenAktion("Bedingung erfüllt: Tranche Umsatzziel"))!);
     await nutzer.type(dialog().getByLabelText("Nachweis (optional)"), "Bericht Q3");
     await nutzer.click(dialog().getByRole("button", { name: "Als erfüllt markieren" }));
     await screen.findByRole("heading", { level: 1 });

@@ -3,6 +3,16 @@ import type { crmFehlerDe } from "./fehler.crm";
 /** Britisches Englisch, Fehlertexte zum Bereich „crm“ (siehe `fehler.crm.ts`). */
 export const crmFehlerEn: typeof crmFehlerDe = {
   query_invalid: "The query is invalid. Please check the filter, sort order and columns.",
+  provider_key_missing: "Configure an API key for this provider.",
+  provider_key_invalid: "The provider rejected the credential.",
+  provider_quota_exceeded: "The provider quota is exhausted.",
+  provider_rate_limited: "The provider rate limit was reached. Try again later.",
+  website_unavailable: "The company website is temporarily unavailable.",
+  provider_unavailable: "The provider is temporarily unavailable.",
+  provider_response_invalid: "The provider returned an invalid response.",
+  provider_not_found: "The provider record was not found.",
+  provider_review_stale: "The data changed. Retrieve it again before review.",
+  provider_managed: "This record is managed in the connected CRM.",
   field_value_invalid: "At least one field value does not fit the type of the field. Please check the input.",
   field_not_found: "This field does not exist.",
   fields_immutable: "The values of a transaction cannot be changed. A reversal and a new transaction carry the right values.",

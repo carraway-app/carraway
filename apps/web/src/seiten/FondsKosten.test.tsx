@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { FONDS_ID, rendereApp, spieleApi } from "../test/hilfen";
 
-const url = `/fonds?fondsId=${FONDS_ID}&tab=kapital`;
+const url = `/funds?fundId=${FONDS_ID}&tab=capital`;
 const kostenPfad = `/api/v1/fonds/${FONDS_ID}/kosten`;
 const anteile = [
   { organisationId: "investor-1", investor: "Investor Am Park", betrag: "60.00" },

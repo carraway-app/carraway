@@ -2,7 +2,7 @@ import { Bereichskopf } from "../komponenten/Bereichskopf";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { getRouteApi, Link } from "@tanstack/react-router";
-import { Auswahl, Button, Feld, Hinweis, Markdown, Segment, Status, Tabelle, Textbereich, formatBetrag, formatDatum, type StatusVariante, type TabelleSpalte } from "@carraway/ui";
+import { Auswahl, Button, Feld, Hinweis, Markdown, Segment, Status, Tabelle, Textbereich, formatBetrag, formatDatum, type StatusVariante, type TabelleSpalte, Leer } from "@carraway/ui";
 import { rundeDetail, rundenListe, type RundeDetail, type RundeZeile } from "../api/abfragen";
 import { heuteIso } from "../api/datum";
 import { useBewertungAendern, useRundeAktion, useRundeAnlegen } from "../api/mutationen";
@@ -18,7 +18,7 @@ import { useNamen } from "../lib/namen";
 import { useRechte } from "../lib/rechte";
 import { formatZeitpunkt } from "../lib/zeit";
 
-const route = getRouteApi("/fonds/$fondsId/bewertungsrunde");
+const route = getRouteApi("/funds/$fundId/valuation-round");
 
 type Vorschlag = "fortschreiben" | "letzte_runde";
 type Entwurf = RundeDetail["bewertungen"][number];
@@ -34,7 +34,7 @@ export function BewertungsrundeSeite() {
   const t = useT();
   const sprache = useSprache();
   const r = t.runde;
-  const { fondsId } = route.useParams();
+  const { fundId: fondsId } = route.useParams();
   const { stichtag } = route.useSearch();
   const { data: runden, error, isPending } = useQuery(rundenListe(fondsId));
   const { darf } = useRechte();
@@ -69,8 +69,7 @@ export function BewertungsrundeSeite() {
 
   return (
     <div className="app-seite">
-      <Bereichskopf titel={r.titel} />
-      <p className="app-leer-text">{r.beschreibung}</p>
+      <Bereichskopf info={r.beschreibung} titel={r.titel} />
       {meldung ? <Hinweis>{meldung}</Hinweis> : null}
 
       {darf("bearbeiter", fondsId, "portfolio") ? (
@@ -79,7 +78,7 @@ export function BewertungsrundeSeite() {
             {r.neu}
           </h2>
           <form
-            className="app-formular app-formular--zeile"
+            className="app-formular"
             noValidate
             onSubmit={(e) => {
               e.preventDefault();
@@ -88,8 +87,7 @@ export function BewertungsrundeSeite() {
             }}
           >
             <FehlerHinweis fehler={anlegen.error} bekannt={["stichtag", "vorschlag"]} />
-            <div className="app-berichte__auswahl">
-              <Feld label={r.stichtag} type="date" {...rundenfeld("datum", feldText(t, anlegen.error, "stichtag"))} />
+            <Feld label={r.stichtag} type="date" {...rundenfeld("datum", feldText(t, anlegen.error, "stichtag"))} />
               <div className="app-gruppe">
                 <span className="cw-feld__label" id="runde-vorschlag">
                   {r.vorschlag}
@@ -102,7 +100,6 @@ export function BewertungsrundeSeite() {
                 />
                 <span className="cw-feld__hilfe">{aufzaehlung(r.vorschlagHilfe, vorschlag)}</span>
               </div>
-            </div>
             <div>
               <Button type="submit" disabled={anlegen.isPending}>
                 {r.anlegen}
@@ -114,7 +111,14 @@ export function BewertungsrundeSeite() {
 
       {isPending ? <Skelettzeilen anzahl={3} /> : null}
       {error ? <FehlerHinweis fehler={error} /> : null}
-      {runden && offene.length === 0 ? <p className="app-leer-text">{r.keineOffene}</p> : null}
+      {runden && offene.length === 0 ? (
+        <section className="app-karte" aria-labelledby="runde-offen-titel">
+          <h2 id="runde-offen-titel" className="cw-t-untertitel app-karte__titel">
+            {r.offenTitel}
+          </h2>
+          <Leer kompakt titel={r.keineOffene} beschreibung={r.keineOffeneHilfe} />
+        </section>
+      ) : null}
       {offene.map((runde) => (
         <OffeneRunde key={runde.id} runde={runde} fondsId={fondsId} onMeldung={setMeldung} />
       ))}
@@ -153,7 +157,7 @@ function OffeneRunde({ runde, fondsId, onMeldung }: { runde: RundeZeile; fondsId
       schluessel: "unternehmen",
       kopf: r.spalten.unternehmen,
       zelle: (x) => (
-        <Link to="/beteiligungen/$id" params={{ id: x.beteiligungId }} search={{ stichtag: runde.stichtag }} aria-label={r.zurBeteiligung(x.organisation)}>
+        <Link to="/investments/$id" params={{ id: x.beteiligungId }} search={{ stichtag: runde.stichtag }} aria-label={r.zurBeteiligung(x.organisation)}>
           {x.organisation}
         </Link>
       ),
@@ -215,7 +219,7 @@ function OffeneRunde({ runde, fondsId, onMeldung }: { runde: RundeZeile; fondsId
           <ul className="app-liste-klein" aria-label={r.uebersprungen}>
             {uebersprungen.map((u) => (
               <li key={u.beteiligungId}>
-                <Link to="/beteiligungen/$id" params={{ id: u.beteiligungId }} search={{ stichtag: runde.stichtag }}>
+                <Link to="/investments/$id" params={{ id: u.beteiligungId }} search={{ stichtag: runde.stichtag }}>
                   {u.organisation}
                 </Link>
                 : {aufzaehlung(r.gruende, u.grund)}

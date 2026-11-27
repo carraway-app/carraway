@@ -7,13 +7,14 @@ import { BET_ID, DEAL_ID, FONDS_ID, ORG_A, alsRolle, rendereApp, spieleApi } fro
 const NUR_KONTAKTE = alsRolle("bearbeiter", { bereiche: ["kontakte"], stufeOhneFonds: "bearbeiter" });
 const CONTROLLING = alsRolle("bearbeiter", { bereiche: ["portfolio", "finanzen", "berichte", "meldewesen", "kennzahlen"] });
 
-const hatEintrag = (name: RegExp) => screen.queryByRole("button", { name }) !== null;
+/** Ein Ort in der Leiste, ein Reiter oder eine Sprungmarke mit diesem Namen. */
+const hatEintrag = (name: RegExp) => screen.queryAllByRole("link", { name }).length > 0 || screen.queryAllByRole("tab", { name }).length > 0;
 const angefragt = (api: ReturnType<typeof spieleApi>, teil: string) => api.aufrufe.some((a) => a.pfad.includes(teil));
 
 describe("Bereiche in der Oberfläche", () => {
   it("Organisation (nur Kontakte): Deals, Beteiligungen, Runden und Dokumente fehlen, es gibt keine Anfrage und keinen 403", async () => {
     const api = spieleApi({ "/api/v1/me": NUR_KONTAKTE });
-    rendereApp(`/organisationen/${ORG_A}`);
+    rendereApp(`/organizations/${ORG_A}`);
     expect(await screen.findByRole("heading", { level: 1, name: "Alpha Energie" })).toBeTruthy();
     expect(hatEintrag(/^Kontakte/)).toBe(true);
     expect(hatEintrag(/^Aufgaben/)).toBe(true);
@@ -23,9 +24,9 @@ describe("Bereiche in der Oberfläche", () => {
     expect(angefragt(api, "/api/v1/documents")).toBe(false);
   });
 
-  it("Organisation (nur Kontakte): ?tab=runden fällt auf den ersten Eintrag zurück", async () => {
+  it("Organisation (nur Kontakte): ?tab=rounds fällt auf den ersten Eintrag zurück", async () => {
     const api = spieleApi({ "/api/v1/me": NUR_KONTAKTE });
-    rendereApp(`/organisationen/${ORG_A}?tab=runden`);
+    rendereApp(`/organizations/${ORG_A}?tab=rounds`);
     expect(await screen.findByRole("region", { name: "Kontakte des Unternehmens" })).toBeTruthy();
     expect(angefragt(api, "/finanzierungsrunden")).toBe(false);
   });
@@ -33,7 +34,7 @@ describe("Bereiche in der Oberfläche", () => {
   it("Organisation bearbeiten (nur Kontakte): ohne Meldewesen keine Felder für Sitzland und Region, keine Meldedaten-Anfrage", async () => {
     const api = spieleApi({ "/api/v1/me": NUR_KONTAKTE });
     const nutzer = userEvent.setup();
-    rendereApp(`/organisationen/${ORG_A}`);
+    rendereApp(`/organizations/${ORG_A}`);
     await nutzer.click(await screen.findByRole("button", { name: "Organisation bearbeiten" }));
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByLabelText("Rechtsform")).toBeTruthy();
@@ -43,7 +44,7 @@ describe("Bereiche in der Oberfläche", () => {
 
   it("Organisation mit allen Bereichen (globale Verwaltung) zeigt weiterhin alles", async () => {
     spieleApi();
-    rendereApp(`/organisationen/${ORG_A}`);
+    rendereApp(`/organizations/${ORG_A}`);
     await screen.findByRole("heading", { level: 1, name: "Alpha Energie" });
     for (const name of [/^Deals/, /^Beteiligungen/, /^Runden/, /^Dokumente/]) expect(hatEintrag(name)).toBe(true);
   });
@@ -51,12 +52,14 @@ describe("Bereiche in der Oberfläche", () => {
   it("Beteiligung (Controlling): Dokumente, eigene Felder und Registerhinweise fehlen; Zinsen, Kennzahlen und Beleg bleiben", async () => {
     const api = spieleApi({ "/api/v1/me": CONTROLLING });
     const nutzer = userEvent.setup();
-    rendereApp(`/beteiligungen/${BET_ID}`);
+    rendereApp(`/investments/${BET_ID}`);
     expect(await screen.findByRole("heading", { level: 1, name: "Alpha Energie" })).toBeTruthy();
     expect(hatEintrag(/^Dokumente/)).toBe(false);
-    expect(screen.queryByRole("button", { name: /Eigene Felder|Felder/ })).toBeNull();
-    expect(hatEintrag(/^Zinsen/)).toBe(true);
-    expect(hatEintrag(/^Kennzahlen/)).toBe(true);
+    expect(screen.queryByRole("link", { name: /Eigene Felder|Felder/ })).toBeNull();
+    await nutzer.click(within(screen.getByRole("navigation", { name: /^(Hauptnavigation|Main navigation)$/ })).getByRole("link", { name: /^Finanzierung/ }));
+    expect(await screen.findByRole("tab", { name: /^Zinsen/ })).toBeTruthy();
+    await nutzer.click(within(screen.getByRole("navigation", { name: /^(Hauptnavigation|Main navigation)$/ })).getByRole("link", { name: /^Unternehmen/ }));
+    expect(await screen.findByRole("tab", { name: /^Kennzahlen/ })).toBeTruthy();
     expect(angefragt(api, "/api/v1/documents")).toBe(false);
     await nutzer.click(await screen.findByRole("button", { name: /Weitere Aktionen/ }));
     expect(await screen.findByRole("menuitem", { name: "Beleg erzeugen" })).toBeTruthy();
@@ -65,9 +68,12 @@ describe("Bereiche in der Oberfläche", () => {
   it("Beteiligung (nur Portfolio): Zinsen, Kennzahlen, ESG, Quartalsbericht und Beleg fehlen", async () => {
     spieleApi({ "/api/v1/me": alsRolle("bearbeiter", { bereiche: ["portfolio"] }) });
     const nutzer = userEvent.setup();
-    rendereApp(`/beteiligungen/${BET_ID}`);
+    rendereApp(`/investments/${BET_ID}`);
     expect(await screen.findByRole("heading", { level: 1, name: "Alpha Energie" })).toBeTruthy();
-    for (const name of [/^Zinsen/, /^Kennzahlen/, /^ESG/, /^Dokumente/, /^Förder/]) expect(hatEintrag(name)).toBe(false);
+    for (const name of [/^Dokumente/]) expect(hatEintrag(name)).toBe(false);
+    await nutzer.click(within(screen.getByRole("navigation", { name: /^(Hauptnavigation|Main navigation)$/ })).getByRole("link", { name: /^Finanzierung/ }));
+    expect(await screen.findByRole("tab", { name: /^Transaktionen/ })).toBeTruthy();
+    for (const name of [/^Zinsen/, /^Kennzahlen/, /^ESG/, /^Förder/]) expect(hatEintrag(name)).toBe(false);
     expect(screen.queryByRole("link", { name: /Quartalsbericht/ })).toBeNull();
     await nutzer.click(await screen.findByRole("button", { name: /Weitere Aktionen/ }));
     expect(screen.queryByRole("menuitem", { name: "Beleg erzeugen" })).toBeNull();
@@ -82,31 +88,31 @@ describe("Bereiche in der Oberfläche", () => {
     expect(angefragt(api, "/api/v1/crm/")).toBe(false);
   });
 
-  it("Fonds (nur Portfolio): Kennzahlen, ESG und Zinsen fehlen im Verzeichnis", async () => {
+  it("Fonds (nur Portfolio): Kennzahlen, ESG und Zinsen fehlen in der Leiste", async () => {
     spieleApi({ "/api/v1/me": alsRolle("bearbeiter", { bereiche: ["portfolio"] }) });
-    rendereApp(`/fonds/${FONDS_ID}`);
+    rendereApp(`/funds/${FONDS_ID}`);
     await screen.findByRole("heading", { level: 1, name: "Beispielfonds I" });
-    const verzeichnis = await screen.findByRole("navigation", { name: "Bereiche des Portfolios" });
-    expect(within(verzeichnis).getByRole("button", { name: /Szenarien/ })).toBeTruthy();
-    for (const name of [/Kennzahlen/, /ESG/, /Zinsen/]) expect(within(verzeichnis).queryByRole("button", { name })).toBeNull();
+    const leiste = await screen.findByRole("navigation", { name: "Hauptnavigation" });
+    expect(within(leiste).getByRole("link", { name: /Planung/ })).toBeTruthy();
+    for (const name of [/Kennzahlen/, /ESG/, /Zinsen/]) expect(within(leiste).queryByRole("link", { name })).toBeNull();
   });
 
-  it("Fonds (Controlling): Kennzahlen, ESG und Zinsen stehen im Verzeichnis", async () => {
+  it("Fonds (Controlling): Kennzahlen und Zinsen stehen in der Leiste", async () => {
     spieleApi({ "/api/v1/me": CONTROLLING });
-    rendereApp(`/fonds/${FONDS_ID}`);
+    rendereApp(`/funds/${FONDS_ID}`);
     await screen.findByRole("heading", { level: 1, name: "Beispielfonds I" });
-    const verzeichnis = await screen.findByRole("navigation", { name: "Bereiche des Portfolios" });
-    for (const name of [/Kennzahlen/, /Zinsen/]) expect(await within(verzeichnis).findByRole("button", { name })).toBeTruthy();
+    const leiste = await screen.findByRole("navigation", { name: "Hauptnavigation" });
+    for (const name of [/Kennzahlen/, /Zinsen/]) expect(await within(leiste).findByRole("link", { name })).toBeTruthy();
   });
 
   it("Einstellungen (nur Portfolio): der Reiter Postfach fehlt, mit Kontakten ist er da", async () => {
     spieleApi({ "/api/v1/me": alsRolle("bearbeiter", { bereiche: ["portfolio"] }) });
-    const ohne = rendereApp("/einstellungen/postfach");
+    const ohne = rendereApp("/settings/mailbox");
     expect(await screen.findByRole("tab", { name: /Sicherheit/ })).toBeTruthy();
     expect(screen.queryByRole("tab", { name: /Postfach/ })).toBeNull();
     ohne.unmount();
     spieleApi({ "/api/v1/me": NUR_KONTAKTE });
-    rendereApp("/einstellungen/postfach");
+    rendereApp("/settings/mailbox");
     expect(await screen.findByRole("tab", { name: /Postfach/ })).toBeTruthy();
   });
 });

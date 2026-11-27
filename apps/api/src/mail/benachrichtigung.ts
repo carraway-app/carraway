@@ -108,7 +108,7 @@ export async function sendeBerichtFreigegeben(
       an: r.email,
       sprache: alsSprache(r.sprache),
       vorlage: "bericht_freigegeben",
-      parameter: { bericht: e.bericht, fonds: e.fondsName, link: `${kontext.appBasis}${e.linkPfad ?? `/berichte/${e.berichtId}`}` },
+      parameter: { bericht: e.bericht, fonds: e.fondsName, link: `${kontext.appBasis}${e.linkPfad ?? `/reports/${e.berichtId}`}` },
       bezug: { art: e.bezugArt ?? "bericht", id: e.berichtId },
     });
     n++;
@@ -157,7 +157,7 @@ export async function sendeRegisterEreignis(
       an: r.email,
       sprache: alsSprache(r.sprache),
       vorlage: "register_ereignis",
-      parameter: { unternehmen: org.name, art: e.art, link: `${kontext.appBasis}/organisationen/${e.organisationId}` },
+      parameter: { unternehmen: org.name, art: e.art, link: `${kontext.appBasis}/organizations/${e.organisationId}` },
       bezug: { art: "register_ereignis", id: e.ereignisId },
     });
     n++;

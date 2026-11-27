@@ -5,7 +5,7 @@ import { alsRolle, FONDS_ID, fehler, rendereApp, spieleApi, vorlagenDaten } from
 import { de } from "../i18n/de";
 import { en } from "../i18n/en";
 
-const URL_VORLAGEN = `/berichte/vorlagen?fondsId=${FONDS_ID}`;
+const URL_VORLAGEN = `/reports/templates?fundId=${FONDS_ID}`;
 const PUT_LP = `PUT /api/v1/funds/${FONDS_ID}/report-templates/lp_report`;
 const PUT_STUFEN = `PUT /api/v1/funds/${FONDS_ID}/approval-stages`;
 
@@ -19,7 +19,7 @@ const ordne = (griff: HTMLElement, ...tasten: string[]) => {
 describe("Vorlagen und Freigabestufen", () => {
   it("ist für Verwalter von der Berichtsliste aus erreichbar", async () => {
     spieleApi();
-    rendereApp("/berichte");
+    rendereApp("/reports");
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("link", { name: "Vorlagen und Stufen" }));
     expect(await screen.findByRole("heading", { level: 1, name: "Vorlagen und Freigabestufen" })).toBeTruthy();
@@ -214,7 +214,7 @@ describe("Vorlagen und Freigabestufen", () => {
 
     spieleApi({ "/api/v1/me": alsRolle("freigeber") });
     localStorage.setItem("carraway.sprache", "en");
-    rendereApp("/berichte");
+    rendereApp("/reports");
     await screen.findByRole("heading", { level: 1, name: "Reports" });
     expect(screen.queryByRole("link", { name: en.vorlagen.link })).toBeNull();
     localStorage.removeItem("carraway.sprache");

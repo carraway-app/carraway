@@ -15,7 +15,7 @@ import { formatZeitpunkt } from "../lib/zeit";
 import { merkeFonds } from "../zustand";
 import { BELEG_STATUS } from "./Belege";
 
-const route = getRouteApi("/belege/$id");
+const route = getRouteApi("/vouchers/$id");
 
 type Protokoll = BelegDetail["protokoll"][number];
 
@@ -131,7 +131,7 @@ function BelegInhalt({ id }: { id: string }) {
       <Seitenkopf
         meta={
           <>
-            <Link to="/belege" search={{ fondsId: b.fondsId }}>
+            <Link to="/vouchers" search={{ fondsId: b.fondsId }}>
               {d.zurListe}
             </Link>
             {fondsName ? ` · ${fondsName}` : ""}

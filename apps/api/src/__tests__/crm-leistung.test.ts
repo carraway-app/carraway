@@ -19,6 +19,8 @@ const post = (pfad: string, body: unknown) => t.request(`/crm${pfad}`, { method:
  * Leistung der Listen: 10.000 Unternehmen und 50.000 Kontakte mit eigenen Feldern; die Serverzeit (Kopfzeile `Server-Timing`) je Abfrage, 95. Perzentil unter 150 ms. Bis zu drei Messrunden je Fall: Es zählt die beste Runde (siehe `hilfen-leistung.ts`), damit Lastspitzen der Maschine nicht als Verschlechterung gelten.
  * Mit SKIP_PERF=1 überspringen, z. B. auf langsamen Runnern.
  */
+const SUCH_FONDS = "00000000-0000-4000-8000-0000000000e1";
+
 describe.skipIf(process.env.SKIP_PERF === "1")(`CRM-Listen: ${UNTERNEHMEN} Unternehmen, ${KONTAKTE} Kontakte`, () => {
   const f: Record<string, string> = {};
   beforeAll(async () => {
@@ -49,6 +51,11 @@ describe.skipIf(process.env.SKIP_PERF === "1")(`CRM-Listen: ${UNTERNEHMEN} Unter
              (SELECT id FROM organisation ORDER BY id OFFSET (i % ${UNTERNEHMEN}) LIMIT 1),
              jsonb_build_object(${f.Mitarbeiter}::text, (i % 1000)::text, ${f.Stufe}::text, (ARRAY['a','b','c'])[1 + i % 3], ${f.Hinweis}::text, 'Hinweis ' || (i % 100))
       FROM generate_series(1, ${KONTAKTE}) AS i`);
+    // Ein Fonds mit 2.000 Beteiligungen für die Suche im Suchfeld (Issue #296).
+    await db.execute(sql`INSERT INTO fonds (id, name, kurzname, vintage, zeichnungskapital) VALUES (${SUCH_FONDS}, 'Suchfonds', 'SF', 2024, 10000000.00)`);
+    await db.execute(sql`
+      INSERT INTO beteiligung (fonds_id, organisation_id, instrument, erstinvestment)
+      SELECT ${SUCH_FONDS}, id, 'offene_beteiligung', '2025-01-01' FROM organisation ORDER BY name LIMIT 2000`);
     await db.execute(sql`ANALYZE`);
   }, 180_000);
   afterAll(async () => {
@@ -87,6 +94,35 @@ describe.skipIf(process.env.SKIP_PERF === "1")(`CRM-Listen: ${UNTERNEHMEN} Unter
       );
       console.log(`CRM-Leistung ${name}: Median ${median(messung.zeiten).toFixed(1)} ms, p95 ${messung.wert.toFixed(1)} ms (Runden: ${messung.runden.map((r) => r.toFixed(1)).join(", ")}; Lastfaktor ${messung.lastfaktor.toFixed(2)}), max ${Math.max(...messung.zeiten).toFixed(1)} ms`);
       expect(messung.wert, `p95 je Runde: ${messung.runden.join(", ")} ms, Lastfaktor ${messung.lastfaktor.toFixed(2)}`).toBeLessThan(messung.grenze);
+    }, 60_000);
+  }
+
+  // Suchfelder für Verknüpfungen und Wertfelder mit Vorschlägen (Issue #274): Serverzeit je Abfrage wie oben.
+  const sucheFaelle: [string, string][] = [
+    ["Suchfeld Investor-Organisation", "/search?q=unternehmen%2004&limit=10&object=organization&kind=investor"],
+    ["Suchfeld Organisation", "/search?q=unternehmen%200420&limit=10&object=organization"],
+    ["Vorschläge Ort", "/organizations/values?field=city&q=ber"],
+    ["Vorschläge Funktion", "/people/values?q=gesch"],
+    ["Suchfeld Beteiligung im Fonds", `/search?q=unternehmen%200420&limit=10&object=investment&fundId=${SUCH_FONDS}`],
+  ];
+  for (const [name, pfad] of sucheFaelle) {
+    it(`${name}: 95. Perzentil unter ${GRENZE_P95_MS} ms`, async () => {
+      await t.request(pfad, { als: ADMIN }); // Aufwärmen
+      const messung = await messeInRunden(
+        async () => {
+          const zeiten: number[] = [];
+          for (let i = 0; i < WIEDERHOLUNGEN; i++) {
+            const antwort = await t.request(pfad, { als: ADMIN });
+            expect(antwort.status).toBe(200);
+            zeiten.push(Number(/dur=([\d.]+)/.exec(antwort.headers.get("Server-Timing") ?? "")?.[1]));
+          }
+          return zeiten;
+        },
+        (zeiten) => perzentil(zeiten, 0.95),
+        GRENZE_P95_MS,
+      );
+      console.log(`CRM-Leistung ${name}: Median ${median(messung.zeiten).toFixed(1)} ms, p95 ${messung.wert.toFixed(1)} ms`);
+      expect(messung.wert, `p95 je Runde: ${messung.runden.join(", ")} ms`).toBeLessThan(messung.grenze);
     }, 60_000);
   }
 });

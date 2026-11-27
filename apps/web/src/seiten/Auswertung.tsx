@@ -1,13 +1,14 @@
 import { useQuery } from "@tanstack/react-query";
-import { getRouteApi, Link } from "@tanstack/react-router";
+import { getRouteApi } from "@tanstack/react-router";
 import { Auswahl, ButtonLink, ChartLineUpIcon, ChartPieSliceIcon, ClockIcon, Feld, formatProzent, FunnelIcon, Kennzahl, Leer, PercentIcon, Seitenkopf, Tabelle, Tabs, type TabelleSpalte } from "@carraway/ui";
+import { DealflowReiter } from "../komponenten/DealflowReiter";
 import { useTabs } from "../lib/tabs";
 import { fondsListe, trichter, type Trichter } from "../api/abfragen";
 import { FehlerHinweis } from "../komponenten/FehlerHinweis";
 import { aufzaehlung, useSprache, useT } from "../i18n";
 import { trichterExportUrl } from "../lib/berichteUrl";
 
-const route = getRouteApi("/dealflow/auswertung");
+const route = getRouteApi("/dealflow/analytics");
 
 type Stufe = Trichter["phasen"][number];
 type Quartal = Trichter["zeitreihe"][number];
@@ -140,12 +141,10 @@ export function AuswertungSeite() {
             <ButtonLink variante="sekundaer" href={trichterExportUrl({ sprache, von, bis, fondsId })} download aria-label={p.exportName}>
               {p.export}
             </ButtonLink>
-            <Link to="/dealflow" search={{}} className="cw-button cw-button--sekundaer">
-              {a.zumDealflow}
-            </Link>
           </>
         }
       />
+      <DealflowReiter aktiv="auswertung">
 
       <section className="app-karte" aria-label={a.filter}>
         <div className="app-filter">
@@ -174,7 +173,7 @@ export function AuswertungSeite() {
           </div>
         ) : null
       ) : u.gesamt.deals === 0 ? (
-        <Leer zeichen="A" titel={a.keineDeals} beschreibung={a.keineDealsBeschreibung} />
+        <Leer titel={a.keineDeals} beschreibung={a.keineDealsBeschreibung} />
       ) : (
         <div className="app-auswertung" aria-busy={abfrage.isFetching}>
           <section aria-label={a.gesamt} className="app-kennzahlen">
@@ -261,6 +260,7 @@ export function AuswertungSeite() {
           />
         </div>
       )}
+      </DealflowReiter>
     </div>
   );
 }

@@ -167,7 +167,8 @@ export interface Protokolldaten {
 function mengenZeilen(d: Protokolldaten): { blatt: Blatt; name: string; z: UebernahmeErgebnis["zaehler"][Blatt] }[] {
   const zaehler = d.lauf.ergebnis?.zaehler ?? d.lauf.vorschau?.zaehler;
   if (!zaehler) return [];
-  return BLAETTER.filter((b) => zaehler[b].zeilen > 0).map((b) => ({ blatt: b, name: BLATT_NAMEN[b][d.sprache], z: zaehler[b] }));
+  // Ältere Läufe kennen spätere Blätter (z. B. Kennzahlen) nicht.
+  return BLAETTER.filter((b) => (zaehler[b]?.zeilen ?? 0) > 0).map((b) => ({ blatt: b, name: BLATT_NAMEN[b][d.sprache], z: zaehler[b] }));
 }
 
 export async function erzeugeProtokollExcel(d: Protokolldaten): Promise<Buffer> {
@@ -214,7 +215,7 @@ export async function erzeugeProtokollExcel(d: Protokolldaten): Promise<Buffer> 
       [t.zeichnungskapital, f.zeichnungskapital],
     ];
     for (const k of f.kontrollsummen) {
-      const name = (t as unknown as Record<string, string>)[k.groesse] ?? k.groesse;
+      const name = ((t as unknown as Record<string, string>)[k.groesse] ?? k.groesse) + (k.beteiligung ? ` · ${k.beteiligung}` : "");
       s.addRow([f.kurzname, name, Number(k.quelle), k.ist === null ? null : Number(k.ist), k.differenz === null ? null : Number(k.differenz), k.status === "ok" ? t.ok : k.status === "abweichung" ? t.abweichung : t.nichtBerechnet]);
     }
     for (const [name, wert] of grund) {
@@ -300,8 +301,8 @@ export function erzeugeProtokollPdf(d: Protokolldaten): Buffer {
     summenKopf: [t.fonds, t.groesse, t.quelle, t.ist, t.differenz, t.ergebnis],
     summen: (l.ergebnis?.fonds ?? []).flatMap((f) => {
       const bezeichnung = (g: string) => (t as unknown as Record<string, string>)[g] ?? g;
-      const kontrollierte = new Set(f.kontrollsummen.map((k) => k.groesse));
-      const aus: string[][] = f.kontrollsummen.map((k) => [f.kurzname, bezeichnung(k.groesse), zahl(k.quelle), zahl(k.ist), zahl(k.differenz), k.status === "ok" ? t.ok : k.status === "abweichung" ? t.abweichung : t.nichtBerechnet]);
+      const kontrollierte = new Set(f.kontrollsummen.filter((k) => !k.beteiligung).map((k) => k.groesse));
+      const aus: string[][] = f.kontrollsummen.map((k) => [f.kurzname, bezeichnung(k.groesse) + (k.beteiligung ? ` · ${k.beteiligung}` : ""), zahl(k.quelle), zahl(k.ist), zahl(k.differenz), k.status === "ok" ? t.ok : k.status === "abweichung" ? t.abweichung : t.nichtBerechnet]);
       const ohne: [string, string | null][] = [
         ["zusagen", f.zusagen],
         ["auszahlungen", f.auszahlungen],

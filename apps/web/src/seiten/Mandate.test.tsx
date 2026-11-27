@@ -25,7 +25,7 @@ describe("Gremienmandate", () => {
       [`/api/v1/beteiligungen/${BET_ID}/mandate`]: { koerper: { daten: [mandat("m1", { gremiumName: "Investorenbeirat" }), mandat("m2", { gremium: "aufsichtsrat", rolle: "mitglied", beginn: "2020-01-01", ende: "2022-12-31" })] } },
       [`PATCH /api/v1/beteiligungen/${BET_ID}/mandate/m1`]: { koerper: mandat("m1", { ende: "2026-06-30" }) },
     });
-    rendereApp(`/beteiligungen/${BET_ID}?tab=gremien`);
+    rendereApp(`/investments/${BET_ID}?tab=boards`);
     const region = within(await screen.findByRole("region", { name: "Gremien" }));
     const zeilen = await region.findAllByRole("row");
     const laufend = zeilen.find((z) => z.textContent?.includes("Investorenbeirat"))!;
@@ -47,9 +47,9 @@ describe("Gremienmandate", () => {
     const api = spieleApi({
       [`/api/v1/fonds/${FONDS_ID}/mandate`]: { koerper: { daten: [mandat("m1")] } },
     });
-    rendereApp(`/fonds?fondsId=${FONDS_ID}&tab=gremien`);
+    rendereApp(`/funds?fundId=${FONDS_ID}&tab=boards`);
     const region = within(await screen.findByRole("region", { name: "Gremienmandate im Portfolio" }));
-    expect((await region.findByRole("link", { name: "Alpha Energie" })).getAttribute("href")).toBe(`/beteiligungen/${BET_ID}?tab=gremien`);
+    expect((await region.findByRole("link", { name: "Alpha Energie" })).getAttribute("href")).toBe(`/investments/${BET_ID}?tab=boards`);
     // Vorgabe: nur die heute laufenden (mit Stichtag); ohne Haken alle.
     expect(api.anfragen("GET", `/api/v1/fonds/${FONDS_ID}/mandate`).some((a) => a.query.has("stichtag"))).toBe(true);
     await userEvent.setup().click(region.getByLabelText("Nur heute laufende"));

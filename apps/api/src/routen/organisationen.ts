@@ -1,3 +1,4 @@
+import { sourcesFor } from "../integrationen/records";
 import { kontaktJson, pruefeKontakt } from "../kontakte/http";
 import { and, asc, eq, ilike, isNull, sql } from "drizzle-orm";
 import { Hono } from "hono";
@@ -84,6 +85,26 @@ export function organisationRouten(db: Db) {
       const { name } = c.req.valid("query");
       const kandidaten = await lese(db, (tx) => findeDubletten(tx, name));
       return kontaktJson(c, { daten: kandidaten }, 200);
+    })
+    /**
+     * Vorschläge für Wertfelder mit wiederkehrenden Einträgen (Sektor, Ort): die erfassten Werte der Organisationen, häufigste zuerst,
+     * optional nach einem Textanfang oder -teil gefiltert. Zusammengeführte und archivierte Organisationen zählen nicht mit.
+     */
+    .get("/values", pruefeKontakt("query", z.object({ feld: z.enum(["sector", "city"]), q: z.string().trim().max(100).optional(), limit: z.coerce.number().int().min(1).max(50).default(10) })), async (c) => {
+      const { feld, q, limit } = c.req.valid("query");
+      // Die Werte des Parameters sind englisch (ohne Übersetzungstabelle, weil `feld` in der CRM-API andere Werte trägt).
+      const spalte = feld === "sector" ? organisation.sektor : organisation.ort;
+      const muster = q ? `%${q.replace(/[\\%_]/g, (zeichen) => `\\${zeichen}`)}%` : undefined;
+      const zeilen = await lese(db, (tx) =>
+        tx
+          .select({ wert: sql<string>`trim(${spalte})`, anzahl: sql<number>`count(*)::int` })
+          .from(organisation)
+          .where(and(isNull(organisation.zusammengefuehrtIn), isNull(organisation.archiviertAm), sql`nullif(trim(${spalte}), '') IS NOT NULL`, muster ? ilike(spalte, muster) : undefined))
+          .groupBy(sql`trim(${spalte})`)
+          .orderBy(sql`count(*) DESC`, sql`trim(${spalte})`)
+          .limit(limit),
+      );
+      return kontaktJson(c, { daten: zeilen }, 200);
     })
     .post("/:id/merge/preview", pruefeKontakt("param", idParam), pruefeKontakt("json", z.object({ quelleId: z.uuid() })), async (c) => {
       const { id } = c.req.valid("param");
@@ -188,7 +209,7 @@ export function organisationRouten(db: Db) {
         const beziehungen = await ladeBeziehungen(tx, c, id);
         // Anzahl der Vehikel: Die Seite zeigt den Abschnitt „Vehikel“ bei Investoren und bei jeder Organisation, die schon Vehikel hat.
         const [{ anzahl: vehikelAnzahl } = { anzahl: 0 }] = await tx.select({ anzahl: sql<number>`count(*)::int` }).from(vehikel).where(eq(vehikel.investorId, id));
-        return { ...org, personen, deals, beteiligungen, rollen, beziehungen, vehikelAnzahl, herkunft: await herkunftVon(tx, { organisationId: id }) };
+        return { ...org, providerSources: await sourcesFor(tx, "organization", id), personen, deals, beteiligungen, rollen, beziehungen, vehikelAnzahl, herkunft: await herkunftVon(tx, { organisationId: id }) };
       });
       if (!ergebnis) return fehlerAntwort(c, 404, "organization_not_found", "Organization not found.");
       return kontaktJson(c, ergebnis, 200);

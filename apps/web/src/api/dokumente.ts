@@ -26,7 +26,7 @@ export const dokumentDetail = (id: string, stand?: string) => queryOptions({ que
 /** Normale Links (Cookie und Rechte prüft die API). `seite` öffnet den Browser-Betrachter an dieser Seite. */
 export const dokumentDateiUrl = (id: string, optionen: { inline?: boolean; seite?: number } = {}) =>
   `/api/v1/documents/${id}/file${optionen.inline ? "?inline=1" : ""}${optionen.seite ? `#page=${optionen.seite}` : ""}`;
-export const dokumentSeiteUrl = (id: string, seite?: number) => `/dokumente/${id}${seite ? `?seite=${seite}` : ""}`;
+export const dokumentSeiteUrl = (id: string, seite?: number) => `/documents/${id}${seite ? `?page=${seite}` : ""}`;
 
 export interface UploadEingabe {
   datei: File;

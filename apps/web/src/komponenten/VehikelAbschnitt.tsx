@@ -66,7 +66,7 @@ export function VehikelAbschnitt({ organisationId, schreiben }: { organisationId
       schluessel: "unternehmen",
       kopf: v.positionenSpalten.unternehmen,
       zelle: (p) => (
-        <Link to="/organisationen/$id" params={{ id: p.unternehmen.id }} search={{ tab: "runden" }}>
+        <Link to="/organizations/$id" params={{ id: p.unternehmen.id }} search={{ tab: "runden" }}>
           {p.unternehmen.name}
         </Link>
       ),
@@ -155,7 +155,7 @@ function VehikelDialog({ organisationId, vehikel, onSchliessen }: { organisation
         }}
       >
         <FehlerHinweis fehler={mutation.error} bekannt={["name", "art", "auflagejahr", "status"]} />
-        <Feld label={f.name} autoComplete="off" {...feld("name")} fehler={feldText(t, mutation.error, "name")} />
+        <Feld label={f.name} {...feld("name")} fehler={feldText(t, mutation.error, "name")} />
         <Auswahl label={f.art} {...feld("art")}>
           {ARTEN.map((a) => (
             <option key={a} value={a}>

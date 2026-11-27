@@ -789,10 +789,15 @@ export const zuteilungStatus = pgEnum("zuteilung_status", ["zugeteilt", "geveste
 /** Art des Austritts (Leaver) und Regel für die bei Austritt gevesteten Einheiten. */
 export const leaverArt = pgEnum("leaver_art", ["good_leaver", "bad_leaver"]);
 export const leaverGevestet = pgEnum("leaver_gevestet", ["bleiben", "verfallen", "rueckkauf"]);
+/** Erfassung eines Pools: `grob` (nur Größe, vergebene Einheiten und mittlerer Basispreis) oder `einzeln` (Zuteilungen je Person oder Vertrag). */
+export const poolErfassung = pgEnum("pool_erfassung", ["grob", "einzeln"]);
+/** Auslöser der Beschleunigung: `einfach` (Exit), `doppelt` (Exit und Ende der Tätigkeit). Angabe; gerechnet wird mit dem Bruch. */
+export const beschleunigungAusloeser = pgEnum("beschleunigung_ausloeser", ["einfach", "doppelt"]);
 
 /**
  * Pool der Mitarbeiterbeteiligung eines Unternehmens (wie Anteilsklassen am Unternehmen, nicht am Fonds). Die Größe ist die Summe der
- * Änderungen (`pool_aenderung`) bis zum Stichtag. Pool und Zuteilungen sind keine Rundenpositionen.
+ * Änderungen (`pool_aenderung`) bis zum Stichtag. Pool und Zuteilungen sind keine Rundenpositionen. `erfassung`: `grob` rechnet mit
+ * `vergeben` (Einheiten, Näherung) und `basispreisMittel`, `einzeln` mit den Zuteilungen; die Schätzung bleibt beim Wechsel erhalten.
  */
 export const mitarbeiterpool = pgTable(
   "mitarbeiterpool",
@@ -803,11 +808,16 @@ export const mitarbeiterpool = pgTable(
     bezeichnung: text("bezeichnung").notNull(),
     regel: mitarbeiterRegel("regel").notNull().default("wie_anteile"),
     notiz: text("notiz"),
+    erfassung: poolErfassung("erfassung").notNull().default("grob"),
+    vergeben: numeric("vergeben", { precision: 18, scale: 0 }),
+    basispreisMittel: numeric("basispreis_mittel", { precision: 18, scale: 4 }),
     erstelltAm: erstelltAm(),
   },
   (t) => [
     uniqueIndex("mitarbeiterpool_organisation_bezeichnung_uq").on(t.organisationId, t.bezeichnung),
     check("mitarbeiterpool_regel_nur_vsop", sql`${t.art} = 'vsop' OR ${t.regel} = 'wie_anteile'`),
+    check("mitarbeiterpool_vergeben", sql`${t.vergeben} IS NULL OR ${t.vergeben} >= 0`),
+    check("mitarbeiterpool_basispreis_mittel", sql`${t.basispreisMittel} IS NULL OR ${t.basispreisMittel} >= 0`),
   ],
 );
 
@@ -820,6 +830,8 @@ export const poolAenderung = pgTable(
     datum: date("datum").notNull(),
     anzahl: numeric("anzahl", { precision: 18, scale: 0 }).notNull(),
     beschluss: text("beschluss"),
+    /** Optional das Dokument des Beschlusses aus der Ablage (mit dem Unternehmen verknüpft, prüft die API). */
+    dokumentId: uuid("dokument_id").references((): AnyPgColumn => dokument.id),
     rundeId: uuid("runde_id").references(() => finanzierungsrunde.id),
     basis: poolBasis("basis"),
     erstelltAm: erstelltAm(),
@@ -832,9 +844,12 @@ export const poolAenderung = pgTable(
 );
 
 /**
- * Zuteilung aus einem Pool, aggregiert oder nach Kategorie (ohne Personennamen). Vesting linear je vollem Monat ab `vestingBeginn` (leer:
- * Zuteilungsdatum) mit Cliff; `beschleunigung` ist der Bruch der ungevesteten Einheiten, der beim Exit vestet. `verfallen` und `ausgeuebt`
- * gelten ab `statusAm`. Austritte (Leaver) stehen in `zuteilung_austritt`; `leaverRegel` ist eine Notiz dazu.
+ * Zuteilung aus einem Pool, je Person oder Vertrag oder zusammengefasst nach Kategorie. Personenbezug datensparsam: `kennung` (Pseudonym,
+ * Personalnummer) als Standard, `name` optional; beides sieht nur, wer den Bereich Einzelzuteilungen hat, der Name steht nie im
+ * Änderungsprotokoll oder Export. Anonymisieren leert beides (`anonymisiertAm`). Vesting linear in Stufen von `taktMonate` ab
+ * `vestingBeginn` (leer: Zuteilungsdatum) mit Cliff; `beschleunigung` ist der Bruch der ungevesteten Einheiten, der beim Exit vestet
+ * (`ausloeser` ist eine Angabe). `verfallen` und `ausgeuebt` gelten ab `statusAm`; `laufzeitBis` (Laufzeitende) und
+ * `ausuebungsfristMonate` (Frist nach Austritt) sind Angaben. Austritte (Leaver) stehen in `zuteilung_austritt`; `leaverRegel` ist eine Notiz.
  */
 export const mitarbeiterzuteilung = pgTable(
   "mitarbeiterzuteilung",
@@ -853,10 +868,20 @@ export const mitarbeiterzuteilung = pgTable(
     status: zuteilungStatus("status").notNull().default("zugeteilt"),
     statusAm: date("status_am"),
     leaverRegel: text("leaver_regel"),
+    kennung: text("kennung"),
+    name: text("name"),
+    anonymisiertAm: timestamp("anonymisiert_am", { withTimezone: true }),
+    taktMonate: integer("vesting_takt_monate").notNull().default(1),
+    ausloeser: beschleunigungAusloeser("beschleunigung_ausloeser").notNull().default("einfach"),
+    ausuebungsfristMonate: integer("ausuebungsfrist_monate"),
+    laufzeitBis: date("laufzeit_bis"),
     erstelltAm: erstelltAm(),
   },
   (t) => [
     index("mitarbeiterzuteilung_pool_idx").on(t.poolId),
+    check("mitarbeiterzuteilung_takt", sql`${t.taktMonate} IN (1, 3, 6, 12)`),
+    check("mitarbeiterzuteilung_ausuebungsfrist", sql`${t.ausuebungsfristMonate} IS NULL OR (${t.ausuebungsfristMonate} >= 0 AND ${t.ausuebungsfristMonate} <= 240)`),
+    check("mitarbeiterzuteilung_anonymisiert", sql`${t.anonymisiertAm} IS NULL OR (${t.name} IS NULL AND ${t.kennung} IS NULL)`),
     check("mitarbeiterzuteilung_anzahl", sql`${t.anzahl} > 0`),
     check("mitarbeiterzuteilung_basispreis", sql`${t.basispreis} >= 0`),
     check("mitarbeiterzuteilung_vesting", sql`${t.cliffMonate} >= 0 AND ${t.vestingMonate} >= 0`),
@@ -3806,3 +3831,98 @@ export const zielfondsMeldung = pgTable(
     check("zielfonds_meldung_anteil", sql`${t.anteil} IS NULL OR (${t.anteil} > 0 AND ${t.anteil} <= 1)`),
   ],
 );
+
+// Provider connections live in the tenant's database, independently of the provider's data model.
+export const providerConnection = pgTable("provider_connection", {
+  id: id(),
+  provider: text("provider").notNull().unique(),
+  credential: text("credential").notNull(),
+  mapping: jsonb("mapping").notNull(),
+  mode: text("mode").notNull().default("import"),
+  monthlyLimit: integer("monthly_limit"),
+  recentRequests: jsonb("recent_requests").$type<number[]>().notNull().default([]),
+  retryAt: timestamp("retry_at", { withTimezone: true }),
+  checkedAt: timestamp("checked_at", { withTimezone: true }),
+  lastError: text("last_error"),
+  nextSync: timestamp("next_sync", { withTimezone: true }),
+});
+
+export const providerRun = pgTable("provider_run", {
+  id: id(),
+  connectionId: uuid("connection_id").notNull().references(() => providerConnection.id),
+  actor: text("actor").notNull(),
+  kind: text("kind").notNull(),
+  status: text("status").notNull().default("reading"),
+  mapping: jsonb("mapping").notNull(),
+  cursor: jsonb("cursor"),
+  pages: integer("pages").notNull().default(0),
+  received: integer("received").notNull().default(0),
+  matched: integer("matched").notNull().default(0),
+  applied: integer("applied").notNull().default(0),
+  skipReasons: jsonb("skip_reasons").$type<Record<string, number>>().notNull().default({}),
+  error: text("error"),
+  retries: integer("retries").notNull().default(0),
+  availableAt: timestamp("available_at", { withTimezone: true }).notNull().defaultNow(),
+  createdAt: erstelltAm(),
+}, t => [uniqueIndex("provider_run_active").on(t.connectionId).where(sql`${t.status} in ('reading','preview','applying')`)]);
+
+export const providerItem = pgTable("provider_item", {
+  id: id(),
+  runId: uuid("run_id").notNull().references(() => providerRun.id, { onDelete: "cascade" }),
+  sequence: integer("sequence").notNull(),
+  skipReason: text("skip_reason"),
+  resource: text("resource").notNull(),
+  externalId: text("external_id").notNull(),
+  data: jsonb("data").notNull(),
+}, t => [uniqueIndex("provider_item_identity").on(t.runId, t.resource, t.externalId), index("provider_item_order").on(t.runId, t.sequence)]);
+
+export const providerSource = pgTable("provider_source", {
+  connectionId: uuid("connection_id").notNull().references(() => providerConnection.id),
+  resource: text("resource").notNull(),
+  externalId: text("external_id").notNull(),
+  localId: uuid("local_id").notNull(),
+  digest: text("digest").notNull(),
+  sourceStage: text("source_stage"),
+  mirrored: boolean("mirrored").notNull().default(false),
+  archived: boolean("archived").notNull().default(false),
+}, t => [primaryKey({ columns: [t.connectionId, t.resource, t.externalId] }), uniqueIndex("provider_source_owner").on(t.resource, t.localId).where(sql`${t.mirrored}`)]);
+
+export const providerUsage = pgTable("provider_usage", {
+  provider: text("provider").notNull(),
+  month: date("month").notNull(),
+  calls: integer("calls").notNull().default(0),
+}, t => [primaryKey({ columns: [t.provider, t.month] })]);
+
+export const providerSuggestion = pgTable("provider_suggestion", {
+  id: id(),
+  organizationId: uuid("organization_id").notNull().references(() => organisation.id),
+  provider: text("provider").notNull(),
+  reference: text("reference").notNull(),
+  field: text("field").notNull(),
+  value: text("value").notNull(),
+  previousValue: text("previous_value"),
+  metricValueId: uuid("metric_value_id").references(() => kennzahlWert.id),
+  sourceUrl: text("source_url").notNull(),
+  retrievedAt: timestamp("retrieved_at", { withTimezone: true }).notNull(),
+  current: boolean("current").notNull().default(true),
+  status: text("status").notNull().default("pending"),
+  reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+  reviewedBy: text("reviewed_by"),
+}, t => [uniqueIndex("provider_suggestion_current").on(t.organizationId, t.provider, t.field).where(sql`${t.current}`)]);
+
+export const externalFundingRound = pgTable("external_funding_round", {
+  id: id(),
+  organizationId: uuid("organization_id").notNull().references(() => organisation.id),
+  provider: text("provider").notNull(),
+  externalId: text("external_id").notNull(),
+  announcedOn: date("announced_on").notNull(),
+  roundType: text("round_type").notNull(),
+  amount: numeric("amount", { precision: 22, scale: 2 }),
+  currency: text("currency"),
+  investors: jsonb("investors").$type<string[]>().notNull().default([]),
+  sourceUrl: text("source_url").notNull(),
+  status: text("status").$type<"pending" | "accepted" | "rejected">().notNull().default("pending"),
+  reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+  reviewedBy: text("reviewed_by"),
+  retrievedAt: timestamp("retrieved_at", { withTimezone: true }).notNull(),
+}, t => [uniqueIndex("external_round_identity").on(t.organizationId, t.provider, t.externalId)]);

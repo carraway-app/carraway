@@ -157,25 +157,27 @@ describe("Deal", () => {
     expect(screen.getByRole("link", { name: "Alpha Energie" })).toBeTruthy();
     expect((within(screen.getByRole("region", { name: "Eckdaten" })).getByText(/2\.450\.000/).textContent ?? "").replace(/\s/g, " ")).toBe("2.450.000 €");
     const nutzer = userEvent.setup();
-    await nutzer.click(screen.getByRole("button", { name: /^Verlauf/ }));
+    await nutzer.click(within(screen.getByRole("navigation", { name: /^(Hauptnavigation|Main navigation)$/ })).getByRole("link", { name: /^Verlauf/ }));
     const verlauf = await screen.findByRole("list", { name: "Phasenverlauf" });
     expect(within(verlauf).getByText("Angelegt in der Phase Anfrage")).toBeTruthy();
     expect(within(verlauf).getByText("Anfrage nach Prüfung")).toBeTruthy();
     expect(screen.queryByRole("region", { name: "Eckdaten" })).toBeNull();
-    await nutzer.click(screen.getByRole("button", { name: /^Aktivitäten/ }));
+    await nutzer.click(within(screen.getByRole("navigation", { name: /^(Hauptnavigation|Main navigation)$/ })).getByRole("link", { name: /^Aktivitäten/ }));
     expect(within(await screen.findByRole("list", { name: "Aktivitäten" })).getByText("Erstes Gespräch")).toBeTruthy();
-    await nutzer.click(screen.getByRole("button", { name: /^Beschluss/ }));
+    await nutzer.click(within(screen.getByRole("navigation", { name: /^(Hauptnavigation|Main navigation)$/ })).getByRole("link", { name: /^Beschluss/ }));
     expect(within(await screen.findByRole("region", { name: "Beschlüsse" })).getByText("Investitionsausschuss")).toBeTruthy();
   });
 
   it("gliedert die Bereiche und öffnet alte Links mit tab und unter", async () => {
     spieleApi();
-    rendereApp(`/deals/${DEAL_ID}?tab=aktivitaet&unter=termine`);
+    rendereApp(`/deals/${DEAL_ID}?tab=activity&subtab=appointments`);
     expect(await screen.findByRole("heading", { level: 1, name: "Alpha, Wachstum" })).toBeTruthy();
-    const verzeichnis = screen.getByRole("navigation", { name: "Bereiche" });
-    for (const gruppe of ["Deal", "Zusammenarbeit", "Entscheidung", "Ablage"]) expect(within(verzeichnis).getByText(gruppe)).toBeTruthy();
-    expect(within(verzeichnis).getByRole("button", { name: /^Termine/ }).getAttribute("aria-current")).toBe("page");
-    expect(within(verzeichnis).getByRole("button", { name: /^Aktivitäten/ }).getAttribute("aria-current")).toBeNull();
+    const verzeichnis = screen.getByRole("navigation", { name: "Hauptnavigation" });
+    for (const gruppe of ["Deal", "Zusammenarbeit", "Entscheidung", "Ablage"]) expect(within(verzeichnis).getByRole("button", { name: gruppe })).toBeTruthy();
+    await waitFor(() => expect(within(verzeichnis).getByRole("link", { name: /^Termine/ }).getAttribute("aria-current")).toBe("page"));
+    expect(within(verzeichnis).getByRole("link", { name: /^Aktivitäten/ }).getAttribute("aria-current")).toBeNull();
+    // Rückweg zum Dealflow oben in der Leiste
+    expect(within(screen.getByRole("complementary", { name: "Seitenleiste" })).getAllByRole("link", { name: "Dealflow" })[0]!.getAttribute("href")).toBe("/dealflow");
     expect(screen.queryByRole("region", { name: "Eckdaten" })).toBeNull();
   });
 
@@ -192,7 +194,7 @@ describe("Deal", () => {
             })
           : { status: 201, koerper: zustimmung },
     });
-    rendereApp(`/deals/${DEAL_ID}?tab=beschluss`);
+    rendereApp(`/deals/${DEAL_ID}?tab=decision`);
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Beschluss erfassen" }));
     const dialog = await screen.findByRole("dialog", { name: "Beschluss erfassen" });
@@ -255,7 +257,7 @@ describe("Deal", () => {
     await nutzer.selectOptions(within(dialog).getByLabelText("Instrument"), "Wandeldarlehen");
     await nutzer.click(within(dialog).getByRole("button", { name: "Beteiligung anlegen" }));
 
-    await waitFor(() => expect(router.state.location.pathname).toBe(`/fonds/${FONDS_ID}`));
+    await waitFor(() => expect(router.state.location.pathname).toBe(`/funds/${FONDS_ID}`));
     expect(api.anfragen("POST", `/api/v1/deals/${DEAL_ID}/beteiligung`)[0]?.koerper).toEqual({
       fondsId: FONDS_ID,
       instrument: "wandeldarlehen",
@@ -281,7 +283,7 @@ describe("Deal", () => {
     const dialog = await screen.findByRole("dialog");
     await nutzer.click(within(dialog).getByRole("button", { name: "Beteiligung anlegen" }));
     expect((await within(dialog).findByRole("alert")).textContent).toContain("hält diese Organisation bereits");
-    expect(within(dialog).getByRole("link", { name: "Zur vorhandenen Beteiligung" }).getAttribute("href")).toBe("/beteiligungen/b9");
+    expect(within(dialog).getByRole("link", { name: "Zur vorhandenen Beteiligung" }).getAttribute("href")).toBe("/investments/b9");
   });
 
   it("sagt einen Deal mit Grund ab und nimmt ihn wieder auf", async () => {
@@ -322,7 +324,7 @@ describe("Deal", () => {
     expect(screen.getByRole("button", { name: "Edit deal type" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Decline" })).toBeTruthy();
     expect(screen.getByText(/^Decision missing:/)).toBeTruthy();
-    await userEvent.setup().click(screen.getByRole("button", { name: /^History/ }));
+    await userEvent.setup().click(within(screen.getByRole("navigation", { name: /^(Hauptnavigation|Main navigation)$/ })).getByRole("link", { name: /^History/ }));
     expect(await screen.findByRole("list", { name: "Stage history" })).toBeTruthy();
     expect(screen.getByText("Created in stage Enquiry")).toBeTruthy();
   });

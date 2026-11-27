@@ -1,3 +1,4 @@
+import { einmaligeAntwort } from "../idempotenz";
 import { and, asc, count, desc, eq, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -159,6 +160,7 @@ export function webhookRouten(db: Db, opt: WebhookOptionen) {
         await protokoll("anlegen", "webhook", id, null, protokollAnsicht(neu!));
         return neu!;
       });
+      einmaligeAntwort(c);
       return c.json({ ...ansicht(zeile), secret: geheimnis }, 201);
     })
     .get("/:id", pruefe("param", idParam), async (c) => {
@@ -219,6 +221,7 @@ export function webhookRouten(db: Db, opt: WebhookOptionen) {
         await protokoll("aendern", "webhook", id, protokollAnsicht(vorher), { ...protokollAnsicht(neu!), geheimnisErneuert: true });
         return neu!;
       });
+      einmaligeAntwort(c);
       return c.json({ ...ansicht(zeile), secret: geheimnis }, 200);
     })
     .post("/:id/test", pruefe("param", idParam), async (c) => {

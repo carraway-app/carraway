@@ -18,7 +18,7 @@ function Kandidaten({ kandidaten, onVerwenden }: { kandidaten: Dublette[]; onVer
     <ul className="app-dubletten">
       {kandidaten.map((k) => (
         <li key={k.id}>
-          <Link to="/organisationen/$id" params={{ id: k.id }} target="_blank" rel="noreferrer">
+          <Link to="/organizations/$id" params={{ id: k.id }} target="_blank" rel="noreferrer">
             {k.name}
           </Link>
           <span className="app-dubletten__info">{[aufzaehlung(t.organisationArt, k.art), k.ort].filter(Boolean).join(" · ")}</span>

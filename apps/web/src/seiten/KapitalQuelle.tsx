@@ -12,11 +12,12 @@ import { useNamen } from "../lib/namen";
 import { formatBetragCent } from "../lib/zahl";
 import { formatZeitpunkt } from "../lib/zeit";
 
-const route = getRouteApi("/fonds/$fondsId/kapitalquelle/$kennzahl/$bewegungId/$positionId");
+const route = getRouteApi("/funds/$fundId/capital-source/$metric/$movementId/$positionId");
 
 export function KapitalQuelle() {
   const params = route.useParams();
-  const { fondsId, kennzahl, bewegungId, positionId } = params;
+  const { fundId: fondsId, metric, movementId: bewegungId, positionId } = params;
+  const kennzahl = metric === "called" ? "abgerufen" : metric === "paid-in" ? "eingezahlt" : null;
   const { stichtag, stand } = route.useSearch();
   const sprache = useSprache();
   const t = useT();
@@ -37,7 +38,7 @@ export function KapitalQuelle() {
     const beschriftung = formatDatum(abruf.valuta, sprache) + " · " + formatBetragCent(abruf.betrag, sprache, data.waehrung);
     const anteil = data.abgerufen.find((p) => p.organisationId === position.organisationId) ?? data.abgerufen.find((p) => p.id === bewegungId);
     fakten.push({ label: k.quelleArt.abruf, wert: kennzahl === "eingezahlt" && anteil
-      ? <Link to={route.id} params={{ ...params, kennzahl: "abgerufen", positionId: anteil.id }} search={{ stichtag, stand }}>{beschriftung}</Link>
+      ? <Link to={route.id} params={{ ...params, metric: "called", positionId: anteil.id }} search={{ stichtag, stand }}>{beschriftung}</Link>
       : beschriftung });
     if (abruf.bemerkung) fakten.push({ label: k.bemerkung, wert: abruf.bemerkung });
   }

@@ -1,3 +1,4 @@
+import { parseSearch, stringifySearch } from "./lib/url-suche";
 import { tabSuche, type TabSuche } from "./lib/tabs";
 import { waehrungSuche, type WaehrungSuche } from "./lib/waehrung";
 import { MutationCache, QueryCache, QueryClient } from "@tanstack/react-query";
@@ -27,8 +28,9 @@ import { standAusUrl } from "./lib/zeit";
 import { ladeSeitentexte, useT } from "./i18n";
 import { letzterFonds } from "./zustand";
 import { Leer } from "@carraway/ui";
-import { darf, hatBereich, hatIrgendwoRolle } from "./lib/rechte";
 import { alle, erweiterungen } from "./erweiterung";
+
+const rechte = () => import("./lib/rechte");
 
 export function erstelleQueryClient(optionen: { wiederholen?: boolean } = {}) {
   const wiederholen = optionen.wiederholen ?? true;
@@ -54,7 +56,7 @@ function NichtGefunden() {
   const t = useT();
   return (
     <div className="app-seite">
-      <Leer zeichen="?" titel={t.fehler.seiteFehlt} beschreibung="" />
+      <Leer titel={t.fehler.seiteFehlt} beschreibung="" />
     </div>
   );
 }
@@ -70,11 +72,15 @@ const wurzel = createRootRouteWithContext<RouterKontext>()({
    * Wächter der Anmeldung, in der Reihenfolge der API: ohne Sitzung (401) zur Anmeldung mit Rücksprungziel, dann Startpasswort
    * ändern (`passwortAendern`), dann zweiten Faktor einrichten (`zweiFaktorErforderlich`). Anmeldung und Einrichtung sind offen.
    */
-  beforeLoad: async ({ context, location }) => {
+  beforeLoad: async ({ context, location, matches }) => {
     const qc = context.queryClient;
-    const pfad = location.pathname;
+    const pfad = location.pathname.replace(/\/$/, "") || "/";
+    const ruecksprung = Object.hasOwn(location.search, "token") ? pfad : location.href;
+    // Auch ohne Erweiterung führen gültige Portaladressen nach der Anmeldung zum Portalhinweis.
+    const portalAdresse = /^\/portal(?:\/documents|\/funds\/[^/]+)?\/?$/.test(pfad);
+    if (matches.some((match) => match.routeId === "/$") && !portalAdresse) return;
     // Der Link aus der Mail (Passwort festlegen) gilt für jede Person, auch wenn gerade jemand angemeldet ist; die Seite braucht keine Sitzung.
-    if (pfad === "/passwort-setzen") {
+    if (pfad === "/set-password") {
       await ladeSeitentexte(pfad);
       return;
     }
@@ -87,18 +93,18 @@ const wurzel = createRootRouteWithContext<RouterKontext>()({
       throw fehler;
     });
     if (!ich) {
-      if (pfad === "/anmelden" || pfad === "/einrichtung" || pfad === "/passwort-vergessen") return;
-      throw redirect({ to: "/anmelden", search: { weiter: location.href }, replace: true });
+      if (pfad === "/sign-in" || pfad === "/setup" || pfad === "/forgot-password") return;
+      throw redirect({ to: "/sign-in", search: { weiter: ruecksprung }, replace: true });
     }
-    const sperre = ich.passwortAendern ? "/passwort-aendern" : ich.zweiFaktorErforderlich ? "/zwei-faktor-einrichten" : null;
+    const sperre = ich.passwortAendern ? "/change-password" : ich.zweiFaktorErforderlich ? "/two-factor-setup" : null;
     if (sperre) {
-      if (pfad !== sperre) throw redirect({ to: sperre, search: { weiter: location.href }, replace: true });
+      if (pfad !== sperre) throw redirect({ to: sperre, search: { weiter: ruecksprung }, replace: true });
       return;
     }
     // Investor-Benutzer gehören ins LP-Portal (Erweiterung, eigener Einstieg): jede andere Seite der Anwendung führt dorthin, noch bevor sie Daten lädt.
     // Ohne Erweiterung erklärt eine Seite im Anmelderahmen den Portalzugang.
     if (ich.investor) {
-      const portalStart = alle("einstiege").find((e) => e.fuerInvestoren)?.fuerInvestoren ?? "/portal-hinweis";
+      const portalStart = alle("einstiege").find((e) => e.fuerInvestoren)?.fuerInvestoren ?? "/portal-notice";
       if (!weitererEinstieg && pfad !== portalStart) throw redirect({ to: portalStart as never, replace: true });
       return;
     }
@@ -135,20 +141,21 @@ const start = createRoute({
   getParentRoute: () => wurzel,
   path: "/",
   beforeLoad: async ({ context }) => {
+    const { darf, hatBereich } = await rechte();
     // Ohne Bereich Portfolio (Rollen der Nutzergruppen) führt der Start zu den Kontakten statt auf die Fondsübersicht.
     const ich = await context.queryClient.fetchQuery(ichAbfrage());
-    if (!hatBereich(ich, "portfolio") && hatBereich(ich, "kontakte")) throw redirect({ to: "/kontakte", replace: true });
+    if (!hatBereich(ich, "portfolio") && hatBereich(ich, "kontakte")) throw redirect({ to: "/contacts", replace: true });
     const fonds = await context.queryClient.ensureQueryData(fondsListe());
     const ziel = fonds.find((f) => f.id === letzterFonds()) ?? fonds[0];
-    if (ziel && !darf(ich, "betrachter", ziel.id, "portfolio")) throw redirect({ to: "/fonds", search: { fondsId: ziel.id }, replace: true });
-    if (ziel) throw redirect({ to: "/fonds/$fondsId", params: { fondsId: ziel.id }, search: {}, replace: true });
+    if (ziel && !darf(ich, "betrachter", ziel.id, "portfolio")) throw redirect({ to: "/funds", search: { fondsId: ziel.id }, replace: true });
+    if (ziel) throw redirect({ to: "/funds/$fundId", params: { fundId: ziel.id }, search: {}, replace: true });
   },
   component: lazyRouteComponent(() => import("./seiten/Platzhalter"), "KeinFonds"),
 });
 
 const fondsVerwaltung = createRoute({
   getParentRoute: () => wurzel,
-  path: "/fonds",
+  path: "/funds",
   validateSearch: (suche: Record<string, unknown>): { fondsId?: string; stichtag?: string; stand?: string; bewegungId?: string } & TabSuche => ({
     ...(typeof suche.fondsId === "string" && suche.fondsId !== "" ? { fondsId: suche.fondsId } : {}),
     ...tabSuche(suche),
@@ -165,22 +172,22 @@ const fondsVerwaltung = createRoute({
 });
 
 /** Die Übersicht ist die Seite ohne weiteren Pfadteil hinter dem Fonds (mit oder ohne Schrägstrich am Ende). */
-const FONDS_UEBERSICHT_PFAD = /^\/fonds\/[^/]+\/?$/;
+const FONDS_UEBERSICHT_PFAD = /^\/funds\/[^/]+\/?$/;
 
 /**
- * Rahmen aller Fondsseiten (Kopf mit Kennzahlen und Inhaltsverzeichnis, siehe `seiten/Fondsrahmen`). Der Rahmen liest die Übersicht des
+ * Rahmen aller Fondsseiten (Kopf mit Kennzahlen über dem Bereich, siehe `seiten/Fondsrahmen`). Der Rahmen liest die Übersicht des
  * Fonds: auf der Übersicht mit Stichtag und Wissensstand aus der Adresse, auf allen anderen Bereichen den aktuellen Stand, denn deren
  * `stichtag` (Bewertungsrunde) meint etwas anderes. Der Loader holt genau diesen Schlüssel vor und läuft bei jedem Wechsel zwischen
  * den Bereichen neu (blockierend, aber aus dem Zwischenspeicher), damit der Rahmen nie auf Daten wartet.
  */
 const fondsRahmen = createRoute({
   getParentRoute: () => wurzel,
-  path: "/fonds/$fondsId",
+  path: "/funds/$fundId",
   shouldReload: true,
   loader: {
     handler: async ({ context, params, location }) => {
       const { stichtag, stand } = FONDS_UEBERSICHT_PFAD.test(location.pathname) ? stichtagUndStand(location.search) : ({} as { stichtag?: string; stand?: string });
-      await Promise.all([context.queryClient.ensureQueryData(fondsListe()), context.queryClient.ensureQueryData(fondsUebersicht(params.fondsId, stichtag, stand))]);
+      await Promise.all([context.queryClient.ensureQueryData(fondsListe()), context.queryClient.ensureQueryData(fondsUebersicht(params.fundId, stichtag, stand))]);
     },
     staleReloadMode: "blocking",
   },
@@ -200,14 +207,14 @@ const portfolio = createRoute({
     ...(typeof suche.hervorgehoben === "string" && suche.hervorgehoben !== "" ? { hervorgehoben: suche.hervorgehoben } : {}),
   }),
   beforeLoad: ({ params, search }) => {
-    if (search.tab === "termine") throw redirect({ to: "/kontakte", search: { objekt: "heute" }, replace: true });
+    if (search.tab === "termine") throw redirect({ to: "/contacts", search: { objekt: "heute" }, replace: true });
     if (search.tab && ["kapital", "abgrenzung", "dokumente", "felder"].includes(search.tab)) {
-      throw redirect({ to: "/fonds", search: { fondsId: params.fondsId, tab: search.tab, ...stichtagUndStand(search) }, replace: true });
+      throw redirect({ to: "/funds", search: { fondsId: params.fundId, tab: search.tab, ...stichtagUndStand(search) }, replace: true });
     }
   },
   loaderDeps: ({ search }) => stichtagUndStand(search),
   loader: async ({ context, params, deps }) => {
-    await Promise.all([context.queryClient.ensureQueryData(fondsListe()), context.queryClient.ensureQueryData(fondsUebersicht(params.fondsId, deps.stichtag, deps.stand))]);
+    await Promise.all([context.queryClient.ensureQueryData(fondsListe()), context.queryClient.ensureQueryData(fondsUebersicht(params.fundId, deps.stichtag, deps.stand))]);
   },
   pendingComponent: () => <Seitenskelett kacheln={0} zeilen={8} />,
   component: lazyRouteComponent(() => import("./seiten/Portfolio"), "PortfolioSeite"),
@@ -215,7 +222,7 @@ const portfolio = createRoute({
 
 const kennzahlenabfragen = createRoute({
   getParentRoute: () => fondsRahmen,
-  path: "kennzahlen",
+  path: "metrics",
   validateSearch: (suche: Record<string, unknown>): TabSuche => tabSuche(suche),
   loader: async ({ context }) => {
     await context.queryClient.ensureQueryData(fondsListe());
@@ -226,7 +233,7 @@ const kennzahlenabfragen = createRoute({
 
 const meldungen = createRoute({
   getParentRoute: () => wurzel,
-  path: "/fonds/$fondsId/meldungen",
+  path: "/funds/$fundId/filings",
   validateSearch: (suche: Record<string, unknown>): TabSuche => tabSuche(suche),
   loader: async ({ context }) => {
     await context.queryClient.ensureQueryData(fondsListe());
@@ -237,7 +244,7 @@ const meldungen = createRoute({
 
 const meldelauf = createRoute({
   getParentRoute: () => wurzel,
-  path: "/meldungen/$id",
+  path: "/filings/$id",
   loader: async ({ context, params }) => {
     const { meldeLauf } = await apiMeldewesen();
     const [detail] = await Promise.all([context.queryClient.ensureQueryData(meldeLauf(params.id)), context.queryClient.ensureQueryData(fondsListe())]);
@@ -250,7 +257,7 @@ const meldelauf = createRoute({
 
 const szenarien = createRoute({
   getParentRoute: () => fondsRahmen,
-  path: "szenarien",
+  path: "scenarios",
   validateSearch: (suche: Record<string, unknown>): TabSuche => tabSuche(suche),
   loader: async ({ context }) => {
     await context.queryClient.ensureQueryData(fondsListe());
@@ -261,7 +268,7 @@ const szenarien = createRoute({
 
 const reserven = createRoute({
   getParentRoute: () => fondsRahmen,
-  path: "reserven",
+  path: "reserves",
   loader: async ({ context }) => {
     await context.queryClient.ensureQueryData(fondsListe());
   },
@@ -271,12 +278,12 @@ const reserven = createRoute({
 
 const fondsZinsenRoute = createRoute({
   getParentRoute: () => fondsRahmen,
-  path: "zinsen",
+  path: "interest",
   validateSearch: stichtagUndStand,
   loaderDeps: ({ search }) => ({ stichtag: search.stichtag, stand: search.stand }),
   loader: async ({ context, params, deps }) => {
     const { fondsZinsen } = await import("./api/zinsen");
-    void context.queryClient.prefetchQuery(fondsZinsen(params.fondsId, deps.stichtag, deps.stand));
+    void context.queryClient.prefetchQuery(fondsZinsen(params.fundId, deps.stichtag, deps.stand));
     await context.queryClient.ensureQueryData(fondsListe());
   },
   pendingComponent: () => <Seitenskelett kacheln={0} zeilen={5} />,
@@ -285,13 +292,13 @@ const fondsZinsenRoute = createRoute({
 
 const bewertungsrunde = createRoute({
   getParentRoute: () => fondsRahmen,
-  path: "bewertungsrunde",
+  path: "valuation-round",
   validateSearch: (suche: Record<string, unknown>): { stichtag?: string } => ({
     ...(istKalendertag(suche.stichtag) ? { stichtag: suche.stichtag } : {}),
   }),
   loader: async ({ context, params }) => {
     const { rundenListe } = await abfragen();
-    void context.queryClient.prefetchQuery(rundenListe(params.fondsId));
+    void context.queryClient.prefetchQuery(rundenListe(params.fundId));
     await context.queryClient.ensureQueryData(fondsListe());
   },
   pendingComponent: () => <Seitenskelett kacheln={0} zeilen={5} />,
@@ -300,7 +307,7 @@ const bewertungsrunde = createRoute({
 
 const zielfondsRoute = createRoute({
   getParentRoute: () => fondsRahmen,
-  path: "zielfonds",
+  path: "target-funds",
   loader: async ({ context }) => {
     await context.queryClient.ensureQueryData(fondsListe());
   },
@@ -319,7 +326,7 @@ const portfolioDashboardRoute = createRoute({
 
 const journalRoute = createRoute({
   getParentRoute: () => wurzel,
-  path: "/fonds/$fondsId/journal",
+  path: "/funds/$fundId/journal",
   validateSearch: (suche: Record<string, unknown>): { von?: string; bis?: string; typ?: string; beteiligungId?: string; bewertungen?: "1"; stand?: string } => ({
     ...(istKalendertag(suche.von) ? { von: suche.von } : {}),
     ...(istKalendertag(suche.bis) ? { bis: suche.bis } : {}),
@@ -359,8 +366,10 @@ const dealflow = createRoute({
     ansicht?: string;
     suche?: string;
     neu?: "1";
+    deal?: string;
   } => ({
     ...(suche.bereich === "eingang" || suche.bereich === "meine" || suche.bereich === "pipeline" ? { bereich: suche.bereich } : {}),
+    ...(typeof suche.deal === "string" && /^[A-Za-z0-9-]{1,64}$/.test(suche.deal) ? { deal: suche.deal } : {}),
     ...(suche.neu === "1" || suche.neu === 1 ? { neu: "1" as const } : {}),
     ...(suche.status === "alle" || suche.status === "offen" || suche.status === "abgesagt" || suche.status === "investiert" ? { status: suche.status } : {}),
     ...(suche.umfang === "alle" || suche.umfang === "meine" ? { umfang: suche.umfang } : {}),
@@ -379,7 +388,7 @@ const dealflow = createRoute({
 
 const organisation = createRoute({
   getParentRoute: () => wurzel,
-  path: "/organisationen/$id",
+  path: "/organizations/$id",
   loader: async ({ context, params }) => {
     const { organisationDetail, organisationAktivitaeten } = await abfragen();
     await Promise.all([context.queryClient.ensureQueryData(organisationDetail(params.id)), context.queryClient.ensureQueryData(organisationAktivitaeten(params.id))]);
@@ -403,7 +412,7 @@ const deal = createRoute({
 
 const auswertung = createRoute({
   getParentRoute: () => wurzel,
-  path: "/dealflow/auswertung",
+  path: "/dealflow/analytics",
   validateSearch: (suche: Record<string, unknown>): { von?: string; bis?: string; fondsId?: string } & TabSuche => ({
     ...(istKalendertag(suche.von) ? { von: suche.von } : {}),
     ...(istKalendertag(suche.bis) ? { bis: suche.bis } : {}),
@@ -428,9 +437,10 @@ const registerUebersicht = createRoute({
 
 const kontakte = createRoute({
   getParentRoute: () => wurzel,
-  path: "/kontakte",
-  validateSearch: (suche: Record<string, unknown>): { objekt?: "person" | "deal" | "heute"; liste?: string; ansicht?: string; suche?: string; neu?: "1" } => ({
+  path: "/contacts",
+  validateSearch: (suche: Record<string, unknown>): { objekt?: "person" | "deal" | "heute"; liste?: string; ansicht?: string; suche?: string; neu?: "1"; datensatz?: string } => ({
     ...(suche.neu === "1" ? { neu: "1" as const } : {}),
+    ...(typeof suche.datensatz === "string" && /^[A-Za-z0-9-]{1,64}$/.test(suche.datensatz) ? { datensatz: suche.datensatz } : {}),
     ...(suche.objekt === "person" || suche.objekt === "deal" || suche.objekt === "heute" ? { objekt: suche.objekt } : {}),
     ...(typeof suche.liste === "string" && UUID_ID.test(suche.liste) ? { liste: suche.liste } : {}),
     ...ansichtSuche(suche.ansicht),
@@ -439,14 +449,14 @@ const kontakte = createRoute({
   beforeLoad: async ({ context, search }) => {
     if (search.objekt !== "deal") return;
     const ich = await context.queryClient.ensureQueryData(ichAbfrage());
-    if (!darf(ich, "betrachter", null, "dealflow")) throw redirect({ to: "/kontakte", search: {}, replace: true });
+    if (!(await rechte()).darf(ich, "betrachter", null, "dealflow")) throw redirect({ to: "/contacts", search: {}, replace: true });
   },
   component: lazyRouteComponent(() => import("./seiten/Kontakte"), "KontaktePage"),
 });
 
 const person = createRoute({
   getParentRoute: () => wurzel,
-  path: "/personen/$id",
+  path: "/people/$id",
   validateSearch: (suche: Record<string, unknown>): TabSuche => tabSuche(suche),
   loader: async ({ context, params }) => {
     const { personAktivitaeten, personDetail } = await abfragen();
@@ -460,26 +470,26 @@ const person = createRoute({
 /** Neue Kontakte aus Postfach und Kalender: Vorschläge aus dem eigenen Postfach (die API zeigt nur diese). */
 const kontaktVorschlaege = createRoute({
   getParentRoute: () => wurzel,
-  path: "/kontakte/vorschlaege",
+  path: "/contacts/suggestions",
   component: lazyRouteComponent(() => import("./seiten/KontaktVorschlaege"), "KontaktVorschlaegeSeite"),
 });
 
 const kontaktImport = createRoute({
   getParentRoute: () => wurzel,
-  path: "/kontakte/import",
+  path: "/contacts/import",
   component: lazyRouteComponent(() => import("./seiten/KontaktImport"), "KontaktImportSeite"),
 });
 
 const wiedervorlagen = createRoute({
   getParentRoute: () => wurzel,
-  path: "/wiedervorlagen",
+  path: "/follow-ups",
   validateSearch: (suche: Record<string, unknown>): { zustaendig?: "ich" | "alle"; bis?: string } => ({
     ...(suche.zustaendig === "ich" || suche.zustaendig === "alle" ? { zustaendig: suche.zustaendig } : {}),
     ...(istKalendertag(suche.bis) ? { bis: suche.bis } : {}),
   }),
   beforeLoad: async ({ context }) => {
     const ich = await context.queryClient.ensureQueryData(ichAbfrage());
-    if (!darf(ich, "betrachter", null, "kontakte")) throw redirect({ to: "/fonds", search: {}, replace: true });
+    if (!(await rechte()).darf(ich, "betrachter", null, "kontakte")) throw redirect({ to: "/funds", search: {}, replace: true });
   },
   loaderDeps: ({ search }) => ({ zustaendig: search.zustaendig ?? "ich", bis: search.bis }),
   // Nicht warten: Filteränderungen sollen die Seite nicht durch den Ladezustand ersetzen; die Seite zeigt ihn selbst.
@@ -492,7 +502,7 @@ const wiedervorlagen = createRoute({
 
 const beschlussvorlagen = createRoute({
   getParentRoute: () => wurzel,
-  path: "/beschlussvorlagen",
+  path: "/decision-proposals",
   validateSearch: (suche: Record<string, unknown>): { fondsId?: string } => ({
     ...(typeof suche.fondsId === "string" && suche.fondsId !== "" ? { fondsId: suche.fondsId } : {}),
   }),
@@ -506,12 +516,14 @@ const beschlussvorlagen = createRoute({
 
 const beteiligung = createRoute({
   getParentRoute: () => wurzel,
-  path: "/beteiligungen/$id",
+  path: "/investments/$id",
   // Reiter in der Adresse (`tab`, `unter`); die frühere `ansicht=kennzahlen|esg` bleibt als Alias gültig.
-  validateSearch: (suche: Record<string, unknown>): { stichtag?: string; stand?: string; bewertungId?: string; art?: string; gruppierung?: string } & TabSuche & WaehrungSuche => ({
+  validateSearch: (suche: Record<string, unknown>): { stichtag?: string; stand?: string; bewertungId?: string; rundeId?: string; art?: string; gruppierung?: string } & TabSuche & WaehrungSuche => ({
     ...stichtagUndStand(suche),
     ...waehrungSuche(suche),
     ...(typeof suche.bewertungId === "string" ? { bewertungId: suche.bewertungId } : {}),
+    // Gewählte Finanzierungsrunde (Reiter unter Finanzierung › Runden).
+    ...(typeof suche.rundeId === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(suche.rundeId) ? { rundeId: suche.rundeId } : {}),
     // Filter (`art`) und Gruppierung (`gruppierung`) der Transaktionen; die Seite ordnet unbekannte Werte dem Standard zu.
     ...Object.fromEntries(["art", "gruppierung"].flatMap((k) => (typeof suche[k] === "string" && /^[a-z]{1,16}$/.test(suche[k]) ? [[k, suche[k]]] : []))),
     ...tabSuche(suche, { name: "ansicht", abbildung: (a) => (a === "kennzahlen" ? { tab: "kennzahlen" } : a === "esg" ? { tab: "kennzahlen", unter: "esg" } : {}) }),
@@ -530,14 +542,14 @@ const beteiligung = createRoute({
 
 const kapitalQuelle = createRoute({
   getParentRoute: () => wurzel,
-  path: "/fonds/$fondsId/kapitalquelle/$kennzahl/$bewegungId/$positionId",
+  path: "/funds/$fundId/capital-source/$metric/$movementId/$positionId",
   validateSearch: stichtagUndStand,
   component: lazyRouteComponent(() => import("./seiten/KapitalQuelle"), "KapitalQuelle"),
 });
 
 const dokumentRoute = createRoute({
   getParentRoute: () => wurzel,
-  path: "/dokumente/$id",
+  path: "/documents/$id",
   validateSearch: (suche: Record<string, unknown>): { seite?: number; stichtag?: string; stand?: string } => {
     const n = Number(suche.seite);
     return { ...stichtagUndStand(suche), ...(Number.isInteger(n) && n >= 1 && n <= 100000 ? { seite: n } : {}) };
@@ -548,7 +560,7 @@ const dokumentRoute = createRoute({
 
 const berichte = createRoute({
   getParentRoute: () => wurzel,
-  path: "/berichte",
+  path: "/reports",
   validateSearch: (suche: Record<string, unknown>): { fondsId?: string; stichtag?: string; stand?: string; sprache?: "de" | "en" } & TabSuche => ({
     ...stichtagUndStand(suche),
     ...tabSuche(suche),
@@ -562,7 +574,7 @@ const berichte = createRoute({
 
 const vorlagen = createRoute({
   getParentRoute: () => wurzel,
-  path: "/berichte/vorlagen",
+  path: "/reports/templates",
   validateSearch: (suche: Record<string, unknown>): { fondsId?: string } => ({
     ...(typeof suche.fondsId === "string" && suche.fondsId !== "" ? { fondsId: suche.fondsId } : {}),
   }),
@@ -575,7 +587,7 @@ const vorlagen = createRoute({
 
 const bericht = createRoute({
   getParentRoute: () => wurzel,
-  path: "/berichte/$id",
+  path: "/reports/$id",
   loader: async ({ context, params }) => {
     // Der Kontrollbericht rechnet auf dem aktuellen Stand und lädt in der Seite selbst; hier nur vorwärmen.
     const { berichtKontrolle, berichtDetail } = await abfragen();
@@ -590,7 +602,7 @@ const bericht = createRoute({
 
 const zinslaeufe = createRoute({
   getParentRoute: () => wurzel,
-  path: "/zinslaeufe",
+  path: "/interest-runs",
   validateSearch: (suche: Record<string, unknown>): { fondsId?: string } => ({
     ...(typeof suche.fondsId === "string" && suche.fondsId !== "" ? { fondsId: suche.fondsId } : {}),
   }),
@@ -606,7 +618,7 @@ const zinslaeufe = createRoute({
 
 const zinslauf = createRoute({
   getParentRoute: () => wurzel,
-  path: "/zinslaeufe/$id",
+  path: "/interest-runs/$id",
   loader: async ({ context, params }) => {
     // Das Kontrollbericht lädt die Seite selbst; hier nur vorwärmen.
     const { zinslaufKontrolle, zinslaufDetail } = await abfragen();
@@ -620,7 +632,7 @@ const zinslauf = createRoute({
 
 const belege = createRoute({
   getParentRoute: () => wurzel,
-  path: "/belege",
+  path: "/vouchers",
   validateSearch: (suche: Record<string, unknown>): { fondsId?: string } => ({
     ...(typeof suche.fondsId === "string" && suche.fondsId !== "" ? { fondsId: suche.fondsId } : {}),
   }),
@@ -636,7 +648,7 @@ const belege = createRoute({
 
 const beleg = createRoute({
   getParentRoute: () => wurzel,
-  path: "/belege/$id",
+  path: "/vouchers/$id",
   loader: async ({ context, params }) => {
     const { belegDetail } = await apiBuchhaltung();
     const [detail] = await Promise.all([context.queryClient.ensureQueryData(belegDetail(params.id)), context.queryClient.ensureQueryData(fondsListe())]);
@@ -648,7 +660,7 @@ const beleg = createRoute({
 
 const buchhaltung = createRoute({
   getParentRoute: () => wurzel,
-  path: "/buchhaltung",
+  path: "/accounting",
   validateSearch: (suche: Record<string, unknown>): { fondsId?: string; laufId?: string; konto?: string; stichtag?: string; stand?: string } & TabSuche => ({
     ...stichtagUndStand(suche),
     ...(typeof suche.laufId === "string" && typeof suche.konto === "string" ? { laufId: suche.laufId, konto: suche.konto } : {}),
@@ -671,7 +683,7 @@ const datenuebernahme = createRoute({
   // Hochladen und Prüfen verlangt mindestens die Rolle Bearbeiter; die API prüft jede Anfrage trotzdem selbst.
   beforeLoad: async ({ context }) => {
     const ich = await context.queryClient.fetchQuery(ichAbfrage());
-    if (!hatIrgendwoRolle(ich, "bearbeiter")) throw redirect({ to: "/", replace: true });
+    if (!(await rechte()).hatIrgendwoRolle(ich, "bearbeiter")) throw redirect({ to: "/", replace: true });
   },
   loader: async ({ context }) => {
     await context.queryClient.ensureQueryData((await apiImport()).importLaeufe());
@@ -686,7 +698,7 @@ const datenuebernahmeLauf = createRoute({
   validateSearch: (suche: Record<string, unknown>): TabSuche => tabSuche(suche),
   beforeLoad: async ({ context }) => {
     const ich = await context.queryClient.fetchQuery(ichAbfrage());
-    if (!hatIrgendwoRolle(ich, "bearbeiter")) throw redirect({ to: "/", replace: true });
+    if (!(await rechte()).hatIrgendwoRolle(ich, "bearbeiter")) throw redirect({ to: "/", replace: true });
   },
   loader: async ({ context, params }) => {
     await context.queryClient.ensureQueryData((await apiImport()).importLauf(params.id));
@@ -697,14 +709,15 @@ const datenuebernahmeLauf = createRoute({
 
 const portalHinweis = createRoute({
   getParentRoute: () => wurzel,
-  path: "/portal-hinweis",
+  path: "/portal-notice",
   component: lazyRouteComponent(() => import("./seiten/PortalHinweis"), "PortalHinweis"),
 });
 
 const anmelden = createRoute({
   getParentRoute: () => wurzel,
-  path: "/anmelden",
-  validateSearch: (suche: Record<string, unknown>): { weiter?: string; eingerichtet?: boolean } => ({
+  path: "/sign-in",
+  validateSearch: (suche: Record<string, unknown>): { weiter?: string; eingerichtet?: boolean; zweiterFaktor?: boolean } => ({
+    ...(suche.zweiterFaktor === true || suche.zweiterFaktor === "true" ? { zweiterFaktor: true } : {}),
     ...rueckkehr(suche),
     ...(suche.eingerichtet === true || suche.eingerichtet === "true" ? { eingerichtet: true } : {}),
   }),
@@ -713,32 +726,32 @@ const anmelden = createRoute({
 
 const einrichtung = createRoute({
   getParentRoute: () => wurzel,
-  path: "/einrichtung",
+  path: "/setup",
   component: lazyRouteComponent(() => import("./seiten/Einrichtung"), "EinrichtungSeite"),
 });
 
 const passwortVergessen = createRoute({
   getParentRoute: () => wurzel,
-  path: "/passwort-vergessen",
+  path: "/forgot-password",
   component: lazyRouteComponent(() => import("./seiten/PasswortVergessen"), "PasswortVergessenSeite"),
 });
 
 const passwortSetzen = createRoute({
   getParentRoute: () => wurzel,
-  path: "/passwort-setzen",
+  path: "/set-password",
   component: lazyRouteComponent(() => import("./seiten/PasswortSetzen"), "PasswortSetzenSeite"),
 });
 
 const passwortAendern = createRoute({
   getParentRoute: () => wurzel,
-  path: "/passwort-aendern",
+  path: "/change-password",
   validateSearch: rueckkehr,
   component: lazyRouteComponent(() => import("./seiten/PasswortAendern"), "PasswortAendernSeite"),
 });
 
 const zweiFaktor = createRoute({
   getParentRoute: () => wurzel,
-  path: "/zwei-faktor-einrichten",
+  path: "/two-factor-setup",
   validateSearch: rueckkehr,
   component: lazyRouteComponent(() => import("./seiten/ZweiFaktor"), "ZweiFaktorSeite"),
 });
@@ -746,7 +759,7 @@ const zweiFaktor = createRoute({
 /** Persönliche Einstellungen (Etappe 17): Mails, Postfach und Kalender, Kalenderabonnement. Die Suche trägt nur Codes der Rückkehr von der Anbieterseite. */
 const einstellungenPostfach = createRoute({
   getParentRoute: () => wurzel,
-  path: "/einstellungen/postfach",
+  path: "/settings/mailbox",
   validateSearch: (suche: Record<string, unknown>): { ergebnis?: string; bereich?: string; fehler?: string; grund?: string } & TabSuche => {
     const text = (wert: unknown) => (typeof wert === "string" && /^[A-Za-z0-9_]{1,80}$/.test(wert) ? wert : undefined);
     const e = text(suche.ergebnis);
@@ -755,7 +768,7 @@ const einstellungenPostfach = createRoute({
     const g = text(suche.grund);
     return { ...(e ? { ergebnis: e } : {}), ...(b ? { bereich: b } : {}), ...(f ? { fehler: f } : {}), ...(g ? { grund: g } : {}), ...tabSuche(suche) };
   },
-  // Reiter mit eigener Seite (Erweiterungen, z. B. „Excel“) hatten früher hier ihren Platz (`?tab=excel&unter=…`); gespeicherte Adressen führen dorthin.
+  // Reiter mit eigener Seite (Erweiterungen, z. B. „Excel“) hatten früher hier ihren Platz (`?tab=excel&subtab=…`); gespeicherte Adressen führen dorthin.
   beforeLoad: ({ search }) => {
     const eigeneSeite = alle("einstellungenReiter").find((r) => r.id === search.tab);
     if (eigeneSeite) throw redirect({ to: eigeneSeite.ziel as never, search: (search.unter ? { unter: search.unter } : {}) as never, replace: true });
@@ -766,15 +779,15 @@ const einstellungenPostfach = createRoute({
 /** Der Mailversand ist ein Bereich der Verwaltung; alte Adressen führen dorthin. */
 const mailversand = createRoute({
   getParentRoute: () => wurzel,
-  path: "/verwaltung/mail",
+  path: "/administration/mail",
   beforeLoad: () => {
-    throw redirect({ to: "/verwaltung", search: { tab: "mail" }, replace: true });
+    throw redirect({ to: "/administration", search: { tab: "mail" }, replace: true });
   },
 });
 
 const verwaltung = createRoute({
   getParentRoute: () => wurzel,
-  path: "/verwaltung",
+  path: "/administration",
   // `bereich` ist die frühere Schreibweise des Reiters und bleibt als Alias gültig.
   validateSearch: (suche: Record<string, unknown>): TabSuche => tabSuche(suche, { name: "bereich", abbildung: (b) => ({ tab: b }) }),
   // Nur globale Verwalter; die API prüft jede Anfrage trotzdem selbst.
@@ -790,7 +803,8 @@ const verwaltung = createRoute({
 });
 
 const fondsKinder = [portfolio, kennzahlenabfragen, szenarien, reserven, fondsZinsenRoute, bewertungsrunde, zielfondsRoute];
-const wurzelKinder = [start, fondsVerwaltung, portfolioDashboardRoute, fondsRahmen.addChildren(fondsKinder), meldungen, meldelauf, journalRoute, dealflow, auswertung, deal, organisation, person, beteiligung, kapitalQuelle, dokumentRoute, kontakte, kontaktImport, kontaktVorschlaege, registerUebersicht, wiedervorlagen, beschlussvorlagen, berichte, vorlagen, bericht, zinslaeufe, zinslauf, belege, beleg, buchhaltung, datenuebernahme, datenuebernahmeLauf, portalHinweis, anmelden, einrichtung, passwortVergessen, passwortSetzen, passwortAendern, zweiFaktor, verwaltung, einstellungenPostfach, mailversand];
+const unbekannt = createRoute({ getParentRoute: () => wurzel, path: "$", component: NichtGefunden });
+const wurzelKinder = [unbekannt, start, fondsVerwaltung, portfolioDashboardRoute, fondsRahmen.addChildren(fondsKinder), meldungen, meldelauf, journalRoute, dealflow, auswertung, deal, organisation, person, beteiligung, kapitalQuelle, dokumentRoute, kontakte, kontaktImport, kontaktVorschlaege, registerUebersicht, wiedervorlagen, beschlussvorlagen, berichte, vorlagen, bericht, zinslaeufe, zinslauf, belege, beleg, buchhaltung, datenuebernahme, datenuebernahmeLauf, portalHinweis, anmelden, einrichtung, passwortVergessen, passwortSetzen, passwortAendern, zweiFaktor, verwaltung, einstellungenPostfach, mailversand];
 /** Der Baum des Kerns (Typ aller Adressen der Anwendung). */
 const kernBaum = () => wurzel.addChildren(wurzelKinder);
 
@@ -809,6 +823,8 @@ function baumMitErweiterungen(): ReturnType<typeof kernBaum> {
 
 export function erstelleRouter(queryClient: QueryClient, history?: RouterHistory) {
   const router = createRouter({
+    parseSearch,
+    stringifySearch,
     routeTree: baumMitErweiterungen(),
     context: { queryClient },
     ...(history ? { history } : {}),
@@ -829,11 +845,11 @@ export function erstelleRouter(queryClient: QueryClient, history?: RouterHistory
       try {
         if (ereignis === "abgemeldet") {
           queryClient.clear();
-          await router.navigate({ to: "/anmelden", search: { weiter: ort.href }, replace: true });
+          await router.navigate({ to: "/sign-in", search: { weiter: ort.href }, replace: true });
         } else {
           // Erst den aktuellen Stand der Sperren holen, sonst schickt der Wächter mit veralteten Daten zurück.
           await queryClient.fetchQuery({ ...ichAbfrage(), staleTime: 0 }).catch(() => undefined);
-          await router.navigate({ to: ereignis === "passwort" ? "/passwort-aendern" : "/zwei-faktor-einrichten", search: { weiter: ort.href }, replace: true });
+          await router.navigate({ to: ereignis === "passwort" ? "/change-password" : "/two-factor-setup", search: { weiter: ort.href }, replace: true });
         }
       } finally {
         laeuft = false;

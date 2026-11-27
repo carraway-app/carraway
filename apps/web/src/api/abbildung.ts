@@ -6,7 +6,7 @@
  */
 
 export type Stufe = "betrachter" | "bearbeiter" | "freigeber" | "verwalter";
-export type BereichName = "portfolio" | "finanzen" | "kennzahlen" | "berichte" | "meldewesen" | "dealflow" | "kontakte" | "dokumente" | "daten" | "fondsverwaltung";
+export type BereichName = "portfolio" | "finanzen" | "kennzahlen" | "berichte" | "meldewesen" | "dealflow" | "kontakte" | "dokumente" | "daten" | "fondsverwaltung" | "einzelzuteilungen";
 
 export const themaVonApi = (t: "system" | "light" | "dark") => ({ thema: ({ system: "system", light: "hell", dark: "dunkel" } as const)[t] });
 export const themaAnApi = (t: "system" | "hell" | "dunkel") => ({ system: "system", hell: "light", dunkel: "dark" } as const)[t];

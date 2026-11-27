@@ -349,7 +349,6 @@ export const instrumenteBereichDe = {
   fondsZinsen: {
     titel: "Zinsen",
     beschreibung: "Zinsen aller Instrumente mit Zinsen im Fonds zum Stichtag und Wissensstand dieser Seite; die Kennzahlen oben zeigen den aktuellen Stand. Eine Zinsbuchung ist eine Forderung, erst die Zinszahlung ist der Geldeingang.",
-    stichtagWaehlen: "Stichtag der Zinsen",
     zinslaeufe: "Zinsläufe",
     summe: "Summe",
     tabelle: (datum: string) => `Zinsen je Instrument, Stand zum ${datum}`,
@@ -523,6 +522,7 @@ export const instrumenteBereichDe = {
     titel: "Zinsen",
     neu: "Neuer Zinslauf",
     keine: "Für diesen Fonds gibt es noch keinen Zinslauf.",
+    keineHilfe: "Ein Zinslauf berechnet die Zinsen aller Darlehen des Fonds zu einem Stichtag und bucht sie nach Prüfung und Freigabe.",
     liste: "Zinsläufe dieses Fonds",
     spalten: { stichtag: "Stichtag", status: "Status", positionen: "Positionen", summe: "Zinsen gebucht", berechnet: "Berechnet", aktion: "Aktion" },
     oeffnen: "Öffnen",

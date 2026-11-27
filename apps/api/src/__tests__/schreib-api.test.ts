@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import { loescheAbgelaufeneSchluessel } from "../idempotenz";
 import { erzeugeMappe } from "@carraway/import";
 import { json, leeren, oeffneTestdb } from "./hilfen";
 import { erstelleTestApp, person, type Testperson } from "./hilfen-auth";
@@ -149,6 +150,18 @@ describe("geaendertSeit an den Listen", () => {
 describe("Idempotency-Key", () => {
   const org = { name: "Sternwind Energie", art: "unternehmen" };
 
+  it.each([false, true])("gibt Kalender-Token nur einmal aus (Stapel: %s)", async (stapel) => {
+    const pfad = "/settings/calendar-link";
+    const aufruf = () => post(stapel ? "/batch" : pfad, stapel ? { operations: [{ method: "POST", path: pfad }] } : {}, ANNA, { "Idempotency-Key": "kalender" });
+    const erste = await aufruf();
+    expect(erste.status).toBe(stapel ? 200 : 201);
+    const body = await json(erste);
+    expect((stapel ? body.results[0].body : body).token).toBeTruthy();
+    const { rows } = await db.execute(sql`SELECT antwort, antwort_hash FROM idempotenz_schluessel WHERE schluessel = 'kalender'`);
+    expect(rows).toEqual([{ antwort: null, antwort_hash: null }]);
+    expect((await aufruf()).status).toBe(409);
+  });
+
   it("gleicher Schlüssel und Körper: dieselbe Antwort ohne zweite Ausführung; anderer Körper: 409; je Akteur getrennt", async () => {
     const a = await post("/organisationen", org, ANNA, { "Idempotency-Key": "schluessel-1" });
     expect(a.status).toBe(201);
@@ -204,6 +217,14 @@ describe("Idempotency-Key", () => {
     const neu = await post("/organisationen", org, ANNA, { "Idempotency-Key": "alt" });
     expect(neu.status).toBe(409);
     expect((await json(neu)).error.code).toBe("possible_duplicate");
+  });
+
+  it("der Wartungslauf entfernt alte Schlüssel ohne erneute Anfrage", async () => {
+    await post("/organisationen", org, ANNA, { "Idempotency-Key": "alt" });
+    await post("/organisationen", { ...org, name: "Weitere Firma" }, ANNA, { "Idempotency-Key": "neu" });
+    await db.execute(sql`UPDATE idempotenz_schluessel SET erstellt_am = now() - interval '25 hours' WHERE schluessel = 'alt'`);
+    await loescheAbgelaufeneSchluessel(db);
+    expect((await db.execute(sql`SELECT schluessel FROM idempotenz_schluessel`)).rows).toEqual([{ schluessel: "neu" }]);
   });
 
   it("Antwort ist gespeichert (Status, Text, Hash); Serverfehler geben den Schlüssel frei", async () => {

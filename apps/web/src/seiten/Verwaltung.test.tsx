@@ -9,7 +9,7 @@ import { en } from "../i18n/en";
 /** Karte im Inhalt eines Bereichs: Der Inhaltsbereich selbst trägt als Region den Namen des Eintrags und wird hier übergangen. */
 const karteInnen = (name: string) =>
   waitFor(() => {
-    const karte = screen.queryAllByRole("region", { name }).find((r) => !r.classList.contains("cw-inhalt__bereich"));
+    const karte = screen.queryAllByRole("region", { name }).find((r) => !r.classList.contains("app-bereich"));
     if (!karte) throw new Error(`Karte ${name} fehlt`);
     return karte;
   });
@@ -58,8 +58,8 @@ const verwaltungApi = (extra: Parameters<typeof spieleApi>[0] = {}) =>
 describe("Verwaltung: Zugang", () => {
   it("führt Personen ohne globale Verwaltung zurück zur Startseite und zeigt ihnen keinen Menüpunkt", async () => {
     verwaltungApi({ "/api/v1/me": alsRolle("verwalter") });
-    const { router } = rendereApp("/verwaltung");
-    await waitFor(() => expect(router.state.location.pathname).toBe(`/fonds/${FONDS_ID}`));
+    const { router } = rendereApp("/administration");
+    await waitFor(() => expect(router.state.location.pathname).toBe(`/funds/${FONDS_ID}`));
     expect(screen.queryByRole("link", { name: "Verwaltung" })).toBeNull();
   });
 
@@ -75,7 +75,7 @@ describe("Verwaltung: Zugang", () => {
 describe("Verwaltung: Benutzer", () => {
   it("listet Personen (ohne technische Benutzer) und legt eine Person mit Startpasswort an", async () => {
     const api = verwaltungApi({ "POST /api/v1/users": { status: 201, koerper: { id: "n1", name: "Neue Person", email: "neu@beispiel.example", aktiv: true, globalVerwalter: false } } });
-    rendereApp("/verwaltung");
+    rendereApp("/administration");
     const nutzer = userEvent.setup();
     const tabelle = await karteInnen("Benutzer");
     expect(within(tabelle).getByText("Berta Beispiel")).toBeTruthy();
@@ -105,7 +105,7 @@ describe("Verwaltung: Benutzer", () => {
     const api = verwaltungApi({
       [`PATCH /api/v1/users/${BERTA}`]: fehler(409, "last_admin"),
     });
-    rendereApp("/verwaltung");
+    rendereApp("/administration");
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Berta Beispiel sperren" }));
     expect((await screen.findByRole("alert")).textContent).toContain(de.fehler.last_admin);
@@ -120,7 +120,7 @@ describe("Verwaltung: Rollen", () => {
       [`PUT /api/v1/fonds/${FONDS_ID}/roles/${BERTA}`]: { koerper: {} },
       [`DELETE /api/v1/fonds/${FONDS_ID}/roles/${BERTA}`]: { status: 204, koerper: null },
     });
-    rendereApp("/verwaltung?bereich=rollen");
+    rendereApp("/administration?section=roles");
     const nutzer = userEvent.setup();
     const bereich = within(await screen.findByRole("region", { name: "Rollen je Fonds" }));
     expect(await bereich.findByText("Berta Beispiel")).toBeTruthy();
@@ -155,7 +155,7 @@ describe("Verwaltung: Rollen und Gruppen", () => {
       "POST /api/v1/permissions/roles": { status: 201, koerper: { ...stand.rollen[0], id: "neu", name: "Controlling", bereiche: ["finanzen", "berichte"] } },
       "PUT /api/v1/permissions/settings": { koerper: { fondsOffen: false } },
     });
-    rendereApp("/verwaltung?bereich=rechte");
+    rendereApp("/administration?section=permissions");
     const nutzer = userEvent.setup();
     expect(await screen.findByText("Relationship Management")).toBeTruthy();
     expect(screen.getAllByText("Kontakte").length).toBeGreaterThan(0);
@@ -182,7 +182,7 @@ describe("Verwaltung: Rollen und Gruppen", () => {
       "/api/v1/permissions": { koerper: stand },
       [`PATCH /api/v1/permissions/groups/${GRUPPE_ID}`]: { koerper: { ...stand.gruppen[0], fondsBeschraenkt: true, bereicheJeFonds: true, fondsIds: [FONDS_ID], fondsBereiche: { [FONDS_ID]: ["kontakte"] } } },
     });
-    rendereApp("/verwaltung?bereich=rechte");
+    rendereApp("/administration?section=permissions");
     const nutzer = userEvent.setup();
     expect(await screen.findByText("Relationship Management")).toBeTruthy();
     const gruppen = within(screen.getByRole("region", { name: de.verwaltung.rechte.gruppenTitel }));
@@ -203,7 +203,7 @@ describe("Verwaltung: Rollen und Gruppen", () => {
 describe("Verwaltung: API-Schlüssel", () => {
   it("erklärt die API beim Bereich: Basis-Adresse, Dokumentation und openapi.json öffnen im neuen Tab", async () => {
     verwaltungApi();
-    rendereApp("/verwaltung?tab=schluessel");
+    rendereApp("/administration?tab=keys");
     expect(await screen.findByRole("heading", { name: de.verwaltung.schluessel.api.titel })).toBeTruthy();
     expect(screen.getByText(`${window.location.origin}/api/v1`)).toBeTruthy();
     const doku = screen.getByRole("link", { name: de.verwaltung.schluessel.api.doku });
@@ -215,7 +215,7 @@ describe("Verwaltung: API-Schlüssel", () => {
   it("zeigt den neuen Schlüssel genau einmal, nicht im Cache, und die Liste danach nur mit Vorschau", async () => {
     const klartext = "cwk_GEHEIMER-KLARTEXT-nur-einmal-0123456789";
     const api = verwaltungApi({ "POST /api/v1/api-keys": { status: 201, koerper: { ...schluesselZeile({ name: "Neuer Schlüssel", vorschau: "cwk_GEHEIM" }), schluessel: klartext } } });
-    const { queryClient } = rendereApp("/verwaltung?bereich=schluessel");
+    const { queryClient } = rendereApp("/administration?section=keys");
     const nutzer = userEvent.setup();
     expect(await screen.findByText("cwk_ab12cd…")).toBeTruthy();
     await nutzer.click(screen.getByRole("button", { name: "Schlüssel anlegen" }));
@@ -245,7 +245,7 @@ describe("Verwaltung: API-Schlüssel", () => {
 
   it("widerruft einen Schlüssel erst nach einer zweiten Bestätigung", async () => {
     const api = verwaltungApi({ [`DELETE /api/v1/api-keys/${SCHLUESSEL_ID}`]: { koerper: schluesselZeile({ status: "widerrufen", widerrufenAm: "2026-11-20T00:00:00.000Z" }) } });
-    rendereApp("/verwaltung?bereich=schluessel");
+    rendereApp("/administration?section=keys");
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Schlüssel Berichtsexport widerrufen" }));
     expect(api.anfragen("DELETE", `/api/v1/api-keys/${SCHLUESSEL_ID}`)).toHaveLength(0);
@@ -265,7 +265,7 @@ describe("Verwaltung: Periodensperre", () => {
           : { koerper: sperre({ gesperrtBis: "2026-09-30" }) };
       },
     });
-    rendereApp("/verwaltung?bereich=sperre");
+    rendereApp("/administration?section=lock");
     const nutzer = userEvent.setup();
     const bereich = within(await screen.findByRole("region", { name: "Periodensperre" }));
     expect(await bereich.findByText("30.06.2026")).toBeTruthy();
@@ -294,36 +294,38 @@ describe("Verwaltung: Periodensperre", () => {
 });
 
 describe("Verwaltung: Sprache", () => {
-  it("steht auf Englisch, das Verzeichnis ist gegliedert und lässt sich mit Tab und Enter bedienen", async () => {
+  it("steht auf Englisch; die Bereiche stehen gegliedert in der Seitenleiste und lassen sich mit Tab und Enter öffnen", async () => {
     localStorage.setItem("carraway.sprache", "en");
     verwaltungApi();
-    const { router } = rendereApp("/verwaltung");
+    const { router } = rendereApp("/administration");
     const nutzer = userEvent.setup();
     expect(await screen.findByRole("heading", { name: new RegExp(en.verwaltung.titel, "i") })).toBeTruthy();
-    const verzeichnis = within(screen.getByRole("navigation", { name: en.verwaltung.bereiche }));
-    expect(verzeichnis.getByRole("list", { name: "Access" })).toBeTruthy();
-    expect(verzeichnis.getByRole("list", { name: "Business rules" })).toBeTruthy();
-    expect(verzeichnis.getByRole("list", { name: "Operations" })).toBeTruthy();
-    expect(verzeichnis.getByRole("button", { name: "Users" }).getAttribute("aria-current")).toBe("page");
-    const eintrag = verzeichnis.getByRole("button", { name: "Roles and groups" });
+    const leiste = within(await screen.findByRole("navigation", { name: "Main navigation" }));
+    for (const gruppe of ["Access", "Business rules", "Operations"]) expect(leiste.getByRole("button", { name: gruppe })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "All areas" }).getAttribute("href")).toBe("/funds");
+    expect(leiste.getByRole("link", { name: "Users" }).getAttribute("aria-current")).toBe("page");
+    const eintrag = leiste.getByRole("link", { name: "Roles and groups" });
     eintrag.focus();
     await nutzer.keyboard("{Enter}");
     await waitFor(() => expect(router.state.location.search).toMatchObject({ tab: "rechte" }));
-    expect(verzeichnis.getByRole("button", { name: "Roles and groups" }).getAttribute("aria-current")).toBe("page");
-    await nutzer.click(verzeichnis.getByRole("button", { name: "Roles per fund" }));
+    await waitFor(() => expect(leiste.getByRole("link", { name: "Roles and groups" }).getAttribute("aria-current")).toBe("page"));
+    await nutzer.click(leiste.getByRole("link", { name: "Roles per fund" }));
     await waitFor(() => expect(router.state.location.search).toMatchObject({ tab: "rollen" }));
     expect(await screen.findByRole("region", { name: "Roles per fund" })).toBeTruthy();
   });
 
-  it("gliedert die zehn Bereiche des Kerns in Zugänge, fachliche Vorgaben und Betrieb und öffnet die bisherigen Adressen", async () => {
+  it("gliedert die Bereiche des Kerns in Zugänge, fachliche Vorgaben und Betrieb und öffnet die bisherigen Adressen", async () => {
     verwaltungApi();
-    rendereApp("/verwaltung?tab=sperre");
-    const verzeichnis = within(await screen.findByRole("navigation", { name: de.verwaltung.bereiche }));
-    const namen = (gruppe: string) => within(verzeichnis.getByRole("list", { name: gruppe })).getAllByRole("button").map((k) => k.textContent);
-    expect(namen("Zugänge")).toEqual(["Benutzer", "Rollen und Gruppen", "Rollen je Fonds", "API-Schlüssel"]);
-    expect(namen("Fachliche Vorgaben")).toEqual(["Kennzahlen", "Meldewesen", "Manager-Profil", "Wechselkurse", "Kontakte aus Postfach"]);
+    rendereApp("/administration?tab=lock");
+    const nav = await screen.findByRole("navigation", { name: "Hauptnavigation" });
+    const namen = (gruppe: string) => {
+      const kopf = within(nav).getByRole("button", { name: gruppe });
+      return within(document.getElementById(kopf.getAttribute("aria-controls")!)!).getAllByRole("link").map((k) => k.textContent);
+    };
+    await waitFor(() => expect(namen("Zugänge")).toEqual(["Benutzer", "Rollen und Gruppen", "Rollen je Fonds", "API-Schlüssel"]));
+    expect(namen("Fachliche Vorgaben")).toEqual(["Kennzahlen", "Meldewesen", "Manager-Profil", "Wechselkurse", "Kontakte aus Postfach", "CRM-Anbindungen", "Datenanbieter"]);
     expect(namen("Betrieb")).toEqual(["Periodensperre", "Export und API", "Betrieb", "Mailversand"]);
-    expect(verzeichnis.getByRole("button", { name: "Periodensperre" }).getAttribute("aria-current")).toBe("page");
+    expect(within(nav).getByRole("link", { name: "Periodensperre" }).getAttribute("aria-current")).toBe("page");
     expect(await screen.findByRole("region", { name: "Periodensperre" })).toBeTruthy();
   });
 });
@@ -331,7 +333,7 @@ describe("Verwaltung: Sprache", () => {
 describe("Verwaltung: Export und API", () => {
   it("bietet globalen Verwaltern den Vollexport als Download mit Erklärung und den Link zur API-Dokumentation", async () => {
     verwaltungApi();
-    rendereApp("/verwaltung?bereich=daten");
+    rendereApp("/administration?section=data");
     const knopf = await screen.findByRole("link", { name: de.datenuebernahme.export.knopf });
     expect(knopf.getAttribute("href")).toBe("/api/v1/export?format=zip");
     expect(knopf.hasAttribute("download")).toBe(true);
@@ -350,8 +352,8 @@ describe("Verwaltung: Export und API", () => {
 
   it("zeigt den Export nicht, wenn die Person keine globale Verwaltung hat (Weiterleitung)", async () => {
     verwaltungApi({ "/api/v1/me": alsRolle("verwalter") });
-    const { router } = rendereApp("/verwaltung?bereich=daten");
-    await waitFor(() => expect(router.state.location.pathname).toBe(`/fonds/${FONDS_ID}`));
+    const { router } = rendereApp("/administration?section=data");
+    await waitFor(() => expect(router.state.location.pathname).toBe(`/funds/${FONDS_ID}`));
     expect(screen.queryByRole("link", { name: de.datenuebernahme.export.knopf })).toBeNull();
   });
 
@@ -368,7 +370,7 @@ describe("Verwaltung: Export und API", () => {
         },
       },
     });
-    rendereApp("/verwaltung?bereich=daten");
+    rendereApp("/administration?section=data");
     const tabelle = await screen.findByRole("region", { name: de.datenuebernahme.aufbewahrung.tabelle });
     expect(within(tabelle).getByText("vertrag-alt.pdf")).toBeTruthy();
     expect(within(tabelle).getByText(de.datenuebernahme.aufbewahrung.haltegrund.fundstelle!)).toBeTruthy();
@@ -382,7 +384,7 @@ describe("Verwaltung: Export und API", () => {
     const api = verwaltungApi({
       "POST /api/v1/reports/backfill-variants": { koerper: { geprueft: 2, angelegt: [{ berichtId: "b1", varianten: 3 }], uebersprungen: [{ berichtId: "b2", grund: "nicht_reproduzierbar" }] } },
     });
-    rendereApp("/verwaltung?bereich=daten");
+    rendereApp("/administration?section=data");
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: de.datenuebernahme.varianten.knopf }));
     await waitFor(() => expect(api.anfragen("POST", "/api/v1/reports/backfill-variants")).toHaveLength(1));
@@ -393,10 +395,10 @@ describe("Verwaltung: Export und API", () => {
   it("beschriftet Export und API auf Englisch", async () => {
     localStorage.setItem("carraway.sprache", "en");
     verwaltungApi();
-    rendereApp("/verwaltung?bereich=daten");
+    rendereApp("/administration?section=data");
     expect(await screen.findByRole("link", { name: en.datenuebernahme.export.knopf })).toBeTruthy();
     expect(screen.getByRole("link", { name: en.datenuebernahme.api.doku })).toBeTruthy();
-    expect(screen.getByRole("button", { name: en.verwaltung.reiter.daten }).getAttribute("aria-current")).toBe("page");
+    expect(screen.getByRole("link", { name: en.verwaltung.reiter.daten }).getAttribute("aria-current")).toBe("page");
   });
 });
 
@@ -422,14 +424,14 @@ const betriebStatus = (extra: Record<string, unknown> = {}) => ({
 describe("Verwaltung: Betrieb", () => {
   it("zeigt Datenbank, Migrationen, Worker, Rückstände, Ablage und SMTP", async () => {
     verwaltungApi({ "/api/v1/operations/status": { koerper: betriebStatus() } });
-    rendereApp("/verwaltung?bereich=betrieb");
+    rendereApp("/administration?section=operations");
     const tabelle = within(await screen.findByRole("region", { name: de.verwaltung.betrieb.tabelle }));
     expect(tabelle.getByText("Alle 45 Migrationen angewendet")).toBeTruthy();
     expect(tabelle.getByText("Letzter Herzschlag vor 2 min, der Worker gilt als ausgefallen")).toBeTruthy();
     expect(tabelle.getByText("3 wartend, der älteste seit 12 min")).toBeTruthy();
     expect(tabelle.getByText(de.verwaltung.betrieb.smtp.aus)).toBeTruthy();
     // Rückstand der KI-Auslesung und KI-Anbieter zeigt nur der Build „Voll“ (ee/web/src/kern-tests/Verwaltung.test.tsx).
-    expect(tabelle.queryByText(de.verwaltung.betrieb.ki.name)).toBeNull();
+    expect(tabelle.queryByText(/KI-Anbieter/)).toBeNull();
     expect(screen.getAllByText(de.verwaltung.betrieb.ampel.warnung).length).toBeGreaterThan(1);
   });
 
@@ -437,7 +439,7 @@ describe("Verwaltung: Betrieb", () => {
     verwaltungApi({
       "/api/v1/operations/status": { koerper: betriebStatus({ ampel: "fehler", migrationen: { ok: false, bekannt: 45, angewendet: 44, meldung: "fehlt" }, speicher: { beschreibbar: false } }) },
     });
-    rendereApp("/verwaltung?bereich=betrieb");
+    rendereApp("/administration?section=operations");
     expect(await screen.findByText(de.verwaltung.betrieb.migrationen.fehler)).toBeTruthy();
     expect(screen.getByText(de.verwaltung.betrieb.speicher.fehler)).toBeTruthy();
     expect(screen.getAllByText(de.verwaltung.betrieb.ampel.fehler).length).toBeGreaterThan(1);
@@ -446,11 +448,11 @@ describe("Verwaltung: Betrieb", () => {
   it("beschriftet den Bereich auf Englisch", async () => {
     localStorage.setItem("carraway.sprache", "en");
     verwaltungApi({ "/api/v1/operations/status": { koerper: betriebStatus({ ampel: "ok", worker: { status: "ok", herzschlagAlterSekunden: 4, grenzeSekunden: 30 }, smtp: { konfiguriert: true } }) } });
-    rendereApp("/verwaltung?bereich=betrieb");
+    rendereApp("/administration?section=operations");
     const tabelle = within(await screen.findByRole("region", { name: en.verwaltung.betrieb.tabelle }));
     expect(tabelle.getByText("Last heartbeat 4 s ago")).toBeTruthy();
     expect(tabelle.getByText(en.verwaltung.betrieb.smtp.an)).toBeTruthy();
-    expect(screen.getByRole("button", { name: en.verwaltung.reiter.betrieb }).getAttribute("aria-current")).toBe("page");
+    expect(screen.getByRole("link", { name: en.verwaltung.reiter.betrieb }).getAttribute("aria-current")).toBe("page");
   });
 });
 
@@ -460,7 +462,7 @@ describe("Verwaltung: Einladung per Mail", () => {
 
   it("ohne Mailversand gibt es nur das Startpasswort", async () => {
     verwaltungApi();
-    rendereApp("/verwaltung");
+    rendereApp("/administration");
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Benutzer anlegen" }));
     const dialog = within(await screen.findByRole("dialog", { name: "Benutzer anlegen" }));
@@ -470,7 +472,7 @@ describe("Verwaltung: Einladung per Mail", () => {
 
   it("mit Mailversand lädt der Dialog ohne Passwort ein und sendet die Sprache der Oberfläche", async () => {
     const api = verwaltungApi({ "/api/v1/environment": MIT_MAIL, "POST /api/v1/users": { status: 201, koerper: { id: "n1", name: "Neue Person", email: "neu@beispiel.example", aktiv: true, globalVerwalter: false, einladung: true } } });
-    rendereApp("/verwaltung");
+    rendereApp("/administration");
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Benutzer anlegen" }));
     const dialog = within(await screen.findByRole("dialog", { name: "Benutzer anlegen" }));
@@ -491,7 +493,7 @@ describe("Verwaltung: Einladung per Mail", () => {
       "/api/v1/users": { koerper: { daten: [...benutzer.daten, eingeladen] } },
       [`POST /api/v1/users/e1/invitation`]: { status: 204, koerper: null },
     });
-    rendereApp("/verwaltung");
+    rendereApp("/administration");
     const tabelle = await karteInnen("Benutzer");
     expect(within(tabelle).getByText(de.verwaltung.einladung.offen)).toBeTruthy();
     await userEvent.setup().click(within(tabelle).getByRole("button", { name: de.verwaltung.einladung.erneutFuer("Emil Eingeladen") }));
@@ -503,4 +505,20 @@ describe("Verwaltung: Einladung per Mail", () => {
     expect(en.verwaltung.einladung.perMail).not.toBe(de.verwaltung.einladung.perMail);
     expect(en.verwaltung.einladung.angelegtText("X")).toContain("72 hours");
   });
+});
+
+it("zeigt eine CRM-Vorschau und gibt den ausgewählten Lauf frei", async () => {
+  const runId = "0b46db93-395e-41e9-8e1c-593b6946e005";
+  const api = verwaltungApi({
+    "/api/v1/integrations": { koerper: { data: [{ provider: "attio", mode: "import", mapping: { deals: true, notes: false, lists: [], fields: [], stages: {} } }], providers: ["attio", "affinity"], customFields: [], syncAvailable: false } },
+    "/api/v1/integrations/attio/runs": { koerper: { data: [{ id: runId, createdAt: "2026-07-03T00:00:00Z", status: "preview", received: 4, applied: 0, matched: 1, skipped: 2, skipReasons: { resolution_missing: 2 } }], sample: [{ record: { name: "Example" } }] } },
+    ["POST /api/v1/integrations/runs/" + runId + "/apply"]: { status: 202, koerper: { accepted: true } },
+  });
+  rendereApp("/administration?tab=integrations");
+  const freigabe = await screen.findByRole("button", { name: "Vorschau übernehmen" });
+  expect(screen.getByText("2 × Für das Closing fehlt ein zustimmender Beschluss.")).toBeTruthy();
+  expect(screen.getByText("4 / 1 / 0")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Synchronisierung starten" })).toBeNull();
+  await userEvent.click(freigabe);
+  await waitFor(() => expect(api.anfragen("POST", "/api/v1/integrations/runs/" + runId + "/apply")).toHaveLength(1));
 });

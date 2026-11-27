@@ -1,3 +1,4 @@
+import { einmaligeAntwort } from "../idempotenz";
 import { randomUUID } from "node:crypto";
 import { asc, eq, inArray } from "drizzle-orm";
 import { Hono } from "hono";
@@ -98,6 +99,7 @@ export function apiSchluesselRouten(db: Db) {
         await protokoll("anlegen", "api_schluessel", zeile.id, null, protokollAnsicht(zeile));
         return zeile;
       });
+      einmaligeAntwort(c);
       return c.json({ ...ansicht(ergebnis), key: schluessel.klartext }, 201);
     })
     .delete("/:id", pruefe("param", idParam), async (c) => {

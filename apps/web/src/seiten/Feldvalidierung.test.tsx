@@ -4,8 +4,8 @@ import { describe, expect, it } from "vitest";
 import { feldpruefungTexte } from "../i18n/feldpruefung";
 import { BET_ID, INSTR_ID, rendereApp, spieleApi, waehleAktion } from "../test/hilfen";
 
-const url = `/beteiligungen/${BET_ID}`;
-const instrumenteUrl = `${url}?tab=finanzierung&unter=instrumente`;
+const url = `/investments/${BET_ID}`;
+const instrumenteUrl = `${url}?tab=financing&subtab=instruments`;
 const dialog = () => within(screen.getByRole("dialog"));
 
 describe("Prüfung direkt am Feld: Vorgang erfassen", () => {

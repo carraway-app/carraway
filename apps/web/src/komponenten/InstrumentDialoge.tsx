@@ -147,7 +147,7 @@ export function ErfuelltDialog({ tranche, onSchliessen }: { tranche: { id: strin
       >
         <FehlerHinweis fehler={erfuellt.error} bekannt={["datum", "nachweis"]} />
         <Feld label={f.datum} type="date" {...feld("datum", fehler("datum"))} />
-        <Feld label={f.nachweis} autoComplete="off" {...feld("nachweis")} fehler={fehler("nachweis")} />
+        <Feld label={f.nachweis} {...feld("nachweis")} fehler={fehler("nachweis")} />
         <div>
           <Button type="submit" disabled={erfuellt.isPending}>
             {f.speichern}

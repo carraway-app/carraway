@@ -40,6 +40,10 @@ Treat abbreviations as words, as in `navValue`, `apiKey` and `paiIndicators` (`N
 - Better Auth (`/auth/*`) uses its own `{ code, message }` format with capitalised codes (`INVALID_TOKEN`). Carraway's own codes there follow the conventions above (`too_many_attempts`).
 - Findings (imports, balance runs, regulatory reporting and control reports) are data with English, machine-readable codes. Import findings and reporting definition issues supply English text as `message` and German text as `messageDe`.
 
+## Data providers and register evidence
+
+Use `/data-providers` for installation credentials and `/organizations/{id}/provider-data` for field suggestions. Each suggestion identifies the provider, its record reference, the field, the local value at retrieval (`previousValue`), the source value (`value`), `sourceUrl` and `retrievedAt`. Review decisions are `accepted` or `rejected`. Firecrawl and the `external-funding-rounds` routes are available in managed hosting only. The company view lists observations approved by a human editor. [Provider API and setup](integrations/data-providers-and-registers.md)
+
 ## Fields and database
 
 Database columns keep their German names. The API migration made no schema migrations for naming. If a route returns rows as-is, Drizzle properties use English names and may differ from the column names (`asOf: date("stichtag")`). Routes that build their own responses map the names at the API boundary. Database enum values are mapped at the API boundary until a migration changes them.
@@ -103,7 +107,7 @@ The core test `apps/api/src/__tests__/openapi-englisch.test.ts` and full test `e
 | Environment `echt` | `echt` | | `production` |
 | Theme | `hell`, `dunkel` | | `light`, `dark` |
 | Level per area (without a fund, per fund) | `stufeOhneFonds…`, `bereicheJeFonds` | | `levelWithoutFund`, `levelWithoutFundPerArea`, `areaLevelsPerFund` |
-| Application areas | `finanzen`, `kennzahlen`, `berichte`, `meldewesen`, `kontakte`, `dokumente`, `daten`, `fondsverwaltung` | | `finance`, `metrics`, `reports`, `regulatory_reporting`, `contacts`, `documents`, `data`, `fund_administration` (`portfolio` and `dealflow` stay the same) |
+| Application areas | `finanzen`, `kennzahlen`, `berichte`, `meldewesen`, `kontakte`, `dokumente`, `daten`, `fondsverwaltung`, `einzelzuteilungen` | | `finance`, `metrics`, `reports`, `regulatory_reporting`, `contacts`, `documents`, `data`, `fund_administration`, `individual_grants` (`portfolio` and `dealflow` stay the same) |
 | Invitation, pending | | | `invitation`, `invitationPending`, `invited` |
 | Investor user (portal) | | | `investor` |
 | Source of a fund role | `eigene`, `gruppe` | | `own`, `group` |
@@ -118,6 +122,7 @@ The core test `apps/api/src/__tests__/openapi-englisch.test.ts` and full test `e
 | Vintage | | | `vintage` |
 | Fund size / subscribed capital | | | `fundSize` / `subscribedCapital` |
 | Commitment | | `/commitments` | `commitment` |
+| Commitments cover the subscribed capital (fund list) | | | `covered`, `commitmentsComplete` |
 | Commitment change | `…/zusageaenderungen` | `…/commitment-changes` | |
 | Subscription | `…/zeichnungen` | `…/subscriptions` | `subscription` |
 | Closing | `…/closings` | `…/closings` | `closing` |
@@ -313,6 +318,7 @@ starting with `custom_`, receive an extra `custom_` prefix at the API boundary.
 | Upload, replace and download a document | | `/documents`, `…/{id}/replace`, `…/{id}/file` | Multipart `file`, `targets` (JSON list of `{ type, id }`), `classification`, `confidential`; filters `targetType` and `targetId`, file checksum in `X-File-Sha256` |
 | Document classification | | | `contract`, `resolution`, `valuation`, `report`, `voucher`, `other_document` |
 | Import template, validation, application and log | | `/import/template`, `/import/runs/{id}/validate`, `…/apply`, `…/log` | `language`, `file`, `severity`, `sheet`, `cursor`, `nextCursor` |
+| Import from a source system (connection and dry run) | | `/import/sources`, `/import/sources/{source}`, `…/runs` | `source`, `label`, `defaultOrigin`, `configured`, `credential` (`stored`, `environment`), `settings` (`origin`, `funds`, `fundShortNames`, `organizations`, `keepSeparate`, `metrics`, `merge`); error codes `import_source_not_found`, `import_source_not_configured`, `import_source_credential_missing`, `import_source_read_failed`, `import_source_changed` |
 | AI extraction, confirm, discard | | `/documents/{id}/extractions`, `/extractions/{id}/confirm`, `…/discard` | `type`: `investment_agreement`, `loan_agreement`, `valuation_evidence`, `register_extract`; `pages`, `allowConfidential`, `citations` |
 | AI contact enrichment | | `/ai/contacts/settings`, `…/participation`, `…/suggestions` | `aiEnabled`, `signatures`, `website`, `entityType`, `source` |
 | ESG overview and SFDR classification | | `/funds/{id}/esg/overview`, `…/esg/pai`, `/funds/{id}/disclosure` | `year`, `coverage`, `indicators`, `classification` (`article_6`, `article_8`, `article_9`) |
@@ -327,6 +333,7 @@ The review aids and metrics report confirmation use the public metric keys (`met
 | **Organisations** | `/organisationen` | `/organizations` | `organization`, `organizationId` |
 | **People** | `/personen` | `/people` | `person`, `personId` |
 | First name, surname | | | `firstName`, `lastName` |
+| Suggestions for recurring values | | `/organizations/values?field=sector\|city`, `/people/values` | `value`, `count` |
 | **Contact roles** | `/kontaktrollen` | `/contact-roles` | `contactRole` |
 | **Organisation relationships** | `/organisationsbeziehungen` | `/organization-relationships` | `relationship` |
 | Employment | `…/beschaeftigungen` | `…/employments` | `employment`, `jobTitle`, `primary` |
@@ -355,7 +362,7 @@ The review aids and metrics report confirmation use the public metric keys (`met
 | **Mail**, outbox | `/mail/auftraege` | `/mail/jobs` | `outbox`, `status` (`pending`, `sent`, `failed`) |
 | **Mailbox**, callback, sync | `/postfach`, `…/rueckruf`, `…/abgleichen` | `/mailbox`, `…/callback`, `…/sync` | `mailbox`, `provider`, `storeContent`, `lastSyncedAt` |
 | **Contact suggestions** (from mailbox and calendar), apply, discard, participation, blocklist | `/kontaktvorschlaege`, `…/uebernehmen`, `…/verwerfen`, `/postfach/kontakte` | `/contact-suggestions`, `…/accept`, `…/dismiss`, `/mailbox/contacts` | `contactSuggestion`, `participating`, `blocklist` |
-| **Search** | `/suche` | `/search` | `q` |
+| **Search** | `/suche` | `/search` | `q`, `object` (`organization`, `person`, `deal`, `investment`), `kind`, `fundId` (investments only), `investments` |
 | **External** (request link), submit | `/extern/abfragen`, `…/einreichen` | `/external/requests/{token}`, `…/submit` | `token`, `metrics`, `values` |
 
 CRM system fields have public keys such as `firstName`, `stage` and `fundId`. These apply in the field catalogue, rows, views,

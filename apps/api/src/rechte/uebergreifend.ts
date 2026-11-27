@@ -15,6 +15,7 @@ const NAMEN: Record<Bereich, string> = {
   dokumente: "Documents",
   daten: "Data import",
   fondsverwaltung: "Fund administration",
+  einzelzuteilungen: "Individual grants",
 };
 
 /** Bereiche aus der Liste, die die Person nicht hat. */

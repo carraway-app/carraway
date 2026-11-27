@@ -5,22 +5,22 @@ import { alsRolle, FONDS_ID, ICH_ID, RUNDE_ID, fehler, rendereApp, rundeDetailDa
 import { de } from "../i18n/de";
 import { en } from "../i18n/en";
 
-const URL_RUNDE = `/fonds/${FONDS_ID}/bewertungsrunde`;
+const URL_RUNDE = `/funds/${FONDS_ID}/valuation-round`;
 
 describe("Bewertungsrunde", () => {
   it("ist vom Portfolio aus erreichbar und zeigt die offene Runde mit ihren Entwürfen", async () => {
     spieleApi();
-    rendereApp(`/fonds/${FONDS_ID}`);
+    rendereApp(`/funds/${FONDS_ID}`);
     const nutzer = userEvent.setup();
-    await nutzer.click(await screen.findByRole("button", { name: "Bewertungsrunde" }));
+    await nutzer.click(await within(await screen.findByRole("navigation", { name: "Hauptnavigation" })).findByRole("link", { name: "Bewertungsrunde" }));
     expect(await screen.findByRole("heading", { level: 2, name: "Bewertungsrunde" })).toBeTruthy();
     const offen = within(await screen.findByRole("region", { name: /Offene Runde zum 31\.12\.2026/ }));
     const tabelle = within(await offen.findByRole("region", { name: "Entwürfe der Bewertungsrunde" }));
     expect(tabelle.getAllByRole("row")).toHaveLength(3);
     // Die Liste der Übersprungenen kommt mit der Runde aus der API, auch nach dem Neuladen der Seite.
     expect(offen.getByText(/Es gibt keine frühere Bewertung, die sich fortschreiben ließe\./)).toBeTruthy();
-    expect(offen.getByRole("link", { name: "Gamma Logistik" }).getAttribute("href")).toContain("/beteiligungen/b3");
-    expect(tabelle.getByRole("link", { name: "Zur Beteiligung Alpha Energie" }).getAttribute("href")).toContain("/beteiligungen/b1");
+    expect(offen.getByRole("link", { name: "Gamma Logistik" }).getAttribute("href")).toContain("/investments/b3");
+    expect(tabelle.getByRole("link", { name: "Zur Beteiligung Alpha Energie" }).getAttribute("href")).toContain("/investments/b1");
     // frühere Runden stehen getrennt
     expect(within(screen.getByRole("region", { name: "Frühere Runden" })).getByText("Freigegeben")).toBeTruthy();
   });
@@ -55,7 +55,7 @@ describe("Bewertungsrunde", () => {
         },
       },
     });
-    rendereApp(`${URL_RUNDE}?stichtag=2026-12-31`);
+    rendereApp(`${URL_RUNDE}?asOf=2026-12-31`);
     const nutzer = userEvent.setup();
     expect(await screen.findByText(de.runde.keineOffene)).toBeTruthy();
     expect((screen.getByLabelText("Stichtag") as HTMLInputElement).value).toBe("2026-12-31");
@@ -67,7 +67,7 @@ describe("Bewertungsrunde", () => {
     const offen = within(await screen.findByRole("region", { name: /Offene Runde zum 31\.12\.2026/ }));
     expect(await offen.findByText(/Es gibt schon eine freigegebene Bewertung zum Stichtag\./)).toBeTruthy();
     expect(offen.getByText(/Es gibt keine frühere Bewertung, die sich fortschreiben ließe\./)).toBeTruthy();
-    expect(offen.getByRole("link", { name: "Gamma Logistik" }).getAttribute("href")).toContain("/beteiligungen/b3");
+    expect(offen.getByRole("link", { name: "Gamma Logistik" }).getAttribute("href")).toContain("/investments/b3");
   });
 
   it("ändert den Wert eines Entwurfs der Runde mit PATCH und lädt die Runde neu", async () => {

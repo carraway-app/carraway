@@ -34,7 +34,7 @@ const dokument = (extra: Record<string, unknown> = {}) => ({
   ...extra,
 });
 const liste = { koerper: { daten: [dokument()] } };
-const url = `/beteiligungen/${BET_ID}?tab=dokumente`;
+const url = `/investments/${BET_ID}?tab=documents`;
 const dateiSektion = async () => within(await screen.findByRole("heading", { level: 2, name: /^(Dokumente|Documents)$/ }).then((h) => h.closest("section")!));
 
 describe("Dokumente am Datensatz", () => {
@@ -43,7 +43,7 @@ describe("Dokumente am Datensatz", () => {
     rendereApp(url);
     const s = await dateiSektion();
     const link = await s.findByRole("link", { name: "vertrag.pdf" });
-    expect(link.getAttribute("href")).toBe(`/dokumente/${DOK_ID}`);
+    expect(link.getAttribute("href")).toBe(`/documents/${DOK_ID}`);
     expect(s.getByRole("cell", { name: /Vertrag/ })).toBeTruthy();
     expect(s.getByText(/Beteiligung: Alpha Energie \(BF I\)/)).toBeTruthy();
     expect(s.getByRole("link", { name: "Herunterladen: vertrag.pdf" }).getAttribute("href")).toBe(`/api/v1/documents/${DOK_ID}/file`);
@@ -193,32 +193,32 @@ describe("Herkunft mit Fundstelle", () => {
 
   it("die Beteiligung nennt Quelldokument und Seite mit Link; der Herkunftsdialog der Bewertung verweist auf dieselbe Seite", async () => {
     spieleApi({ [`/api/v1/beteiligungen/${BET_ID}`]: { koerper: { ...beteiligungDaten, fundstellen } } });
-    rendereApp(url.replace("?tab=dokumente", ""));
+    rendereApp(url.replace("?tab=documents", ""));
     const quelle = await screen.findByRole("link", { name: "Aus Dokument vertrag.pdf, Seite 2" });
-    expect(quelle.getAttribute("href")).toBe(`/dokumente/${DOK_ID}?seite=2`);
+    expect(quelle.getAttribute("href")).toBe(`/documents/${DOK_ID}?page=2`);
     const nutzer = userEvent.setup();
     const kennzahlen = screen.getByRole("region", { name: "Kennzahlen" });
     await nutzer.click(within(kennzahlen).getByRole("button", { name: "Herkunft von Bewertung anzeigen" }));
     const dialog = await screen.findByRole("dialog");
     const link = within(dialog).getByRole("link", { name: "Aus Dokument vertrag.pdf, Seite 2" });
-    expect(link.getAttribute("href")).toBe(`/dokumente/${DOK_ID}?seite=2`);
+    expect(link.getAttribute("href")).toBe(`/documents/${DOK_ID}?page=2`);
   });
 
   it("lädt eine historische Dokumentseite samt Fundstellen mit dem Wissensstand der Kennzahl", async () => {
     const stand = "2026-10-01T10:11:12.345678Z";
     const pfad = `/api/v1/documents/${DOK_ID}`;
     const api = spieleApi({ [pfad]: { koerper: { ...dokument(), ersetztDurch: null, vorgaenger: [], fundstellen } } });
-    rendereApp(`/dokumente/${DOK_ID}?seite=2&stichtag=2026-09-30&stand=${stand}`);
+    rendereApp(`/documents/${DOK_ID}?page=2&asOf=2026-09-30&knowledgeDate=${stand}`);
     await screen.findByRole("heading", { level: 1, name: "vertrag.pdf" });
     expect(api.anfragen("GET", pfad)[0]!.query.get("stand")).toBe(stand);
     expect(screen.getByText(/Stichtag 30\.09\.2026 · Wissensstand/)).toBeTruthy();
     const verweis = screen.getByRole("link", { name: /wert: .*Seite 2/ });
-    expect(new URL(verweis.getAttribute("href")!, "http://localhost").searchParams.get("stand")).toBe(stand);
+    expect(new URL(verweis.getAttribute("href")!, "http://localhost").searchParams.get("knowledgeDate")).toBe(stand);
   });
 
   it("der Betrachter öffnet das Dokument an der Seite, mit dem PDF-Betrachter (PDF.js, ohne Dienste von außen)", async () => {
     spieleApi({ [`/api/v1/documents/${DOK_ID}`]: { koerper: { ...dokument(), ersetztDurch: null, vorgaenger: [], fundstellen: [{ objektTyp: "bewertung", objektId: "bw1", feld: "wert", wert: "2000000.00", seite: 2, zitat: "x" }] } } });
-    rendereApp(`/dokumente/${DOK_ID}?seite=2`);
+    rendereApp(`/documents/${DOK_ID}?page=2`);
     expect(await screen.findByRole("heading", { level: 1, name: "vertrag.pdf" })).toBeTruthy();
     // PDF.js statt Browser-Betrachter: kein Rahmen, die Bytes kommen mit der Sitzung von der API, die Seite steht im Betrachter
     const rahmen = await screen.findByRole("group", { name: "Vorschau von vertrag.pdf" });
@@ -226,7 +226,7 @@ describe("Herkunft mit Fundstelle", () => {
     expect(rahmen.getAttribute("data-seite")).toBe("2");
     expect(document.querySelector("iframe")).toBeNull();
     expect(screen.getByText("Geöffnet auf Seite 2")).toBeTruthy();
-    expect(screen.getByRole("link", { name: "wert: 2000000.00 (Seite 2)" }).getAttribute("href")).toBe(`/dokumente/${DOK_ID}?seite=2`);
+    expect(screen.getByRole("link", { name: "wert: 2000000.00 (Seite 2)" }).getAttribute("href")).toBe(`/documents/${DOK_ID}?page=2`);
   });
 });
 

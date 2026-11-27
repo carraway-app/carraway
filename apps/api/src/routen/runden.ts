@@ -249,9 +249,9 @@ async function legeAufstockungAn(tx: Tx, protokoll: Protokollant, organisationId
     }
     poolId = pools[0]!.id;
   }
-  await ladePool(tx, organisationId, poolId, true);
+  const pool = await ladePool(tx, organisationId, poolId, true);
   const bestand = await bestandDesPools(tx, poolId);
-  pruefeBestand([...bestand.aenderungen, { datum: bezug.datum, anzahl: a.anzahl }], bestand.zuteilungen);
+  pruefeBestand([...bestand.aenderungen, { datum: bezug.datum, anzahl: a.anzahl }], bestand.zuteilungen, pool);
   const [zeile] = await tx.insert(poolAenderung).values({ poolId, anzahl: a.anzahl, ...bezug }).returning();
   await protokoll("anlegen", "pool_aenderung", zeile!.id, null, { ...zeile, organisationId });
 }
@@ -474,10 +474,11 @@ export function rundenRouten(db: Db) {
         const betroffenePools = [...new Set(aufstockungen.map((a) => a.poolId))].sort();
         const leerePools: string[] = [];
         for (const poolId of betroffenePools) {
-          await ladePool(tx, runde.organisationId, poolId, true);
+          const pool = await ladePool(tx, runde.organisationId, poolId, true);
           const bestand = await bestandDesPools(tx, poolId);
           const rest = bestand.aenderungen.filter((a) => a.rundeId !== id);
-          pruefeBestand(rest, bestand.zuteilungen);
+          // Wird der Pool mit dem Entwurf entfernt, entfällt auch die grobe Schätzung; sonst muss sie in den Rest passen.
+          pruefeBestand(rest, bestand.zuteilungen, rest.length > 0 ? pool : undefined);
           // Hat erst dieser Entwurf den Pool geschaffen und gibt es sonst nichts darin, geht der Pool mit.
           if (rest.length === 0 && bestand.zuteilungen.length === 0) leerePools.push(poolId);
         }

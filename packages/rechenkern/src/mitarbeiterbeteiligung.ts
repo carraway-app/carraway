@@ -8,8 +8,10 @@ import { vergleiche, zerlege, type Datum } from "./datum.js";
  *
  * - **Volle Monate** von `von` bis `bis`: Monatsdifferenz, um eins weniger, wenn der Tag in `bis` vor dem Tag in `von` liegt (ein Tag nach
  *   dem Monatsende von `bis` zählt als Monatsende, 31.01. → 28.02. ist ein voller Monat). Vor `von` null.
- * - **Vesting:** linear je vollem Monat ab Vesting-Beginn über `vestingMonate`; vor dem Ende des Cliffs (`cliffMonate`) nichts, am Cliff
- *   der bis dahin aufgelaufene Teil. Gevestet = abgerundet auf ganze Einheiten (Anzahl × min(1, Monate ÷ Dauer)). Dauer 0: sofort alles.
+ * - **Vesting:** linear in Stufen von `taktMonate` (1, 3, 6 oder 12; Standard 1) ab Vesting-Beginn über `vestingMonate`; vor dem Ende des
+ *   Cliffs (`cliffMonate`) nichts, am Cliff der bis dahin aufgelaufene Teil. Gezählt werden die vollen Monate, abgerundet auf ein Vielfaches
+ *   des Takts (M = abgerundet(Monate ÷ Takt) × Takt). Gevestet = abgerundet auf ganze Einheiten (Anzahl × min(1, M ÷ Dauer)). Dauer 0:
+ *   sofort alles.
  * - **Beschleunigung beim Exit:** ein Bruch b (0 bis 1) der zum Exit noch nicht gevesteten Einheiten vestet zusätzlich, abgerundet.
  *   Einheiten beim Exit = gevestet + abgerundet((Anzahl − gevestet) × b). Ungevestete Einheiten ohne Beschleunigung verfallen beim Exit.
  * - **Status:** `verfallen` und `ausgeuebt` gelten ab ihrem Datum (vorher wie zugeteilt); verfallene Einheiten gehen in den freien Pool
@@ -24,12 +26,18 @@ import { vergleiche, zerlege, type Datum } from "./datum.js";
  *   Bezeichnung, gerechnet wird mit der Regel.
  * - **Pool zum Stichtag:** Größe = Summe der Änderungen bis zum Stichtag; zugeteilt (ausstehend) = Einheiten der Zuteilungen bis zum
  *   Stichtag, die weder verfallen, zurückgekauft noch ausgeübt sind; frei = Größe − ausstehend − ausgeübt (nicht unter null).
+ * - **Grobe Erfassung (nur Pool):** statt einzelner Zuteilungen eine Zahl vergebener Einheiten V. Ausstehend = min(V, max(0, Größe)),
+ *   frei = max(0, Größe − ausstehend); nichts ist ausgeübt, verfallen oder zurückgekauft. Im Wasserfall gelten die V Einheiten als voll
+ *   beteiligt (Näherung, ein mittlerer Basispreis).
  * - **Preis je Anteil voll verwässert:** Pre-Money ÷ (ausgegebene Anteile vor der Runde + Pool vor der Runde + Aufstockung im Pre-Money).
  *   Neue Anteile = Volumen ÷ Preis. Eine Aufstockung im Post-Money wird nach der Runde geschaffen und verwässert alle, auch die neuen
  *   Investoren; sie geht nicht in den Preis ein.
  */
 
 const ZERO = new Decimal(0);
+
+/** Erlaubte Takte des Vestings in Monaten. */
+export const VESTING_TAKTE: readonly number[] = [1, 3, 6, 12];
 
 function letzterTag(jahr: number, monat: number): number {
   return new Date(Date.UTC(jahr, monat, 0)).getUTCDate();
@@ -67,6 +75,8 @@ export interface Vesting {
   beginn: Datum;
   cliffMonate: number;
   vestingMonate: number;
+  /** Takt des Vestings in Monaten (1, 3, 6 oder 12; Standard 1). */
+  taktMonate?: number;
   /** Bruch der beim Exit noch nicht gevesteten Einheiten, der zusätzlich vestet (0 bis 1). */
   beschleunigung?: Decimal.Value | null;
   /** Standard `zugeteilt`; `gevestet` = voll gevestet. */
@@ -84,6 +94,7 @@ function pruefeVesting(v: Vesting): { anzahl: Decimal; b: Decimal } {
   if (!anzahl.isFinite() || anzahl.isNegative() || !anzahl.isInteger()) throw new Error("Vesting: Anzahl muss eine ganze Zahl ab null sein");
   if (!Number.isInteger(v.cliffMonate) || v.cliffMonate < 0) throw new Error("Vesting: Cliff muss eine ganze Zahl von Monaten ab null sein");
   if (!Number.isInteger(v.vestingMonate) || v.vestingMonate < 0) throw new Error("Vesting: Dauer muss eine ganze Zahl von Monaten ab null sein");
+  if (v.taktMonate !== undefined && !VESTING_TAKTE.includes(v.taktMonate)) throw new Error("Vesting: Takt muss 1, 3, 6 oder 12 Monate sein");
   const b = new Decimal(v.beschleunigung ?? 0);
   if (!b.isFinite() || b.isNegative() || b.greaterThan(1)) throw new Error("Vesting: Beschleunigung muss zwischen 0 und 1 liegen");
   let summe = ZERO;
@@ -110,7 +121,9 @@ function nachPlan(anzahl: Decimal, v: Vesting, stichtag: Datum): Decimal {
   if (v.status === "gevestet" || v.vestingMonate === 0) return anzahl;
   const monate = volleMonate(v.beginn, stichtag);
   if (monate < v.cliffMonate) return ZERO;
-  return anzahl.times(Decimal.min(1, new Decimal(monate).div(v.vestingMonate))).floor();
+  const takt = v.taktMonate ?? 1;
+  const stufen = Math.floor(monate / takt) * takt;
+  return anzahl.times(Decimal.min(1, new Decimal(stufen).div(v.vestingMonate))).floor();
 }
 
 /**
@@ -194,6 +207,7 @@ export interface PoolZuteilung {
   beginn?: Datum | null;
   cliffMonate?: number;
   vestingMonate?: number;
+  taktMonate?: number;
   basispreis?: Decimal.Value | null;
   austritte?: readonly Leaver[] | null;
 }
@@ -216,7 +230,7 @@ export interface PoolStand {
 export function poolAufteilung(z: PoolZuteilung, stichtag: Datum): Aufteilung {
   if (z.austritte?.length && (z.cliffMonate === undefined || z.vestingMonate === undefined)) throw new Error("Pool: eine Zuteilung mit Austritten braucht den Vesting-Plan");
   return aufteilung(
-    { anzahl: z.anzahl, beginn: z.beginn ?? z.zugeteiltAm, cliffMonate: z.cliffMonate ?? 0, vestingMonate: z.vestingMonate ?? 0, status: z.status, statusAm: z.statusAm ?? null, basispreis: z.basispreis ?? null, austritte: z.austritte ?? null },
+    { anzahl: z.anzahl, beginn: z.beginn ?? z.zugeteiltAm, cliffMonate: z.cliffMonate ?? 0, vestingMonate: z.vestingMonate ?? 0, ...(z.taktMonate === undefined ? {} : { taktMonate: z.taktMonate }), status: z.status, statusAm: z.statusAm ?? null, basispreis: z.basispreis ?? null, austritte: z.austritte ?? null },
     stichtag,
   );
 }
@@ -238,6 +252,16 @@ export function poolStand(aenderungen: readonly PoolAenderung[], zuteilungen: re
   }
   const frei = Decimal.max(ZERO, groesse.minus(ausstehend).minus(ausgeuebt));
   return { groesse, ausstehend, ausgeuebt, verfallen, rueckgekauft, frei, vollVerwaessert: ausstehend.plus(frei) };
+}
+
+/** Stand eines grob erfassten Pools zum Stichtag: `vergeben` Einheiten gelten als ausstehend (höchstens die Größe). */
+export function poolStandGrob(aenderungen: readonly PoolAenderung[], vergeben: Decimal.Value | null | undefined, stichtag: Datum): PoolStand {
+  const groesse = aenderungen.filter((a) => vergleiche(a.datum, stichtag) <= 0).reduce((s, a) => s.plus(a.anzahl), ZERO);
+  const v = new Decimal(vergeben ?? 0);
+  if (!v.isFinite() || v.isNegative() || !v.isInteger()) throw new Error("Pool: vergebene Einheiten müssen eine ganze Zahl ab null sein");
+  const ausstehend = Decimal.min(v, Decimal.max(ZERO, groesse));
+  const frei = Decimal.max(ZERO, groesse.minus(ausstehend));
+  return { groesse, ausstehend, ausgeuebt: ZERO, verfallen: ZERO, rueckgekauft: ZERO, frei, vollVerwaessert: ausstehend.plus(frei) };
 }
 
 export interface RundeVollVerwaessertEingabe {

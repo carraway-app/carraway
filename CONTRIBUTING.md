@@ -19,7 +19,7 @@ pnpm db:setup
 
 Set `DATABASE_URL_SUPERUSER` to the connection URL for your local PostgreSQL administrator. The setup command creates the local `carraway` role if needed and migrates both databases. The database names must begin with `carraway_`, and the test database name must contain `test`.
 
-Run `pnpm dev` and open [http://localhost:5173](http://localhost:5173). The development API listens on port 8787. To start with an empty database, create the first administrator at `/einrichtung`. To work with fictional data, run `CARRAWAY_UMGEBUNG=demo DEMO_SPRACHE=en pnpm db:seed` before starting the app and start it with `CARRAWAY_UMGEBUNG=demo pnpm dev`. The seed empties the development database and writes credentials for the fictional accounts to [`packages/db/demo-accounts.md`](packages/db/demo-accounts.md). Keep the demo instance local. Run `pnpm --filter @carraway/api worker` in a second terminal with the same database and environment settings when working on background jobs.
+Run `pnpm dev` and open [http://localhost:5173](http://localhost:5173). The development API listens on port 8787. To start with an empty database, create the first administrator at `/setup` with the token from the API startup log. To work with fictional data, run `CARRAWAY_UMGEBUNG=demo DEMO_SPRACHE=en pnpm db:seed` before starting the app and start it with `CARRAWAY_UMGEBUNG=demo pnpm dev`. The seed empties the development database and writes credentials for the fictional accounts to [`packages/db/demo-accounts.md`](packages/db/demo-accounts.md). Keep the demo instance local. Run `pnpm --filter @carraway/api worker` in a second terminal with the same database and environment settings when working on background jobs.
 
 ## Checks and tests
 

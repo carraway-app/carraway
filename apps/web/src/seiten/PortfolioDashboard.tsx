@@ -6,9 +6,8 @@ import { Hinweis, Kennzahl, KennzahlenReihe, Leer, Segment, Seitenkopf, Tabelle,
 import { alsRechenschritte, portfolioDashboard, type ApiKennzahl, type Dashboard } from "../api/portfolio";
 import { FehlerHinweis } from "../komponenten/FehlerHinweis";
 import { HerkunftDialog } from "../komponenten/HerkunftDialog";
-import { SeitenStichtag } from "../komponenten/SeitenStichtag";
 import { Skelettzeilen } from "../komponenten/Skelett";
-import { WissensstandWahl } from "../komponenten/Wissensstand";
+import { StichtagMenue } from "../komponenten/StichtagMenue";
 import { useSprache, useT } from "../i18n";
 
 const route = getRouteApi("/portfolio");
@@ -34,10 +33,13 @@ export function PortfolioDashboardSeite() {
   const [herkunft, setHerkunft] = useState<{ titel: string; kennzahl: ApiKennzahl } | null>(null);
 
   const zeitbezug = (
-    <div className="app-gruppe app-gruppe--zeile">
-      <SeitenStichtag value={data?.asOf ?? suche.stichtag ?? ""} onChange={(neu) => void navigate({ search: (alt) => ({ ...alt, stichtag: neu }), replace: true })} />
-      <WissensstandWahl stand={suche.stand} onWahl={(neu) => void navigate({ search: (alt) => ({ ...alt, stand: neu }), replace: true })} />
-    </div>
+    <StichtagMenue
+      fondsId={null}
+      stichtag={data?.asOf ?? suche.stichtag ?? ""}
+      onStichtag={(neu) => void navigate({ search: (alt) => ({ ...alt, stichtag: neu }), replace: true })}
+      stand={suche.stand}
+      onStand={(neu) => void navigate({ search: (alt) => ({ ...alt, stand: neu }), replace: true })}
+    />
   );
   if (error) return <div className="app-seite"><FehlerHinweis fehler={error} /></div>;
   if (!data) return <div className="app-seite"><Seitenkopf meta={d.etikett} titel={d.titel} zeitbezug={zeitbezug} /><Skelettzeilen anzahl={6} /></div>;
@@ -59,7 +61,7 @@ export function PortfolioDashboardSeite() {
       <Seitenkopf meta={data.managerName ? `${d.etikett} · ${data.managerName}` : d.etikett} titel={d.titel} zeitbezug={zeitbezug} />
       <p className="app-leer-text app-lesetext">{d.beschreibung(haus)}</p>
       {data.funds.length === 0 ? (
-        <Leer zeichen="∅" titel={d.leer} beschreibung="" />
+        <Leer titel={d.leer} beschreibung="" />
       ) : (
         <>
           <KennzahlenReihe aria-label={d.kennzahlen}>

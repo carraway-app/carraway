@@ -51,7 +51,7 @@ function MeldungenKarte() {
       schluessel: "org",
       kopf: m.spalten.unternehmen,
       zelle: (x) => (
-        <Link to="/organisationen/$id" params={{ id: x.organisationId }}>
+        <Link to="/organizations/$id" params={{ id: x.organisationId }}>
           {x.organisation}
         </Link>
       ),

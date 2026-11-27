@@ -8,7 +8,7 @@ import { FehlerHinweis } from "../komponenten/FehlerHinweis";
 import { MINDESTLAENGE_PASSWORT } from "../lib/passwort";
 import { useT } from "../i18n";
 
-const route = getRouteApi("/passwort-aendern");
+const route = getRouteApi("/change-password");
 
 /** Startpasswort ersetzen: Bis dahin antwortet die API auf alles andere mit 403 `password_change_required`. */
 export function PasswortAendernSeite() {
@@ -43,8 +43,8 @@ export function PasswortAendernSeite() {
       <Hinweis>{p.einleitung}</Hinweis>
       <form className="app-formular" onSubmit={speichern} noValidate>
         <FehlerHinweis fehler={fehler} />
-        <Feld label={p.alt} name="alt" type="password" value={werte.alt} onChange={(e) => setWerte((w) => ({ ...w, alt: e.target.value }))} autoComplete="current-password" required autoFocus />
-        <Feld
+        <Feld zugang label={p.alt} name="alt" type="password" value={werte.alt} onChange={(e) => setWerte((w) => ({ ...w, alt: e.target.value }))} autoComplete="current-password" required autoFocus />
+        <Feld zugang
           label={p.neu}
           hilfe={p.neuHilfe(MINDESTLAENGE_PASSWORT)}
           fehler={versucht && zuKurz ? p.zuKurz(MINDESTLAENGE_PASSWORT) : versucht && gleichAlt ? p.gleichAlt : undefined}
@@ -55,7 +55,7 @@ export function PasswortAendernSeite() {
           autoComplete="new-password"
           required
         />
-        <Feld
+        <Feld zugang
           label={p.wiederholt}
           fehler={versucht && ungleich ? p.ungleich : undefined}
           name="wiederholt"

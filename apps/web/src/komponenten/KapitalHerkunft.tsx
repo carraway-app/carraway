@@ -19,8 +19,8 @@ export function KapitalHerkunft({ kennzahl, fondsId, waehrung, stichtag, stand, 
   const { data, error, isPending } = useQuery(kapitalHerkunft(fondsId, stichtag, stand));
   const zeilen = (data?.[kennzahl] ?? []).map((p) => ({
     id: p.bewegungId + p.id, datum: p.datum, betrag: p.betrag,
-    quelle: <Link to="/fonds/$fondsId/kapitalquelle/$kennzahl/$bewegungId/$positionId"
-      params={{ fondsId, kennzahl, bewegungId: p.bewegungId, positionId: p.id }} search={{ stichtag, stand }}>
+    quelle: <Link to="/funds/$fundId/capital-source/$metric/$movementId/$positionId"
+      params={{ fundId: fondsId, metric: kennzahl === "abgerufen" ? "called" : "paid-in", movementId: p.bewegungId, positionId: p.id }} search={{ stichtag, stand }}>
       {[k.quelleArt[p.art], p.investor, p.storniert && k.storniert].filter(Boolean).join(" · ")}
     </Link>,
   }));

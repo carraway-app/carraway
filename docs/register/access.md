@@ -1,38 +1,21 @@
 # Company register data access
 
-Research as of 20 November 2026. The review covered documentation and legal sources and submitted no register forms. This page records a technical assessment only.
+Reviewed on 27 November 2026.
 
-## Decision
+Company records support manual entry, uploaded extracts, structured CSV or JSON imports and authenticated provider APIs. Use the **Register** section of a company to search a provider, select the register identity and review its fields. See [Data providers and registers](../integrations/data-providers-and-registers.md).
 
-Carraway **does not fetch register portals automatically**. Register data enters the application through the following channels.
+## German register material
 
-1. **Manual entry** on the company record.
-2. **Official extract uploaded as a document** (stage 13). A person retrieves and uploads the extract and enters the fields manually. AI extraction of register fields is outside this stage.
-3. **Structured import file** (CSV or JSON) for bulk updates, for example from an extract or a licensed data source.
-4. **Provider integration** through the `RegisterAnbieter` interface (`suche`, `abruf`). Carraway ships only a test provider. An adapter for a contracted provider can be added once reuse rights are clear.
+The joint register portal provides individual access to register information and filed documents. Its terms restrict systematic retrieval for building or updating parallel registers. Use the portal interactively for an individual extract. Carraway uses a licensed API for automated retrieval. [Register portal information and terms](https://www.handelsregister.de/rp_web/information/welcome.xhtml) · [Section 9 HGB](https://www.gesetze-im-internet.de/hgb/__9.html)
 
-## Findings
+The applicable conditions depend on the portal, document and service requested. Consult the portal's current information before ordering an official copy or accessing deposited accounts. [Register portal guide](https://www.handelsregister.de/rp_web/div/info-lang/EN_Registerportal.pdf) · [Company Register](https://www.unternehmensregister.de/)
 
-| Channel | Finding | Source |
-|---|---|---|
-| Joint register portal of the German states | Individual lookups for informational purposes are permitted under section 9(1) HGB. According to quotations from the terms of use, the portal prohibits more than 60 searches or retrievals per hour and systematic retrieval to build parallel registers. The review found no official machine interface. | https://www.gesetze-im-internet.de/hgb/__9.html, https://github.com/bundesAPI/handelsregister (quotes the portal FAQ), https://www.ihk.de/koeln/hauptnavigation/recht-steuern/recht/gefahr-missbrauch-registerdaten-5644100 |
-| Fees | Search and online publications are freely accessible. Other retrievals incur fees under the JVKostG. The sources disagree on amounts. Check them before use. | https://www.gesetze-im-internet.de/jvkostg/anlage.html |
-| Company Register (Unternehmensregister) | The terms contain no rule on automated queries and specify no retrieval interface. Access to deposited financial statements incurs a fee. | https://www.bundesanzeiger.de/pub/D088.pdf |
-| High-value datasets (EU) | Implementing Regulation (EU) 2023/138 lists company data as a high-value dataset (open licence, API and bulk download). The review found no evidence of official free access to Germany's commercial register. Whether that access exists remains unverified. | https://eur-lex.europa.eu/legal-content/DE/TXT/?uri=CELEX:32023R0138 |
-| EU Business Registers Interconnection System (BRIS, e-Justice) | A web interface searches national registers. The review found no evidence of a third-party API. | https://e-justice.europa.eu/ |
-| OffeneRegister.de | Notices as JSON and SQLite under CC BY 4.0. The dataset ends in late 2018 and is suitable only for historical use and testing. | https://offeneregister.de/ |
-| OpenCorporates | Database licence requires attribution and sharing under the same terms. Other commercial use requires a contract. | https://opencorporates.com/legal-information/ |
-| GLEIF (LEI) | Free API and bulk dataset, limited to entities with an LEI. A potential supplementary source for name, legal form, registered office and status. | https://www.gleif.org/en/lei-data/gleif-api |
-| Commercial providers | Several providers offer documented APIs for a fee. Check reuse and licensing terms before signing a contract. | Provider documentation |
+Implementing Regulation (EU) 2023/138 includes company information among high-value datasets. Check the publishing authority's access arrangements for the particular dataset. [Regulation (EU) 2023/138](https://eur-lex.europa.eu/eli/reg_impl/2023/138/oj)
 
-## Open questions before integration
+## Sources and monitoring
 
-- Read the current register portal terms of use in a browser. The limit of 60 came from quotations.
-- Check current fees under the JVKostG.
-- Check the status of high-value dataset implementation at the federal and state levels.
-- Document the purpose and legal basis for storing data about company representatives, who are natural persons.
+North Data provides structured register information, publications and financial indicators according to the installation's subscription. Companies House provides UK company profiles, officers and filing history. Search and retrieval use the respective documented APIs. The public website links beside a value provide attribution.
 
-## Technical consequences
+An administrator can enable monitoring on individual companies. A worker schedule and a previously selected company reference for the configured register provider are required. The worker shares the installation's request budget with interactive use. New source entries and announcements appear in the register history and notifications. CRM field updates require review.
 
-- Monitoring runs as a worker job and is off by default (`REGISTER_PRUEFUNG_CRON` is empty). It queries only the configured provider, for up to `REGISTER_ABRUFE_PRO_LAUF` companies per run (default 20), with a pause between lookups.
-- Without a configured provider (`REGISTER_ANBIETER` is empty), search and retrieval return 409 `register_provider_missing`.
+Company officers are natural persons. Limit stored information to names and relevant functions, document the purpose and lawful basis, and apply the installation's retention and deletion procedures.

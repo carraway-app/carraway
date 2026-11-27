@@ -15,6 +15,7 @@ import type { Dealtyp } from "../lib/dealtyp";
 import { DealtypAuswahl } from "./DealtypAuswahl";
 import { DublettenBestaetigung, DublettenHinweis, kandidatenAus } from "./Dubletten";
 import { FehlerHinweis } from "./FehlerHinweis";
+import { VorschlagFeld } from "./Suchfeld";
 import { betragOderNichts, textOderNichts, useEntprellt, useFormular } from "./formular";
 import { ORGANISATION_ARTEN } from "./OrganisationDialoge";
 
@@ -23,11 +24,14 @@ type Modus = "bestehend" | "neu";
 const FELDER = ["titel", "ticket", "quelle", "eingangsdatum", "herkunft", "dealtyp", "fondsId", "organisation.name", "organisation.art", "organisation.sektor", "organisation.ort", "organisationId"];
 
 /** „Neuer Deal“: bestehende Organisation per Suche oder eine neue gleich mit, samt Dublettenprüfung. */
-export function NeuerDealDialog({ onSchliessen, phase, onAngelegt, initialerDealtyp = null }: {
+export function NeuerDealDialog({ onSchliessen, phase, onAngelegt, initialerDealtyp = null, titelVorschlag = "" }: {
   onSchliessen: () => void;
   phase?: NeuerDealPhase;
-  onAngelegt?: () => void;
+  /** Wird nach dem Anlegen mit dem neuen Deal gerufen; danach schließt der Dialog (ohne diese Angabe öffnet sich der Deal). */
+  onAngelegt?: (neu: { id: string; titel: string; organisation: { id: string; name: string } }) => void;
   initialerDealtyp?: Dealtyp | null | undefined;
+  /** Vorbefüllter Titel, z. B. die Eingabe im Suchfeld. */
+  titelVorschlag?: string;
 }) {
   const t = useT();
   const navigate = useNavigate();
@@ -40,7 +44,7 @@ export function NeuerDealDialog({ onSchliessen, phase, onAngelegt, initialerDeal
   const [ohneAuswahl, setOhneAuswahl] = useState(false);
   const entprellt = useEntprellt(suche.trim());
   const treffer = useQuery({ ...organisationSuche(entprellt), enabled: modus === "bestehend" });
-  const { werte, feld } = useFormular({ titel: "", ticket: "", quelle: "", eingangsdatum: heuteIso(), herkunft: "", fondsId: "", orgName: "", orgArt: "unternehmen", orgSektor: "", orgOrt: "" });
+  const { werte, setWerte, feld } = useFormular({ titel: titelVorschlag, ticket: "", quelle: "", eingangsdatum: heuteIso(), herkunft: "", fondsId: "", orgName: "", orgArt: "unternehmen", orgSektor: "", orgOrt: "" });
   const [selbstUebernehmen, setSelbstUebernehmen] = useState(false);
   const [dealtyp, setDealtyp] = useState(initialerDealtyp);
   const f = t.neuerDeal;
@@ -76,7 +80,7 @@ export function NeuerDealDialog({ onSchliessen, phase, onAngelegt, initialerDeal
             },
             ...(bestaetigt ? { dubletteBestaetigt: true } : {}),
           },
-      { onSuccess: (neu) => (onAngelegt ? (onAngelegt(), onSchliessen()) : void navigate({ to: "/deals/$id", params: { id: neu.id } })) },
+      { onSuccess: (neu) => (onAngelegt ? (onAngelegt({ id: neu.id, titel: neu.titel, organisation: { id: neu.organisation.id, name: neu.organisation.name } }), onSchliessen()) : void navigate({ to: "/deals/$id", params: { id: neu.id } })) },
     );
   }
 
@@ -109,7 +113,7 @@ export function NeuerDealDialog({ onSchliessen, phase, onAngelegt, initialerDeal
         ) : (
           <FehlerHinweis fehler={anlegen.error} bekannt={FELDER} />
         )}
-        <Feld label={f.dealTitel} autoComplete="off" {...feld("titel")} fehler={feldText(t, anlegen.error, "titel")} />
+        <Feld label={f.dealTitel} {...feld("titel")} fehler={feldText(t, anlegen.error, "titel")} />
 
         <fieldset className="app-gruppe">
           <legend className="cw-feld__label">{f.organisation}</legend>
@@ -130,7 +134,6 @@ export function NeuerDealDialog({ onSchliessen, phase, onAngelegt, initialerDeal
               <Feld
                 type="search"
                 label={f.organisationSuchen}
-                autoComplete="off"
                 value={suche}
                 onChange={(e) => setSuche(e.target.value)}
                 fehler={ohneAuswahl && !gewaehlt ? f.organisationWaehlen : feldText(t, anlegen.error, "organisationId")}
@@ -159,7 +162,6 @@ export function NeuerDealDialog({ onSchliessen, phase, onAngelegt, initialerDeal
             <>
               <Feld
                 label={f.orgName}
-                autoComplete="off"
                 {...orgName}
                 onChange={(e) => {
                   orgName.onChange(e);
@@ -174,8 +176,8 @@ export function NeuerDealDialog({ onSchliessen, phase, onAngelegt, initialerDeal
                   </option>
                 ))}
               </Auswahl>
-              <Feld label={f.orgSektor} {...feld("orgSektor")} fehler={orgFehler("sektor")} />
-              <Feld label={f.orgOrt} {...feld("orgOrt")} fehler={orgFehler("ort")} />
+              <VorschlagFeld label={f.orgSektor} feld="sektor" value={werte.orgSektor} onChange={(wert) => setWerte((alt) => ({ ...alt, orgSektor: wert }))} fehler={orgFehler("sektor")} />
+              <VorschlagFeld label={f.orgOrt} feld="ort" value={werte.orgOrt} onChange={(wert) => setWerte((alt) => ({ ...alt, orgOrt: wert }))} fehler={orgFehler("ort")} />
               {kandidaten ? null : <DublettenHinweis name={werte.orgName} onVerwenden={(k) => { setModus("bestehend"); setGewaehlt({ id: k.id, name: k.name }); }} />}
             </>
           )}

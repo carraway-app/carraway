@@ -12,6 +12,7 @@ import { FondsClosingDialog } from "./FondsClosingDialog";
 import { pruefungText } from "./formular";
 import { FondsZeichnungDialog } from "./FondsZeichnungDialog";
 import { FondsZusageAenderungDialog } from "./FondsZusageAenderungDialog";
+import { ZusagenAbdeckung } from "./ZusagenAbdeckung";
 
 export default function FondsInvestorenzugaenge({ fondsId }: { fondsId: string }) {
   const { ich, darf } = useRechte();
@@ -47,8 +48,8 @@ function Zugaenge({ fondsId, verwalten }: { fondsId: string; verwalten: boolean 
         <section className="app-karte" aria-labelledby="fonds-zeichnungen-titel">
           <div className="app-karte__kopf">
             <h2 id="fonds-zeichnungen-titel" className="cw-t-untertitel app-karte__titel">{f.zeichnungen.titel}</h2>
-            {verwalten && data.initialisierungMoeglich && data.zeichnungen.length === 0 ? (
-              <Button onClick={() => setAktion("zeichnungen")}>{f.zeichnungen.anlegen}</Button>
+            {verwalten && data.erfassungMoeglich ? (
+              <Button variante={data.zeichnungen.length > 0 ? "sekundaer" : "primaer"} onClick={() => setAktion("zeichnungen")}>{data.zeichnungen.length > 0 ? f.zeichnungen.bearbeitenAktion : f.zeichnungen.anlegen}</Button>
             ) : null}
             {verwalten && data.closingMoeglich ? (
               <div className="app-knoepfe">
@@ -57,6 +58,14 @@ function Zugaenge({ fondsId, verwalten }: { fondsId: string; verwalten: boolean 
               </div>
             ) : null}
           </div>
+          {data.vollstaendig !== false ? null : (
+            <ZusagenAbdeckung
+              abgedeckt={data.abgedeckt}
+              zeichnungskapital={data.zeichnungskapital}
+              waehrung={data.waehrung}
+              aktion={verwalten && data.erfassungMoeglich ? <Button variante="ruhig" onClick={() => setAktion("zeichnungen")}>{t.portfolio.zusagen.zumVervollstaendigen}</Button> : undefined}
+            />
+          )}
           {data.zeichnungen.length > 0 ? (
             <Tabelle
               beschriftung={f.zeichnungen.titel}
@@ -72,7 +81,7 @@ function Zugaenge({ fondsId, verwalten }: { fondsId: string; verwalten: boolean 
               ]}
             />
           ) : (
-            <p className="app-leer-text">{verwalten && !data.initialisierungMoeglich ? f.zeichnungen.gesperrt : f.keineOrganisationen}</p>
+            <p className="app-leer-text">{verwalten && !data.erfassungMoeglich ? f.zeichnungen.gesperrt : f.keineOrganisationen}</p>
           )}
         </section>
       ) : null}
@@ -124,8 +133,9 @@ function Zugaenge({ fondsId, verwalten }: { fondsId: string; verwalten: boolean 
           fondsId={fondsId}
           zeichnungskapital={data.zeichnungskapital}
           waehrung={data.waehrung}
+          zeichnungen={data.zeichnungen}
+          abgedeckt={data.abgedeckt}
           onSchliessen={() => setAktion(null)}
-          onErfolg={() => abgeschlossen(f.zeichnungen.gespeichert)}
         />
       ) : null}
       {verwalten && data && aktion === "closing" ? (
@@ -214,7 +224,7 @@ function ClosingStornoDialog({ fondsId, closingId, wirksamAm, onSchliessen, onEr
       }
     >
       <p>{c.stornoText(wirksamAm)}</p>
-      <Feld label={c.stornoGrund} required autoComplete="off" value={grund} onChange={(e) => setGrund(e.target.value)} fehler={geprueft && fehlt ? pruefungText(sprache, { code: "pflicht" }) : feldText(t, storno.error, "grund")} />
+      <Feld label={c.stornoGrund} required value={grund} onChange={(e) => setGrund(e.target.value)} fehler={geprueft && fehlt ? pruefungText(sprache, { code: "pflicht" }) : feldText(t, storno.error, "grund")} />
       <FehlerHinweis fehler={storno.error} bekannt={["grund"]} />
     </Dialog>
   );

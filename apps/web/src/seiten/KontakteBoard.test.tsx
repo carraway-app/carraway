@@ -59,12 +59,12 @@ function api() {
 describe("Board nach einem Listenfeld (Kontakte)", () => {
   it("zeigt die gespeicherte Kanban-Ansicht mit Spalten je Option, Anzahl, Summe und Karten mit Schnellaktionen", async () => {
     const a = api();
-    rendereApp(`/kontakte?liste=${LISTE}`);
+    rendereApp(`/contacts?list=${LISTE}`);
     const board = await screen.findByRole("region", { name: "Unternehmen: Board" });
     expect(await within(board).findByRole("heading", { name: /Erstkontakt/ })).toBeTruthy();
     expect(within(board).getByRole("heading", { name: /Zusage/ })).toBeTruthy();
     const karte = within(board).getByRole("link", { name: "Alpha Energie" });
-    expect(karte.getAttribute("href")).toBe(`/organisationen/${ORG_A}`);
+    expect(karte.getAttribute("href")).toBe(`/organizations/${ORG_A}`);
     expect(within(board).getByRole("link", { name: "E-Mail an Alpha Energie" }).getAttribute("href")).toBe("mailto:info@alpha.example");
     const anfrage = a.anfragen("POST", "/api/v1/crm/objekte/organisation/board")[0]!.koerper as Record<string, unknown>;
     expect(anfrage).toMatchObject({ gruppe: "f-stufe", summe: "f-volumen", listeId: LISTE });
@@ -73,7 +73,7 @@ describe("Board nach einem Listenfeld (Kontakte)", () => {
 
   it("verschiebt eine Karte mit der Tastatur: geschrieben wird der Wert am Eintrag der Liste, nicht am Datensatz", async () => {
     const a = api();
-    rendereApp(`/kontakte?liste=${LISTE}`);
+    rendereApp(`/contacts?list=${LISTE}`);
     const nutzer = userEvent.setup();
     const griff = await screen.findByRole("button", { name: "Verschieben: Alpha Energie" });
     griff.focus();
@@ -86,7 +86,7 @@ describe("Board nach einem Listenfeld (Kontakte)", () => {
 
   it("wechselt zwischen Tabelle und Board über die Darstellung", async () => {
     api();
-    rendereApp(`/kontakte?liste=${LISTE}`);
+    rendereApp(`/contacts?list=${LISTE}`);
     const nutzer = userEvent.setup();
     await screen.findByRole("region", { name: "Unternehmen: Board" });
     await nutzer.click(screen.getByRole("button", { name: "Tabelle" }));

@@ -27,7 +27,7 @@ function Aufteilung({ daten }: { daten: BewegungsAufteilung }) {
     return (
       <Hinweis>
         {k.keine}
-        {darf("verwalter", fondsId, "fondsverwaltung") ? <> <Link to="/fonds" search={{ fondsId, tab: "investoren" }}>{k.zeichnungenOeffnen}</Link></> : null}
+        {darf("verwalter", fondsId, "fondsverwaltung") ? <> <Link to="/funds" search={{ fondsId, tab: "investoren" }}>{k.zeichnungenOeffnen}</Link></> : null}
       </Hinweis>
     );
   }

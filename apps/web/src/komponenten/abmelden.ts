@@ -18,7 +18,7 @@ export function useAbmelden() {
       // Die Daten gehören der bisherigen Person: nichts davon darf der nächsten angezeigt werden. Erst `/ich` weg,
       // damit der Wächter zur Anmeldung führt, dann (die Seiten sind abgebaut) alles andere.
       qc.removeQueries({ queryKey: schluesselAnmeldung.ich });
-      await router.navigate({ to: "/anmelden", search: {}, replace: true });
+      await router.navigate({ to: "/sign-in", search: {}, replace: true });
       qc.clear();
     } catch (f) {
       setFehler(f);

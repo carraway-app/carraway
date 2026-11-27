@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { getRouteApi, Link } from "@tanstack/react-router";
-import { Button, Hinweis, Leer, Seitenkopf, Tabelle, Textbereich, Feld, formatDatum, type TabelleSpalte } from "@carraway/ui";
+import { getRouteApi } from "@tanstack/react-router";
+import { Auswahl, Button, Hinweis, Leer, Seitenkopf, Tabelle, Textbereich, Feld, formatDatum, type TabelleSpalte } from "@carraway/ui";
 import { beschlussvorlagen, fondsListe, type Beschlussvorlage } from "../api/abfragen";
 import { ApiFehler } from "../api/client";
 import { useVorlageAendern, useVorlageAnlegen, useVorlageLoeschen } from "../api/mutationen";
@@ -14,8 +14,9 @@ import { wirksamerFonds } from "../lib/fonds";
 import { DATENSPRACHE } from "../lib/datensprache";
 import { useRechte } from "../lib/rechte";
 import { useSprache, useT } from "../i18n";
+import { DealflowReiter } from "../komponenten/DealflowReiter";
 
-const route = getRouteApi("/beschlussvorlagen");
+const route = getRouteApi("/decision-proposals");
 
 function VorlageDialog({ fondsId, vorlage, platzhalter, onSchliessen }: { fondsId: string; vorlage?: Beschlussvorlage; platzhalter: readonly string[]; onSchliessen: () => void }) {
   const t = useT();
@@ -42,7 +43,7 @@ function VorlageDialog({ fondsId, vorlage, platzhalter, onSchliessen }: { fondsI
       >
         <FehlerHinweis fehler={aktion.error} bekannt={["name", "text"]} />
         {unbekannt ? <Hinweis variante="fehler">{t.beschlussvorlagen.unbekannt(unbekannt.join(", "))}</Hinweis> : null}
-        <Feld label={f.name} autoComplete="off" {...feld("name", feldText(t, aktion.error, "name"))} />
+        <Feld label={f.name} {...feld("name", feldText(t, aktion.error, "name"))} />
         <Textbereich label={f.text} rows={8} hilfe={f.platzhalter(platzhalter.map((p) => `{{${p}}}`).join(" "))} {...feld("text", feldText(t, aktion.error, "text"))} />
         <div>
           <Button type="submit" disabled={aktion.isPending}>
@@ -59,10 +60,11 @@ export function BeschlussvorlagenSeite() {
   const { fondsId: gewaehlt } = route.useSearch();
   const fonds = useQuery(fondsListe());
   const aktuell = wirksamerFonds(fonds.data ?? [], gewaehlt);
-  return <BeschlussvorlagenInhalt key={aktuell?.id} aktuell={aktuell} />;
+  return <BeschlussvorlagenInhalt key={aktuell?.id} aktuell={aktuell} fonds={fonds.data ?? []} />;
 }
 
-function BeschlussvorlagenInhalt({ aktuell }: { aktuell: { id: string; name: string } | undefined }) {
+function BeschlussvorlagenInhalt({ aktuell, fonds }: { aktuell: { id: string; name: string } | undefined; fonds: readonly { id: string; name: string }[] }) {
+  const navigate = route.useNavigate();
   const t = useT();
   const v = t.beschlussvorlagen;
   const sprache = useSprache();
@@ -95,24 +97,33 @@ function BeschlussvorlagenInhalt({ aktuell }: { aktuell: { id: string; name: str
 
   return (
     <div className="app-seite">
-      <Seitenkopf
-        meta={aktuell ? <span lang={DATENSPRACHE}>{aktuell.name}</span> : undefined}
+      <Seitenkopf info={v.einleitung}
+        zeitbezug={
+          fonds.length > 1 && aktuell ? (
+            // Beschlussvorlagen gehören zum Dealflow (globale Leiste); der Fonds wird hier gewählt.
+            <Auswahl kompakt label={t.kopf.fonds} value={aktuell.id} onChange={(e) => void navigate({ search: { fondsId: e.target.value }, replace: true })}>
+              {fonds.map((f) => (
+                <option key={f.id} value={f.id} lang={DATENSPRACHE}>
+                  {f.name}
+                </option>
+              ))}
+            </Auswahl>
+          ) : undefined
+        }
+        meta={aktuell && fonds.length <= 1 ? <span lang={DATENSPRACHE}>{aktuell.name}</span> : undefined}
         titel={v.titel}
         aktionen={
           <>
-            <Link to="/dealflow" search={{}} className="cw-button cw-button--sekundaer">
-              {v.zumDealflow}
-            </Link>
             {verwalten && aktuell ? <Button onClick={() => setOffen("neu")}>{v.neu}</Button> : null}
           </>
         }
       />
-      <p className="app-leer-text">{v.einleitung}</p>
+      <DealflowReiter aktiv="beschluesse">
       {aktuell && !verwalten ? <Hinweis>{v.nurVerwalter}</Hinweis> : null}
       <FehlerHinweis fehler={abfrage.error ?? loeschen.error} />
       <section className="app-karte">
         {!aktuell ? (
-          <Leer zeichen="B" titel={v.keineFonds} beschreibung="" />
+          <Leer titel={v.keineFonds} beschreibung="" />
         ) : abfrage.isPending ? (
           <div className="app-skelett app-skelett--zeile" aria-hidden="true" />
         ) : abfrage.data && abfrage.data.daten.length === 0 ? (
@@ -122,6 +133,7 @@ function BeschlussvorlagenInhalt({ aktuell }: { aktuell: { id: string; name: str
         )}
       </section>
       {offen && aktuell ? <VorlageDialog fondsId={aktuell.id} platzhalter={abfrage.data?.platzhalter ?? []} {...(offen === "neu" ? {} : { vorlage: offen })} onSchliessen={() => setOffen(null)} /> : null}
+      </DealflowReiter>
     </div>
   );
 }

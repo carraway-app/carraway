@@ -8,6 +8,8 @@ export interface KennzahlProps extends Omit<HTMLAttributes<HTMLElement>, "title"
   wert: ReactNode;
   /** Meist eine `<Delta />`. */
   delta?: ReactNode;
+  /** Kleine Zeile unter dem Wert, etwa warum ein Wert fehlt (der Wert selbst bleibt dann ein Strich). */
+  hinweis?: ReactNode;
   /** Betont die Kennzahl dezent (Gewicht und Farbe), ohne Umrandung: Eine Umrandung liest sich als aktive Auswahl. */
   hervorgehoben?: boolean;
   /** Öffnet die Herkunft beim Aktivieren der Kachel; mit `onZiel` steht dafür ein eigener Symbolknopf in der Kachel. */
@@ -20,10 +22,11 @@ export interface KennzahlProps extends Omit<HTMLAttributes<HTMLElement>, "title"
   zielLabel?: string;
 }
 
-export function Kennzahl({ titel, wert, delta, hervorgehoben, onHerkunft, herkunftLabel, onZiel, zielLabel, className, ...rest }: KennzahlProps) {
+export function Kennzahl({ titel, wert, delta, hinweis, hervorgehoben, onHerkunft, herkunftLabel, onZiel, zielLabel, className, ...rest }: KennzahlProps) {
   const t = useUiTexte();
   const id = useId();
-  const klasse = klassen("cw-kennzahl", hervorgehoben && "cw-kennzahl--hervorgehoben", className);
+  // Ein fehlender Wert (Strich mit Hinweis) wird nie hervorgehoben: Striche sehen überall gleich aus.
+  const klasse = klassen("cw-kennzahl", hervorgehoben && !hinweis && "cw-kennzahl--hervorgehoben", className);
   const inhalt = (
     <>
       <span className="cw-kennzahl__kopf">{titel}</span>
@@ -33,6 +36,7 @@ export function Kennzahl({ titel, wert, delta, hervorgehoben, onHerkunft, herkun
       </span>
       {" "}
       {delta && onHerkunft ? <span>{delta}</span> : delta}
+      {hinweis ? <span className="cw-kennzahl__hinweis">{hinweis}</span> : null}
     </>
   );
 

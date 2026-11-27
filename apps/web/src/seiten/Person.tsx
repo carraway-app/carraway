@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { getRouteApi, Link } from "@tanstack/react-router";
-import { Button, Hinweis, Inhaltsverzeichnis, Seitenkopf, formatDatum } from "@carraway/ui";
+import { Button, Hinweis, Seitenkopf, formatDatum } from "@carraway/ui";
 import { alle } from "../erweiterung";
 import { KontaktHerkunft } from "../komponenten/KontakteAusPostfach";
 import { personAktivitaeten, personDetail, personenDubletten } from "../api/abfragen";
@@ -13,24 +13,25 @@ import { NaechsteTermine } from "../komponenten/NaechsteTermine";
 import { NurLesen } from "../komponenten/NurLesen";
 import { ZusammenfuehrenDialog } from "../komponenten/Zusammenfuehren";
 import { useSprache, useT } from "../i18n";
+import { BereichsLeiste, mitZielen } from "../komponenten/BereichsLeiste";
 import { DATENSPRACHE } from "../lib/datensprache";
 import { useRechte } from "../lib/rechte";
-import { useInhalt } from "../lib/tabs";
+import { aktiverEintrag } from "../lib/tabs";
 
-const route = getRouteApi("/personen/$id");
+const route = getRouteApi("/people/$id");
 
 export function PersonSeite() {
   const t = useT();
   const sprache = useSprache();
   const { id } = route.useParams();
   const suche = route.useSearch();
-  const navigate = route.useNavigate();
   const { data: p } = useSuspenseQuery(personDetail(id));
   const aktivitaeten = useQuery(personAktivitaeten(id));
   const { darf } = useRechte();
   const [offen, setOffen] = useState<null | "zusammenfuehren" | "aktivitaet">(null);
   const weg = p.zusammengefuehrtIn !== null;
-  const schreiben = darf("bearbeiter") && !weg;
+  const managedBy = p.providerSources?.find(source => source.mirrored)?.anbieter;
+  const schreiben = !managedBy && darf("bearbeiter") && !weg;
   const dubletten = useQuery({ ...personenDubletten({ vorname: p.vorname, nachname: p.nachname, ...(p.email ? { email: p.email } : {}), ausser: id }), enabled: offen === "zusammenfuehren" });
   const name = `${p.vorname} ${p.nachname}`;
   const { zeilen: verbindungen } = useVerbindungen("person", id, p.rollen);
@@ -62,11 +63,14 @@ export function PersonSeite() {
     { id: "aufgaben", tab: "aufgaben", label: t.crm.tabAufgaben, inhalt: () => <AufgabenAbschnitt bezug={{ personId: id }} /> },
     { id: "verknuepft", tab: "verknuepft", label: t.crm.tabVerknuepft, inhalt: () => <VerknuepftAbschnitt objekt="person" id={id} /> },
   ];
-  const { aktiv, setzeAktiv } = useInhalt(suche, navigate, eintraege);
-  const gruppen = [{ id: "bereiche", eintraege: eintraege.map(({ tab: _t, unter: _u, ...e }) => e) }];
+  const aktiv = aktiverEintrag(suche, eintraege)?.id ?? "";
+  // Die Attribute sind ein Abschnitt des ersten Bereichs, keine dauerhafte dritte Spalte.
+  const attribute = <Datensatzpanel objekt="person" id={id} darfSchreiben={schreiben} titel={name} doppelt={["funktion", "unternehmen"]} />;
+  const gruppen = [{ id: "bereiche", eintraege: eintraege.map(({ tab: _t, unter: _u, ...e }) => (e.id === eintraege[0]?.id ? { ...e, inhalt: () => <>{e.inhalt()}{attribute}</> } : e)) }];
 
   return (
     <div className="app-seite">
+      {managedBy && <Hinweis>{sprache === "de" ? "Wird in " + managedBy + " gepflegt." : "Managed in " + managedBy + "."}</Hinweis>}
       <Seitenkopf
         meta={[p.funktion, p.organisation?.name, p.letzteAktivitaet ? `${t.person.letzteAktivitaet}: ${formatDatum(p.letzteAktivitaet, sprache)}` : null].filter(Boolean).join(" · ") || t.person.etikett}
         titel={name}
@@ -95,18 +99,20 @@ export function PersonSeite() {
       {weg ? (
         <Hinweis>
           {t.person.zusammengefuehrt}{" "}
-          <Link to="/personen/$id" params={{ id: p.zusammengefuehrtIn! }}>
+          <Link to="/people/$id" params={{ id: p.zusammengefuehrtIn! }}>
             {t.person.zumBleibenden}
           </Link>
         </Hinweis>
       ) : null}
 
-      <div className="app-datensatz">
-        <div className="app-datensatz__haupt">
-          <Inhaltsverzeichnis aria-label={t.tabs.bereiche} gruppen={gruppen} aktiv={aktiv} onWechsel={setzeAktiv} />
-        </div>
-        <Datensatzpanel objekt="person" id={id} darfSchreiben={schreiben} titel={name} />
-      </div>
+      <BereichsLeiste
+        aria-label={t.tabs.bereiche}
+        aktiv={aktiv}
+        zurueck={{ label: t.nav.kontakte, ziel: { to: "/contacts", search: { objekt: "person" } } }}
+        kopf={{ titel: name, titelSprache: DATENSPRACHE, untertitel: [p.funktion, p.organisation?.name].filter(Boolean).join(" · ") || undefined }}
+        pfad={[{ label: t.nav.kontakte, ziel: { to: "/contacts", search: { objekt: "person" } } }, { label: name }]}
+        gruppen={mitZielen(gruppen, eintraege, { to: "/people/$id", params: { id } })}
+      />
 
       {offen === "zusammenfuehren" ? (
         <ZusammenfuehrenDialog

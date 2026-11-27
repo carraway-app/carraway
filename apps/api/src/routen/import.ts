@@ -9,11 +9,12 @@ import { aktuellerAkteur, hatRolle, type Akteur } from "../anmeldung/akteur";
 import { Fachfehler, fehlerAntwort, type Fehlercode } from "../fehler";
 import { englischerImportBefund } from "../import/befund-texte";
 import { pruefeLauf } from "../import/pruefen";
+import { pruefeQuellVerbindung, quelleAus, quelleZumSpeichern } from "../import/vorsystem-lauf";
 import { erzeugeProtokollExcel, erzeugeProtokollPdf, type ProtokollLauf } from "../import/protokoll";
 import { schreibePlan, type UebernahmeErgebnis } from "../import/uebernehmen";
 import type { Bereich } from "../rechte/bereiche";
 import { verlangeBereiche } from "../rechte/uebergreifend";
-import { idParam, protokolliereLesen, schreibe } from "../schreiben";
+import { idParam, protokolliereLesen, schreibe, type Protokollant } from "../schreiben";
 import { lese, type Tx } from "../zeitlimit";
 import { berichtPruefung } from "../berichte-pruefung";
 import { berichtAnApi } from "../berichte-vertrag";
@@ -25,8 +26,12 @@ const anApi = <T>(wert: T) => berichtAnApi("import", wert);
  * Bereiche, in die eine Datenübernahme schreibt (zusätzlich zu Datenübernahme, dem Bereich der Route): Organisationen und Personen (Kontakte),
  * Beteiligungen, Instrumente, Runden, Vorgänge und Bewertungen (Portfolio), Fondsbewegungen (Finanzen); neue Fonds verlangen Fondsverwaltung.
  */
-const IMPORT_BEREICHE: Bereich[] = ["kontakte", "portfolio", "finanzen"];
+export const IMPORT_BEREICHE: Bereich[] = ["kontakte", "portfolio", "finanzen"];
 const neueFondsBereich = (neueFonds: readonly unknown[]): Bereich[] => (neueFonds.length > 0 ? ["fondsverwaltung"] : []);
+/** Eine Datei mit Mitarbeiterzuteilungen schreibt in den Bereich Einzelzuteilungen. */
+const zuteilungsBereich = (r: { typisiert: { mitarbeiterzuteilungen: readonly unknown[] } }): Bereich[] => (r.typisiert.mitarbeiterzuteilungen.length > 0 ? ["einzelzuteilungen"] : []);
+/** Kennzahlenwerte (Blatt Kennzahlen) verlangen zusätzlich den Bereich Kennzahlen. */
+const kennzahlenBereich = (plan: { kennzahlen: readonly unknown[] }, zeilen: number): Bereich[] => (plan.kennzahlen.length > 0 || zeilen > 0 ? ["kennzahlen"] : []);
 
 /** Größte hochladbare Datei (Bytes). */
 export const MAX_UPLOAD = 20 * 1024 * 1024;
@@ -87,7 +92,7 @@ async function ladeLauf(tx: Tx, id: string, sperren = false) {
 }
 
 /** Befunde, die keine Werte aus Datensätzen enthalten und deshalb auch bei eingeschränkter Sicht erscheinen. */
-const OHNE_WERTE = new Set(["KEINE_BERECHTIGUNG_FONDS", "FONDS_NEU_NUR_VERWALTER"]);
+const OHNE_WERTE = new Set(["KEINE_BERECHTIGUNG_FONDS", "FONDS_NEU_NUR_VERWALTER", "KEINE_BERECHTIGUNG_EINZELZUTEILUNGEN"]);
 
 /** Fonds des Laufs: IDs der berührten bestehenden Fonds und Kurznamen der Fonds, die erst entstehen. */
 export interface LaufFonds {
@@ -150,6 +155,41 @@ const befundMitMeldung = <T extends { code: string; meldung: string; params: unk
 });
 
 const ABFRAGE_ZEIT = 120_000;
+
+/**
+ * Prüfung eines Laufs ohne Daten zu schreiben: ersetzt die Befunde und speichert Vorschau, Fonds und Stand. Gemeinsamer Weg der Prüfung
+ * nach dem Hochladen und der Übernahme aus einem Vorsystem. Hinweise der Quelle (`vorschau.source.findings`) bleiben erhalten und zählen mit.
+ */
+export async function pruefeUndSpeichere(tx: Tx, protokoll: Protokollant, akteur: Akteur, id: string) {
+  const lauf = await ladeLauf(tx, id, true);
+  verlangeSichtbar(akteur, lauf);
+  if (lauf.status === "uebernommen") throw new Fachfehler(409, "import_already_applied", "The run has already been applied.");
+  const r = await mitDateifehlern(() => pruefeLauf(tx, lauf.datei, lauf.dateiname, akteur, "bearbeiter"));
+  verlangeBereiche(akteur, [...neueFondsBereich(r.neueFonds), ...kennzahlenBereich(r.plan, r.typisiert.kennzahlen.length), ...zuteilungsBereich(r)]);
+  const quelle = quelleAus(lauf.vorschau);
+  const befunde = [...r.befunde, ...(quelle?.befunde ?? [])];
+  const { fehler, warnungen } = zaehle(befunde);
+  const { gekuerzt } = await speichereBefunde(tx, id, befunde);
+  const vorschau = { zaehler: r.plan.zaehler, ...(quelle ? { source: quelleZumSpeichern(quelle) } : {}) };
+  const [nachher] = await tx
+    .update(importLauf)
+    .set({
+      status: fehler === 0 ? "geprueft" : "hochgeladen",
+      sprache: r.gelesen.sprache === "en" ? "en" : "de",
+      geprueftVon: akteur.id,
+      geprueftVonName: akteur.name,
+      geprueftAm: new Date(),
+      fehlerAnzahl: fehler,
+      warnungAnzahl: warnungen,
+      befundeGekuerzt: gekuerzt,
+      fonds: { ids: r.fondsIds, neu: r.neueFonds },
+      vorschau,
+    })
+    .where(eq(importLauf.id, id))
+    .returning(ohneDatei);
+  await protokoll("pruefen", "import_lauf", id, null, { fehler, warnungen, fonds: r.fondsIds, neueFonds: r.neueFonds });
+  return schuetze(akteur, nachher!);
+}
 
 export function importRouten(db: Db) {
   return new Hono()
@@ -253,32 +293,7 @@ export function importRouten(db: Db) {
       verlangeBereiche(akteur, IMPORT_BEREICHE);
       const ergebnis = await schreibe(db, c, async (tx, protokoll) => {
         await tx.execute(sql.raw(`SET LOCAL statement_timeout = ${ABFRAGE_ZEIT}`));
-        const lauf = await ladeLauf(tx, id, true);
-        verlangeSichtbar(akteur, lauf);
-        if (lauf.status === "uebernommen") throw new Fachfehler(409, "import_already_applied", "The run has already been applied.");
-        const r = await mitDateifehlern(() => pruefeLauf(tx, lauf.datei, lauf.dateiname, akteur, "bearbeiter"));
-        verlangeBereiche(akteur, neueFondsBereich(r.neueFonds));
-        const { fehler, warnungen } = zaehle(r.befunde);
-        const { gekuerzt } = await speichereBefunde(tx, id, r.befunde);
-        const vorschau = { zaehler: r.plan.zaehler };
-        const [nachher] = await tx
-          .update(importLauf)
-          .set({
-            status: fehler === 0 ? "geprueft" : "hochgeladen",
-            sprache: r.gelesen.sprache === "en" ? "en" : "de",
-            geprueftVon: akteur.id,
-            geprueftVonName: akteur.name,
-            geprueftAm: new Date(),
-            fehlerAnzahl: fehler,
-            warnungAnzahl: warnungen,
-            befundeGekuerzt: gekuerzt,
-            fonds: { ids: r.fondsIds, neu: r.neueFonds },
-            vorschau,
-          })
-          .where(eq(importLauf.id, id))
-          .returning(ohneDatei);
-        await protokoll("pruefen", "import_lauf", id, null, { fehler, warnungen, fonds: r.fondsIds, neueFonds: r.neueFonds });
-        return schuetze(akteur, nachher!);
+        return pruefeUndSpeichere(tx, protokoll, akteur, id);
       });
       return c.json(anApi(ergebnis), 200);
     })
@@ -298,14 +313,17 @@ export function importRouten(db: Db) {
         if (akteur.id === lauf.hochgeladenVon || akteur.id === lauf.geprueftVon) {
           throw new Fachfehler(409, "four_eyes_violated", "The import must be applied by a different person than the one who uploaded and validated it.");
         }
+        const quelle = quelleAus(lauf.vorschau);
+        if (quelle) await pruefeQuellVerbindung(tx, akteur, quelle);
         // Frische Prüfung im selben Zug, mit der Rolle Freigeber an jedem berührten Fonds.
         const r = await mitDateifehlern(() => pruefeLauf(tx, lauf.datei, lauf.dateiname, akteur, "freigeber"));
-        verlangeBereiche(akteur, neueFondsBereich(r.neueFonds));
-        const { fehler, warnungen } = zaehle(r.befunde);
+        verlangeBereiche(akteur, [...neueFondsBereich(r.neueFonds), ...kennzahlenBereich(r.plan, r.typisiert.kennzahlen.length), ...zuteilungsBereich(r)]);
+        const befunde = [...r.befunde, ...(quelle?.befunde ?? [])];
+        const { fehler, warnungen } = zaehle(befunde);
         if (fehler > 0) {
-          throw new Fachfehler(409, "import_failed", "The validation before applying found errors; please validate again.", { fehler, beispiele: r.befunde.filter((b) => b.schweregrad === "fehler").slice(0, 5).map(befundMitMeldung) });
+          throw new Fachfehler(409, "import_failed", "The validation before applying found errors; please validate again.", { fehler, beispiele: befunde.filter((b) => b.schweregrad === "fehler").slice(0, 5).map(befundMitMeldung) });
         }
-        const { gekuerzt } = await speichereBefunde(tx, id, r.befunde);
+        const { gekuerzt } = await speichereBefunde(tx, id, befunde);
         const ergebnisDaten: UebernahmeErgebnis = await schreibePlan(tx, protokoll, r.plan, id, lauf.hochgeladenVon);
         const [nachher] = await tx
           .update(importLauf)

@@ -40,7 +40,7 @@ describe("Einstellungen: Postfach und Kalender", () => {
   it("zeigt die Datenschutzhinweise; Verbinden geht erst nach der Zustimmung und führt zur Anbieterseite (OAuth)", async () => {
     const weiter = vi.spyOn(navigation, "zu").mockImplementation(() => {});
     const api = einstellungenApi({ "POST /api/v1/postfach/oauth/start": { koerper: { url: "https://login.example.org/authorize?x=1" } } });
-    rendereApp("/einstellungen/postfach?tab=postfach");
+    rendereApp("/settings/mailbox?tab=mailbox");
     const nutzer = userEvent.setup();
     expect(await screen.findByRole("heading", { level: 1, name: de.nav.einstellungen })).toBeTruthy();
     expect(screen.getByText(de.mail.einstellungen.postfach.datenschutz.punkte[0]!)).toBeTruthy();
@@ -61,7 +61,7 @@ describe("Einstellungen: Postfach und Kalender", () => {
 
   it("ohne Schlüssel oder ohne Anbieter bleibt Verbinden aus und die Seite erklärt warum", async () => {
     einstellungenApi({ "/api/v1/postfach": { koerper: postfach([], { schluesselVorhanden: false, anbieter: { microsoft: false, google: false, imap: false } }) } });
-    rendereApp("/einstellungen/postfach?tab=postfach");
+    rendereApp("/settings/mailbox?tab=mailbox");
     expect(await screen.findByText(de.mail.einstellungen.postfach.schluesselFehlt)).toBeTruthy();
     expect(screen.getByText(de.mail.einstellungen.postfach.keinAnbieter)).toBeTruthy();
     expect(screen.queryByRole("button", { name: /verbinden/ })).toBeNull();
@@ -74,7 +74,7 @@ describe("Einstellungen: Postfach und Kalender", () => {
       "POST /api/v1/postfach/v1/abgleichen": { status: 202, koerper: { angefordert: true } },
       "DELETE /api/v1/postfach/v2": { status: 204, koerper: null },
     });
-    rendereApp("/einstellungen/postfach?tab=postfach");
+    rendereApp("/settings/mailbox?tab=mailbox");
     const nutzer = userEvent.setup();
     expect(await screen.findByText("Microsoft 365, vera@fonds.example.org")).toBeTruthy();
     expect(screen.getByText("Fehler, wird erneut versucht")).toBeTruthy();
@@ -98,7 +98,7 @@ describe("Einstellungen: Postfach und Kalender", () => {
 
   it("IMAP: Formular sendet Zugang, Ordner als Liste und die Zustimmung; ein Fehler erscheint übersetzt im Dialog", async () => {
     const api = einstellungenApi({ "POST /api/v1/postfach/imap": fehler(502, "mailbox_connection_failed") });
-    rendereApp("/einstellungen/postfach?tab=postfach");
+    rendereApp("/settings/mailbox?tab=mailbox");
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByLabelText(de.mail.einstellungen.postfach.zustimmung));
     await nutzer.click(screen.getByRole("button", { name: "Postfach mit IMAP verbinden" }));
@@ -126,12 +126,12 @@ describe("Einstellungen: Postfach und Kalender", () => {
 
   it("Rückkehr vom Anbieter: Erfolg und Fehlercodes stehen als Meldung, nie Tokens", async () => {
     einstellungenApi();
-    rendereApp("/einstellungen/postfach?ergebnis=verbunden&bereich=kalender");
+    rendereApp("/settings/mailbox?result=connected&section=calendar");
     expect(await screen.findByText("Kalender verbunden.")).toBeTruthy();
   });
   it("Rückkehr mit abgelaufenem Vorgang zeigt den Hinweis zum Neustart", async () => {
     einstellungenApi();
-    rendereApp("/einstellungen/postfach?fehler=mailbox_state_invalid");
+    rendereApp("/settings/mailbox?error=mailbox_state_invalid");
     expect(await screen.findByText(de.mail.einstellungen.postfach.rueckkehr.zustand)).toBeTruthy();
   });
 
@@ -149,7 +149,7 @@ describe("Einstellungen: Postfach und Kalender", () => {
         return { status: 204, koerper: null };
       },
     });
-    rendereApp("/einstellungen/postfach?tab=kalender");
+    rendereApp("/settings/mailbox?tab=calendar");
     const nutzer = userEvent.setup();
     expect(await screen.findByText(de.mail.einstellungen.kalender.inaktiv)).toBeTruthy();
     await nutzer.click(screen.getByRole("button", { name: "Link erzeugen" }));
@@ -183,7 +183,7 @@ describe("Einstellungen: Postfach und Kalender", () => {
         return { koerper: stand };
       },
     });
-    rendereApp("/einstellungen/postfach");
+    rendereApp("/settings/mailbox");
     const nutzer = userEvent.setup();
     expect(await screen.findByText(de.mail.einstellungen.mails.nichtVerfuegbar)).toBeTruthy();
     await nutzer.click(screen.getByLabelText(de.mail.einstellungen.mails.berichtOptIn));
@@ -197,7 +197,7 @@ describe("Einstellungen: Postfach und Kalender", () => {
   it("auf Englisch: alle Texte der Seite sind übersetzt (Titel, Hinweise, Knöpfe, Meldungen)", async () => {
     zuEnglisch();
     const api = einstellungenApi({ "POST /api/v1/postfach/oauth/start": fehler(409, "mailbox_provider_disabled") });
-    rendereApp("/einstellungen/postfach?ergebnis=verbunden&bereich=mail");
+    rendereApp("/settings/mailbox?result=connected&section=mail");
     const nutzer = userEvent.setup();
     expect(await screen.findByRole("heading", { level: 1, name: en.nav.einstellungen })).toBeTruthy();
     expect(screen.getByText("Mailbox connected.")).toBeTruthy();
@@ -254,7 +254,7 @@ describe("Verlauf mit Mails und Terminen", () => {
       "/api/v1/aktivitaeten": { koerper: { daten: [syncMail(), syncTermin(), aktivitaetDaten] } },
       "POST /api/v1/aktivitaeten/m1/sync-entfernen": { status: 204, koerper: null },
     });
-    rendereApp(`/organisationen/${ORG_A}?tab=aktivitaet`);
+    rendereApp(`/organizations/${ORG_A}?tab=activity`);
     const nutzer = userEvent.setup();
     const liste = within(await screen.findByRole("list", { name: "Aktivitäten" }));
     const mail = within(liste.getByText("Rückfrage zum Finanzierungsstand").closest("li") as HTMLElement);
@@ -279,7 +279,7 @@ describe("Verlauf mit Mails und Terminen", () => {
   it("auf Englisch: Richtung, Herkunft und Dialog sind übersetzt", async () => {
     zuEnglisch();
     spieleApi({ "/api/v1/me": alsRolle("bearbeiter"), "/api/v1/aktivitaeten": { koerper: { daten: [syncMail()] } } });
-    rendereApp(`/organisationen/${ORG_A}?tab=aktivitaet`);
+    rendereApp(`/organizations/${ORG_A}?tab=activity`);
     const nutzer = userEvent.setup();
     const liste = within(await screen.findByRole("list", { name: "Activities" }));
     expect(liste.getByText("incoming")).toBeTruthy();
@@ -290,7 +290,7 @@ describe("Verlauf mit Mails und Terminen", () => {
 
   it("Betrachter dürfen eigene synchronisierte Einträge ebenfalls entfernen (es sind ihre Daten)", async () => {
     spieleApi({ "/api/v1/me": alsRolle("betrachter"), "/api/v1/aktivitaeten": { koerper: { daten: [syncMail()] } } });
-    rendereApp(`/organisationen/${ORG_A}?tab=aktivitaet`);
+    rendereApp(`/organizations/${ORG_A}?tab=activity`);
     expect(await screen.findByRole("button", { name: /aus dem Verlauf entfernen/ })).toBeTruthy();
   });
 });
@@ -303,7 +303,7 @@ describe("Anhänge auf Klick", () => {
       "/api/v1/aktivitaeten/m1/anhaenge": { koerper: { daten: [{ id: "att-1", name: "Vertrag.pdf", groesse: 20480, typ: "application/pdf" }] } },
       "POST /api/v1/aktivitaeten/m1/anhaenge/att-1/importieren": { status: 201, koerper: { dokumentId: "doc-1", dateiname: "Vertrag.pdf" } },
     });
-    rendereApp(`/organisationen/${ORG_A}?tab=aktivitaet`);
+    rendereApp(`/organizations/${ORG_A}?tab=activity`);
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Anhänge von „Rückfrage zum Finanzierungsstand“ anzeigen" }));
     expect(api.anfragen("GET", "/api/v1/aktivitaeten/m1/anhaenge")).toHaveLength(1);
@@ -313,7 +313,7 @@ describe("Anhänge auf Klick", () => {
     expect(api.anfragen("POST", "/api/v1/aktivitaeten/m1/anhaenge/att-1/importieren")).toHaveLength(0);
     await nutzer.click(dialog().getByRole("button", { name: "In Dokumente übernehmen: „Vertrag.pdf“" }));
     expect(await dialog().findByText("Übernommen")).toBeTruthy();
-    expect(dialog().getByRole("link", { name: "Zum Dokument" }).getAttribute("href")).toBe("/dokumente/doc-1");
+    expect(dialog().getByRole("link", { name: "Zum Dokument" }).getAttribute("href")).toBe("/documents/doc-1");
   });
 
   it("kein Anhänge-Knopf bei Termine, IMAP oder Mails anderer Personen; Fehler des Anbieters erscheinen übersetzt", async () => {
@@ -322,7 +322,7 @@ describe("Anhänge auf Klick", () => {
       "/api/v1/aktivitaeten": { koerper: { daten: [syncMail({ id: "m2", titel: "IMAP-Mail" }, { anbieter: "imap" }), syncMail({ id: "m3", titel: "Fremde Mail" }, { eigene: false }), syncMail({ id: "m4", titel: "Meine Mail" })] } },
       "/api/v1/aktivitaeten/m4/anhaenge": fehler(409, "mailbox_access_expired"),
     });
-    rendereApp(`/organisationen/${ORG_A}?tab=aktivitaet`);
+    rendereApp(`/organizations/${ORG_A}?tab=activity`);
     const nutzer = userEvent.setup();
     await screen.findByText("Meine Mail");
     expect(screen.getAllByRole("button", { name: /Anhänge von/ })).toHaveLength(1);
@@ -333,7 +333,7 @@ describe("Anhänge auf Klick", () => {
   it("auf Englisch", async () => {
     zuEnglisch();
     spieleApi({ "/api/v1/me": alsRolle("bearbeiter"), "/api/v1/aktivitaeten": { koerper: { daten: [syncMail()] } }, "/api/v1/aktivitaeten/m1/anhaenge": { koerper: { daten: [] } } });
-    rendereApp(`/organisationen/${ORG_A}?tab=aktivitaet`);
+    rendereApp(`/organizations/${ORG_A}?tab=activity`);
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Show attachments of “Rückfrage zum Finanzierungsstand”" }));
     expect(await dialog().findByText(en.mail.anhaenge.keine)).toBeTruthy();
@@ -343,7 +343,7 @@ describe("Anhänge auf Klick", () => {
 describe("Nächste Termine", () => {
   it("Organisationsseite: Termine der Organisation, Fehler der API lassen die Kachel einfach weg", async () => {
     const api = spieleApi({ "/api/v1/termine": { koerper: { daten: [termin()] } } });
-    rendereApp(`/organisationen/${ORG_A}?tab=aktivitaet&unter=termine`);
+    rendereApp(`/organizations/${ORG_A}?tab=activity&subtab=appointments`);
     const kachel = within(await screen.findByRole("region", { name: /Nächste Termine/ }));
     expect(await kachel.findByText("Quartalsgespräch")).toBeTruthy();
     expect(kachel.getByText("Microsoft 365")).toBeTruthy();
@@ -352,7 +352,7 @@ describe("Nächste Termine", () => {
 
   it("Kontakte-Seite (Reiter Heute): nur die eigenen Termine, mit Bezug zu Deal oder Organisation; ohne Termine ein Hinweis", async () => {
     const api = spieleApi({ "/api/v1/termine": { koerper: { daten: [termin()] } } });
-    rendereApp("/kontakte?objekt=heute");
+    rendereApp("/contacts?object=today");
     const kachel = within(await screen.findByRole("region", { name: /Nächste Termine/ }));
     expect(await kachel.findByRole("link", { name: "Alpha, Wachstum" })).toBeTruthy();
     expect(api.anfragen("GET", "/api/v1/termine")[0]!.query.get("eigene")).toBe("true");
@@ -360,7 +360,7 @@ describe("Nächste Termine", () => {
 
   it("Alter Terminlink führt zu den eigenen kommenden Terminen bei Kontakte", async () => {
     const api = spieleApi({ "/api/v1/termine": { koerper: { daten: [termin({ titel: "Besuch vor Ort" })] } } });
-    rendereApp(`/fonds/${FONDS_ID}?tab=termine`);
+    rendereApp(`/funds/${FONDS_ID}?tab=appointments`);
     const kachel = within(await screen.findByRole("region", { name: /Nächste Termine/ }));
     expect(await kachel.findByText("Besuch vor Ort")).toBeTruthy();
     expect(kachel.getByRole("link", { name: "Alpha, Wachstum" })).toBeTruthy();
@@ -369,12 +369,12 @@ describe("Nächste Termine", () => {
 
   it("zeigt bei leerer Liste den Hinweis und bei einem Fehler nichts", async () => {
     spieleApi();
-    const { unmount } = rendereApp(`/organisationen/${ORG_A}?tab=aktivitaet&unter=termine`);
+    const { unmount } = rendereApp(`/organizations/${ORG_A}?tab=activity&subtab=appointments`);
     expect(await screen.findByText(de.mail.termine.keine)).toBeTruthy();
     unmount();
     spieleApi({ "/api/v1/termine": fehler(403, "forbidden") });
-    rendereApp(`/organisationen/${ORG_A}?tab=aktivitaet&unter=termine`);
-    expect((await screen.findByRole("button", { name: "Termine" })).getAttribute("aria-current")).toBe("page");
+    rendereApp(`/organizations/${ORG_A}?tab=activity&subtab=appointments`);
+    await waitFor(async () => expect((await within(await screen.findByRole("navigation", { name: /^(Hauptnavigation|Main navigation)$/ })).findByRole("link", { name: "Termine" })).getAttribute("aria-current")).toBe("page"));
     await waitFor(() => expect(screen.queryByText(de.mail.termine.keine)).toBeNull());
   });
 });
@@ -417,9 +417,9 @@ describe("Kennzahlen-Abfrage: Link per Mail", () => {
     const token = "Z".repeat(43);
     const api = spieleApi({
       ...abfrageAntworten(null),
-      [`POST /api/v1/beteiligungen/${BET_ID}/kennzahlen/abfragen`]: { status: 201, koerper: { abfrage: { id: "a9" }, link: { token, pfad: `/extern/abfrage/${token}`, ablauf: "2099-11-30T10:00:00.000Z" } } },
+      [`POST /api/v1/beteiligungen/${BET_ID}/kennzahlen/abfragen`]: { status: 201, koerper: { abfrage: { id: "a9" }, link: { token, pfad: `/external/requests/${token}`, ablauf: "2099-11-30T10:00:00.000Z" } } },
     });
-    rendereApp(`/fonds/${FONDS_ID}/kennzahlen`);
+    rendereApp(`/funds/${FONDS_ID}/metrics`);
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Abfrage anlegen: Alpha Energie" }));
     const auswahl = (await dialog().findByLabelText(de.mail.abfrage.perMail)) as HTMLSelectElement;
@@ -433,9 +433,9 @@ describe("Kennzahlen-Abfrage: Link per Mail", () => {
   it("ohne Auswahl wird kein Empfänger gesendet", async () => {
     const api = spieleApi({
       ...abfrageAntworten(null),
-      [`POST /api/v1/beteiligungen/${BET_ID}/kennzahlen/abfragen`]: { status: 201, koerper: { abfrage: { id: "a9" }, link: { token: "Y".repeat(43), pfad: `/extern/abfrage/${"Y".repeat(43)}`, ablauf: "2099-11-30T10:00:00.000Z" } } },
+      [`POST /api/v1/beteiligungen/${BET_ID}/kennzahlen/abfragen`]: { status: 201, koerper: { abfrage: { id: "a9" }, link: { token: "Y".repeat(43), pfad: `/external/requests/${"Y".repeat(43)}`, ablauf: "2099-11-30T10:00:00.000Z" } } },
     });
-    rendereApp(`/fonds/${FONDS_ID}/kennzahlen`);
+    rendereApp(`/funds/${FONDS_ID}/metrics`);
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Abfrage anlegen: Alpha Energie" }));
     await dialog().findByLabelText(de.mail.abfrage.perMail);
@@ -449,9 +449,9 @@ describe("Kennzahlen-Abfrage: Link per Mail", () => {
     let sendbar = false;
     const api = spieleApi({
       ...abfrageAntworten({ id: "a1", status: "offen", faelligAm: "2099-10-15", erinnerung: null, abgelaufen: false }),
-      "POST /api/v1/kennzahlen/abfragen/a1/per-mail": () => (sendbar ? { koerper: { abfrage: { id: "a1" }, link: { token, pfad: `/extern/abfrage/${token}`, ablauf: "2099-12-01T10:00:00.000Z" } } } : fehler(409, "mail_not_configured")),
+      "POST /api/v1/kennzahlen/abfragen/a1/per-mail": () => (sendbar ? { koerper: { abfrage: { id: "a1" }, link: { token, pfad: `/external/requests/${token}`, ablauf: "2099-12-01T10:00:00.000Z" } } } : fehler(409, "mail_not_configured")),
     });
-    rendereApp(`/fonds/${FONDS_ID}/kennzahlen`);
+    rendereApp(`/funds/${FONDS_ID}/metrics`);
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Link für Alpha Energie per Mail senden" }));
     await dialog().findByLabelText("Empfänger");
@@ -461,7 +461,7 @@ describe("Kennzahlen-Abfrage: Link per Mail", () => {
     sendbar = true;
     await nutzer.click(dialog().getByRole("button", { name: "Per Mail senden" }));
     const link = (await screen.findByLabelText("Link zum Kopieren")) as HTMLInputElement;
-    expect(link.value).toBe(`${window.location.origin}/extern/abfrage/${token}`);
+    expect(link.value).toBe(`${window.location.origin}/external/requests/${token}`);
   });
 
   it("ein Unternehmen ohne Kontakt mit Mailadresse bekommt einen Hinweis statt der Auswahl", async () => {
@@ -469,7 +469,7 @@ describe("Kennzahlen-Abfrage: Link per Mail", () => {
       ...abfrageAntworten(null),
       [`/api/v1/organisationen/${ORG_A}`]: { koerper: { id: ORG_A, name: "Alpha Energie", art: "unternehmen", sektor: null, ort: null, website: null, erstelltAm: "2020-01-01T00:00:00.000Z", zusammengefuehrtIn: null, rollen: [], beziehungen: [], personen: [{ id: "p9", vorname: "Otto", nachname: "Ohne", email: null, funktion: null }], deals: [], beteiligungen: [] } },
     });
-    rendereApp(`/fonds/${FONDS_ID}/kennzahlen`);
+    rendereApp(`/funds/${FONDS_ID}/metrics`);
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Abfrage anlegen: Alpha Energie" }));
     expect(await dialog().findByText(de.mail.abfrage.keinKontakt)).toBeTruthy();
@@ -478,7 +478,7 @@ describe("Kennzahlen-Abfrage: Link per Mail", () => {
   it("auf Englisch", async () => {
     zuEnglisch();
     spieleApi({ ...abfrageAntworten({ id: "a1", status: "offen", faelligAm: "2099-10-15", erinnerung: null, abgelaufen: false }) });
-    rendereApp(`/fonds/${FONDS_ID}/kennzahlen`);
+    rendereApp(`/funds/${FONDS_ID}/metrics`);
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: en.mail.abfrage.sendenFuer("Alpha Energie") }));
     expect(await dialog().findByLabelText(en.mail.abfrage.empfaenger)).toBeTruthy();
@@ -486,46 +486,22 @@ describe("Kennzahlen-Abfrage: Link per Mail", () => {
   });
 });
 
-describe("Mitteilungen freigeben: per Mail hinweisen", () => {
-  const freigabePfad = `/api/v1/fonds/${FONDS_ID}/bewegungen/${BEWEGUNG_OFFEN_ID}/mitteilungen/freigeben`;
-  const knopf = "Mitteilungen freigeben: Kapitalabruf vom 15.03.2026";
-
-  it("die Option geht als `perMail` an die API, Standard ist aus", async () => {
-    const api = spieleApi({ "/api/v1/me": alsRolle("freigeber"), [`/api/v1/fonds/${FONDS_ID}/bewegungen`]: { koerper: bewegungenDaten }, [`POST ${freigabePfad}`]: { status: 201, koerper: { bewegungId: BEWEGUNG_OFFEN_ID, anzahl: 5, mitteilungen: [], mailAuftraege: 3 } } });
-    rendereApp(`/fonds?fondsId=${FONDS_ID}&tab=kapital`);
+describe("Mitteilungen freigeben: ohne Portal", () => {
+  it("zeigt keine Auswahl „per Mail hinweisen“ und sendet kein `perMail`", async () => {
+    const pfad = `/api/v1/fonds/${FONDS_ID}/bewegungen/${BEWEGUNG_OFFEN_ID}/mitteilungen/freigeben`;
+    const api = spieleApi({ "/api/v1/me": alsRolle("freigeber"), [`/api/v1/fonds/${FONDS_ID}/bewegungen`]: { koerper: bewegungenDaten }, [`POST ${pfad}`]: { status: 201, koerper: { bewegungId: BEWEGUNG_OFFEN_ID, anzahl: 5, mitteilungen: [], mailAuftraege: 0 } } });
+    rendereApp(`/funds?fundId=${FONDS_ID}&tab=capital`);
     const nutzer = userEvent.setup();
-    await nutzer.click(await screen.findByRole("button", { name: knopf }));
-    const feld = dialog().getByLabelText(de.mail.mitteilung.perMail) as HTMLInputElement;
-    expect(feld.checked).toBe(false);
-    expect(dialog().getByText(de.mail.mitteilung.hilfe)).toBeTruthy();
+    await nutzer.click(await screen.findByRole("button", { name: "Mitteilungen freigeben: Kapitalabruf vom 15.03.2026" }));
+    expect(dialog().queryByRole("checkbox")).toBeNull();
     await nutzer.click(dialog().getByRole("button", { name: "Jetzt freigeben" }));
-    await waitFor(() => expect(api.anfragen("POST", freigabePfad)).toHaveLength(1));
-    expect(api.anfragen("POST", freigabePfad)[0]!.koerper).toEqual({ sprache: "de" });
-  });
-
-  it("mit gesetzter Option sendet die Oberfläche perMail: true; ohne eingerichteten Versand zeigt der Dialog die Meldung", async () => {
-    const api = spieleApi({ "/api/v1/me": alsRolle("freigeber"), [`/api/v1/fonds/${FONDS_ID}/bewegungen`]: { koerper: bewegungenDaten }, [`POST ${freigabePfad}`]: fehler(409, "mail_not_configured") });
-    rendereApp(`/fonds?fondsId=${FONDS_ID}&tab=kapital`);
-    const nutzer = userEvent.setup();
-    await nutzer.click(await screen.findByRole("button", { name: knopf }));
-    await nutzer.click(dialog().getByLabelText(de.mail.mitteilung.perMail));
-    await nutzer.click(dialog().getByRole("button", { name: "Jetzt freigeben" }));
-    expect(await dialog().findByText(de.mail.fehler.mail_not_configured!)).toBeTruthy();
-    expect(api.anfragen("POST", freigabePfad)[0]!.koerper).toEqual({ sprache: "de", perMail: true });
-  });
-
-  it("auf Englisch", async () => {
-    zuEnglisch();
-    spieleApi({ "/api/v1/me": alsRolle("freigeber"), [`/api/v1/fonds/${FONDS_ID}/bewegungen`]: { koerper: bewegungenDaten } });
-    rendereApp(`/fonds?fondsId=${FONDS_ID}&tab=kapital`);
-    const nutzer = userEvent.setup();
-    await nutzer.click(await screen.findByRole("button", { name: /Release notices: / }));
-    expect(dialog().getByLabelText(en.mail.mitteilung.perMail)).toBeTruthy();
+    await waitFor(() => expect(api.anfragen("POST", pfad)).toHaveLength(1));
+    expect(api.anfragen("POST", pfad)[0]!.koerper).toEqual({ sprache: "de" });
   });
 });
 
 describe("Verwaltung: Mailversand", () => {
-  const MAIL = "/verwaltung?tab=mail";
+  const MAIL = "/administration?tab=mail";
   const status = (extra: Record<string, unknown> = {}) => ({ konfiguriert: true, host: "smtp.example.org", port: 587, tls: "starttls", absender: "carraway@example.org", mitAnmeldung: true, limitProStunde: 200, schluesselVorhanden: true, ausgangskorb: { wartend: 2, fehlgeschlagen: 1, gesendetLetzteStunde: 7 }, ...extra });
   const auftrag = (id: string, extra: Record<string, unknown> = {}) => ({
     id,
@@ -581,18 +557,18 @@ describe("Verwaltung: Mailversand", () => {
   it("nur globale Verwalter: andere gehen zur Startseite zurück und sehen den Menüpunkt im Konto nicht", async () => {
     spieleApi({ "/api/v1/me": alsRolle("verwalter") });
     const { router } = rendereApp(MAIL);
-    await waitFor(() => expect(router.state.location.pathname).toBe(`/fonds/${FONDS_ID}`));
+    await waitFor(() => expect(router.state.location.pathname).toBe(`/funds/${FONDS_ID}`));
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: /Konto/ }));
     expect(screen.getByRole("menuitem", { name: "Einstellungen" })).toBeTruthy();
     expect(screen.queryByRole("menuitem", { name: "Mailversand" })).toBeNull();
   });
 
-  it("die alte Adresse /verwaltung/mail führt auf den Bereich in der Verwaltung", async () => {
+  it("die alte Adresse /administration/mail führt auf den Bereich in der Verwaltung", async () => {
     spieleApi({ "/api/v1/mail/status": { koerper: status() }, "/api/v1/mail/auftraege": { koerper: { daten: [auftrag("x1")] } } });
-    const { router } = rendereApp("/verwaltung/mail");
+    const { router } = rendereApp("/administration/mail");
     expect(await screen.findByText("smtp.example.org:587")).toBeTruthy();
-    expect(router.state.location.pathname).toBe("/verwaltung");
+    expect(router.state.location.pathname).toBe("/administration");
     expect(router.state.location.search).toEqual({ tab: "mail" });
   });
 

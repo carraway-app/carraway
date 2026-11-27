@@ -1,12 +1,14 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { getRouteApi, Link } from "@tanstack/react-router";
-import { Auswahl, Button, KanbanIcon, Segment, Seitenkopf, Status, Tabs, TrayIcon, UserCircleIcon } from "@carraway/ui";
+import { getRouteApi } from "@tanstack/react-router";
+import { Auswahl, Button, Popover, Segment, Seitenkopf, Status, XIcon } from "@carraway/ui";
 import { dealListe, fondsListe, type Deal } from "../api/abfragen";
 import { crmAbfrage, useDealVerschieben, type AbfrageEingabe, type Gruppe, type Option, type Zeile } from "../api/crm";
 import { dealArbeitsliste, dealKartenfelder, type Arbeitsdeal } from "../api/dealflow";
 import type { DealPhase } from "../api/mutationen";
 import { DealArbeitslisten, istUnzugeordnet } from "../komponenten/DealArbeitslisten";
+import { DealDetail } from "../komponenten/DealDetail";
+import { DealflowReiter } from "../komponenten/DealflowReiter";
 import { DealKartenfelderDialog, DealKartenwerte, kartenUnternehmen, STANDARD_KARTENFELDER, waehlbareKartenfelder } from "../komponenten/DealKartenfelderDialog";
 import { DealZuordnungDialog } from "../komponenten/DealZuordnungDialog";
 import { DealPipelineErgebnisse, STATUS_VARIANTE, type PipelineDealtyp } from "../komponenten/DealPipelineErgebnisse";
@@ -55,47 +57,37 @@ export function DealflowSeite() {
     }
   }, [neuParam, darfAnlegen, navigate]);
 
-  const ansichten = [
-    { bereich: "eingang", titel: t.dealflow.eingang, icon: TrayIcon },
-    { bereich: "meine", titel: t.dealflow.meineDeals, icon: UserCircleIcon },
-    { bereich: "pipeline", titel: t.dealflow.pipeline, icon: KanbanIcon },
-  ] as const;
+  // Detailbereich: Ein Klick auf eine Karte oder Zeile öffnet den Deal rechts (nicht modal, Adresse `?deal=…`); mit Strg/Cmd oder mittlerer
+  // Maustaste öffnet der Link wie gewohnt die volle Seite.
+  const dealId = route.useSearch().deal;
+  const oeffneImDetail = (e: MouseEvent<HTMLDivElement>) => {
+    if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    const link = (e.target as HTMLElement).closest?.("a[href]");
+    const treffer = link?.getAttribute("href")?.match(/^\/deals\/([^/?#]+)$/);
+    if (!treffer || link?.closest(".cw-detailbereich")) return;
+    e.preventDefault();
+    void navigate({ search: (alt) => ({ ...alt, deal: treffer[1] }) });
+  };
+  const schliesseDetail = () => void navigate({ search: (alt) => ({ ...alt, deal: undefined }) });
 
   return (
     <div className="app-seite app-dealflow">
-      <Seitenkopf
-        titel={t.dealflow.titel}
-        aktionen={
-          <>
-            <Link to="/beschlussvorlagen" search={{}} className="cw-button cw-button--sekundaer">
-              {t.beschlussvorlagen.titel}
-            </Link>
-            <Link to="/dealflow/auswertung" search={{}} className="cw-button cw-button--sekundaer">
-              {t.dealflow.auswertung}
-            </Link>
-            {darfAnlegen ? <Button onClick={() => setNeu({})}>{t.dealflow.neuerDeal}</Button> : null}
-          </>
-        }
-      />
+      <Seitenkopf titel={t.dealflow.titel} aktionen={darfAnlegen ? <Button onClick={() => setNeu({})}>{t.dealflow.neuerDeal}</Button> : undefined} />
       <NurLesen />
-      <Tabs
-        aria-label={t.dealflow.navigation}
-        aktiv={bereich}
-        onWechsel={(id) => void navigate({ search: (alt) => ({ ...alt, bereich: id === "pipeline" ? undefined : (id as "eingang" | "meine") }) })}
-        tabs={ansichten.map((a) => ({
-          id: a.bereich,
-          label: a.titel,
-          icon: a.icon,
-          ...(a.bereich === "eingang" && arbeitsliste.isSuccess ? { zaehler: offenUnzugeordnet, zaehlerLabel: t.dealflow.etikett(offenUnzugeordnet) } : {}),
-        }))}
-      />
-      {bereich === "pipeline" ? (
-        <DealPipeline arbeitsdeals={arbeitsdealNachId} darfBearbeiten={darfZuordnen}
-          onNeu={darfAnlegen ? setNeu : undefined} fehler={arbeitsliste.error} />
-      ) : (
-        <DealArbeitslisten key={bereich} bereich={bereich} deals={deals} benutzerId={arbeitsliste.data?.benutzerId}
-          darfZuordnen={darfZuordnen} laedt={arbeitsliste.isPending} fehler={arbeitsliste.error} />
-      )}
+      <DealflowReiter aktiv={bereich} ohneZuordnung={arbeitsliste.isSuccess ? offenUnzugeordnet : undefined}>
+        <div className={dealId ? "app-dealflow__mit-detail" : "app-dealflow__liste"} onClickCapture={oeffneImDetail}>
+          <div className="app-dealflow__ergebnisse">
+            {bereich === "pipeline" ? (
+              <DealPipeline arbeitsdeals={arbeitsdealNachId} darfBearbeiten={darfZuordnen}
+                onNeu={darfAnlegen ? setNeu : undefined} fehler={arbeitsliste.error} />
+            ) : (
+              <DealArbeitslisten key={bereich} bereich={bereich} deals={deals} benutzerId={arbeitsliste.data?.benutzerId}
+                darfZuordnen={darfZuordnen} laedt={arbeitsliste.isPending} fehler={arbeitsliste.error} />
+            )}
+          </div>
+          {dealId ? <DealDetail key={dealId} id={dealId} arbeitsdeal={arbeitsdealNachId.get(dealId)} darfZuordnen={darfZuordnen(dealId)} onSchliessen={schliesseDetail} /> : null}
+        </div>
+      </DealflowReiter>
       {neu ? <NeuerDealDialog
         {...(neu.phase && neu.phase !== "closing" ? { phase: neu.phase, onAngelegt: () => undefined } : {})}
         initialerDealtyp={neu.dealtyp}
@@ -195,6 +187,18 @@ function DealPipeline({ arbeitsdeals, darfBearbeiten, onNeu, fehler }: {
     void navigate({ search: (alt) => ({ ...alt, [feld]: wert || undefined }), replace: true });
   }
 
+  const ohne = (feld: string) => () => void navigate({ search: (alt) => ({ ...alt, [feld]: undefined }), replace: true });
+  const rollenName = (id: string) => (id === OHNE_WERT ? f.nichtZugeordnet : (rollenNamen.get(id) ?? name(id) ?? t.gemeinsam.keinWert));
+  // Aktive Filter als entfernbare Chips (Status „offen“ ist der Standard und kein Filter).
+  const chips: { id: string; label: string; entfernen: () => void }[] = [
+    ...(umfang === "meine" ? [{ id: "umfang", label: t.crm.pipelineMeineDeals, entfernen: ohne("umfang") }] : []),
+    ...(status !== "offen" ? [{ id: "status", label: `${f.statusFilter}: ${status === "alle" ? t.gemeinsam.alle : t.dealStatus[status]}`, entfernen: ohne("status") }] : []),
+    ...(fondsId ? [{ id: "fonds", label: `${f.fonds}: ${fondsId === OHNE_WERT ? f.ohneFonds : (fonds.data?.find((x) => x.id === fondsId)?.name ?? t.gemeinsam.keinWert)}`, entfernen: ohne("fondsId") }] : []),
+    ...(investmentmanagerId ? [{ id: "im", label: `${f.investmentmanager}: ${rollenName(investmentmanagerId)}`, entfernen: ohne("investmentmanagerId") }] : []),
+    ...(projektleiterId ? [{ id: "pl", label: `${f.projektleiter}: ${rollenName(projektleiterId)}`, entfernen: ohne("projektleiterId") }] : []),
+    ...(gruppe === "dealtyp" ? [{ id: "gruppe", label: t.crm.pipelineGruppieren, entfernen: ohne("gruppe") }] : []),
+  ];
+
   function setzeDarstellung(wert: "board" | "liste") {
     void navigate({ search: (alt) => ({ ...alt, darstellung: wert === "board" ? undefined : wert }), replace: true });
   }
@@ -231,42 +235,6 @@ function DealPipeline({ arbeitsdeals, darfBearbeiten, onNeu, fehler }: {
 
   return (
     <>
-      <div className="app-dealflow__segmente">
-        <Segment<"alle" | "meine">
-          aria-label={t.crm.pipelineUmfang}
-          value={umfang}
-          onChange={(wert) => void navigate({ search: (alt) => ({ ...alt, umfang: wert === "alle" ? undefined : wert }), replace: true })}
-          options={[
-            { wert: "alle", label: t.crm.pipelineAlleDeals },
-            { wert: "meine", label: t.crm.pipelineMeineDeals },
-          ]}
-        />
-        <Segment
-          aria-label={f.statusFilter}
-          value={status}
-          onChange={(wert) => void navigate({ search: (alt) => ({ ...alt, status: wert === "offen" ? undefined : wert }), replace: true })}
-          options={[
-            { wert: "alle", label: t.gemeinsam.alle },
-            ...STATUSWERTE.map((wert) => ({ wert, label: t.dealStatus[wert] })),
-          ]}
-        />
-        <Segment<"board" | "liste">
-          aria-label={t.gemeinsam.ansicht}
-          value={darstellung}
-          onChange={setzeDarstellung}
-          options={[
-            { wert: "board", label: f.ansichtBoard },
-            { wert: "liste", label: t.crm.pipelineListe },
-          ]}
-        />
-        <label className="app-dealflow__kontrollfeld">
-          <input type="checkbox" checked={gruppe === "dealtyp"} onChange={(e) => {
-            const gruppieren = e.target.checked;
-            void navigate({ search: (alt) => ({ ...alt, gruppe: gruppieren ? "dealtyp" : undefined }), replace: true });
-          }} />
-          {t.crm.pipelineGruppieren}
-        </label>
-      </div>
       <Werkzeuge
         z={z}
         objekt="deal"
@@ -276,28 +244,76 @@ function DealPipeline({ arbeitsdeals, darfBearbeiten, onNeu, fehler }: {
         istVerwalter={Boolean(ich?.globalVerwalter)}
         mitSpalten={false}
         exportEingabe={{ ...basis, spalten: ["titel", "unternehmen", "dealtyp", "phase", "status", "ticket", "investmentmanager", "projektleiter", "quelle", "betreuung", "aktualisiertAm"].map((feld) => ({ feld })) }}
+        vorne={
+          <Popover className="app-dealflow__auswahl" kante="links" aria-label={f.auswahl} ausloeserLabel={chips.length > 0 ? `${f.auswahl} · ${chips.length}` : f.auswahl} ausloeser={<>{f.auswahl}{chips.length > 0 ? ` · ${chips.length}` : ""}</>} aktiv={chips.length > 0}>
+            <div className="app-dealflow__filter" ref={filterLeiste} tabIndex={-1}>
+              <div className="app-gruppe">
+                <span className="cw-feld__label">{f.statusFilter}</span>
+                <Segment
+                  aria-label={f.statusFilter}
+                  value={status}
+                  onChange={(wert) => void navigate({ search: (alt) => ({ ...alt, status: wert === "offen" ? undefined : wert }), replace: true })}
+                  options={[
+                    { wert: "alle", label: t.gemeinsam.alle },
+                    ...STATUSWERTE.map((wert) => ({ wert, label: t.dealStatus[wert] })),
+                  ]}
+                />
+              </div>
+              <Auswahl kompakt label={f.fonds} value={fondsId} onChange={(e) => setzeFilter("fondsId", e.target.value)} disabled={fonds.isPending}>
+                <option value="">{f.alleFonds}</option>
+                <option value={OHNE_WERT}>{f.ohneFonds}</option>
+                {fonds.data?.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+              </Auswahl>
+              <Auswahl kompakt label={f.investmentmanager} value={investmentmanagerId} onChange={(e) => setzeFilter("investmentmanagerId", e.target.value)}>
+                <option value="">{f.alleInvestmentmanager}</option>
+                <option value={OHNE_WERT}>{f.nichtZugeordnet}</option>
+                {rollenOptionen(investmentmanagerIds, investmentmanagerId)}
+              </Auswahl>
+              <Auswahl kompakt label={f.projektleiter} value={projektleiterId} onChange={(e) => setzeFilter("projektleiterId", e.target.value)}>
+                <option value="">{f.alleProjektleiter}</option>
+                <option value={OHNE_WERT}>{f.nichtZugeordnet}</option>
+                {rollenOptionen(projektleiterIds, projektleiterId)}
+              </Auswahl>
+              <label className="app-dealflow__kontrollfeld">
+                <input type="checkbox" checked={gruppe === "dealtyp"} onChange={(e) => {
+                  const gruppieren = e.target.checked;
+                  void navigate({ search: (alt) => ({ ...alt, gruppe: gruppieren ? "dealtyp" : undefined }), replace: true });
+                }} />
+                {t.crm.pipelineGruppieren}
+              </label>
+              {darstellung === "board" ? <Button groesse="s" variante="sekundaer" disabled={!bereit || !kartenfelder.isSuccess} onClick={() => {
+                setMeldung("");
+                setFelderOffen(true);
+              }}>{f.kartenfelder}</Button> : null}
+            </div>
+          </Popover>
+        }
+        hinten={
+          <Segment<"board" | "liste">
+            aria-label={t.gemeinsam.ansicht}
+            value={darstellung}
+            onChange={setzeDarstellung}
+            options={[
+              { wert: "board", label: f.ansichtBoard },
+              { wert: "liste", label: t.crm.pipelineListe },
+            ]}
+          />
+        }
       />
-      <div className="app-dealflow__filter" ref={filterLeiste} tabIndex={-1}>
-        <Auswahl kompakt label={f.fonds} value={fondsId} onChange={(e) => setzeFilter("fondsId", e.target.value)} disabled={fonds.isPending}>
-          <option value="">{f.alleFonds}</option>
-          <option value={OHNE_WERT}>{f.ohneFonds}</option>
-          {fonds.data?.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-        </Auswahl>
-        <Auswahl kompakt label={f.investmentmanager} value={investmentmanagerId} onChange={(e) => setzeFilter("investmentmanagerId", e.target.value)}>
-          <option value="">{f.alleInvestmentmanager}</option>
-          <option value={OHNE_WERT}>{f.nichtZugeordnet}</option>
-          {rollenOptionen(investmentmanagerIds, investmentmanagerId)}
-        </Auswahl>
-        <Auswahl kompakt label={f.projektleiter} value={projektleiterId} onChange={(e) => setzeFilter("projektleiterId", e.target.value)}>
-          <option value="">{f.alleProjektleiter}</option>
-          <option value={OHNE_WERT}>{f.nichtZugeordnet}</option>
-          {rollenOptionen(projektleiterIds, projektleiterId)}
-        </Auswahl>
-        {darstellung === "board" ? <Button groesse="s" variante="sekundaer" disabled={!bereit || !kartenfelder.isSuccess} onClick={() => {
-          setMeldung("");
-          setFelderOffen(true);
-        }}>{f.kartenfelder}</Button> : null}
-      </div>
+      {chips.length > 0 ? (
+        <ul className="app-filterchips" aria-label={f.aktiveFilter}>
+          {chips.map((c) => (
+            <li key={c.id}>
+              <span className="app-filterchip">
+                {c.label}
+                <button type="button" className="app-filterchip__weg" aria-label={f.filterEntfernen(c.label)} onClick={c.entfernen}>
+                  <XIcon size={12} />
+                </button>
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
       <div className="cw-nur-lesen" role="status">{meldung}</div>
       <FehlerHinweis fehler={verschieben.error ?? fehler ?? (darstellung === "board" ? kartenfelder.error : null) ?? fonds.error ?? liste.error} />
 

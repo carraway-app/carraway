@@ -1,7 +1,7 @@
 import { createEvent, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
-import { ANDERE_ID, FONDS_ID, ICH_ID, ORG_A, alsRolle, arbeitsdealDaten, crmDealAntworten, crmZeilenDaten, dealDetailDaten, fehler, rendereApp, spieleApi } from "../test/hilfen";
+import { ANDERE_ID, DEAL_ID, FONDS_ID, ICH_ID, ORG_A, alsRolle, arbeitsdealDaten, crmDealAntworten, crmZeilenDaten, dealDetailDaten, fehler, rendereApp, spieleApi, dealflowAuswahl } from "../test/hilfen";
 
 const spalte = (name: RegExp) => screen.getByRole("region", { name });
 const boardAnfragen = (api: ReturnType<typeof spieleApi>) => api.anfragen("POST", "/api/v1/crm/objekte/deal/board");
@@ -19,6 +19,7 @@ describe("Dealflow", () => {
     expect(within(anfrage).getAllByText(/2\.450\.000/)).toHaveLength(2);
     expect(within(anfrage).getByLabelText("1 Deal in dieser Spalte")).toBeTruthy();
     expect(screen.queryByText("Beta, Serie A")).toBeNull();
+    await dealflowAuswahl();
     await userEvent.setup().click(screen.getByRole("button", { name: "Alle" }));
     expect(await within(await screen.findByRole("region", { name: /^Due Diligence/ })).findByText("Beta, Serie A")).toBeTruthy();
     expect(within(spalte(/^Closing/)).getByText("Keine Deals")).toBeTruthy();
@@ -31,6 +32,7 @@ describe("Dealflow", () => {
     const nutzer = userEvent.setup();
     await screen.findByRole("region", { name: /^Anfrage/ });
 
+    await dealflowAuswahl();
     await nutzer.click(screen.getByRole("button", { name: "Abgesagt" }));
     await waitFor(() => expect(screen.queryByText("Alpha, Wachstum")).toBeNull());
     expect(await screen.findByText("Beta, Serie A")).toBeTruthy();
@@ -57,7 +59,7 @@ describe("Dealflow", () => {
 
   it("verschiebt per Ziehen und Ablegen und ändert die Phase über die API", async () => {
     const api = spieleApi({ "POST /api/v1/deals/d1/phase": { koerper: { deal: {}, phasenwechsel: {} } } });
-    rendereApp("/dealflow?status=alle");
+    rendereApp("/dealflow?status=all");
     await screen.findByRole("region", { name: /^Anfrage/ });
     const karte = screen.getByRole("link", { name: "Alpha, Wachstum" }).closest("article")!;
     const daten = new Map<string, string>();
@@ -129,12 +131,34 @@ describe("Dealflow", () => {
   });
 });
 
+describe("Dealflow: Reiter, Werkzeugzeile und Detailbereich", () => {
+  it("eine Reiterzeile mit Beschlussvorlagen und Auswertung; ein Klick auf eine Karte öffnet den Deal rechts mit eigener Adresse", async () => {
+    spieleApi();
+    const { router } = rendereApp("/dealflow");
+    const nutzer = userEvent.setup();
+    const reiter = await screen.findByRole("tablist", { name: "Dealflow-Ansichten" });
+    expect(within(reiter).getAllByRole("tab").map((r) => r.textContent?.replace(/\s*\d+$/, ""))).toEqual(["Pipeline", "Meine Deals", "Ohne Zuordnung", "Beschlussvorlagen", "Auswertung"]);
+    // „Meine Deals“ nur einmal, kein zweiter Umschalter
+    expect(screen.queryByRole("button", { name: "Meine Deals" })).toBeNull();
+    const anfrage = await screen.findByRole("region", { name: /^Anfrage/ });
+    await nutzer.click(within(anfrage).getByRole("link", { name: "Alpha, Wachstum" }));
+    await waitFor(() => expect(router.state.location.search).toMatchObject({ deal: DEAL_ID }));
+    expect(router.state.location.pathname).toBe("/dealflow");
+    const detail = await screen.findByRole("complementary", { name: "Alpha, Wachstum" });
+    expect(within(detail).getByRole("link", { name: "Deal öffnen" }).getAttribute("href")).toBe(`/deals/${DEAL_ID}`);
+    // Die Liste bleibt sichtbar und bedienbar
+    expect(screen.getByRole("region", { name: /^Anfrage/ })).toBeTruthy();
+    await nutzer.click(within(detail).getByRole("button", { name: "Schließen" }));
+    await waitFor(() => expect(router.state.location.search).not.toHaveProperty("deal"));
+  });
+});
+
 describe("Dealflow-Arbeitslisten und Kartenfelder", () => {
   it("öffnet die Eingangsliste per Direktlink, zählt offene unzugeordnete Deals und sortiert älteste zuerst", async () => {
     const neuer = { ...arbeitsdealDaten, id: "d3", titel: "Aardvark", eingangsdatum: "2026-09-03", betreuung: null };
     const projekt = { ...arbeitsdealDaten, id: "d4", titel: "Nur Projektleitung", projektleiterId: ICH_ID, projektleiterName: "Vera Beispiel" };
     spieleApi({ "/api/v1/dealflow/arbeitsliste": { koerper: { deals: [neuer, projekt, arbeitsdealDaten], benutzerId: ICH_ID } } });
-    rendereApp("/dealflow?bereich=eingang");
+    rendereApp("/dealflow?section=inbox");
     const nutzer = userEvent.setup();
     const nav = await screen.findByRole("tablist", { name: "Dealflow-Ansichten" });
     const eingang = within(nav).getByRole("tab", { name: /Ohne Zuordnung/ });
@@ -164,7 +188,7 @@ describe("Dealflow-Arbeitslisten und Kartenfelder", () => {
         return { koerper: deals[0] };
       },
     });
-    rendereApp("/dealflow?bereich=eingang");
+    rendereApp("/dealflow?section=inbox");
     const nutzer = userEvent.setup();
     const uebernehmen = await screen.findByRole("button", { name: "Übernehmen: Alpha, Wachstum" });
     uebernehmen.focus();
@@ -204,7 +228,7 @@ describe("Dealflow-Arbeitslisten und Kartenfelder", () => {
         return { koerper: deal };
       },
     });
-    rendereApp("/dealflow?bereich=eingang");
+    rendereApp("/dealflow?section=inbox");
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Zuweisen: Alpha, Wachstum" }));
     const dialog = await screen.findByRole("dialog", { name: "Zuordnung bearbeiten" });
@@ -241,7 +265,7 @@ describe("Dealflow-Arbeitslisten und Kartenfelder", () => {
         return fehler(409, "deal_assignment_conflict");
       },
     });
-    rendereApp("/dealflow?bereich=eingang");
+    rendereApp("/dealflow?section=inbox");
     await userEvent.setup().click(await screen.findByRole("button", { name: "Übernehmen: Alpha, Wachstum" }));
     expect((await screen.findByRole("alert")).textContent).toContain("Die Zuordnung hat sich geändert");
     expect(screen.queryByRole("link", { name: deal.titel })).toBeNull();
@@ -255,11 +279,12 @@ describe("Dealflow-Arbeitslisten und Kartenfelder", () => {
       ] } },
       "POST /api/v1/crm/objekte/deal/export": { koerper: [] },
     });
-    rendereApp("/dealflow?bereich=pipeline");
+    rendereApp("/dealflow?section=pipeline");
     const nutzer = userEvent.setup();
     await screen.findByRole("region", { name: "Deals nach Phase" });
     const main = within(screen.getByRole("main"));
     expect(main.queryByRole("button", { name: "Zuweisen: Alpha, Wachstum" })).toBeNull();
+    await dealflowAuswahl();
     await nutzer.selectOptions(main.getByRole("combobox", { name: "Fonds" }), FONDS_ID);
     const im = main.getByRole("combobox", { name: "Investmentmanagement" });
     const pl = main.getByRole("combobox", { name: "Projektleitung" });
@@ -274,8 +299,9 @@ describe("Dealflow-Arbeitslisten und Kartenfelder", () => {
     ] };
     await waitFor(() => expect(boardAnfragen(api).at(-1)?.koerper).toMatchObject({ filter }));
     await nutzer.click(main.getByRole("button", { name: "Als CSV exportieren" }));
+    await dealflowAuswahl();
     await waitFor(() => expect(api.anfragen("POST", "/api/v1/crm/objekte/deal/export").at(-1)?.koerper).toMatchObject({ filter }));
-    await nutzer.selectOptions(pl, "-");
+    await nutzer.selectOptions(main.getByRole("combobox", { name: "Projektleitung" }), "-");
     await waitFor(() => expect(boardAnfragen(api).at(-1)?.koerper).toMatchObject({
       filter: { ...filter, elemente: [...filter.elemente.slice(0, 3), { feld: "projektleiterId", operator: "leer" }] },
     }));
@@ -293,6 +319,7 @@ describe("Dealflow-Arbeitslisten und Kartenfelder", () => {
     rendereApp("/dealflow");
     const nutzer = userEvent.setup();
     await screen.findByRole("region", { name: "Deals nach Phase" });
+    await dealflowAuswahl();
     await nutzer.click(screen.getByRole("button", { name: "Kartenfelder" }));
     const dialog = await screen.findByRole("dialog", { name: "Kartenfelder" });
     const vorschau = within(dialog).getByRole("region", { name: "Kartenvorschau" });
@@ -307,6 +334,7 @@ describe("Dealflow-Arbeitslisten und Kartenfelder", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(api.anfragen("PUT", "/api/v1/dealflow/kartenfelder")[0]?.koerper).toEqual({ felder: ["investmentmanager", "quelle"] });
     expect(await within(spalte(/^Anfrage/)).findByText("Empfehlung")).toBeTruthy();
+    await dealflowAuswahl();
     await nutzer.click(screen.getByRole("button", { name: "Kartenfelder" }));
     const erneut = await screen.findByRole("dialog", { name: "Kartenfelder" });
     expect(within(erneut).getByRole<HTMLInputElement>("checkbox", { name: "Quelle" }).checked).toBe(true);
@@ -326,7 +354,7 @@ describe("Persönliche Pipeline und Dealtyp-Gruppen", () => {
       pipelineDeal("d4", "Eigener abgesagter Deal", { investmentmanagerId: ICH_ID, status: "abgesagt" }),
     ];
     const api = spieleApi(crmDealAntworten(zeilen));
-    const { router } = rendereApp("/dealflow?bereich=meine");
+    const { router } = rendereApp("/dealflow?section=mine");
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("link", { name: "Zur persönlichen Pipeline" }));
     const board = await screen.findByRole("region", { name: "Deals nach Phase" });
@@ -345,10 +373,12 @@ describe("Persönliche Pipeline und Dealtyp-Gruppen", () => {
       ],
     } });
 
+    await dealflowAuswahl();
     await nutzer.click(screen.getByRole("button", { name: "Abgesagt" }));
     expect(await screen.findByRole("link", { name: "Eigener abgesagter Deal" })).toBeTruthy();
     await nutzer.click(screen.getByRole("button", { name: "Offen" }));
-    await nutzer.click(screen.getByRole("button", { name: "Alle Deals" }));
+    // „Meine Deals“ steht nur einmal (als Reiter); in der Pipeline ist der Filter ein entfernbarer Chip.
+    await nutzer.click(screen.getByRole("button", { name: "Filter entfernen: Meine Deals" }));
     expect(await screen.findByRole("link", { name: "Andere Person" })).toBeTruthy();
   });
 
@@ -359,7 +389,7 @@ describe("Persönliche Pipeline und Dealtyp-Gruppen", () => {
       pipelineDeal("o1", "Ungetypt", { phase: "pruefung" }),
     ];
     const api = spieleApi(crmDealAntworten(zeilen));
-    rendereApp("/dealflow?gruppe=dealtyp");
+    rendereApp("/dealflow?group=deal-type");
     const nutzer = userEvent.setup();
     const erstesBoard = await screen.findByRole("region", { name: "Deals nach Phase · Erstinvestment" });
     expect(within(erstesBoard).getAllByRole("region")).toHaveLength(6);
@@ -402,7 +432,7 @@ describe("Persönliche Pipeline und Dealtyp-Gruppen", () => {
       pipelineDeal("d3", "Solar Gamma", { dealtyp: "anschlussinvestment", investmentmanagerId: ANDERE_ID, projektleiterId: ANDERE_ID, status: "investiert" }),
     ];
     const api = spieleApi(crmDealAntworten(zeilen));
-    const { router } = rendereApp(`/dealflow?gruppe=dealtyp&umfang=meine&status=investiert&fondsId=${FONDS_ID}&investmentmanagerId=${ICH_ID}&projektleiterId=${ANDERE_ID}`);
+    const { router } = rendereApp(`/dealflow?group=deal-type&scope=mine&status=invested&fundId=${FONDS_ID}&investmentManagerId=${ICH_ID}&projectLeadId=${ANDERE_ID}`);
     const nutzer = userEvent.setup();
     await screen.findByRole("link", { name: "Solar Beta" });
     await nutzer.type(screen.getByRole("searchbox"), "Solar");
@@ -432,7 +462,7 @@ describe("Persönliche Pipeline und Dealtyp-Gruppen", () => {
       "/api/v1/me": alsRolle("betrachter"),
       "/api/v1/dealflow/arbeitsliste": { koerper: { deals: [{ ...arbeitsdealDaten, investmentmanagerId: ICH_ID }], benutzerId: ICH_ID } },
     });
-    rendereApp("/dealflow?gruppe=dealtyp&umfang=meine");
+    rendereApp("/dealflow?group=deal-type&scope=mine");
     const board = await screen.findByRole("region", { name: "Deals nach Phase · Erstinvestment" });
     expect(within(board).getByRole("link", { name: "Nur lesbarer Deal" })).toBeTruthy();
     expect(within(board).queryByRole("button", { name: /anlegen|Verschieben:/ })).toBeNull();
@@ -444,7 +474,7 @@ describe("Persönliche Pipeline und Dealtyp-Gruppen", () => {
       ...crmDealAntworten([pipelineDeal("d1", "Folgerunde", { dealtyp: "anschlussinvestment" })]),
       "POST /api/v1/deals": { status: 201, koerper: dealDetailDaten },
     });
-    rendereApp("/dealflow?gruppe=dealtyp");
+    rendereApp("/dealflow?group=deal-type");
     const nutzer = userEvent.setup();
     const board = await screen.findByRole("region", { name: "Deals nach Phase · Anschlussinvestment" });
     expect(within(board).queryByRole("button", { name: "Deal in „Closing“ anlegen" })).toBeNull();

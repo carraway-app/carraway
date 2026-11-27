@@ -5,7 +5,8 @@ import { useOrganisationenVorschau, useOrganisationenZusammenfuehren, usePersone
 import { useT } from "../i18n";
 import { Seitenpanel } from "@carraway/ui";
 import { FehlerHinweis } from "./FehlerHinweis";
-import { KontaktAuswahl, type Treffer } from "./KontaktAuswahl";
+import type { Treffer } from "./KontaktAuswahl";
+import { VerknuepfungsFeld } from "./Suchfeld";
 
 type Seite = "ziel" | "quelle";
 export interface Vorschlag extends Treffer {
@@ -61,7 +62,7 @@ export function ZusammenfuehrenDialog({ art, id, name, vorschlaege, onSchliessen
   function senden() {
     if (!vorschau) return;
     const felder = Object.fromEntries(vorschau.felder.filter((f) => f.abweichend).map((f) => [f.feld, gilt(f)]));
-    const erfolg = { onSuccess: () => void navigate(art === "organisation" ? { to: "/organisationen/$id", params: { id: zielId } } : { to: "/personen/$id", params: { id: zielId } }).then(onSchliessen) };
+    const erfolg = { onSuccess: () => void navigate(art === "organisation" ? { to: "/organizations/$id", params: { id: zielId } } : { to: "/people/$id", params: { id: zielId } }).then(onSchliessen) };
     if (art === "organisation") orgAusfuehren.mutate({ id: zielId, json: { quelleId, felder } }, erfolg);
     else personAusfuehren.mutate({ id: zielId, json: { quelleId, felder } }, erfolg);
   }
@@ -101,7 +102,7 @@ export function ZusammenfuehrenDialog({ art, id, name, vorschlaege, onSchliessen
       {!anderer ? (
         <div className="app-formular">
           <p className="app-leer-text">{z.einleitung}</p>
-          <KontaktAuswahl art={art} label={z.suche} ausser={id} gewaehlt={null} onWaehlen={setAnderer} />
+          <VerknuepfungsFeld ziel={art} label={z.suche} wert={null} ausschliessen={new Set([id])} onWahl={setAnderer} />
           <h3 className="app-gruppen-titel">{z.vorschlaege}</h3>
           {vorschlaege.length === 0 ? (
             <p className="app-leer-text">{z.keineVorschlaege}</p>

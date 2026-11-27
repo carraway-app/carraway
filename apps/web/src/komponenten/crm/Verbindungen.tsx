@@ -5,8 +5,10 @@ import { crmBeschaeftigungen, useBeschaeftigungAendern, useBeschaeftigungAnlegen
 import { useRolleAnlegen, useRolleLoeschen } from "../../api/mutationen";
 import { aufzaehlung, useSprache, useT } from "../../i18n";
 import { FehlerHinweis } from "../FehlerHinweis";
-import { KontaktAuswahl, type Treffer } from "../KontaktAuswahl";
+import { KontaktAuswahl } from "../KontaktAuswahl";
 import { PersonDialog } from "../PersonDialog";
+import { PersonSuchfeld } from "../NeuAnlegenFelder";
+import type { SuchfeldTreffer } from "../Suchfeld";
 import { KONTAKT_ROLLEN, type RollenZeile } from "../Rollen";
 import { baueVerbindungen, type AltePerson, type Verbindung } from "./verbindungenLogik";
 import { Datensatzlink } from "./Datensatzlink";
@@ -154,7 +156,7 @@ function VerknuepfenDialog({ seite, id, bearbeiten, vorhanden = [], onOeffnen, o
   const anlegen = useBeschaeftigungAnlegen();
   const aendern = useBeschaeftigungAendern();
   const rolleAnlegen = useRolleAnlegen();
-  const [gewaehlt, setGewaehlt] = useState<Treffer | null>(null);
+  const [gewaehlt, setGewaehlt] = useState<SuchfeldTreffer | null>(null);
   const [ohneWahl, setOhneWahl] = useState(false);
   const [funktion, setFunktion] = useState(bearbeiten?.funktion ?? "");
   const [von, setVon] = useState(bearbeiten?.von ?? "");
@@ -203,7 +205,11 @@ function VerknuepfenDialog({ seite, id, bearbeiten, vorhanden = [], onOeffnen, o
       <form className="app-formular" noValidate onSubmit={(e) => void senden(e)}>
         <FehlerHinweis fehler={anlegen.error ?? aendern.error ?? rolleAnlegen.error} />
         {bearbeiten ? null : (
-          <KontaktAuswahl art={art} label={art === "person" ? t.crm.kontaktWaehlen : t.crm.unternehmenWaehlen} gewaehlt={gewaehlt} onWaehlen={setGewaehlt} fehler={ohneWahl && !gewaehlt ? t.auswahl.waehlen : undefined} />
+          art === "person" ? (
+            <PersonSuchfeld label={t.crm.kontaktWaehlen} wert={gewaehlt} onWahl={setGewaehlt} fehler={ohneWahl && !gewaehlt ? t.auswahl.waehlen : undefined} />
+          ) : (
+            <KontaktAuswahl art={art} label={t.crm.unternehmenWaehlen} gewaehlt={gewaehlt} onWaehlen={setGewaehlt} fehler={ohneWahl && !gewaehlt ? t.auswahl.waehlen : undefined} />
+          )
         )}
         {doppelt.length > 0 ? (
           <div className="app-verbindung__doppelt">

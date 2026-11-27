@@ -38,11 +38,16 @@ export interface WorkerKontext {
 export interface Anmeldeanbieter {
   socialProviders: Record<string, Record<string, unknown>>;
   vertraut: string[];
+  /** Anbieter, die eine bestätigte Adresse verlangen. Der Wert erlaubt die Verknüpfung mit einem bestehenden Konto. */
+  bestaetigteAdresse?: Record<string, boolean>;
 }
 
 export interface ApiErweiterung {
   /** Kurzer Name (Protokoll, Fehlermeldungen). */
   name: string;
+  dataProviders?: readonly import("./data-providers/types").DataProvider[];
+  /** Adapter für die Übernahme aus einem Vorsystem über dessen API (`/import/sources`, docs/import-from-source-systems.md). */
+  vorsysteme?: readonly import("@carraway/import/vorsystem").VorsystemAdapter[];
   /** Zusätzliche Routen, unter `/api/v1` eingehängt (nach den Routen des Kerns). Jede braucht eine Regel in `regeln`. */
   routen?: (k: ErweiterungsKontext) => Hono<any, any, any>; // eslint-disable-line @typescript-eslint/no-explicit-any -- jede Hono-Unter-App
   /** Einträge der Berechtigungstabelle für die Routen der Erweiterung (Bausteine aus `rechte/tabelle.ts`, Bereich am besten in der Zeile). */
@@ -76,6 +81,7 @@ export function anmeldeanbieterAus(erweiterungen: readonly ApiErweiterung[], kon
     if (!a) continue;
     Object.assign(ergebnis.socialProviders, a.socialProviders);
     ergebnis.vertraut.push(...a.vertraut);
+    if (a.bestaetigteAdresse) ergebnis.bestaetigteAdresse = { ...ergebnis.bestaetigteAdresse, ...a.bestaetigteAdresse };
   }
   return ergebnis;
 }

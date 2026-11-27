@@ -12,6 +12,8 @@ The core never imports from `ee/`. Extensions register through **extension point
 
 | Core | Extension (`ee/`) |
 |---|---|
+| [One-time CRM import](integrations/crm.md) | Continuous CRM synchronization and provider-managed records |
+| [Import from source systems](import-from-source-systems.md): pipeline, intermediate model, dry run and acceptance log | Adapters for specific source systems |
 | Dealflow, contacts, records and documents | Excel add-in: personal value keys, manifest, values API and reviewed imports (`/excel`, `/values`, `/value-keys`), Excel tab in settings |
 | Capital and journal, subscriptions, closings and investor commitment changes | LP portal: investor access (`/portal`), investor users (`/investors`) and access management for fund investors (`…/investor-access/access`) |
 | Valuations and metrics, link-based metric requests | ESG and SFDR: questionnaires, PAI indicators, Article 6/8/9 classification and PAI statement report type |
@@ -42,13 +44,14 @@ Packages in `ee/` use the core through package names with subpaths, for example 
 - `anmeldeanbieter` registers Better Auth providers for single sign-on. `GET /environment` lists them.
 - `berichtsarten` adds report types with files, control reports, free-text fields and creation defaults (`berichte/arten.ts`).
 - `betrieb` adds operational status under `erweiterungen.<name>`.
+- `vorsysteme` registers adapters for the [import from source systems](import-from-source-systems.md) (`/import/sources`).
 - `anhaenge` in the route context imports an attachment from the user's own mailbox as a document, with a size limit, type validation and an action inside the write transaction.
 - `postfachMails` runs during mailbox sync after newly arrived mail from known people is saved. Text is available through a callback and isn't stored. Errors leave sync running.
 - `warteschlangen`, `worker` and `verteilen` add queues, workers and dispatch steps to the worker (pg-boss).
 
 **Web app** (`apps/web/src/erweiterung.ts`, type `WebErweiterung`, registered with `meldeErweiterungAn`)
 
-- `routen` adds routes at the root or in the fund layout (`/fonds/$fondsId/…`). URL types cover the core only.
+- `routen` adds routes at the root or in the fund layout (`/funds/$fundId/…`). URL types cover the core only.
 - `texte` adds translation namespaces that load with the pages that need them.
 - `fondsReiter`, `beteiligungReiter`, `einstellungenReiter` and `verwaltungBereiche` add entries to navigation lists.
 - `datensatzErgaenzung` (section on a person or company page), `postfachEinstellungen` (card under Mailbox and calendar), `fondsInvestoren`, `dokumentAktion`, `anhangAktion`, `berichtsarten`, `anmeldung` and `betriebZeilen` add components in predefined places on core pages.

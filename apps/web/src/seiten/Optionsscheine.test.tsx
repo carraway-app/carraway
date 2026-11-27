@@ -1,13 +1,13 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
-import { BET_ID, FONDS_ID, ORG_A, ORG_B, fehler, ichDaten, instrumentDaten, instrumentZeile, kapitalDaten, letzteRegion, rendereApp, spieleApi } from "../test/hilfen";
+import { BET_ID, FONDS_ID, ORG_A, ORG_B, fehler, ichDaten, instrumentDaten, instrumentZeile, kapitalDaten, letzteRegion, rendereApp, spieleApi, zeilenAktion } from "../test/hilfen";
 
 /** Oberfläche für SAFE, Optionsscheine (Ausübung, Storno) und Anteilsübertragungen (Liste, Erfassen, Storno, Sammelzeilen „Andere Fonds“). */
 
-const url = `/beteiligungen/${BET_ID}`;
-const instrumenteUrl = `${url}?tab=finanzierung&unter=instrumente`;
-const kapitalUrl = `${url}?tab=finanzierung&unter=kapitaltabelle`;
+const url = `/investments/${BET_ID}`;
+const instrumenteUrl = `${url}?tab=financing&subtab=instruments`;
+const kapitalUrl = `${url}?tab=financing&subtab=cap-table`;
 const OS_ID = "os1";
 const SAFE_ID = "safe1";
 const AUS_ID = "aaaaaaaa-0000-4000-8000-000000000001";
@@ -202,9 +202,9 @@ describe("Anteilsübertragungen in der Captable", () => {
   it("Storno der Übertragung mit Grund über die API", async () => {
     const api = spieleApi({ [SHARE]: { koerper: { data: [uebertragung(UE_ID)] } }, [`POST ${SHARE}/${UE_ID}/reverse`]: { status: 201, koerper: {} }, "/api/v1/ich": { koerper: { ...ichDaten, globalVerwalter: true } } });
     rendereApp(kapitalUrl);
-    const abschnitt = within(await letzteRegion("Anteilsübertragungen"));
+    await letzteRegion("Anteilsübertragungen");
     const nutzer = userEvent.setup();
-    await nutzer.click(await abschnitt.findByRole("button", { name: /Übertragung vom .* über 20\.000 Anteile stornieren/ }));
+    await nutzer.click((await zeilenAktion(/Übertragung vom .* über 20\.000 Anteile stornieren/))!);
     const d = await screen.findByRole("dialog").then((e) => within(e));
     await nutzer.type(d.getByLabelText("Grund"), "Falscher Käufer");
     await nutzer.click(d.getByRole("button", { name: "Übertragung stornieren" }));

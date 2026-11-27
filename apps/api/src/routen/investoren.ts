@@ -7,6 +7,7 @@ import { bericht, fonds, fondsBewegung, fondsClosing, fondsClosingBasis, fondsCl
 import { Decimal, verteileAnteilig } from "@carraway/rechenkern";
 import { abgerufen, sperreFonds } from "../instrumente/fondsbewegung";
 import { ladeKapitalstand } from "../instrumente/kapitalstand";
+import { berechneAnteile, bewerteZusagen, pruefeZusagenVollstaendig } from "../instrumente/zusagen";
 import { pruefePeriodensperre } from "../instrumente/zustand";
 import { bereitsZusammengefuehrtFehler, Fachfehler } from "../fehler";
 import { schreibe, textEingabe, type Protokollant } from "../schreiben";
@@ -23,6 +24,10 @@ const zeichnungenEingabe = z.strictObject({
     organisationId: z.uuid().transform((id) => id.toLowerCase()),
     zusage: z.string().regex(/^\d{1,16}(\.\d{1,2})?$/).refine((wert) => /[1-9]/.test(wert), "Positive commitment expected"),
   })).min(1).max(200),
+});
+const zeichnungParam = z.object({ fondsId: z.uuid(), organisationId: z.uuid().transform((id) => id.toLowerCase()) });
+const zusageEingabe = z.strictObject({
+  zusage: z.string().regex(/^\d{1,16}(\.\d{1,2})?$/).refine((wert) => /[1-9]/.test(wert), "Positive commitment expected"),
 });
 const betragEingabe = z.string().regex(/^\d{1,16}(\.\d{1,2})?$/).refine((wert) => /[1-9]/.test(wert), "Positive amount expected");
 const closingEingabe = z.strictObject({
@@ -78,6 +83,101 @@ async function hatFondsaktivitaet(tx: Tx, fondsId: string): Promise<boolean> {
       OR EXISTS (SELECT 1 FROM ${bericht} WHERE ${bericht.fondsId} = ${fondsId}) AS aktiv
   `);
   return rows[0]!.aktiv;
+}
+
+type FondsZeile = typeof fonds.$inferSelect;
+type ZeichnungZeile = typeof fondsZeichnung.$inferSelect;
+
+/**
+ * Ob die Ersterfassung der Zusagen offen ist (Issue #275): ohne weiteres Closing und mit positivem Zeichnungskapital, solange die Zusagen
+ * unvollständig sind oder der Fonds noch keine Kapitalbewegung, Fondskosten oder Berichte hat. Unvollständige Zusagen sperren die
+ * verteilenden Vorgänge; deshalb bleibt die Erfassung auch nach einem Bericht ohne LP-Verteilung offen, bis sie vollständig ist.
+ */
+async function erfassungOffen(tx: Tx, f: FondsZeile, bestand: Pick<ZeichnungZeile, "zusage">[]): Promise<boolean> {
+  if (!new Decimal(f.zeichnungskapital).gt(0)) return false;
+  const [closing] = await tx.select({ id: fondsClosing.id }).from(fondsClosing).where(eq(fondsClosing.fondsId, f.id)).limit(1);
+  if (closing) return false;
+  // Bestandsfonds mit fest gespeicherten Anteilen (Verteilung nach Anteil): Zusagen bleiben wie bisher gesperrt.
+  if (bestand.length > 0 && !f.lpVerteilungNachZusage) return false;
+  const stand = bewerteZusagen(f.zeichnungskapital, Decimal.sum(0, ...bestand.map((b) => b.zusage)), bestand.length, f.lpVerteilungNachZusage);
+  return !stand.vollstaendig || !(await hatFondsaktivitaet(tx, f.id));
+}
+
+async function verlangeErfassungOffen(tx: Tx, f: FondsZeile, bestand: ZeichnungZeile[]) {
+  if (!(await erfassungOffen(tx, f, bestand))) {
+    throw new Fachfehler(409, "lp_subscription_initial_locked", "Subscriptions can only be recorded until they are complete and the fund has capital movements, reports or closings.");
+  }
+}
+
+/**
+ * Schreibt den neuen Stand der Zusagen der Ersterfassung: `nachher` je Organisation (fehlende werden entfernt). Prüft, dass die Summe das
+ * Zeichnungskapital nicht überschreitet, rechnet alle Anteile neu (`berechneAnteile`) und protokolliert jede geänderte Zeile.
+ */
+async function schreibeZusagen(tx: Tx, protokoll: Protokollant, f: FondsZeile, bestand: ZeichnungZeile[], nachher: Map<string, Decimal>) {
+  const sortiert = [...nachher.entries()].sort(([a], [b]) => a.localeCompare(b));
+  const summe = Decimal.sum(0, ...sortiert.map(([, zusage]) => zusage));
+  if (summe.gt(f.zeichnungskapital)) {
+    throw new Fachfehler(409, "lp_commitments_exceed_capital", "The sum of the commitments must not exceed the subscribed capital.", {
+      zeichnungskapital: new Decimal(f.zeichnungskapital).toFixed(2),
+      summe: summe.toFixed(2),
+    });
+  }
+  const anteile = berechneAnteile(f.zeichnungskapital, sortiert.map(([, zusage]) => zusage));
+  if (anteile.some((a) => !a.gt(0))) {
+    throw new Fachfehler(400, "lp_subscription_share_too_small", "At least one commitment results in a share of zero at six decimal places.");
+  }
+  const vorhanden = new Map(bestand.map((b) => [b.organisationId, b]));
+  const aenderungen: { aktion: "anlegen" | "aendern" | "loeschen"; tabelle: string; datensatzId: string; vorher?: unknown; nachher?: unknown }[] = [];
+  const angelegt: ZeichnungZeile[] = [];
+  for (const b of bestand.toSorted((x, y) => x.organisationId.localeCompare(y.organisationId))) {
+    if (nachher.has(b.organisationId)) continue;
+    await tx.delete(fondsZeichnung).where(eq(fondsZeichnung.id, b.id));
+    aenderungen.push({ aktion: "loeschen", tabelle: "fonds_zeichnung", datensatzId: b.id, vorher: b });
+  }
+  const neueZeilen = sortiert.flatMap(([organisationId, zusage], i) => vorhanden.has(organisationId) ? [] : [{ fondsId: f.id, organisationId, zusage: zusage.toFixed(2), anteil: anteile[i]!.toFixed(6) }]);
+  if (neueZeilen.length) {
+    angelegt.push(...await tx.insert(fondsZeichnung).values(neueZeilen).returning());
+    aenderungen.push(...angelegt.map((z) => ({ aktion: "anlegen" as const, tabelle: "fonds_zeichnung", datensatzId: z.id, nachher: z })));
+  }
+  for (const [i, [organisationId, zusage]] of sortiert.entries()) {
+    const alt = vorhanden.get(organisationId);
+    if (!alt) continue;
+    const werte = { zusage: zusage.toFixed(2), anteil: anteile[i]!.toFixed(6) };
+    if (new Decimal(alt.zusage).eq(werte.zusage) && new Decimal(alt.anteil).eq(werte.anteil)) continue;
+    const [geaendert] = await tx.update(fondsZeichnung).set(werte).where(eq(fondsZeichnung.id, alt.id)).returning();
+    aenderungen.push({ aktion: "aendern", tabelle: "fonds_zeichnung", datensatzId: alt.id, vorher: alt, nachher: geaendert });
+  }
+  if (!f.lpVerteilungNachZusage) {
+    await tx.update(fonds).set({ lpVerteilungNachZusage: true }).where(eq(fonds.id, f.id));
+  }
+  await protokoll.mehrere(aenderungen);
+  return { angelegt, abgedeckt: summe.toFixed(2) };
+}
+
+/**
+ * Neues Zeichnungskapital eines Fonds mit Zusagen (Stammdaten). Bei Fonds mit Verteilung nach Zusagen und offener Ersterfassung darf es
+ * nicht unter der Summe der Zusagen liegen, und die Anteile werden neu gerechnet. Das schreibt Zeichnungen und ist deshalb wie die
+ * Erfassung der Zusagen globalen Verwaltern vorbehalten (`globalVerwalter`); Verwalter des Fonds erhalten 403. In allen anderen Fällen
+ * (Bestandsfonds mit fest gespeicherten Anteilen, abgeschlossene Erfassung) muss es wie bisher der Summe der Zusagen entsprechen; die
+ * Anteile und die Verteilungsart bleiben unverändert.
+ */
+export async function pruefeNeuesZeichnungskapital(tx: Tx, protokoll: Protokollant, f: FondsZeile, kapital: string, globalVerwalter: boolean) {
+  const bestand = await tx.select().from(fondsZeichnung).where(eq(fondsZeichnung.fondsId, f.id)).for("update");
+  if (bestand.length === 0) return;
+  const summe = Decimal.sum(0, ...bestand.map((b) => b.zusage));
+  if (f.lpVerteilungNachZusage && await erfassungOffen(tx, f, bestand)) {
+    if (!globalVerwalter) {
+      throw new Fachfehler(403, "forbidden", "Changing the subscribed capital recalculates the shares of the commitments and is reserved for global administrators.");
+    }
+    if (summe.gt(kapital)) {
+      throw new Fachfehler(409, "lp_commitments_exceed_capital", "The subscribed capital must not be below the sum of the recorded commitments.", { zeichnungskapital: new Decimal(kapital).toFixed(2), summe: summe.toFixed(2) });
+    }
+    await schreibeZusagen(tx, protokoll, { ...f, zeichnungskapital: kapital }, bestand, new Map(bestand.map((b) => [b.organisationId, new Decimal(b.zusage)])));
+    return;
+  }
+  if (!summe.eq(kapital)) {
+    throw new Fachfehler(409, "lp_commitments_capital_mismatch", "The subscribed capital must equal the sum of the recorded commitments.");
+  }
 }
 
 /** Weitere Closings des Fonds, älteste zuerst, mit Zusagen und Ausgleich. `beitritt`: der Investor hatte vorher keine Zusage im Fonds. */
@@ -147,6 +247,8 @@ async function legeVorgangAn(tx: Tx, protokoll: Protokollant, fondsId: string, {
   if (bestand.length === 0) {
     throw new Fachfehler(409, "lp_closing_without_initial", "A further closing requires the initial entry of subscriptions.");
   }
+  // Ein Vorgang verschiebt das Zeichnungskapital um die Änderung der Zusagen; er setzt vollständig erfasste Zusagen voraus (Issue #275).
+  await pruefeZusagenVollstaendig(tx, fondsId);
   await pruefePeriodensperre(tx, fondsId, wirksamAm);
   const [letztes] = await tx.select({ wirksamAm: fondsClosing.wirksamAm }).from(fondsClosing).leftJoin(fondsClosingStorno, eq(fondsClosingStorno.closingId, fondsClosing.id)).where(and(eq(fondsClosing.fondsId, fondsId), isNull(fondsClosingStorno.closingId))).orderBy(sql`${fondsClosing.wirksamAm} DESC`).limit(1);
   if (letztes && wirksamAm < letztes.wirksamAm) {
@@ -315,7 +417,7 @@ export function fondsInvestorRouten(db: Db) {
     .get("/", pruefeFonds("param", fondsParam), async (c) => {
       const { fondsId } = c.req.valid("param");
       const sicht = await lese(db, async (tx) => {
-        const [vorhanden] = await tx.select({ zeichnungskapital: fonds.zeichnungskapital, waehrung: fonds.waehrung }).from(fonds).where(eq(fonds.id, fondsId));
+        const [vorhanden] = await tx.select().from(fonds).where(eq(fonds.id, fondsId));
         if (!vorhanden) throw new Fachfehler(404, "fund_not_found", "Fund not found.");
         const zeichnungen = await tx
           .select({ id: organisation.id, name: organisation.name, art: organisation.art, zusammengefuehrtIn: organisation.zusammengefuehrtIn, zusage: fondsZeichnung.zusage, anteil: fondsZeichnung.anteil, ausgetreten: fondsZeichnung.ausgetreten })
@@ -327,11 +429,17 @@ export function fondsInvestorRouten(db: Db) {
         // Bisher abgerufener Betrag je Investor: untere Grenze für eine verringerte Zusage.
         const abgerufenJe = zeichnungen.length > 0 ? (await ladeKapitalstand(tx, fondsId, "9999-12-31")).jeLp : null;
         const closings = await ladeClosings(tx, fondsId);
-        const initialisierungMoeglich = zeichnungen.length === 0 && new Decimal(vorhanden.zeichnungskapital).gt(0) && !(await hatFondsaktivitaet(tx, fondsId));
-        return { ...vorhanden, organisationen, initialisierungMoeglich, closings, closingMoeglich: zeichnungen.length > 0, zeichnungen: zeichnungen.map(({ id, name, zusage, anteil, ausgetreten }) => ({ id, name, zusage, anteil, ausgetreten, abgerufen: abgerufenJe?.get(id)?.abgerufen ?? "0.00" })) };
+        const stand = bewerteZusagen(vorhanden.zeichnungskapital, Decimal.sum(0, ...zeichnungen.map((z) => z.zusage)), zeichnungen.length, vorhanden.lpVerteilungNachZusage);
+        const erfassungMoeglich = await erfassungOffen(tx, vorhanden, zeichnungen);
+        const { zeichnungskapital, waehrung } = vorhanden;
+        return { zeichnungskapital, waehrung, abgedeckt: stand.abgedeckt, vollstaendig: stand.vollstaendig, organisationen, erfassungMoeglich, closings, closingMoeglich: zeichnungen.length > 0 && stand.vollstaendig, zeichnungen: zeichnungen.map(({ id, name, zusage, anteil, ausgetreten }) => ({ id, name, zusage, anteil, ausgetreten, abgerufen: abgerufenJe?.get(id)?.abgerufen ?? "0.00" })) };
       });
       return c.json(fondsAnApi(sicht), 200);
     })
+    /**
+     * Ersterfassung der Zusagen, auch schrittweise (Issue #275): fügt Zusagen hinzu. Die Summe darf das Zeichnungskapital nicht
+     * überschreiten; der Anteil ist Zusage / Zeichnungskapital (`berechneAnteile`).
+     */
     .post("/subscriptions", pruefeFonds("param", fondsParam), pruefeFonds("json", zeichnungenEingabe), async (c) => {
       const { fondsId } = c.req.valid("param");
       const { zeichnungen } = c.req.valid("json");
@@ -342,32 +450,51 @@ export function fondsInvestorRouten(db: Db) {
       const ergebnis = await schreibe(db, c, async (tx, protokoll) => {
         // Dieselbe Fondszeile sperrt Bewegungen und Stammdaten. Der Fonds-Fremdschlüssel serialisiert auch die Berichtsanlage.
         const f = await sperreFonds(tx, fondsId);
-        const [vorhanden] = await tx.select({ id: fondsZeichnung.id }).from(fondsZeichnung).where(eq(fondsZeichnung.fondsId, fondsId)).limit(1);
-        if (vorhanden || await hatFondsaktivitaet(tx, fondsId)) {
-          throw new Fachfehler(409, "lp_subscription_initial_locked", "The initial entry is only possible before subscriptions, capital movements and reports.");
+        const bestand = await tx.select().from(fondsZeichnung).where(eq(fondsZeichnung.fondsId, fondsId)).for("update");
+        await verlangeErfassungOffen(tx, f, bestand);
+        if (bestand.some((b) => organisationIds.has(b.organisationId))) {
+          throw new Fachfehler(409, "lp_subscription_duplicate", "Each investor organization may subscribe to the fund only once.");
         }
-        const sortiert = zeichnungen.toSorted((a, b) => a.organisationId.localeCompare(b.organisationId));
-        const zusagen = sortiert.map((z) => new Decimal(z.zusage));
-        if (!Decimal.sum(...zusagen).eq(f.zeichnungskapital)) {
-          throw new Fachfehler(409, "lp_commitments_capital_mismatch", "The sum of the commitments must equal the subscribed capital.");
-        }
-        // Das Verteilungsverfahren arbeitet in Cent. 10.000 Einheiten ergeben eine Million Anteile der kleinsten Einheit.
-        const anteile = verteileAnteilig("10000", zusagen).map((a) => a.div(10000));
-        if (anteile.some((a) => !a.gt(0))) {
-          throw new Fachfehler(400, "lp_subscription_share_too_small", "At least one commitment results in a share of zero at six decimal places.");
-        }
-        for (const { organisationId } of sortiert) {
+        const nachher = new Map(bestand.map((b) => [b.organisationId, new Decimal(b.zusage)]));
+        for (const z of zeichnungen) nachher.set(z.organisationId, new Decimal(z.zusage));
+        for (const organisationId of [...organisationIds].sort()) {
           const org = await ladeInvestorOrganisation(tx, organisationId);
           if (org.archiviertAm) throw new Fachfehler(404, "organization_not_found", "The investor organization is archived.");
         }
-        const neu = await tx.insert(fondsZeichnung).values(sortiert.map(({ organisationId }, i) => ({
-          fondsId, organisationId, zusage: zusagen[i]!.toFixed(2), anteil: anteile[i]!.toFixed(6),
-        }))).returning();
-        await tx.update(fonds).set({ lpVerteilungNachZusage: true }).where(eq(fonds.id, fondsId));
-        await protokoll.mehrere(neu.map((z) => ({ aktion: "anlegen", tabelle: "fonds_zeichnung", datensatzId: z.id, nachher: z })));
-        return neu;
+        const { angelegt } = await schreibeZusagen(tx, protokoll, f, bestand, nachher);
+        return angelegt.toSorted((a, b) => a.organisationId.localeCompare(b.organisationId));
       });
       return c.json(fondsAnApi({ daten: ergebnis }), 201);
+    })
+    /** Ändert eine Zusage der Ersterfassung (Issue #275); die Anteile aller Zusagen werden neu gerechnet. */
+    .patch("/subscriptions/:organizationId", pruefeFonds("param", zeichnungParam), pruefeFonds("json", zusageEingabe), async (c) => {
+      const { fondsId, organisationId } = c.req.valid("param");
+      const { zusage } = c.req.valid("json");
+      const ergebnis = await schreibe(db, c, async (tx, protokoll) => {
+        const f = await sperreFonds(tx, fondsId);
+        const bestand = await tx.select().from(fondsZeichnung).where(eq(fondsZeichnung.fondsId, fondsId)).for("update");
+        await verlangeErfassungOffen(tx, f, bestand);
+        if (!bestand.some((b) => b.organisationId === organisationId)) throw new Fachfehler(404, "lp_subscription_not_found", "The investor has no commitment in this fund.");
+        const nachher = new Map(bestand.map((b) => [b.organisationId, new Decimal(b.zusage)]));
+        nachher.set(organisationId, new Decimal(zusage));
+        const { abgedeckt } = await schreibeZusagen(tx, protokoll, f, bestand, nachher);
+        const [zeile] = await tx.select().from(fondsZeichnung).where(and(eq(fondsZeichnung.fondsId, fondsId), eq(fondsZeichnung.organisationId, organisationId)));
+        return { ...zeile!, abgedeckt };
+      });
+      return c.json(fondsAnApi(ergebnis), 200);
+    })
+    /** Entfernt eine Zusage der Ersterfassung (Issue #275); die Anteile der übrigen Zusagen werden neu gerechnet. */
+    .delete("/subscriptions/:organizationId", pruefeFonds("param", zeichnungParam), async (c) => {
+      const { fondsId, organisationId } = c.req.valid("param");
+      await schreibe(db, c, async (tx, protokoll) => {
+        const f = await sperreFonds(tx, fondsId);
+        const bestand = await tx.select().from(fondsZeichnung).where(eq(fondsZeichnung.fondsId, fondsId)).for("update");
+        await verlangeErfassungOffen(tx, f, bestand);
+        if (!bestand.some((b) => b.organisationId === organisationId)) throw new Fachfehler(404, "lp_subscription_not_found", "The investor has no commitment in this fund.");
+        const nachher = new Map(bestand.filter((b) => b.organisationId !== organisationId).map((b) => [b.organisationId, new Decimal(b.zusage)]));
+        await schreibeZusagen(tx, protokoll, f, bestand, nachher);
+      });
+      return c.body(null, 204);
     })
     /** Weiteres Closing (Issue #113); siehe `legeClosingAn`. */
     .post("/closings", pruefeFonds("param", fondsParam), pruefeFonds("json", closingEingabe), async (c) => {

@@ -6,7 +6,7 @@ import { FONDS_ID, alsRolle, fondsDaten, ichAlsApi, ichDaten, rendereApp, spiele
 const kontakte = alsRolle("bearbeiter", { bereiche: ["kontakte"], bereicheJeFonds: { [FONDS_ID]: { kontakte: "bearbeiter" } } });
 
 describe("Navigation nach den Rechten der Sitzung", () => {
-  it.each(["/portal", "/portal/dokumente", "/", `/fonds/${FONDS_ID}`])("zeigt Investoren unter %s den Portalhinweis ohne interne Abfragen", async (pfad) => {
+  it.each(["/portal", "/portal/documents", "/", `/funds/${FONDS_ID}`])("zeigt Investoren unter %s den Portalhinweis ohne interne Abfragen", async (pfad) => {
     const api = spieleApi({ "/api/v1/me": { koerper: ichAlsApi({ ...ichDaten, globalVerwalter: false, investor: true }) } });
     rendereApp(pfad);
     await screen.findByRole("heading", { level: 1, name: /Investorenportal/ });
@@ -17,7 +17,7 @@ describe("Navigation nach den Rechten der Sitzung", () => {
 
   it("lässt die Kontaktrolle auch über einen gespeicherten Deal-Link nur Kontakte öffnen", async () => {
     const api = spieleApi({ "/api/v1/me": kontakte });
-    const { router } = rendereApp("/kontakte?objekt=deal&neu=1");
+    const { router } = rendereApp("/contacts?object=deal&new=1");
     await screen.findByRole("button", { name: "Neues Unternehmen" });
     expect(router.state.location.search).toEqual({});
     expect(screen.queryByRole("tab", { name: "Deals" })).toBeNull();
@@ -26,12 +26,13 @@ describe("Navigation nach den Rechten der Sitzung", () => {
     expect(api.aufrufe.filter((a) => a.pfad.includes("/deal"))).toEqual([]);
     await userEvent.click(screen.getByRole("button", { name: /^Suchen/ }));
     const suche = within(await screen.findByRole("dialog", { name: "Suche" }));
-    expect(suche.queryByRole("button", { name: /Deal/ })).toBeNull();
+    // Kein Deal-Eintrag; die Gruppe „Dealflow & CRM“ benennt nur den Zusammenhang der Kontakte.
+    expect(suche.queryAllByRole("button", { name: /Deal/ }).filter((b) => !(b.textContent ?? "").startsWith("Dealflow & CRM · "))).toEqual([]);
   });
 
   it("zeigt mit Leserecht im Dealflow die Deals, auch bei Schreibrecht in Kontakte ohne Anlage", async () => {
     spieleApi({ "/api/v1/me": alsRolle("bearbeiter", { bereiche: ["kontakte", "dealflow"], bereicheJeFonds: { [FONDS_ID]: { kontakte: "bearbeiter", dealflow: "betrachter" } } }) });
-    rendereApp("/kontakte?objekt=deal&neu=1");
+    rendereApp("/contacts?object=deal&new=1");
     expect((await screen.findByRole("tab", { name: "Deals" })).getAttribute("aria-selected")).toBe("true");
     expect(screen.queryByRole("button", { name: "Neuer Deal" })).toBeNull();
     expect(screen.queryByRole("dialog")).toBeNull();
@@ -39,14 +40,14 @@ describe("Navigation nach den Rechten der Sitzung", () => {
 
   it("lädt für Controlling weder Zähler noch Liste der Wiedervorlagen, auch beim Direktaufruf", async () => {
     const api = spieleApi({ "/api/v1/me": alsRolle("bearbeiter", { bereiche: ["portfolio", "finanzen", "berichte", "meldewesen", "kennzahlen"] }) });
-    rendereApp("/wiedervorlagen");
+    rendereApp("/follow-ups");
     await screen.findByRole("heading", { level: 1, name: "Fonds" });
     expect(screen.queryByRole("link", { name: /Wiedervorlagen/ })).toBeNull();
     expect(api.anfragen("GET", "/api/v1/wiedervorlagen/anzahl")).toHaveLength(0);
     expect(api.anfragen("GET", "/api/v1/wiedervorlagen")).toHaveLength(0);
   });
 
-  it.each([false, true])("öffnet über die Fondsauswahl die erlaubten Stammdaten (Portfolio am ersten Fonds: %s)", async (mitPortfolio) => {
+  it.each([false, true])("öffnet aus der Fondsliste die erlaubten Stammdaten (Portfolio am ersten Fonds: %s)", async (mitPortfolio) => {
     const fonds = { ...fondsDaten.daten[0]!, id: "22222222-2222-4222-8222-222222222222", name: "Beispielfonds II" };
     const api = spieleApi({
       "/api/v1/me": alsRolle("bearbeiter", {
@@ -57,11 +58,11 @@ describe("Navigation nach den Rechten der Sitzung", () => {
       "/api/v1/fonds": { koerper: { daten: [...fondsDaten.daten, fonds] } },
       [`/api/v1/fonds/${fonds.id}`]: { koerper: fonds },
     });
-    const { router } = rendereApp("/kontakte");
-    await screen.findByRole("option", { name: fonds.name });
-    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Fonds" }), fonds.id);
+    const { router } = rendereApp("/funds");
+    // Ohne Portfolio am Fonds führt der Fonds aus der Liste auf seine Stammdaten.
+    await userEvent.click(await within(await screen.findByRole("main")).findByRole("link", { name: fonds.name }));
     await screen.findByRole("heading", { level: 1, name: fonds.name });
-    expect(router.state.location.pathname).toBe("/fonds");
+    expect(router.state.location.pathname).toBe("/funds");
     expect(router.state.location.search).toEqual({ fondsId: fonds.id });
     expect(api.anfragen("GET", `/api/v1/fonds/${fonds.id}/uebersicht`)).toHaveLength(0);
   });

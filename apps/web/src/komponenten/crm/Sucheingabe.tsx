@@ -1,5 +1,6 @@
 import { useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { OHNE_PASSWORTMANAGER } from "@carraway/ui";
 import { suche } from "../../api/abfragen";
 import { crmZustaendige, type Objekt } from "../../api/crm";
 import { useT } from "../../i18n";
@@ -68,7 +69,7 @@ export function Sucheingabe({ label, treffer, laedt, leerText, onSuche, onWaehle
         aria-controls={`${basis}-liste`}
         aria-activedescendant={alle.length > 0 ? optionId(markiert) : undefined}
         aria-autocomplete="list"
-        autoComplete="off"
+        {...OHNE_PASSWORTMANAGER}
         autoFocus={autoFokus}
         value={text}
         onChange={(e) => {

@@ -150,6 +150,20 @@ const ROH: Regel[] = [
   regel("GET", "/users/names", "betrachter"),
   // Betriebsstatus (Verwaltung → Betrieb): Migrationsstand, Worker, Rückstände, Ablage, SMTP, Angaben der Erweiterungen.
   global("GET", "/operations/status"),
+  global("GET", "/data-providers"),
+  global("PUT", "/data-providers/:provider"),
+  global("DELETE", "/data-providers/:provider"),
+  global("POST", "/data-providers/:provider/test"),
+  regel("GET", "/organizations/:id/provider-data", "betrachter"),
+  regel("POST", "/organizations/:id/provider-data/search", "bearbeiter", [], { nurMensch: true }),
+  regel("POST", "/organizations/:id/provider-data/fetch", "bearbeiter", [], { nurMensch: true }),
+  regel("POST", "/organizations/:id/provider-data/:suggestionId/review", "bearbeiter", [], { nurMensch: true }),
+  global("GET", "/integrations"),
+  global("PUT", "/integrations/:provider"),
+  global("POST", "/integrations/:provider/preview"),
+  global("GET", "/integrations/:provider/runs"),
+  global("POST", "/integrations/runs/:id/apply"),
+  global("POST", "/integrations/runs/:id/cancel"),
   global("GET", "/api-keys"),
   global("POST", "/api-keys"),
   global("DELETE", "/api-keys/:id"),
@@ -158,6 +172,8 @@ const ROH: Regel[] = [
   // Zugänge zum LP-Portal (Investor-Benutzer) bringt die Erweiterung LP-Portal mit (`ee/`).
   regel("GET", "/funds/:fundId/investor-access", "verwalter", [pfad("fonds", "fundId")], { nurMensch: true }),
   global("POST", "/funds/:fundId/investor-access/subscriptions"),
+  global("PATCH", "/funds/:fundId/investor-access/subscriptions/:organizationId"),
+  global("DELETE", "/funds/:fundId/investor-access/subscriptions/:organizationId"),
   global("POST", "/funds/:fundId/investor-access/closings"),
   global("POST", "/funds/:fundId/investor-access/commitment-changes"),
   global("POST", "/funds/:fundId/investor-access/closings/:closingId/reverse"),
@@ -324,6 +340,7 @@ const ROH: Regel[] = [
 
   // Kontakte: ohne Fonds, Rolle an irgendeinem Fonds ----------------------------------------------------------------
   regel("GET", "/organizations/duplicates", "betrachter"),
+  regel("GET", "/organizations/values", "betrachter"),
   regel("GET", "/organizations", "betrachter"),
   regel("GET", "/organizations/:id", "betrachter"),
   regel("POST", "/organizations", "bearbeiter"),
@@ -365,7 +382,8 @@ const ROH: Regel[] = [
   regel("GET", "/organizations/:id/share-classes", "betrachter", [pfad("organisationHalter")]),
   regel("POST", "/organizations/:id/share-classes", "bearbeiter", [pfad("organisationHalter")]),
   regel("PATCH", "/organizations/:id/share-classes/:classId", "bearbeiter", [pfad("organisationHalter")]),
-  // Mitarbeiterbeteiligung eines Unternehmens (Pools, Änderungen, Zuteilungen): Pool sichtbar = Runden sichtbar (Entscheidung 486). Die Tabelle
+  // Mitarbeiterbeteiligung eines Unternehmens (Pools, Änderungen, Zuteilungen): Pool sichtbar = Runden sichtbar (Entscheidung 486), Zuteilungen
+  // im eigenen Bereich `einzelzuteilungen` (Entscheidung 522). Die Tabelle
   // verlangt die Mindestrolle irgendwo; die Handler prüfen wie bei den Runden (lesen: `verlangeRundenLeserecht`, schreiben: `verlangeRundenrecht` bearbeiter).
   regel("GET", "/organizations/:id/employee-pools", "betrachter"),
   regel("POST", "/organizations/:id/employee-pools", "bearbeiter"),
@@ -375,6 +393,8 @@ const ROH: Regel[] = [
   regel("DELETE", "/organizations/:id/employee-pools/:poolId/changes/:changeId", "bearbeiter"),
   regel("POST", "/organizations/:id/employee-pools/:poolId/grants", "bearbeiter"),
   regel("PATCH", "/organizations/:id/employee-pools/:poolId/grants/:grantId", "bearbeiter"),
+  regel("DELETE", "/organizations/:id/employee-pools/:poolId/grants/:grantId", "bearbeiter"),
+  regel("POST", "/organizations/:id/employee-pools/:poolId/grants/:grantId/anonymize", "bearbeiter"),
   regel("POST", "/organizations/:id/employee-pools/:poolId/grants/:grantId/departures", "bearbeiter"),
   regel("PATCH", "/organizations/:id/employee-pools/:poolId/grants/:grantId/departures/:departureId", "bearbeiter"),
   regel("DELETE", "/organizations/:id/employee-pools/:poolId/grants/:grantId/departures/:departureId", "bearbeiter"),
@@ -411,6 +431,7 @@ const ROH: Regel[] = [
   regel("DELETE", "/round-positions/:id/payments/:paymentId", "bearbeiter"),
   regel("GET", "/people", "betrachter"),
   regel("GET", "/people/duplicates", "betrachter"),
+  regel("GET", "/people/values", "betrachter"),
   regel("GET", "/people/:id", "betrachter"),
   regel("POST", "/people", "bearbeiter"),
   regel("PATCH", "/people/:id", "bearbeiter"),
@@ -542,6 +563,9 @@ const ROH: Regel[] = [
 
   // Import: Vorlage und Läufe. Hochladen und Prüfen = bearbeiter, Übernehmen = freigeber (nur Menschen, andere Person als
   // Hochladende und Prüfende). Die Handler prüfen zusätzlich die Rolle an jedem Fonds, den die Datei berührt (Entscheidung 120).
+  global("GET", "/import/sources"),
+  { ...global("PUT", "/import/sources/:source"), nurMensch: true },
+  { ...global("POST", "/import/sources/:source/runs"), nurMensch: true },
   regel("GET", "/import/template", "bearbeiter"),
   regel("POST", "/import/runs", "bearbeiter"),
   regel("GET", "/import/runs", "betrachter"),
@@ -585,6 +609,7 @@ const ROH: Regel[] = [
   regel("POST", "/metrics/metric-requests/:id/send-email", "bearbeiter", [pfad("kennzahlabfrage")]), // Link per Mail (Etappe 17), neuer Link wie `neuer-link`
   regel("POST", "/metrics/metric-requests/:id/confirm", "bearbeiter", [pfad("kennzahlabfrage")]),
   regel("GET", "/investments/:id/metrics", "betrachter", [pfad("beteiligung")]),
+  regel("POST", "/investments/:id/metrics/provider-values", "bearbeiter", [pfad("beteiligung")], { nurMensch: true }),
   regel("POST", "/investments/:id/metrics/values", "bearbeiter", [pfad("beteiligung")]),
   regel("GET", "/investments/:id/metrics/metric-requests", "betrachter", [pfad("beteiligung")]),
   regel("POST", "/investments/:id/metrics/metric-requests", "bearbeiter", [pfad("beteiligung")]),

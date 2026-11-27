@@ -2,7 +2,7 @@ import { KeinFonds } from "./Platzhalter";
 import { useState } from "react";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { getRouteApi } from "@tanstack/react-router";
-import { Auswahl, Button, ButtonLink, Feld, Hinweis, Inhaltsverzeichnis, Seitenkopf, Status, Tabelle, formatDatum, type TabelleSpalte } from "@carraway/ui";
+import { Auswahl, Button, ButtonLink, Feld, Hinweis, Seitenkopf, SprungAbschnitt, Sprungmarken, Status, Tabelle, Tabs, formatDatum, type TabelleSpalte } from "@carraway/ui";
 import { fondsBewegungen, fondsListe, zinslaufListe } from "../api/abfragen";
 import {
   abstimmung,
@@ -51,24 +51,15 @@ import { wirksamerFonds } from "../lib/fonds";
 import { useRechte } from "../lib/rechte";
 import { formatBetragCent } from "../lib/zahl";
 import { formatZeitpunkt } from "../lib/zeit";
-import { useInhalt, type InhaltsEintrag } from "../lib/tabs";
 import { merkeFonds } from "../zustand";
 
-const route = getRouteApi("/buchhaltung");
+const route = getRouteApi("/accounting");
 
 export type Bereich = "saldenlisten" | "auswertung" | "export" | "einstellungen";
 export const BEREICHE: readonly Bereich[] = ["saldenlisten", "auswertung", "export", "einstellungen"];
 const EINSTELLUNGEN_UNTER = ["konfiguration", "konten", "regeln", "vorlagen"] as const;
 type EinstellungenUnter = (typeof EINSTELLUNGEN_UNTER)[number];
-type Eintrag = "saldenlisten" | "export" | "auswertung" | EinstellungenUnter;
 
-/** Gliederung des Inhaltsverzeichnisses mit den bisherigen Adressen: `?tab=…`, bei den Einstellungen zusätzlich `&unter=…`. Der erste Eintrag ist der Standard. */
-const GRUPPEN: readonly { id: "buchen" | "auswerten" | "einstellungen"; eintraege: readonly (InhaltsEintrag & { id: Eintrag })[] }[] = [
-  { id: "buchen", eintraege: [{ id: "saldenlisten", tab: "saldenlisten" }, { id: "export", tab: "export" }] },
-  { id: "auswerten", eintraege: [{ id: "auswertung", tab: "auswertung" }] },
-  { id: "einstellungen", eintraege: EINSTELLUNGEN_UNTER.map((u) => ({ id: u, tab: "einstellungen", unter: u })) },
-];
-const EINTRAEGE = GRUPPEN.flatMap((g) => g.eintraege);
 
 /** Buchhaltung eines Fonds: Saldenlisten, Auswertungen mit Herkunft und Abstimmung, DATEV-Export und Einstellungen. */
 export function BuchhaltungSeite() {
@@ -106,10 +97,13 @@ function BuchhaltungFuerFonds({ fondsId, fondsName }: { fondsId: string; fondsNa
   const s = t.buchhaltung.seite;
   const suche = route.useSearch();
   const navigate = route.useNavigate();
-  const { aktiv, setzeAktiv } = useInhalt(suche, navigate, EINTRAEGE);
   merkeFonds(fondsId);
-  const inhalt = (id: Eintrag): React.ReactNode => {
-    switch (id) {
+  // Vier Reiter (Saldenlisten, Export, Auswertung, Einstellungen), je mit eigener Adresse; die Einstellungen stehen untereinander mit Sprungmarken.
+  const reiter = ["saldenlisten", "export", "auswertung", "einstellungen"] as const;
+  const tab = (reiter as readonly string[]).includes(suche.tab ?? "") ? (suche.tab as (typeof reiter)[number]) : "saldenlisten";
+  const unterZiel = EINSTELLUNGEN_UNTER.includes(suche.unter as EinstellungenUnter) ? suche.unter : undefined;
+  const inhalt = (): React.ReactNode => {
+    switch (tab) {
       case "saldenlisten":
         return <Saldenlisten fondsId={fondsId} />;
       case "auswertung":
@@ -117,26 +111,36 @@ function BuchhaltungFuerFonds({ fondsId, fondsName }: { fondsId: string; fondsNa
       case "export":
         return <Buchungsexport fondsId={fondsId} />;
       default:
-        return <Einstellungen fondsId={fondsId} unter={id} />;
+        return (
+          <>
+            <Sprungmarken
+              className="cw-sprungmarken--fest"
+              aria-label={s.gruppen.einstellungen}
+              marken={EINSTELLUNGEN_UNTER.map((u) => ({ id: u, label: t.buchhaltung.einstellungen.unter[u] }))}
+              ziel={unterZiel}
+              onWahl={(u) => void navigate({ search: (alt) => ({ ...alt, unter: u === EINSTELLUNGEN_UNTER[0] ? undefined : u }), replace: true })}
+            />
+            {EINSTELLUNGEN_UNTER.map((u) => (
+              <SprungAbschnitt key={u} id={u} titel={t.buchhaltung.einstellungen.unter[u]}>
+                <Einstellungen fondsId={fondsId} unter={u} ohneHinweis={u !== EINSTELLUNGEN_UNTER[0]} />
+              </SprungAbschnitt>
+            ))}
+          </>
+        );
     }
   };
   return (
     <div className="app-seite">
       <Seitenkopf meta={`${fondsName} · ${s.etikett}`} titel={s.titel} />
-      <Inhaltsverzeichnis
+      <Tabs
+        fest
         aria-label={s.bereiche}
-        aktiv={aktiv}
-        onWechsel={setzeAktiv}
-        gruppen={GRUPPEN.map((g) => ({
-          id: g.id,
-          label: s.gruppen[g.id],
-          eintraege: g.eintraege.map((e) => ({
-            id: e.id,
-            label: e.unter ? t.buchhaltung.einstellungen.unter[e.unter as EinstellungenUnter] : s.reiter[e.id as "saldenlisten" | "export" | "auswertung"],
-            inhalt: () => inhalt(e.id),
-          })),
-        }))}
-      />
+        aktiv={tab}
+        onWechsel={(id) => void navigate({ search: (alt) => ({ ...alt, tab: id === "saldenlisten" ? undefined : id, unter: undefined }) })}
+        tabs={reiter.map((id) => ({ id, label: id === "einstellungen" ? s.gruppen.einstellungen : s.reiter[id] }))}
+      >
+        {inhalt()}
+      </Tabs>
     </div>
   );
 }
@@ -624,8 +628,8 @@ function Buchungsexport({ fondsId }: { fondsId: string }) {
 
 // Einstellungen ------------------------------------------------------------------------------------------------------------
 
-/** Ein Unterbereich der Einstellungen; jeder steht als eigener Eintrag im Inhaltsverzeichnis. */
-function Einstellungen({ fondsId, unter }: { fondsId: string; unter: EinstellungenUnter }) {
+/** Ein Abschnitt der Einstellungen; alle stehen untereinander mit Sprungmarken (der Hinweis zur Rolle steht nur am ersten). */
+function Einstellungen({ fondsId, unter, ohneHinweis }: { fondsId: string; unter: EinstellungenUnter; ohneHinweis?: boolean }) {
   const t = useT();
   const e = t.buchhaltung.einstellungen;
   const { darf } = useRechte();
@@ -649,7 +653,7 @@ function Einstellungen({ fondsId, unter }: { fondsId: string; unter: Einstellung
   };
   return (
     <>
-      {!aenderbar ? <Hinweis>{e.nurVerwalter}</Hinweis> : null}
+      {!aenderbar && !ohneHinweis ? <Hinweis>{e.nurVerwalter}</Hinweis> : null}
       {inhalte[unter]()}
     </>
   );

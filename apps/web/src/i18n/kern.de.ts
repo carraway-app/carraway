@@ -10,7 +10,6 @@ export const kernDe = {
   version: "Version 0.1 · Beispieldaten",
   uebersprungLink: "Zum Inhalt springen",
   portalFehlt: "Das Investorenportal ist in dieser Installation nicht verfügbar.",
-  portalWeiche: "Weiterleitung ins Portal …",
   nav: {
     beschriftung: "Hauptnavigation",
     portfolio: "Portfolio",
@@ -35,9 +34,19 @@ export const kernDe = {
     menueOeffnen: "Menü öffnen",
     menueSchliessen: "Menü schließen",
     fondsWaehlen: "Fonds auswählen",
-    gruppen: { uebersicht: "Übersicht", dealflow: "Dealflow & CRM", finanzen: "Finanzen", daten: "Daten" },
+    beteiligungWaehlen: "Beteiligung auswählen",
+    planung: "Planung",
+    zinslaeufe: "Zinsläufe",
+    zinsstand: "Zinsstand",
+    investoren: "Investoren",
+    stammdaten: "Stammdaten",
+    dokumente: "Dokumente",
+    alleBereiche: "Alle Bereiche",
+    // Reiter der Orte, für die Suche (die Seiten bringen ihre eigenen Beschriftungen mit).
+    reiter: { pipeline: "Pipeline", meineDeals: "Meine Deals", ohneZuordnung: "Ohne Zuordnung", unternehmen: "Unternehmen", personen: "Kontakte", deals: "Deals", heute: "Heute", kapital: "Kapitaltransaktionen", zugaenge: "Investoren", saldenlisten: "Saldenlisten", buchungsexport: "Buchungsexport", auswertungen: "Auswertungen", einstellungen: "Einstellungen" },
+    gruppen: { uebersicht: "Übersicht", dealflow: "Dealflow & CRM", finanzen: "Finanzen", daten: "Daten", portfolio: "Portfolio", kapital: "Kapital", fonds: "Fonds" },
     // Seiten unterhalb eines Bereichs, für den Pfad in der Kopfzeile.
-    detail: { beteiligung: "Beteiligung", organisation: "Organisation", deal: "Deal", person: "Person", bericht: "Bericht", beleg: "Beleg", zinslauf: "Zinslauf", meldelauf: "Meldelauf", uebernahme: "Übernahme", dokument: "Dokument", auswertung: "Auswertung", vorlagen: "Vorlagen", wiedervorlagen: "Wiedervorlagen", beschlussvorlagen: "Beschlussvorlagen", kennzahlen: "Kennzahlenabfragen", esg: "ESG", szenarien: "Szenarien", reserven: "Reserven", zinsen: "Zinsen", bewertungsrunde: "Bewertungsrunde", kontaktImport: "Kontaktimport", zielfonds: "Zielfonds" },
+    detail: { beteiligung: "Beteiligung", organisation: "Organisation", deal: "Deal", person: "Person", bericht: "Bericht", beleg: "Beleg", zinslauf: "Zinslauf", meldelauf: "Meldelauf", uebernahme: "Übernahme", dokument: "Dokument", auswertung: "Auswertung", vorlagen: "Vorlagen", wiedervorlagen: "Wiedervorlagen", beschlussvorlagen: "Beschlussvorlagen", kennzahlen: "Kennzahlenabfragen", szenarien: "Szenarien", reserven: "Reserven", zinsen: "Zinsen", bewertungsrunde: "Bewertungsrunde", kontaktImport: "Kontaktimport", zielfonds: "Zielfonds" },
     pfad: "Pfad",
   },
   kopf: {
@@ -74,6 +83,7 @@ export const kernDe = {
     forbidden: "Dafür fehlt die Berechtigung. Die Rolle an diesem Fonds reicht nicht aus.",
     two_factor_required: "Für den Zugriff muss zuerst der zweite Faktor eingerichtet werden.",
     origin_invalid: "Die Anfrage kommt nicht von dieser Oberfläche und wurde abgelehnt. Bitte die Seite neu laden.",
+    setup_token_invalid: "Das Einrichtungs-Token ist ungültig.",
     registration_closed: "Die Installation ist bereits eingerichtet. Neue Benutzer legen die Verwalter an.",
     invitation_not_possible: "Eine Einladung gibt es nur für aktive Personen, die noch kein Passwort festgelegt haben.",
     too_many_attempts: "Zu viele Fehlversuche. Bitte später erneut versuchen.",
@@ -103,13 +113,15 @@ export const kernDe = {
   },
   wissensstand: {
     label: "Wissensstand",
-    hilfe: "Optional. Zeigt den Stichtag so, wie er zu diesem Zeitpunkt bekannt war; später erfasste Daten bleiben außen vor.",
+    hilfe: "Optional. Welche Erfassungen zählen: nur was bis zum Ende dieses Tages eingetragen war.",
+    stichtagHilfe: "Auf welches Datum sich die Zahlen beziehen.",
+    menue: "Stichtag und Wissensstand",
     aktuell: "Aktueller Stand",
     ansichtMit: (zeit: string) => `Ansicht mit dem Wissensstand ${zeit}.`,
   },
   // Gemeinsame Namen von Reitern und Unterreitern (Etappe 19); Seiten ergänzen eigene in ihrem Wörterbuch.
   // Reiterleiste unter der Kopfzeile, solange ein Fonds im Kontext ist: jeder Reiter ist eine eigene Adresse.
-  fondsTabs: { beschriftung: "Bereiche des Portfolios", gruppeBestand: "Bestand", gruppePlanung: "Planung", gruppeBewertung: "Bewertung", gruppeNachhaltigkeit: "Nachhaltigkeit", uebersicht: "Übersicht", journal: "Journal", berichte: "Berichte", meldungen: "Meldungen", esg: "ESG", szenarien: "Szenarien", reserven: "Reserven", zinsen: "Zinsen", kennzahlen: "Kennzahlen", bewertungsrunde: "Bewertungsrunde", buchhaltung: "Buchhaltung", zielfonds: "Zielfonds" },
+  fondsTabs: { beschriftung: "Bereiche des Portfolios", gruppeBestand: "Bestand", gruppePlanung: "Planung", gruppeBewertung: "Bewertung", uebersicht: "Übersicht", journal: "Journal", berichte: "Berichte", meldungen: "Meldungen", szenarien: "Szenarien", reserven: "Reserven", zinsen: "Zinsen", kennzahlen: "Kennzahlen", bewertungsrunde: "Bewertungsrunde", buchhaltung: "Buchhaltung", zielfonds: "Zielfonds" },
   dialog: {
     schliessen: "Schließen",
   },
@@ -237,15 +249,11 @@ export const kernDe = {
     befehle: {
       titel: "Befehle",
       fonds: "Zur Fondsliste",
-      neuUnternehmen: "Neues Unternehmen anlegen",
-      neuKontakt: "Neuen Kontakt anlegen",
-      neuDeal: "Neuen Deal anlegen",
       unternehmen: "Zu den Unternehmen",
       kontakte: "Zu den Kontakten",
       dealTabelle: "Zur Tabelle der Deals",
       board: "Zum Dealflow-Board",
       heute: "Heute: Aufgaben und Termine",
-      importieren: "Kontakte importieren (CSV oder XLSX)",
       liste: (name: string) => `Liste öffnen: ${name}`,
     },
   },

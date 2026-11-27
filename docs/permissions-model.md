@@ -67,7 +67,7 @@ In finance, a viewer reads calls, capital position and allocated incoming paymen
 
 | Key | Contents (selected) | Sidebar |
 |---|---|---|
-| `portfolio` | Fund overview, investments, instruments, tranches, transactions, valuations, rounds and cap table, employee equity (pools and grants), scenarios, reserves, values API | Portfolio |
+| `portfolio` | Fund overview, investments, instruments, tranches, transactions, valuations, rounds and cap table, employee equity pools (size, changes, rough estimate, totals), scenarios, reserves, values API | Portfolio |
 | `finanzen` | Journal, postings, fund movements, capital calls, interest and interest runs, vouchers, accounting, balances, posting exports | Journal, Interest, Vouchers, Accounting |
 | `kennzahlen` | Metrics, metric requests, ESG and disclosure | (fund tab) |
 | `berichte` | Reports, templates, approval, fund report and portfolio list | Reports |
@@ -77,8 +77,11 @@ In finance, a viewer reads calls, capital position and allocated incoming paymen
 | `dokumente` | Documents, AI extraction | (within pages) |
 | `daten` | Data import | Import |
 | `fondsverwaltung` | Edit fund master data, fund roles, period locks, approval stages, investor access | (Fund → Settings) |
+| `einzelzuteilungen` | Individual employee equity grants (reference, optional name, vesting, departures), anonymise and delete grants, grant import | (within the company's employee equity section) |
 
-**Employee equity.** A company's pools and grants are aggregated cap table data without personal information. Pool visibility follows round visibility. Reading requires permission to read company rounds (a legal basis on the company or a position in one of its rounds from an accessible fund). Writing requires editor level, the same as creating a round, in `portfolio`. A new round preview includes the pool only through funds already linked to the company, excluding funds supplied in the request body.
+**Employee equity.** A company's pools are aggregated cap table data. Pool visibility follows round visibility. Reading requires permission to read company rounds (a legal basis on the company or a position in one of its rounds from an accessible fund). Writing requires editor level, the same as creating a round, in `portfolio`. A new round preview includes the pool only through funds already linked to the company, excluding funds supplied in the request body.
+
+Individual grants are employee data of the portfolio company and have their own area `einzelzuteilungen` (API `individual_grants`). The grant routes (`…/employee-pools/:poolId/grants…`) belong to this area, with the same fund levels as the pool, evaluated in this area. Without it, the pool list returns the totals with `grantsVisible: false` and no grants, and the exit scenario combines all grants of a pool into one row without category, units or strike price and omits the calculation steps and the breakpoints of the curve. Calculations always use every grant. The migration adds the area to roles that held all previous areas, so their access and the change feed (`all`) stay unchanged. Other roles do not receive it. A data import with the employee grants sheet requires the area as well.
 
 Two special cases:
 
@@ -109,7 +112,7 @@ Writes that affect several areas check every affected area as well as level (`re
 | Merge people | Contacts | Dealflow if source deal contacts or activities link to deals |
 | Confirm AI extraction | Documents | Portfolio (investment agreement, loan agreement or valuation evidence) or contacts (register extract) |
 | Create an investment from a deal | Dealflow | Portfolio |
-| Validate and apply data import | Data import | Contacts, portfolio and finance. Fund administration for new funds. |
+| Validate and apply data import | Data import | Contacts, portfolio and finance. Fund administration for new funds. Individual grants for a file with employee grants. |
 | Batch | General | Same area as for each operation on its own. No separate rule needed. |
 
 **Reads.** Organisation merge preview counts investments, rounds, round positions and funds only with portfolio access, and deals only with dealflow access. Otherwise counts are zero, `fondsIds` is empty, `darfAusfuehren` is `false` and `bereichFehlt` lists missing areas. The calendar subscription (ICS) omits appointments without contacts and deal follow-ups without dealflow. Area access is rechecked on each fetch.

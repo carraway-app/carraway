@@ -30,7 +30,7 @@ export function VehikelAuswahl({ label, ausser, gewaehlt, onWaehlen, fehler }: {
   const ohneVehikel = q.length < 2 || !abfrage.data ? [] : (organisationen.data?.organisationen ?? []).filter((o) => o.id !== ausser && !mitVehikel.has(o.id));
   return (
     <div className="app-gruppe">
-      <Feld type="search" label={label} autoComplete="off" value={eingabe} onChange={(e) => setEingabe(e.target.value)} hilfe={gewaehlt ? t.auswahl.gewaehlt(gewaehlt.label) : t.auswahl.hinweis} fehler={fehler} />
+      <Feld type="search" label={label} value={eingabe} onChange={(e) => setEingabe(e.target.value)} hilfe={gewaehlt ? t.auswahl.gewaehlt(gewaehlt.label) : t.auswahl.hinweis} fehler={fehler} />
       <ul className="app-auswahlliste" aria-label={t.auswahl.treffer}>
         {treffer.map((x) => {
           const anzeige = vehikelLabel(x.name, x.investor.name);

@@ -1,8 +1,8 @@
 import { and, asc, desc, eq, inArray, isNull, lte } from "drizzle-orm";
 import { anteilsklasse, anteilsuebertragung, beteiligung, finanzierungsrunde, fonds, instrument, mitarbeiterpool, mitarbeiterzuteilung, optionsscheinAusuebung, organisation, poolAenderung, rundenposition, vehikel } from "@carraway/db";
-import { aufCent, aufteilung, Decimal, einheitenBeimExit, optionsscheinStand, poolStand, vergleiche, wendeUebertragungenAn, type Anteilsklasse as KernKlasse, type Inhaberzeile, type Rechenschritt } from "@carraway/rechenkern";
+import { aufCent, aufteilung, Decimal, einheitenBeimExit, optionsscheinStand, vergleiche, wendeUebertragungenAn, type Anteilsklasse as KernKlasse, type Inhaberzeile, type Rechenschritt } from "@carraway/rechenkern";
 import { Fachfehler } from "../fehler";
-import { kernZuteilung, ladeAustritte, mitAustritten } from "./pool";
+import { kernZuteilung, ladeAustritte, mitAustritten, standDesPools } from "./pool";
 import type { Tx } from "../zeitlimit";
 
 /**
@@ -73,10 +73,13 @@ export interface OptionsscheinZeile {
   laufzeitBis: string | null;
 }
 
-/** Zuteilung der Mitarbeiterbeteiligung für den Wasserfall (je Zuteilung eine Zeile, ID `zuteilung:<id>`). */
+/**
+ * Zuteilung der Mitarbeiterbeteiligung für den Wasserfall (je Zuteilung eine Zeile, ID `zuteilung:<id>`; bei grober Erfassung eine Zeile je Pool,
+ * ID `pool:<id>:grob`, ohne Zuteilung). Kennung und Name der Begünstigten stehen hier nie.
+ */
 export interface MitarbeiterZeile {
   id: string;
-  zuteilungId: string;
+  zuteilungId: string | null;
   pool: { id: string; bezeichnung: string; art: "esop" | "vsop"; regel: "wie_anteile" | "anteilig" };
   kategorie: string;
   bezeichnung: string | null;
@@ -296,11 +299,7 @@ async function ladeMitarbeiterbeteiligung(tx: Tx, organisationId: string, sticht
   const nullZeile = { klasseId: null, runde: null, investiert: "0.00", diesesFonds: false };
   for (const p of pools) {
     const eigene = zuteilungen.filter((z) => z.poolId === p.id);
-    const stand = poolStand(
-      aenderungen.filter((a) => a.poolId === p.id),
-      eigene.map(kernZuteilung),
-      stichtag,
-    );
+    const stand = standDesPools(p, aenderungen.filter((a) => a.poolId === p.id), eigene, stichtag);
     // Ausgeübte ESOP-Optionen nach der letzten Runde: ausgegebene Stammanteile, bis eine spätere Runde sie in ihrer Gesamtzahl enthält.
     if (p.art === "esop" && letzteRunde) {
       const nach = eigene.filter((z) => z.status === "ausgeuebt" && z.statusAm && vergleiche(z.statusAm, stichtag) <= 0 && vergleiche(z.statusAm, letzteRunde) > 0);
@@ -312,6 +311,13 @@ async function ladeMitarbeiterbeteiligung(tx: Tx, organisationId: string, sticht
     }
     if (stand.ausstehend.greaterThan(0)) pool.push({ id: `pool:${p.id}:zugeteilt`, halter: { art: "pool_zugeteilt", id: p.id, name: p.bezeichnung, vehikel: null }, ...nullZeile, anteile: stand.ausstehend.toFixed(0), ausgegeben: false });
     if (stand.frei.greaterThan(0)) pool.push({ id: `pool:${p.id}:frei`, halter: { art: "pool_frei", id: p.id, name: p.bezeichnung, vehikel: null }, ...nullZeile, anteile: stand.frei.toFixed(0), ausgegeben: false });
+    // Grobe Erfassung (Näherung): die vergebenen Einheiten nehmen voll am Exit teil, mit dem mittleren Basispreis.
+    if (p.erfassung === "grob") {
+      if (stand.ausstehend.greaterThan(0)) {
+        mitarbeiter.push({ id: `pool:${p.id}:grob`, zuteilungId: null, pool: { id: p.id, bezeichnung: p.bezeichnung, art: p.art, regel: p.regel }, kategorie: "sonstige", bezeichnung: null, anzahl: stand.ausstehend.toFixed(0), basispreis: new Decimal(p.basispreisMittel ?? 0).toFixed(4), einheiten: stand.ausstehend.toFixed(0) });
+      }
+      continue;
+    }
     for (const z of eigene) {
       if (vergleiche(z.zugeteiltAm, stichtag) > 0) continue;
       const kern = kernZuteilung(z);
@@ -364,7 +370,7 @@ export function kernEingabe(k: Kapital, anonym: ReadonlySet<string> = new Set())
     })),
     inhaber: [
       ...k.zeilen.filter((z) => z.ausgegeben).map((z) => ({ id: z.id, name: name(z.id, haltername(z.halter)), klasseId: z.klasseId, anteile: z.anteile, investiert: z.investiert, datum: z.runde?.datum ?? z.datum ?? null })),
-      ...k.mitarbeiter.map((m) => ({ id: m.id, name: m.bezeichnung ?? m.pool.bezeichnung, klasseId: null, anteile: m.einheiten, investiert: "0", datum: null, mitarbeiter: { basispreis: m.basispreis, regel: m.pool.regel } })),
+      ...k.mitarbeiter.map((m) => ({ id: m.id, name: anonym.has(m.id) ? m.pool.bezeichnung : (m.bezeichnung ?? m.pool.bezeichnung), klasseId: null, anteile: m.einheiten, investiert: "0", datum: null, mitarbeiter: { basispreis: m.basispreis, regel: m.pool.regel } })),
       // Nicht ausgeübte Optionsscheine: wie eine Option mit dem Ausübungspreis als Basispreis (ohne Klasse, Regel `wie_anteile`).
       ...k.optionsscheine.map((o) => ({ id: o.id, name: name(o.id, o.name), klasseId: null, anteile: o.anteile, investiert: "0", datum: null, mitarbeiter: { basispreis: o.ausuebungspreis, regel: "wie_anteile" as const, art: "optionsschein" as const } })),
     ],

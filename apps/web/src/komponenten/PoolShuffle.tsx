@@ -138,17 +138,16 @@ export function PoolShuffle({ organisationId, werte: w, onAendern, datum, preMon
               { wert: "post_money", label: f.postMoney },
             ]}
           />
-          <Feld label={f.ziel} zahl inputMode="decimal" autoComplete="off" value={w.ziel} onChange={(e) => setze({ ziel: e.target.value })} />
+          <Feld label={f.ziel} zahl inputMode="decimal" value={w.ziel} onChange={(e) => setze({ ziel: e.target.value })} />
           <Feld
             label={f.anteileVorher}
             zahl
             inputMode="numeric"
-            autoComplete="off"
             value={w.anteileVorher}
             onChange={(e) => setze({ anteileVorher: e.target.value })}
             hilfe={v?.anteileVorherQuelle === "runde" && v.anteileVorher ? f.anteileAusRunde(anzahl(v.anteileVorher)) : f.anteileHilfe}
           />
-          <Feld label={f.volumen} zahl inputMode="decimal" autoComplete="off" value={w.volumen} onChange={(e) => setze({ volumen: e.target.value })} hilfe={summeBetraege(betraege) ? f.volumenHilfe(formatBetragCent(summeBetraege(betraege)!, sprache)) : undefined} />
+          <Feld label={f.volumen} zahl inputMode="decimal" value={w.volumen} onChange={(e) => setze({ volumen: e.target.value })} hilfe={summeBetraege(betraege) ? f.volumenHilfe(formatBetragCent(summeBetraege(betraege)!, sprache)) : undefined} />
           {pools && pools.length > 1 ? (
             <Auswahl label={f.pool} value={w.poolId} onChange={(e) => setze({ poolId: e.target.value })} fehler={feldText(t, fehler, "poolAufstockung.poolId")}>
               <option value="">{f.poolWaehlen}</option>
@@ -172,14 +171,13 @@ export function PoolShuffle({ organisationId, werte: w, onAendern, datum, preMon
                   { wert: "vsop", label: "VSOP" },
                 ]}
               />
-              <Feld label={f.poolName} autoComplete="off" value={w.neuerPoolName} onChange={(e) => setze({ neuerPoolName: e.target.value })} fehler={feldText(t, fehler, "poolAufstockung.neuerPool")} />
+              <Feld label={f.poolName} value={w.neuerPoolName} onChange={(e) => setze({ neuerPoolName: e.target.value })} fehler={feldText(t, fehler, "poolAufstockung.neuerPool")} />
             </>
           ) : null}
           <Feld
             label={f.aufstockung}
             zahl
             inputMode="numeric"
-            autoComplete="off"
             value={w.aufstockung}
             onChange={(e) => setze({ aufstockung: e.target.value })}
             fehler={fehlerAnzeigen && !aufstockungGueltig(w) ? f.aufstockungFehlt : feldText(t, fehler, "poolAufstockung.anzahl")}

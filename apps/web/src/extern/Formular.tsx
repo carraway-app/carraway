@@ -1,4 +1,4 @@
-import { Logo } from "@carraway/ui";
+import { Logo, OHNE_PASSWORTMANAGER } from "@carraway/ui";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import {
   anzeigeWert,
@@ -19,7 +19,7 @@ import {
 import { EXTERN_TEXTE, type ExterneSprache } from "./texte";
 
 /**
- * Öffentliche Formularseite für Unternehmen (`/extern/abfrage/:token`), ohne Anmeldung, Navigation und Konto. Ein Formular mit den
+ * Öffentliche Formularseite für Unternehmen (`/external/requests/:token`), ohne Anmeldung, Navigation und Konto. Ein Formular mit den
  * angeforderten Kennzahlen: Entwurf speichern, einreichen, danach nur lesen. Zugänglich: sichtbare Beschriftungen, Fehlertexte am Feld
  * (`aria-describedby`, `aria-invalid`), Statusmeldungen in einer `aria-live`-Zone, Fokus auf das erste fehlerhafte Feld, einspaltig und
  * mit großen Eingabefeldern für Mobilgeräte.
@@ -342,7 +342,7 @@ function Feldgruppe({ k, sprache, esg, wert, anmerkung, geschaetzt, quelle, fehl
           <label htmlFor={id} className="extern__label">
             {name} <span className="extern__marke">({markierung})</span>
           </label>
-          <input id={id} className="extern__eingabe" type="text" inputMode={k.typ === "text" ? "text" : "decimal"} autoComplete="off" spellCheck={k.typ === "text"} value={wert} onChange={(e) => onWert(e.target.value)} aria-invalid={fehler ? true : undefined} aria-required={k.pflicht || undefined} aria-describedby={beschreibung} />
+          <input id={id} className="extern__eingabe" type="text" inputMode={k.typ === "text" ? "text" : "decimal"} {...OHNE_PASSWORTMANAGER} spellCheck={k.typ === "text"} value={wert} onChange={(e) => onWert(e.target.value)} aria-invalid={fehler ? true : undefined} aria-required={k.pflicht || undefined} aria-describedby={beschreibung} />
         </>
       )}
       {erklaerung || (esg && k.regelwerk) ? (
@@ -364,7 +364,7 @@ function Feldgruppe({ k, sprache, esg, wert, anmerkung, geschaetzt, quelle, fehl
           <label className="extern__label" htmlFor={`${id}-quelle`}>
             {t.quelle}
           </label>
-          <input id={`${id}-quelle`} className="extern__eingabe" type="text" autoComplete="off" maxLength={500} value={quelle} onChange={(e) => onQuelle(e.target.value)} />
+          <input id={`${id}-quelle`} className="extern__eingabe" type="text" {...OHNE_PASSWORTMANAGER} maxLength={500} value={quelle} onChange={(e) => onQuelle(e.target.value)} />
         </div>
       ) : null}
       <details className="extern__anmerkung">

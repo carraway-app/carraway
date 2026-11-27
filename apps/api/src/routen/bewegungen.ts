@@ -10,6 +10,7 @@ import { Decimal } from "@carraway/rechenkern";
 import { ladeAbrufNachweise, ladeKapitalHerkunft } from "../instrumente/kapital-herkunft";
 import { dispositionKopf } from "../dokumente/typ";
 import { ladeKapitalstand } from "../instrumente/kapitalstand";
+import { pruefeZusagenVollstaendig } from "../instrumente/zusagen";
 import { ladeVerteilung } from "../berichte/daten";
 import { erstelleStandardSpeicher, sha256, type Speicher } from "../berichte/speicher";
 import { Fachfehler } from "../fehler";
@@ -135,6 +136,7 @@ export function bewegungRouten(db: Db, speicher: Speicher = erstelleStandardSpei
         const [vorhanden] = await tx.select({ id: fondsMitteilung.id }).from(fondsMitteilung).where(eq(fondsMitteilung.bewegungId, bewegungId)).limit(1);
         if (vorhanden) throw new Fachfehler(409, "notices_exist", "The notices for this movement are already approved.");
 
+        await pruefeZusagenVollstaendig(tx, id);
         const verteilung = await ladeVerteilung(tx, id, bewegung.valuta, undefined);
         if (verteilung.zeichnungen.length === 0) throw new Fachfehler(409, "no_subscriptions", "The fund has no subscriptions; there are no investors to receive a notice.");
         const stelle = verteilung.bewegungen.findIndex((b) => b.id === bewegungId);

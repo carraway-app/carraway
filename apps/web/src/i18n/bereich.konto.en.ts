@@ -169,6 +169,8 @@ export const kontoBereichEn: typeof kontoBereichDe = {
     speichern: "Save password",
   },
   einrichtung: {
+    token: "Setup token",
+    tokenHilfe: "Use the token from the API startup log or the configured SETUP_TOKEN.",
     titel: "Set up the installation",
     einleitung: "Creates the first administrator. This works only while there is no user yet. Sign-in with a second factor follows.",
     name: "Name",

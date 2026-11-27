@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
-import { Auswahl, Button, Seitenpanel, Status, Tabelle, formatDatum, type TabelleSpalte } from "@carraway/ui";
+import { Auswahl, Button, Seitenpanel, Status, Tabelle, formatDatum, type TabelleSpalte, type MenueEintrag } from "@carraway/ui";
 import type { RundenTransaktion, Rundentransaktionen } from "../api/abfragen";
 import { useVorgangRundeAendern } from "../api/mutationen";
 import { aufzaehlung, useSprache, useT } from "../i18n";
@@ -57,10 +57,11 @@ export function TransaktionenKarte({
     {
       schluessel: "instrument",
       kopf: f.spalten.instrument,
+      umbruch: true,
       zelle: (z) =>
         durchgestrichen(
           z,
-          <Link to="/beteiligungen/$id" params={{ id: z.beteiligungId }} search={{ tab: "finanzierung", unter: "instrumente" }} aria-label={f.zumInstrument(z.instrument.bezeichnung)}>
+          <Link to="/investments/$id" params={{ id: z.beteiligungId }} search={{ tab: "finanzierung", unter: "instrumente" }} aria-label={f.zumInstrument(z.instrument.bezeichnung)}>
             {z.instrument.bezeichnung}
           </Link>,
         ),
@@ -95,21 +96,9 @@ export function TransaktionenKarte({
           } satisfies TabelleSpalte<TransaktionsZeile>,
         ]
       : []),
-    ...(lesend
-      ? []
-      : [
-          {
-            schluessel: "aktion",
-            kopf: f.spalten.aktion,
-            zelle: (z: TransaktionsZeile) =>
-              darf("bearbeiter", z.fonds.id, "portfolio") ? (
-                <Button variante="sekundaer" aria-label={f.aendernFuer(artName(z), formatDatum(z.valuta, sprache))} onClick={() => setAendern(z)}>
-                  {f.aendern}
-                </Button>
-              ) : null,
-          } satisfies TabelleSpalte<TransaktionsZeile>,
-        ]),
   ];
+  // „Runde ändern“ im Menü „⋯“ der Zeile (wie bei den Vorgängen), damit die Tabelle in die Breite passt.
+  const aktionen = (z: TransaktionsZeile): MenueEintrag[] => (!lesend && darf("bearbeiter", z.fonds.id, "portfolio") ? [{ id: "aendern", label: f.aendernFuer(artName(z), formatDatum(z.valuta, sprache)), onClick: () => setAendern(z) }] : []);
 
   return (
     <section className="app-karte app-transaktionen" aria-label={f.titel}>
@@ -117,7 +106,7 @@ export function TransaktionenKarte({
         <h3 className="cw-t-untertitel">{f.titel}</h3>
         <p className="app-leer-text">{beschreibung}</p>
       </header>
-      {zeilen.length === 0 ? <p className="app-leer-text">{leer}</p> : <Tabelle dicht beschriftung={f.tabelle(beschriftung)} spalten={spalten} zeilen={zeilen} zeilenSchluessel={(z) => z.id} />}
+      {zeilen.length === 0 ? <p className="app-leer-text">{leer}</p> : <Tabelle dicht beschriftung={f.tabelle(beschriftung)} spalten={spalten} zeilen={zeilen} zeilenSchluessel={(z) => z.id} aktionen={lesend ? undefined : aktionen} />}
       {aendern ? <RundeAendernDialog zeile={aendern} runden={runden} onSchliessen={() => setAendern(null)} /> : null}
     </section>
   );

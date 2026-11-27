@@ -29,7 +29,7 @@ import { aufzaehlung, useSprache, useT } from "../i18n";
 import { aktuellesQuartal, formatKennzahlWert, kennzahlName, passtZeitraum, periodeKurz, zeitraum, type Periodenart } from "../lib/kennzahlen";
 import { useRechte } from "../lib/rechte";
 
-const route = getRouteApi("/fonds/$fondsId/kennzahlen");
+const route = getRouteApi("/funds/$fundId/metrics");
 
 type Zeile = Uebersicht["unternehmen"][number];
 const ABFRAGE_STATUS: Record<string, StatusVariante> = { offen: "pruefung", eingereicht: "pruefung", bestaetigt: "freigegeben", widerrufen: "fehlt" };
@@ -42,7 +42,7 @@ export function KennzahlenabfragenSeite() {
   const t = useT();
   const sprache = useSprache();
   const f = t.kennzahlen.fonds;
-  const { fondsId } = route.useParams();
+  const { fundId: fondsId } = route.useParams();
   const { darf } = useRechte();
   const q = aktuellesQuartal();
   const [art, setArt] = useState<Periodenart>("quartal");
@@ -69,7 +69,7 @@ export function KennzahlenabfragenSeite() {
       schluessel: "unternehmen",
       kopf: f.spalten.unternehmen,
       zelle: (u) => (
-        <Link to="/beteiligungen/$id" params={{ id: u.beteiligungId }} search={{ tab: "kennzahlen" }}>
+        <Link to="/investments/$id" params={{ id: u.beteiligungId }} search={{ tab: "kennzahlen" }}>
           {u.organisation}
         </Link>
       ),
@@ -147,8 +147,7 @@ export function KennzahlenabfragenSeite() {
 
   return (
     <div className="app-seite">
-      <Bereichskopf titel={f.titel} />
-      <p className="app-leer-text">{f.einleitung}</p>
+      <Bereichskopf info={f.einleitung} titel={f.titel} />
 
       <Tabs
         aria-label={t.tabs.bereiche}

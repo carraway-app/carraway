@@ -31,7 +31,7 @@ import { navigation } from "../lib/navigation";
 import { useTabs } from "../lib/tabs";
 import { formatZeitpunkt } from "../lib/zeit";
 
-const route = getRouteApi("/einstellungen/postfach");
+const route = getRouteApi("/settings/mailbox");
 
 /** Persönliche Einstellungen (Etappe 17): Mails von Carraway, Anbindung von Postfach und Kalender, Kalenderabonnement. Alles gilt nur für die angemeldete Person. */
 export function EinstellungenPostfachSeite() {
@@ -344,7 +344,7 @@ function ImapDialog({ onSchliessen }: { onSchliessen: () => void }) {
         }}
       >
         <FehlerHinweis fehler={verbinden.error} />
-        <Feld label={i.host} value={werte.host} onChange={setze("host")} autoComplete="off" />
+        <Feld label={i.host} value={werte.host} onChange={setze("host")} />
         <Feld label={i.port} type="number" value={werte.port} onChange={setze("port")} />
         <Auswahl label={i.sicherheit} value={werte.sicherheit} onChange={setze("sicherheit")}>
           {(["tls", "starttls", "keine"] as const).map((s) => (
@@ -353,9 +353,9 @@ function ImapDialog({ onSchliessen }: { onSchliessen: () => void }) {
             </option>
           ))}
         </Auswahl>
-        <Feld label={i.benutzer} value={werte.benutzer} onChange={setze("benutzer")} autoComplete="off" />
+        <Feld label={i.benutzer} value={werte.benutzer} onChange={setze("benutzer")} />
         <Feld label={i.passwort} type="password" value={werte.passwort} onChange={setze("passwort")} autoComplete="new-password" />
-        <Feld label={i.adresse} type="email" value={werte.adresse} onChange={setze("adresse")} autoComplete="off" />
+        <Feld label={i.adresse} type="email" value={werte.adresse} onChange={setze("adresse")} />
         <Feld label={i.ordner} hilfe={i.ordnerHilfe} value={werte.ordner} onChange={setze("ordner")} />
         <div>
           <Button type="submit" disabled={verbinden.isPending}>

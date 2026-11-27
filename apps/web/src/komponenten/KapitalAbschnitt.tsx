@@ -1,7 +1,7 @@
 import { lazy, Suspense, useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { Auswahl, Button, Feld, Hinweis, Segment, Status, Tabelle, formatBetrag, formatDatum, type TabelleSpalte } from "@carraway/ui";
+import { Auswahl, Button, Feld, Hinweis, Segment, SprungAbschnitt, Sprungmarken, Status, Tabelle, formatBetrag, formatDatum, type TabelleSpalte } from "@carraway/ui";
 import { anteilsklassen, kapitaltabelle, type Anteilsklasse, type KapitalZeile, type Kapitaltabelle } from "../api/abfragen";
 import { useAnteilsklasseAendern, useAnteilsklasseAnlegen, usePositionKlasse } from "../api/mutationen";
 import { feldText } from "../i18n/fehler";
@@ -69,7 +69,7 @@ export function KapitalAbschnitt({ beteiligungId, organisationId, fondsId, stich
   // Nur echte Rundenpositionen haben eine zuweisbare Klasse; Ausübungen, Übertragungen und Sammelzeilen (Id mit Doppelpunkt) erben sie.
   const positionMitKlasse = (z: KapitalZeile) => (z.halter.art === "fonds" || z.halter.art === "organisation") && !z.id.includes(":");
   const investorLink = (id: string, name: string) => (
-    <Link to="/organisationen/$id" params={{ id }} search={{ tab: "engagement", unter: "vehikel" }}>
+    <Link to="/organizations/$id" params={{ id }} search={{ tab: "engagement", unter: "vehikel" }}>
       {name}
     </Link>
   );
@@ -78,6 +78,7 @@ export function KapitalAbschnitt({ beteiligungId, organisationId, fondsId, stich
     {
       schluessel: "inhaber",
       kopf: k.spalten.inhaber,
+      umbruch: true,
       zelle: (z) => (
         <span className="app-zusammenhang">
           {z.halter.art === "organisation" && z.halter.id ? (
@@ -98,6 +99,7 @@ export function KapitalAbschnitt({ beteiligungId, organisationId, fondsId, stich
     {
       schluessel: "klasse",
       kopf: k.spalten.klasse,
+      umbruch: true,
       zelle: (z) =>
         !z.ausgegeben ? (
           gruppeOhneKlasse(z.halter.art)
@@ -106,6 +108,7 @@ export function KapitalAbschnitt({ beteiligungId, organisationId, fondsId, stich
             label={k.klasseWaehlen(z.halter.name, z.runde?.bezeichnung ?? "")}
             labelVersteckt
             kompakt
+            className="app-zellwahl"
             value={z.klasseId ?? ""}
             disabled={zuweisen.isPending}
             onChange={(e) => zuweisen.mutate({ id: z.id, anteilsklasseId: e.target.value === "" ? null : e.target.value })}
@@ -121,7 +124,7 @@ export function KapitalAbschnitt({ beteiligungId, organisationId, fondsId, stich
           (z.klasseName ?? k.stammanteile)
         ),
     },
-    { schluessel: "runde", kopf: k.spalten.runde, zelle: (z) => (z.runde ? `${z.runde.bezeichnung} · ${formatDatum(z.runde.datum, sprache)}` : t.gemeinsam.keinWert) },
+    { schluessel: "runde", kopf: k.spalten.runde, zelle: (z) => (z.runde ? <>{z.runde.bezeichnung}<span className="app-zelle-zusatz">{formatDatum(z.runde.datum, sprache)}</span></> : t.gemeinsam.keinWert) },
     { schluessel: "anteile", kopf: k.spalten.anteile, zahl: true, zelle: (z) => formatAnzahl(z.anteile, sprache) },
     { schluessel: "anteil", kopf: k.spalten.anteil, zahl: true, zelle: (z) => anteilIn(z) },
     { schluessel: "investiert", kopf: k.spalten.investiert, zahl: true, zelle: (z) => (Number(z.investiert) > 0 ? formatBetragCent(z.investiert, sprache) : t.gemeinsam.keinWert) },
@@ -152,94 +155,110 @@ export function KapitalAbschnitt({ beteiligungId, organisationId, fondsId, stich
     { schluessel: "investiert", kopf: k.klassenSpalten.investiert, zahl: true, zelle: (x) => (Number(x.investiert) > 0 ? formatBetragCent(x.investiert, sprache) : t.gemeinsam.keinWert) },
   ];
 
+  // Abschnitte, die man zusammen liest (Captable, Übertragungen, Klassen, Mitarbeiterbeteiligung): untereinander mit Sprungmarken.
+  const marken = [
+    { id: "captable", label: k.titel },
+    { id: "uebertragungen", label: t.uebertragung.titel },
+    { id: "klassen", label: k.klassen.titel },
+    { id: "mitarbeiter", label: t.mitarbeiter.titel },
+  ];
   return (
     <>
-      <section className="app-karte" aria-label={k.bereich}>
-        <div className="app-karte__kopf">
-          <h2 className="cw-t-untertitel app-karte__titel">
-            {k.titel}
-          </h2>
-          {data && data.letzteRunde ? (
-            <Segment<Sicht>
-              aria-label={k.sicht}
-              value={sicht}
-              onChange={setGewaehlt}
-              options={[
-                { wert: "unverwaessert", label: k.sichten.unverwaessert },
-                { wert: "voll_verwaessert", label: k.sichten.voll_verwaessert },
-              ]}
-            />
-          ) : null}
-        </div>
-        <p className="app-leer-text">{k.beschreibung(formatDatum(stichtag, sprache))}</p>
-        {lesend ? <Hinweis>{k.stand}</Hinweis> : null}
-        <FehlerHinweis fehler={zuweisen.error} />
-        {isPending ? <Skelettzeilen anzahl={3} /> : null}
-        {error ? <FehlerHinweis fehler={error} /> : null}
-        {data && data.zeilen.length === 0 ? <p className="app-leer-text">{k.keine}</p> : null}
-        {data && data.letzteRunde ? (
-          <>
-            <p className="app-leer-text">
-              {k.sichtHinweis[sicht]} {data.mitPool ? null : k.ohnePool}
-            </p>
-            {voll && offeneWandlungen.length > 0 ? (
-              <label className="app-haken">
-                <input type="checkbox" checked={mitWandlungen} onChange={(e) => setMitWandlungen(e.target.checked)} />
-                <span>{w.schalter}</span>
-              </label>
-            ) : null}
-            <p className="app-leer-text">
-              {k.zusammenfassung(
-                mitSchaetzung ? w.sicht : (k.sichten[sicht] ?? ""),
-                formatAnzahl(mitSchaetzung ? data.anteileMitWandlungen : voll ? data.anteileVollVerwaessert : data.anteileUnverwaessert, sprache),
-                data.letzteRunde.bezeichnung,
-                formatBetrag(data.letzteRunde.postMoney, sprache),
-              )}
-            </p>
-            <p className="app-leer-text">
-              {k.diesesFondsZeile(formatAnzahl(data.diesesFonds.anteile, sprache), anteilIn(data.diesesFonds), formatBetragCent(data.diesesFonds.investiert, sprache))}{" "}
-              {data.mitPool ? k.diesesFondsBeide(anteilText(data.diesesFonds.anteilUnverwaessert ?? "0", sprache), anteilText(data.diesesFonds.anteilVollVerwaessert, sprache)) : null}
-            </p>
-            {data.inhaber.length < data.zeilen.length ? (
-              <Segment<"position" | "investor">
-                aria-label={k.ansicht}
-                value={ansicht}
-                onChange={setAnsicht}
+      <Sprungmarken className="cw-sprungmarken--fest" aria-label={k.bereich} marken={marken} />
+      <SprungAbschnitt id="captable" label={k.titel}>
+        <section className="app-karte" aria-label={k.bereich}>
+          <div className="app-karte__kopf">
+            <h2 className="cw-t-untertitel app-karte__titel">
+              {k.titel}
+            </h2>
+            {data && data.letzteRunde ? (
+              <Segment<Sicht>
+                aria-label={k.sicht}
+                value={sicht}
+                onChange={setGewaehlt}
                 options={[
-                  { wert: "position", label: k.jePosition },
-                  { wert: "investor", label: k.jeInvestor },
+                  { wert: "unverwaessert", label: k.sichten.unverwaessert },
+                  { wert: "voll_verwaessert", label: k.sichten.voll_verwaessert },
                 ]}
               />
             ) : null}
-            {ansicht === "investor" && data.inhaber.length < data.zeilen.length ? (
-              <Tabelle beschriftung={k.tabelleInvestor} spalten={inhaberSpalten} zeilen={data.inhaber.filter((x) => voll || x.ausgegeben)} zeilenSchluessel={(x) => `${x.halter.art}:${x.halter.id ?? ""}`} ausgewaehlt={(x) => x.diesesFonds} />
-            ) : (
-              <Tabelle beschriftung={k.tabelle} spalten={zeilenSpalten} zeilen={data.zeilen.filter((z) => voll || z.ausgegeben)} zeilenSchluessel={(z) => z.id} ausgewaehlt={(z) => z.diesesFonds} />
-            )}
-            <Tabelle beschriftung={k.klassenTabelle} spalten={klassenSpalten} zeilen={data.klassen.filter((x) => voll || (x.art !== "pool" && x.art !== "wandlung" && x.art !== "optionsschein"))} zeilenSchluessel={(x) => x.id ?? x.art} />
-            {voll && mitWandlungen && offeneWandlungen.length > 0 ? <OffeneWandlungen liste={offeneWandlungen} referenzpreis={data.offeneWandlungen.referenzpreis} anteileVor={data.offeneWandlungen.anteileVorWandlung} /> : null}
-          </>
-        ) : null}
-      </section>
+          </div>
+          <p className="app-leer-text">{k.beschreibung(formatDatum(stichtag, sprache))}</p>
+          {lesend ? <Hinweis>{k.stand}</Hinweis> : null}
+          <FehlerHinweis fehler={zuweisen.error} />
+          {isPending ? <Skelettzeilen anzahl={3} /> : null}
+          {error ? <FehlerHinweis fehler={error} /> : null}
+          {data && data.zeilen.length === 0 ? <p className="app-leer-text">{k.keine}</p> : null}
+          {data && data.letzteRunde ? (
+            <>
+              <p className="app-leer-text">
+                {k.sichtHinweis[sicht]} {data.mitPool ? null : k.ohnePool}
+              </p>
+              {voll && offeneWandlungen.length > 0 ? (
+                <label className="app-haken">
+                  <input type="checkbox" checked={mitWandlungen} onChange={(e) => setMitWandlungen(e.target.checked)} />
+                  <span>{w.schalter}</span>
+                </label>
+              ) : null}
+              <p className="app-leer-text">
+                {k.zusammenfassung(
+                  mitSchaetzung ? w.sicht : (k.sichten[sicht] ?? ""),
+                  formatAnzahl(mitSchaetzung ? data.anteileMitWandlungen : voll ? data.anteileVollVerwaessert : data.anteileUnverwaessert, sprache),
+                  data.letzteRunde.bezeichnung,
+                  formatBetrag(data.letzteRunde.postMoney, sprache),
+                )}
+              </p>
+              <p className="app-leer-text">
+                {k.diesesFondsZeile(formatAnzahl(data.diesesFonds.anteile, sprache), anteilIn(data.diesesFonds), formatBetragCent(data.diesesFonds.investiert, sprache))}{" "}
+                {data.mitPool ? k.diesesFondsBeide(anteilText(data.diesesFonds.anteilUnverwaessert ?? "0", sprache), anteilText(data.diesesFonds.anteilVollVerwaessert, sprache)) : null}
+              </p>
+              {data.inhaber.length < data.zeilen.length ? (
+                <Segment<"position" | "investor">
+                  aria-label={k.ansicht}
+                  value={ansicht}
+                  onChange={setAnsicht}
+                  options={[
+                    { wert: "position", label: k.jePosition },
+                    { wert: "investor", label: k.jeInvestor },
+                  ]}
+                />
+              ) : null}
+              {ansicht === "investor" && data.inhaber.length < data.zeilen.length ? (
+                <Tabelle beschriftung={k.tabelleInvestor} spalten={inhaberSpalten} zeilen={data.inhaber.filter((x) => voll || x.ausgegeben)} zeilenSchluessel={(x) => `${x.halter.art}:${x.halter.id ?? ""}`} ausgewaehlt={(x) => x.diesesFonds} />
+              ) : (
+                <Tabelle beschriftung={k.tabelle} className="app-tabelle-schmal" spalten={zeilenSpalten} zeilen={data.zeilen.filter((z) => voll || z.ausgegeben)} zeilenSchluessel={(z) => z.id} ausgewaehlt={(z) => z.diesesFonds} />
+              )}
+              <Tabelle beschriftung={k.klassenTabelle} spalten={klassenSpalten} zeilen={data.klassen.filter((x) => voll || (x.art !== "pool" && x.art !== "wandlung" && x.art !== "optionsschein"))} zeilenSchluessel={(x) => x.id ?? x.art} />
+              {voll && mitWandlungen && offeneWandlungen.length > 0 ? <OffeneWandlungen liste={offeneWandlungen} referenzpreis={data.offeneWandlungen.referenzpreis} anteileVor={data.offeneWandlungen.anteileVorWandlung} /> : null}
+            </>
+          ) : null}
+        </section>
+      </SprungAbschnitt>
 
-      <Suspense fallback={null}>
-        <UebertragungenAbschnitt beteiligungId={beteiligungId} organisationId={organisationId} fondsId={fondsId} lesend={lesend} />
-      </Suspense>
+      <SprungAbschnitt id="uebertragungen" label={t.uebertragung.titel}>
+        <Suspense fallback={null}>
+          <UebertragungenAbschnitt beteiligungId={beteiligungId} organisationId={organisationId} fondsId={fondsId} lesend={lesend} />
+        </Suspense>
+      </SprungAbschnitt>
 
-      <section className="app-karte" aria-labelledby="klassen-titel">
-        <div className="app-karte__kopf">
-          <h2 id="klassen-titel" className="cw-t-untertitel app-karte__titel">
-            {k.klassen.titel}
-          </h2>
-          {darfSchreiben ? <Button onClick={() => setDialog({})}>{k.klassen.neu}</Button> : null}
-        </div>
-        <p className="app-leer-text">{k.klassen.beschreibung}</p>
-        {klassen.isPending ? <Skelettzeilen anzahl={2} /> : null}
-        {klassen.error ? <FehlerHinweis fehler={klassen.error} /> : null}
-        {klassen.data && klassen.data.length === 0 ? <p className="app-leer-text">{k.klassen.keine}</p> : null}
-        {klassen.data && klassen.data.length > 0 ? <KlassenTabelle klassen={klassen.data} darfAendern={darfSchreiben} onAendern={(klasse) => setDialog({ klasse })} /> : null}
-      </section>
-      <MitarbeiterAbschnitt organisationId={organisationId} stichtag={stichtag} darfSchreiben={darfSchreiben} />
+      <SprungAbschnitt id="klassen" label={k.klassen.titel}>
+        <section className="app-karte" aria-labelledby="klassen-titel">
+          <div className="app-karte__kopf">
+            <h2 id="klassen-titel" className="cw-t-untertitel app-karte__titel">
+              {k.klassen.titel}
+            </h2>
+            {darfSchreiben ? <Button onClick={() => setDialog({})}>{k.klassen.neu}</Button> : null}
+          </div>
+          <p className="app-leer-text">{k.klassen.beschreibung}</p>
+          {klassen.isPending ? <Skelettzeilen anzahl={2} /> : null}
+          {klassen.error ? <FehlerHinweis fehler={klassen.error} /> : null}
+          {klassen.data && klassen.data.length === 0 ? <p className="app-leer-text">{k.klassen.keine}</p> : null}
+          {klassen.data && klassen.data.length > 0 ? <KlassenTabelle klassen={klassen.data} darfAendern={darfSchreiben} onAendern={(klasse) => setDialog({ klasse })} /> : null}
+        </section>
+      </SprungAbschnitt>
+      <SprungAbschnitt id="mitarbeiter" label={t.mitarbeiter.titel}>
+        <MitarbeiterAbschnitt organisationId={organisationId} stichtag={stichtag} darfSchreiben={darfSchreiben} />
+      </SprungAbschnitt>
       {dialog ? <KlasseDialog organisationId={organisationId} {...(dialog.klasse ? { klasse: dialog.klasse } : {})} onSchliessen={() => setDialog(null)} /> : null}
     </>
   );
@@ -380,7 +399,7 @@ function KlasseDialog({ organisationId, klasse, onSchliessen }: { organisationId
         }}
       >
         <FehlerHinweis fehler={mutation.error} bekannt={["name", "rang", "praeferenzFaktor", "capFaktor", "kumulierteVerzinsung"]} />
-        <Feld label={f.name} autoComplete="off" {...feld("name", fehler("name"))} />
+        <Feld label={f.name} {...feld("name", fehler("name"))} />
         <BetragFeld label={f.rang} inputMode="numeric" hilfe={f.rangHilfe} {...feld("rang", fehler("rang"))} />
         <BetragFeld label={f.faktor} hilfe={f.faktorHilfe} {...feld("faktor", fehler("praeferenzFaktor"))} />
         <label className="app-haken">

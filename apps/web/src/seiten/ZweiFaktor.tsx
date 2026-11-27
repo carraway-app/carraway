@@ -8,7 +8,7 @@ import { FehlerHinweis } from "../komponenten/FehlerHinweis";
 import { QrCode } from "../komponenten/QrCode";
 import { useT } from "../i18n";
 
-const route = getRouteApi("/zwei-faktor-einrichten");
+const route = getRouteApi("/two-factor-setup");
 
 interface Einrichtung {
   totpURI: string;
@@ -81,7 +81,7 @@ export function ZweiFaktorSeite() {
           <p className="app-leer-text">{z.einleitung}</p>
           <form className="app-formular" onSubmit={starten} noValidate>
             <FehlerHinweis fehler={fehler} />
-            <Feld label={z.passwort} hilfe={z.passwortHilfe} name="passwort" type="password" value={passwort} onChange={(e) => setPasswort(e.target.value)} autoComplete="current-password" required autoFocus />
+            <Feld zugang label={z.passwort} hilfe={z.passwortHilfe} name="passwort" type="password" value={passwort} onChange={(e) => setPasswort(e.target.value)} autoComplete="current-password" required autoFocus />
             <Button type="submit" disabled={laeuft || passwort === ""}>
               {z.starten}
             </Button>

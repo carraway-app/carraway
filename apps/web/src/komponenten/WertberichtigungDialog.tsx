@@ -61,7 +61,7 @@ export function WertberichtigungDialog({ beteiligungId, onSchliessen }: { beteil
           </Auswahl>
           <Feld label={f.valuta} type="date" required {...feld("valuta", fehler("valuta"))} />
           <BetragFeld label={f.betrag} required {...feld("betrag", fehler("betrag"))} />
-          <Feld label={f.begruendung} autoComplete="off" {...feld("begruendung")} fehler={fehler("bemerkung")} />
+          <Feld label={f.begruendung} {...feld("begruendung")} fehler={fehler("bemerkung")} />
           <div>
             <Button type="submit" disabled={anlegen.isPending || instrumentId === ""}>
               {f.speichern}

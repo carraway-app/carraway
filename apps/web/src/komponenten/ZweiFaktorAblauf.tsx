@@ -89,7 +89,7 @@ export function ZweiFaktorAblauf({ modus, passwortNoetig, onFertig, onAbbrechen 
       <form className="app-formular" onSubmit={starten} noValidate>
         <p className="app-leer-text">{modus === "erst" ? z.ausEinleitung : z.neuEinleitung}</p>
         <FehlerHinweis fehler={fehler} />
-        {passwortNoetig ? <Feld label={z.passwort} name="zf-passwort" type="password" value={passwort} onChange={(e) => setPasswort(e.target.value)} autoComplete="current-password" required autoFocus /> : null}
+        {passwortNoetig ? <Feld zugang label={z.passwort} name="zf-passwort" type="password" value={passwort} onChange={(e) => setPasswort(e.target.value)} autoComplete="current-password" required autoFocus /> : null}
         <div className="app-aktionen__knoepfe">
           <Button type="submit" disabled={laeuft || (passwortNoetig && passwort === "")}>
             {z.starten}

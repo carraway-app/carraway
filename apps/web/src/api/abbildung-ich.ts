@@ -15,6 +15,7 @@ export const VON_API: Record<string, string> = {
   documents: "dokumente",
   data: "daten",
   fund_administration: "fondsverwaltung",
+  individual_grants: "einzelzuteilungen",
 };
 const von = (s: string) => VON_API[s] ?? s;
 export const stufeVonApi = von as (s: string) => Stufe;

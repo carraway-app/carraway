@@ -21,15 +21,24 @@ const heuteIso = () => {
  * Attribute eines Datensatzes als Seitenleiste neben den Reitern: alle Felder (System- und eigene) mit Beschriftung und Wert, jedes Feld
  * einzeln bearbeitbar, oben Mail, Telefon, LinkedIn und Website als Schnellaktionen.
  */
-export function Datensatzpanel({ objekt, id, darfSchreiben, titel }: { objekt: Objekt; id: string; darfSchreiben: boolean; titel: string }) {
+/** Technische Kennungen (zum Beispiel Fonds-ID) stehen nicht gleichrangig neben fachlichen Angaben, sondern eingeklappt. */
+const istTechnisch = (f: Feld) => f.system && /Id$/.test(f.schluessel);
+
+/**
+ * Attribute eines Datensatzes als Abschnitt der Seite (keine dauerhafte dritte Spalte). Felder, die die Seite schon zeigt (`doppelt`), stehen
+ * hier nicht noch einmal; technische Kennungen liegen eingeklappt unter „Technische Angaben“.
+ */
+export function Datensatzpanel({ objekt, id, darfSchreiben, titel, doppelt = [] }: { objekt: Objekt; id: string; darfSchreiben: boolean; titel: string; doppelt?: readonly string[] }) {
   const t = useT();
   const abfrage = useQuery(crmDatensatz(objekt, id));
   const aendern = useDatensatzAendern(objekt);
   const [bearbeitet, setBearbeitet] = useState<string | null>(null);
-  if (abfrage.isPending) return <aside className="app-attribute" aria-busy="true" aria-label={t.crm.attribute}><div className="app-skelett app-skelett--zeile" /></aside>;
-  if (abfrage.isError) return <aside className="app-attribute" aria-label={t.crm.attribute}><FehlerHinweis fehler={abfrage.error} /></aside>;
+  if (abfrage.isPending) return <section className="app-attribute" aria-busy="true" aria-label={t.crm.attribute}><div className="app-skelett app-skelett--zeile" /></section>;
+  if (abfrage.isError) return <section className="app-attribute" aria-label={t.crm.attribute}><FehlerHinweis fehler={abfrage.error} /></section>;
   const { werte, felder, bezuege } = abfrage.data;
-  const sichtbar = felder.filter((f) => !(f.system && f.schluessel === NAMENSFELD[objekt]) && f.schluessel !== "kontakte");
+  const sichtbar = felder.filter((f) => !(f.system && f.schluessel === NAMENSFELD[objekt]) && f.schluessel !== "kontakte" && !(f.system && doppelt.includes(f.schluessel)));
+  const fachlich = sichtbar.filter((f) => !istTechnisch(f));
+  const technisch = sichtbar.filter(istTechnisch);
 
   const schreibe = (f: Feld, wert: unknown) =>
     aendern.mutateAsync({ id, ...(f.system ? { system: { [f.schluessel]: wert } } : { eigene: { [f.schluessel]: wert } }) }).then(
@@ -38,14 +47,26 @@ export function Datensatzpanel({ objekt, id, darfSchreiben, titel }: { objekt: O
     );
 
   return (
-    <aside className="app-attribute" aria-label={t.crm.attribute}>
+    <section className="app-attribute" aria-label={t.crm.attribute}>
       <div className="app-attribute__kopf">
         <h2 className="cw-t-untertitel">{t.crm.attribute}</h2>
         <Schnellaktionen werte={schnellWerte(objekt, werte)} name={titel} />
       </div>
       <FehlerHinweis fehler={aendern.error} />
+      {liste(fachlich)}
+      {technisch.length > 0 ? (
+        <details className="app-attribute__technik">
+          <summary>{t.crm.technischeAngaben}</summary>
+          {liste(technisch)}
+        </details>
+      ) : null}
+    </section>
+  );
+
+  function liste(auswahl: Feld[]) {
+    return (
       <dl className="app-attribute__liste">
-        {sichtbar.map((f) => {
+        {auswahl.map((f) => {
           const name = feldName(f, t);
           const bearbeitbar = darfSchreiben && f.schreibbar && (istInlineBearbeitbar(f) || f.typ === "langtext" || f.typ === "verknuepfung" || f.typ === "benutzer");
           const wert = werte[f.schluessel];
@@ -102,8 +123,8 @@ export function Datensatzpanel({ objekt, id, darfSchreiben, titel }: { objekt: O
           );
         })}
       </dl>
-    </aside>
-  );
+    );
+  }
 }
 
 function LangtextEditor({ wert, beschriftung, onFertig }: { wert: string; beschriftung: string; onFertig: (neu: string | null | undefined) => void }) {

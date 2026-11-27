@@ -2,17 +2,17 @@ import { useEffect, useState } from "react";
 import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { getRouteApi, Link, useNavigate } from "@tanstack/react-router";
 import { useTabs } from "../lib/tabs";
-import { ArrowsClockwiseIcon, Auswahl, BookOpenIcon, Button, Feld, formatDatum, Hinweis, Segment, Seitenkopf, Status, Tabelle, Tabs, type StatusVariante, type TabelleSpalte } from "@carraway/ui";
+import { ArrowsClockwiseIcon, Auswahl, BookOpenIcon, Button, Feld, formatDatum, Hinweis, Segment, Seitenkopf, Status, Tabelle, Tabs, type StatusVariante, type TabelleSpalte, Leer } from "@carraway/ui";
 import { fondsListe } from "../api/abfragen";
 import { fondsDefinitionen, foerderprogramme, meldeLaeufe, useAktivierung, useLaufAnlegen, type FondsDefinition, type MeldeLaufZeile } from "../api/meldewesen";
 import { Seitenpanel } from "@carraway/ui";
 import { FehlerHinweis } from "../komponenten/FehlerHinweis";
 import { aufzaehlung, useSprache, useT } from "../i18n";
 import { useRechte } from "../lib/rechte";
-import { alsStand } from "../lib/zeit";
+import { datumDesStands, standAusDatum } from "../lib/wissensstand";
 import { merkeFonds } from "../zustand";
 
-const route = getRouteApi("/fonds/$fondsId/meldungen");
+const route = getRouteApi("/funds/$fundId/filings");
 
 export const LAUF_STATUS: Record<string, StatusVariante> = { entwurf: "entwurf", geprueft: "pruefung", freigegeben: "freigegeben" };
 
@@ -29,7 +29,7 @@ export function MeldungenSeite() {
   const m = t.melde;
   const f = m.fonds;
   const sprache = useSprache();
-  const { fondsId } = route.useParams();
+  const { fundId: fondsId } = route.useParams();
   const { data: fondsliste } = useSuspenseQuery(fondsListe());
   const fonds = fondsliste.find((x) => x.id === fondsId);
   const { darf } = useRechte();
@@ -61,7 +61,7 @@ export function MeldungenSeite() {
       schluessel: "aktion",
       kopf: f.laeufe.spalten.aktion,
       zelle: (l) => (
-        <Link to="/meldungen/$id" params={{ id: l.id }} aria-label={f.laeufe.oeffnenFuer(bezeichnung(l), zeitraumText(l.periodeKennung, sprache))}>
+        <Link to="/filings/$id" params={{ id: l.id }} aria-label={f.laeufe.oeffnenFuer(bezeichnung(l), zeitraumText(l.periodeKennung, sprache))}>
           {f.laeufe.oeffnen}
         </Link>
       ),
@@ -70,16 +70,15 @@ export function MeldungenSeite() {
 
   return (
     <div className="app-seite">
-      <Seitenkopf
+      <Seitenkopf info={f.einleitung}
         meta={
-          <Link to="/fonds/$fondsId" params={{ fondsId }} search={{}}>
+          <Link to="/funds/$fundId" params={{ fundId: fondsId }} search={{}}>
             {f.zurueck}
           </Link>
         }
         titel={`${f.titel}${fonds ? ` · ${fonds.name}` : ""}`}
         aktionen={kannAnlegen ? <Button onClick={() => setNeu(true)} disabled={aktive.length === 0}>{f.neu.knopf}</Button> : undefined}
       />
-      <p className="app-leer-text">{f.einleitung}</p>
       {!kannAnlegen ? <p className="app-leer-text">{f.neu.rolle}</p> : null}
 
       <Tabs
@@ -95,7 +94,7 @@ export function MeldungenSeite() {
             inhalt: () => (
               <section className="app-karte app-karte--tabelle" aria-label={f.laeufe.titel}>
                 {error ? <FehlerHinweis fehler={error} /> : null}
-                {laeufe && laeufe.length > 0 ? <Tabelle dicht beschriftung={f.laeufe.beschriftung} spalten={spalten} zeilen={laeufe} zeilenSchluessel={(l) => l.id} /> : <p className="app-leer-text">{f.laeufe.keine}</p>}
+                {laeufe && laeufe.length > 0 ? <Tabelle dicht beschriftung={f.laeufe.beschriftung} spalten={spalten} zeilen={laeufe} zeilenSchluessel={(l) => l.id} /> : <Leer titel={f.laeufe.keine} beschreibung={f.laeufe.keineHilfe} />}
               </section>
             ),
           },
@@ -193,7 +192,9 @@ function NeuerLauf({ fondsId, definitionen, onSchliessen }: { fondsId: string; d
 
   function senden() {
     if (!gewaehlt) return;
-    const standIso = alsStand(stand || undefined);
+    // Wissensstand nur als Datum (Tagesende); heute heißt „jetzt“, ein späterer Tag ist im Feld gesperrt (max).
+    const datumsStand = standAusDatum(stand || undefined);
+    const standIso = datumsStand === "zukunft" ? undefined : datumsStand;
     anlegen.mutate(
       {
         fondsId,
@@ -202,7 +203,7 @@ function NeuerLauf({ fondsId, definitionen, onSchliessen }: { fondsId: string; d
         ...(rhythmus === "stichtag" ? { stichtag } : { jahr: Number(jahr), ...(rhythmus === "jahr" ? {} : { nummer: Number(nummer) }) }),
         ...(standIso ? { stand: standIso } : {}),
       },
-      { onSuccess: (lauf) => void navigate({ to: "/meldungen/$id", params: { id: lauf.id } }) },
+      { onSuccess: (lauf) => void navigate({ to: "/filings/$id", params: { id: lauf.id } }) },
     );
   }
 
@@ -252,7 +253,7 @@ function NeuerLauf({ fondsId, definitionen, onSchliessen }: { fondsId: string; d
             onChange={setLauftext}
           />
         </div>
-        <Feld label={n.stand} type="datetime-local" value={stand} onChange={(e) => setStand(e.target.value)} hilfe={n.standHilfe} />
+        <Feld label={n.stand} type="date" max={datumDesStands(new Date().toISOString())} value={stand} onChange={(e) => setStand(e.target.value)} hilfe={n.standHilfe} />
         {anlegen.error ? <FehlerHinweis fehler={anlegen.error} /> : null}
         <Button type="submit" disabled={anlegen.isPending || !gewaehlt}>
           {n.anlegen}

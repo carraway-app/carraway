@@ -570,6 +570,15 @@ export const usePoolAnlegen = (organisationId: string) =>
     invalidiert: () => kapitalGeaendert,
   });
 
+export type PoolStammAenderung = PortfolioEingabe<Pools[":poolId"]["$patch"]>["json"];
+
+/** Stammdaten und Erfassung eines Pools (grob oder einzeln, Schätzung). */
+export const usePoolAendern = (organisationId: string) =>
+  useApiMutation({
+    aufruf: ({ poolId, ...json }: { poolId: string } & PoolStammAenderung) => auspackenPortfolio(api.api.v1.organizations[":id"]["employee-pools"][":poolId"].$patch, { param: { id: organisationId, poolId }, json }),
+    invalidiert: () => kapitalGeaendert,
+  });
+
 export const usePoolAenderung = (organisationId: string) =>
   useApiMutation({
     aufruf: ({ poolId, ...json }: { poolId: string } & NeuePoolAenderung) =>
@@ -603,6 +612,19 @@ export const useZuteilungAendern = (organisationId: string) =>
   useApiMutation({
     aufruf: ({ poolId, zuteilungId, ...json }: { poolId: string; zuteilungId: string } & ZuteilungAenderung) =>
       auspackenPortfolio(api.api.v1.organizations[":id"]["employee-pools"][":poolId"].grants[":grantId"].$patch, { param: { id: organisationId, poolId, zuteilungId }, json }),
+    invalidiert: () => kapitalGeaendert,
+  });
+
+/** Zuteilung entfernen (mit ihren Austritten) oder anonymisieren (Name und Kennung gelöscht, Zahlen bleiben). */
+export const useZuteilungLoeschen = (organisationId: string) =>
+  useApiMutation({
+    aufruf: ({ poolId, zuteilungId }: AustrittZiel) => auspackenPortfolio(api.api.v1.organizations[":id"]["employee-pools"][":poolId"].grants[":grantId"].$delete, { param: { id: organisationId, poolId, zuteilungId } }),
+    invalidiert: () => kapitalGeaendert,
+  });
+
+export const useZuteilungAnonymisieren = (organisationId: string) =>
+  useApiMutation({
+    aufruf: ({ poolId, zuteilungId }: AustrittZiel) => auspackenPortfolio(api.api.v1.organizations[":id"]["employee-pools"][":poolId"].grants[":grantId"].anonymize.$post, { param: { id: organisationId, poolId, zuteilungId } }),
     invalidiert: () => kapitalGeaendert,
   });
 

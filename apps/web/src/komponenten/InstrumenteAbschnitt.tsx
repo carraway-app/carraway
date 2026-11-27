@@ -1,6 +1,6 @@
 import { lazy, Suspense, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Button, Hinweis, Kennwerte, Karte, Leer, Status, Tabelle, formatBetrag, formatDatum, type StatusVariante, type TabelleSpalte } from "@carraway/ui";
+import { Button, Hinweis, Kennwerte, Karte, Leer, Status, Tabelle, formatBetrag, formatDatum, type StatusVariante, type TabelleSpalte, type MenueEintrag } from "@carraway/ui";
 import { instrumentdaten } from "../api/abfragen";
 import { heuteIso } from "../api/datum";
 import { aufzaehlung, useSprache, useT } from "../i18n";
@@ -303,42 +303,38 @@ function Tranchen({ instrument: i, schreiben, onWahl }: { instrument: Instrument
     { schluessel: "nummer", kopf: m.spalten.nummer, zelle: (x) => <span className="app-zahl">{x.nummer}</span> },
     { schluessel: "bezeichnung", kopf: m.spalten.bezeichnung, zelle: (x) => x.bezeichnung },
     { schluessel: "geplantAm", kopf: m.spalten.geplantAm, zelle: (x) => (x.geplantAm ? formatDatum(x.geplantAm, sprache) : keinWert) },
-    { schluessel: "bedingung", kopf: m.spalten.bedingung, umbruch: true, zelle: (x) => x.bedingung ?? keinWert },
-    { schluessel: "betrag", kopf: m.spalten.betrag, zahl: true, zelle: (x) => formatBetrag(x.betrag, sprache) },
-    { schluessel: "gezahlt", kopf: m.spalten.gezahlt, zahl: true, zelle: (x) => formatBetrag(x.stand.ausgezahlt, sprache) },
-    { schluessel: "stand", kopf: m.spalten.stand, zelle: (x) => <Status variante={TRANCHE_STAND[x.stand.zahlung] ?? "entwurf"}>{aufzaehlung(m.stand, x.stand.zahlung)}</Status> },
     {
-      schluessel: "bedingungStand",
-      kopf: m.spalten.bedingungStand,
-      zelle: (x) =>
-        x.stand.bedingung === null ? (
-          keinWert
-        ) : x.stand.bedingung === "erfuellt" ? (
-          <Status variante="freigegeben">{x.erfuelltAm ? m.bedingungErfuellt(formatDatum(x.erfuelltAm, sprache)) : keinWert}</Status>
-        ) : (
-          <Status variante="pruefung">{m.bedingungOffen}</Status>
-        ),
+      // Bedingung mit ihrem Stand darunter, Betrag mit dem Gezahlten darunter, Aktionen im Zeilenmenü: passt so bei 1280 px.
+      schluessel: "bedingung",
+      kopf: m.spalten.bedingung,
+      umbruch: true,
+      zelle: (x) => (
+        <>
+          {x.bedingung ?? keinWert}
+          {x.stand.bedingung === null ? null : (
+            <span className="app-zelle-zusatz" title={m.spalten.bedingungStand}>
+              {x.stand.bedingung === "erfuellt" ? <Status variante="freigegeben">{x.erfuelltAm ? m.bedingungErfuellt(formatDatum(x.erfuelltAm, sprache)) : keinWert}</Status> : <Status variante="pruefung">{m.bedingungOffen}</Status>}
+            </span>
+          )}
+        </>
+      ),
     },
-    ...(schreiben
-      ? [
-          {
-            schluessel: "aktion",
-            kopf: m.spalten.aktion,
-            zelle: (x: Tranche) => (
-              <span className="app-aktionen__knoepfe">
-                {x.stand.bedingung === "offen" ? (
-                  <Button variante="sekundaer" groesse="s" aria-label={m.erfuellenFuer(x.bezeichnung)} onClick={() => onWahl({ art: "erfuellt", tranche: x })}>
-                    {m.erfuellen}
-                  </Button>
-                ) : null}
-                <Button variante="ruhig" groesse="s" aria-label={m.bearbeitenFuer(x.bezeichnung)} onClick={() => onWahl({ art: "trancheBearbeiten", tranche: x })}>
-                  {m.bearbeiten}
-                </Button>
-              </span>
-            ),
-          },
-        ]
-      : []),
+    {
+      schluessel: "betrag",
+      kopf: m.spalten.betrag,
+      zahl: true,
+      zelle: (x) => (
+        <>
+          {formatBetrag(x.betrag, sprache)}
+          <span className="app-zelle-zusatz">{`${m.spalten.gezahlt} ${formatBetrag(x.stand.ausgezahlt, sprache)}`}</span>
+        </>
+      ),
+    },
+    { schluessel: "stand", kopf: m.spalten.stand, zelle: (x) => <Status variante={TRANCHE_STAND[x.stand.zahlung] ?? "entwurf"}>{aufzaehlung(m.stand, x.stand.zahlung)}</Status> },
   ];
-  return <Tabelle dicht beschriftung={`${m.titel}: ${i.bezeichnung}`} spalten={spalten} zeilen={i.tranchen} zeilenSchluessel={(x) => x.id} />;
+  const aktionen = (x: Tranche): MenueEintrag[] => [
+    ...(x.stand.bedingung === "offen" ? [{ id: "erfuellt", label: m.erfuellenFuer(x.bezeichnung), onClick: () => onWahl({ art: "erfuellt", tranche: x }) }] : []),
+    { id: "bearbeiten", label: m.bearbeitenFuer(x.bezeichnung), onClick: () => onWahl({ art: "trancheBearbeiten", tranche: x }) },
+  ];
+  return <Tabelle dicht beschriftung={`${m.titel}: ${i.bezeichnung}`} spalten={spalten} zeilen={i.tranchen} zeilenSchluessel={(x) => x.id} aktionen={schreiben ? aktionen : undefined} />;
 }

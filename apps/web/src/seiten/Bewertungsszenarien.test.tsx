@@ -38,7 +38,7 @@ const antworten = (status: "entwurf" | "festgeschrieben") => ({
 describe("Bewertungsszenarien im Bereich Szenarien", () => {
   it("zeigt Fälle, Lücke statt Zahl, Erwartungswert und Fondswirkung; der Entwurf nennt das Wasserzeichen", async () => {
     spieleApi(antworten("entwurf"));
-    rendereApp(`/fonds/${FONDS_ID}/szenarien?tab=bewertung`);
+    rendereApp(`/funds/${FONDS_ID}/scenarios?tab=valuation`);
     const fall = await screen.findByText(/Basis \(50 %\): 1\.800\.000/, {}, { timeout: 5000 });
     const tabelle = fall.closest("table")!;
     expect(within(tabelle).getAllByText("Lücke").length).toBeGreaterThan(0);
@@ -50,7 +50,7 @@ describe("Bewertungsszenarien im Bereich Szenarien", () => {
 
   it("der Editor verlangt genau 100 % und schickt die Fälle als Brüche; festgeschrieben gibt es keine Bearbeitung", async () => {
     const api = spieleApi(antworten("entwurf"));
-    rendereApp(`/fonds/${FONDS_ID}/szenarien?tab=bewertung`);
+    rendereApp(`/funds/${FONDS_ID}/scenarios?tab=valuation`);
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Fälle bearbeiten: Alpha Energie" }));
     const speichern = screen.getByRole("button", { name: "Fälle speichern" });
@@ -75,7 +75,7 @@ describe("Bewertungsszenarien im Bereich Szenarien", () => {
 
   it("festgeschrieben: keine Bearbeitung, Hinweis mit Prüfsumme", async () => {
     spieleApi(antworten("festgeschrieben"));
-    rendereApp(`/fonds/${FONDS_ID}/szenarien?tab=bewertung`);
+    rendereApp(`/funds/${FONDS_ID}/scenarios?tab=valuation`);
     expect(await screen.findByText(/Eingaben und Ergebnis sind eingefroren/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Fälle bearbeiten/ })).toBeNull();
   });
@@ -90,7 +90,7 @@ describe("Bewertungsszenarien: Erlös laut Wasserfall und Kennzahl in Fremdwähr
     ];
     const mit = { ...d, ergebnis: { ...d.ergebnis, bewertungsszenario: { ...d.ergebnis.bewertungsszenario, beteiligungen: [{ ...d.ergebnis.bewertungsszenario.beteiligungen[0]!, faelle, erwartetErloes: null }] } } };
     spieleApi({ ...antworten("entwurf"), [`/api/v1/szenarien/${S1}`]: { koerper: mit } });
-    rendereApp(`/fonds/${FONDS_ID}/szenarien?tab=bewertung`);
+    rendereApp(`/funds/${FONDS_ID}/scenarios?tab=valuation`);
     expect(await screen.findByText(/Basis: 1\.500\.000/, {}, { timeout: 5000 })).toBeTruthy();
     expect(screen.getByText(/Bulle: keine Captable|bull: keine Captable/)).toBeTruthy();
     expect(screen.getByText(/Kennzahl in USD, Kurs 0\.92165899 vom 20\.11\.2026/)).toBeTruthy();

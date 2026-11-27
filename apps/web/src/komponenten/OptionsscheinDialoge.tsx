@@ -53,7 +53,7 @@ export function AusuebungDialog({ instrument, onSchliessen }: { instrument: Inst
         <Feld label={f.datum} type="date" max={heuteIso()} {...feld("date", fehler("date"))} />
         <BetragFeld label={f.anzahl} inputMode="numeric" hilfe={f.anzahlHilfe(formatAnzahl(offen, sprache))} {...feld("shares", fehler("shares"))} />
         <BetragFeld label={f.betrag} hilfe={f.betragHilfe} {...feld("amount", fehler("amount"))} />
-        <Feld label={f.bemerkung} autoComplete="off" {...feld("note", fehler("note"))} />
+        <Feld label={f.bemerkung} {...feld("note", fehler("note"))} />
         <div>
           <Button type="submit" disabled={ausueben.isPending}>
             {f.speichern}
@@ -84,7 +84,7 @@ export function AusuebungStornoDialog({ instrumentId, ausuebung, onSchliessen }:
         }}
       >
         <FehlerHinweis fehler={storno.error} bekannt={["reason"]} />
-        <Feld label={f.grund} autoComplete="off" {...feld("grund")} fehler={feldText(t, storno.error, "reason")} />
+        <Feld label={f.grund} {...feld("grund")} fehler={feldText(t, storno.error, "reason")} />
         <div>
           <Button type="submit" variante="gefahr" disabled={storno.isPending}>
             {f.stornieren}

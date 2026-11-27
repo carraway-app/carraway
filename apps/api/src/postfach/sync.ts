@@ -337,8 +337,8 @@ async function verarbeiteTermine(db: Db, zeile: Zeile, zugang: Zugang, termine: 
             }
             continue;
           }
-          await tx.delete(aktivitaet).where(eq(aktivitaet.id, bestehende));
           await protokoll("loeschen", "aktivitaet", bestehende, protokollSicht(alt), null);
+          await tx.delete(aktivitaet).where(eq(aktivitaet.id, bestehende));
           continue;
         }
         const titel = t.titel.slice(0, 300) || "(ohne Titel)";

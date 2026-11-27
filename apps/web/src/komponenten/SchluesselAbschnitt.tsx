@@ -96,7 +96,7 @@ function SchluesselFormular({ daten, beteiligungId, fondsId, lesend }: { daten: 
       <p className="app-leer-text">
         {s.stammdaten.titel}: {s.stammdaten.land} {daten.sitzland ?? s.stammdaten.keine}, {s.stammdaten.region} {daten.region ?? s.stammdaten.keine}
         {" · "}
-        <Link to="/organisationen/$id" params={{ id: daten.organisationId }}>
+        <Link to="/organizations/$id" params={{ id: daten.organisationId }}>
           {s.stammdaten.beiOrganisation}
         </Link>
       </p>

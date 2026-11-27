@@ -15,10 +15,12 @@ export const datenuebernahmeEn: typeof datenuebernahmeDe = {
     beteiligungen: "Holdings",
     finanzierungsrunden: "Financing rounds",
     rundenpositionen: "Round positions",
+    mitarbeiterzuteilungen: "Employee grants",
     vorgaenge: "Entries",
     bewertungen: "Valuations",
     konditionen: "Terms",
     fondsbewegungen: "Fund movements",
+    kennzahlen: "Metrics",
     kontrollsummen: "Control totals",
   },
   vorlage: {

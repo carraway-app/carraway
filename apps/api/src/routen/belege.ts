@@ -317,7 +317,7 @@ export function belegRouten(db: Db, speicher: Speicher = erstelleStandardSpeiche
         await protokoll("freigeben", "beleg", id, vorher, neu);
         // Interne Hinweise nur an Personen mit Opt-in, wie bei Berichten und Meldungen (Etappe 17); ohne Mailversand bleibt die Freigabe unberührt.
         const [fondsZeile] = await tx.select({ name: fonds.name }).from(fonds).where(eq(fonds.id, vorher.fondsId));
-        await sendeBerichtFreigegeben(tx, protokoll, c.get("mail"), { berichtId: id, bericht: "beleg", fondsId: vorher.fondsId, fondsName: fondsZeile?.name ?? null, linkPfad: `/belege/${id}`, bezugArt: "beleg" });
+        await sendeBerichtFreigegeben(tx, protokoll, c.get("mail"), { berichtId: id, bericht: "beleg", fondsId: vorher.fondsId, fondsName: fondsZeile?.name ?? null, linkPfad: `/vouchers/${id}`, bezugArt: "beleg" });
         return neu!;
       });
       return c.json(insEnglische(nachher), 200);

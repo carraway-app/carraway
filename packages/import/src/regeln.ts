@@ -23,7 +23,9 @@ export const SCHLUESSELSPALTE: Partial<Record<Blatt, string>> = {
   finanzierungsrunden: "runde_schluessel",
   vorgaenge: "vorgang_schluessel",
   bewertungen: "bewertung_schluessel",
+  kennzahlen: "kennzahl_wert_schluessel",
   fondsbewegungen: "bewegung_schluessel",
+  mitarbeiterzuteilungen: "zuteilung_schluessel",
 };
 
 /** Welches Feld verweist auf welches Objekt? */
@@ -35,12 +37,16 @@ export const VERWEISE: readonly { blatt: Blatt; spalte: string; ziel: Verweiszie
   { blatt: "rundenpositionen", spalte: "runde_schluessel", ziel: "finanzierungsrunden" },
   { blatt: "rundenpositionen", spalte: "fonds_kurzname", ziel: "fonds" },
   { blatt: "rundenpositionen", spalte: "investor_schluessel", ziel: "organisationen" },
+  { blatt: "mitarbeiterzuteilungen", spalte: "organisation_schluessel", ziel: "organisationen" },
   { blatt: "vorgaenge", spalte: "beteiligung_schluessel", ziel: "beteiligungen" },
   { blatt: "vorgaenge", spalte: "storniert_vorgang_schluessel", ziel: "vorgaenge" },
+  { blatt: "vorgaenge", spalte: "runde_schluessel", ziel: "finanzierungsrunden" },
   { blatt: "bewertungen", spalte: "beteiligung_schluessel", ziel: "beteiligungen" },
+  { blatt: "kennzahlen", spalte: "beteiligung_schluessel", ziel: "beteiligungen" },
   { blatt: "konditionen", spalte: "beteiligung_schluessel", ziel: "beteiligungen" },
   { blatt: "fondsbewegungen", spalte: "fonds_kurzname", ziel: "fonds" },
   { blatt: "kontrollsummen", spalte: "fonds_kurzname", ziel: "fonds" },
+  { blatt: "kontrollsummen", spalte: "beteiligung_schluessel", ziel: "beteiligungen" },
 ];
 
 const ZIEL_BLATT: Record<Verweisziel, Blatt> = {
@@ -113,7 +119,12 @@ export function pruefeInhalt(daten: Typisiert, namen: Record<Blatt, string>, ext
     (z) => (z.w.runde_schluessel && (z.w.fonds_kurzname || z.w.investor_schluessel) ? `${z.w.runde_schluessel}|${z.w.fonds_kurzname ? `f:${z.w.fonds_kurzname}` : `o:${z.w.investor_schluessel}`}` : null),
     "Diese Position (Runde, Investor)",
   );
-  natuerlich("kontrollsummen", (z) => (z.w.fonds_kurzname && z.w.groesse ? `${z.w.fonds_kurzname}|${z.w.groesse}|${z.w.stichtag ?? ""}` : null), "Diese Kontrollsumme");
+  natuerlich(
+    "kennzahlen",
+    (z) => (z.w.beteiligung_schluessel && z.w.kennzahl && z.w.periode_beginn && z.w.periode_ende && z.w.szenario ? [z.w.beteiligung_schluessel, z.w.kennzahl, z.w.periode_beginn, z.w.periode_ende, z.w.szenario].join("|") : null),
+    "Dieser Kennzahlenwert (Beteiligung, Kennzahl, Zeitraum, Szenario)",
+  );
+  natuerlich("kontrollsummen", (z) => (z.w.fonds_kurzname && z.w.groesse ? `${z.w.fonds_kurzname}|${z.w.beteiligung_schluessel ?? ""}|${z.w.groesse}|${z.w.stichtag ?? ""}` : null), "Diese Kontrollsumme");
 
   // 2. Verweise auflösbar.
   const eigene = Object.fromEntries((Object.keys(extern) as Verweisziel[]).map((ziel) => [ziel, definierteSchluessel(daten, ziel)])) as Record<Verweisziel, Set<string>>;
@@ -124,6 +135,17 @@ export function pruefeInhalt(daten: Typisiert, namen: Record<Blatt, string>, ext
         melde(v.blatt, z, v.spalte, "VERWEIS_UNBEKANNT", `„${wert}“ gibt es weder im Blatt ${namen[ZIEL_BLATT[v.ziel]]} noch im Bestand.`, { wert, zielBlatt: ZIEL_BLATT[v.ziel], zielBlattName: namen[ZIEL_BLATT[v.ziel]] });
       }
     }
+  }
+
+  // Mitarbeiterzuteilungen: Monate im erlaubten Bereich, Status mit Datum nicht vor der Zuteilung, Beschleunigung mit höchstens vier Nachkommastellen.
+  for (const z of daten.mitarbeiterzuteilungen) {
+    for (const spalte of ["cliff_monate", "vesting_monate", "ausuebungsfrist_monate"]) {
+      if (z.w[spalte] !== undefined && Number(z.w[spalte]) > 240) melde("mitarbeiterzuteilungen", z, spalte, "ZUTEILUNG_MONATE", "Höchstens 240 Monate.", { max: 240 });
+    }
+    if ((z.w.status === "verfallen" || z.w.status === "ausgeuebt") && z.w.status_am === undefined) melde("mitarbeiterzuteilungen", z, "status_am", "ZUTEILUNG_STATUS_DATUM", "Verfallen und ausgeübt brauchen ein Datum.");
+    if (z.w.status_am !== undefined && z.w.zugeteilt_am !== undefined && z.w.status_am < z.w.zugeteilt_am) melde("mitarbeiterzuteilungen", z, "status_am", "ZUTEILUNG_STATUS_DATUM", "Das Datum des Status liegt vor der Zuteilung.");
+    if (z.w.anzahl !== undefined && d(z.w.anzahl).isZero()) melde("mitarbeiterzuteilungen", z, "anzahl", "BETRAG_UNGUELTIG", "Die Anzahl muss größer als null sein.", { grund: "nicht_positiv" });
+    if (z.w.beschleunigung !== undefined && d(z.w.beschleunigung).decimalPlaces() > 4) melde("mitarbeiterzuteilungen", z, "beschleunigung", "BETRAG_NACHKOMMASTELLEN", "Höchstens vier Nachkommastellen.", { wert: z.w.beschleunigung, max: 4 });
   }
 
   // 3. Rundenpositionen: genau ein Investor; Summe = Rundenvolumen.
@@ -225,6 +247,9 @@ export function pruefeInhalt(daten: Typisiert, namen: Record<Blatt, string>, ext
   // 7. Kontrollsummen: der Stichtag gehört zum NAV; für die anderen Größen genügt die Summe.
   for (const z of daten.kontrollsummen) {
     if (z.w.groesse === "nav" && z.w.stichtag === undefined) melde("kontrollsummen", z, "stichtag", "KONTROLLSUMME_STICHTAG", "Der NAV braucht einen Stichtag; ohne ihn gilt der Standard-Stichtag des Fonds.", {}, "warnung");
+    if (z.w.beteiligung_schluessel !== undefined && z.w.groesse !== undefined && !["zusagen", "auszahlungen", "rueckfluesse"].includes(z.w.groesse)) {
+      melde("kontrollsummen", z, "groesse", "KONTROLLSUMME_GROESSE_BETEILIGUNG", "Je Beteiligung lassen sich nur Zusagen, Auszahlungen und Rückflüsse abgleichen.");
+    }
   }
 
   return befunde;

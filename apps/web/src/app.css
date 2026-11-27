@@ -9,7 +9,8 @@ a:focus-visible, main:focus-visible { outline: 2px solid var(--cw-focus); outlin
 main:focus-visible { outline: none; }
 
 /* Rahmen: Seitenleiste klebt links über die volle Höhe, rechts Kopfzeile und Inhalt. --umgebung-h setzt das Umgebungsband (0 im Echtbestand). */
-.app { --seitenrand: 28px; min-height: 100vh; display: flex; align-items: flex-start; }
+/* Feste Ebenen von oben: Umgebungsband, Kopfleiste, Kontextkopf, Reiter. Die Versätze stehen in Variablen, damit nichts überlappt. */
+.app { --seitenrand: 24px; --kopf-h: var(--h-m); --kontextkopf-h: 56px; --fest-oben: calc(var(--umgebung-h, 0px) + var(--kopf-h)); min-height: calc(100vh - var(--umgebung-h, 0px)); display: flex; align-items: flex-start; }
 .app-haupt { flex: 1 1 0; min-width: 0; min-height: calc(100vh - var(--umgebung-h, 0px)); display: flex; flex-direction: column; }
 .app-sprung { position: absolute; left: var(--s-1); top: -64px; z-index: 60; padding: var(--s-1) var(--s-2); border-radius: var(--r-m); background: var(--cw-primary); color: var(--cw-on-primary); box-shadow: inset 0 -2px 0 var(--cw-accent); }
 .app-sprung:focus { top: var(--s-1); }
@@ -25,14 +26,27 @@ main:focus-visible { outline: none; }
 .app-leiste-umschalter { display: inline-flex; align-items: center; justify-content: center; flex: none; width: var(--h-s); height: var(--h-s); padding: 0; border: 0; border-radius: var(--r-m); background: transparent; color: var(--cw-text-muted); cursor: pointer; }
 .app-leiste-umschalter:hover { background: var(--cw-hover); color: var(--cw-text); }
 .app-leiste-umschalter:focus-visible { outline: 2px solid var(--cw-focus); outline-offset: -2px; }
-.app-fondsauswahl { display: flex; flex-direction: column; gap: var(--s-0); }
-.app-fondsauswahl__label { font-family: var(--font-mono); font-size: var(--fs-beschriftung); letter-spacing: 0.06em; text-transform: uppercase; color: var(--cw-text-muted); padding: 0 var(--s-1); }
-.app-fonds-zeichen { display: inline-flex; border-radius: var(--r-m); }
-.app-fonds-zeichen:focus-visible { outline: 2px solid var(--cw-focus); outline-offset: 2px; }
 .app-auswahl { height: var(--h-s); width: 100%; min-width: 0; padding: 0 var(--s-1h); border: 1px solid var(--cw-line-control); border-radius: var(--r-m); background: var(--cw-field); color: var(--cw-text); font-family: var(--font-sans); font-size: var(--fs-text); }
 .app-auswahl:focus-visible { outline: 2px solid var(--cw-focus); outline-offset: 1px; }
 .app-auswahl:disabled { color: var(--cw-text-disabled); }
 .app-leiste-hintergrund { display: none; }
+
+/* Kontext der Leiste: Rückweg, Kopf mit Umschalter (anderer Fonds, anderes Objekt) */
+.app-kontext { display: flex; flex-direction: column; gap: var(--s-0); }
+.app-seitenleiste[data-schmal] .app-kontext { align-items: center; }
+.app-kontext__zurueck { display: flex; align-items: center; gap: var(--s-1); min-height: var(--h-xs); padding: 0 var(--s-1); border-radius: var(--r-m); color: var(--cw-text-muted); font-size: var(--fs-klein); text-decoration: none; }
+.app-kontext__zurueck:hover { background: var(--cw-hover); color: var(--cw-text); }
+.app-kontext__zurueck:focus-visible { outline: 2px solid var(--cw-focus); outline-offset: -2px; }
+.app-kontext__zurueck svg { flex: none; width: 16px; height: 16px; }
+.app-kontext__umschalter { display: flex; }
+.app-kontext__kopf { display: flex; align-items: center; gap: var(--s-1); width: 100%; min-width: 0; padding: var(--s-1); border: 1px solid var(--cw-line); border-radius: var(--r-m); background: var(--cw-bg); color: var(--cw-text); font: inherit; text-align: left; }
+button.app-kontext__kopf { cursor: pointer; }
+button.app-kontext__kopf:hover { border-color: var(--cw-line-strong); }
+button.app-kontext__kopf:focus-visible { outline: 2px solid var(--cw-focus); outline-offset: 2px; }
+.app-kontext__kopf > svg { flex: none; width: 14px; height: 14px; margin-left: auto; color: var(--cw-text-muted); }
+.app-kontext__text { display: flex; flex-direction: column; min-width: 0; }
+.app-kontext__titel { overflow: hidden; font-weight: 600; white-space: nowrap; text-overflow: ellipsis; }
+.app-kontext__untertitel { overflow: hidden; color: var(--cw-text-subtle); font-size: var(--fs-beschriftung); white-space: nowrap; text-overflow: ellipsis; }
 
 /* Konto unten links: Avatar, Name, Menü nach oben */
 .app-konto { display: flex; flex-direction: column; gap: var(--s-1); }
@@ -47,7 +61,7 @@ main:focus-visible { outline: none; }
 .app-avatar::after { content: attr(data-initialen); }
 
 /* Kopfzeile mit zentriertem Suchfeld im internen Arbeitsbereich */
-.app-kopf { position: sticky; top: var(--umgebung-h, 0px); z-index: 20; display: flex; flex-wrap: nowrap; align-items: center; justify-content: space-between; gap: var(--s-2); height: var(--h-m); padding: 0 var(--seitenrand); background: var(--cw-bg); border-bottom: 1px solid var(--cw-line); }
+.app-kopf { position: sticky; top: var(--umgebung-h, 0px); z-index: 20; display: flex; flex-wrap: nowrap; align-items: center; justify-content: space-between; gap: var(--s-2); height: var(--kopf-h); padding: 0 var(--seitenrand); background: var(--cw-bg); border-bottom: 1px solid var(--cw-line); }
 .app-kopf__gruppe { display: flex; align-items: center; gap: var(--s-1); min-width: 0; }
 .app-kopf--mit-suche {
   display: grid;
@@ -91,23 +105,20 @@ main:focus-visible { outline: none; }
   .app-seitenleiste { display: none; }
   .app-seitenleiste[data-mobil-offen] {
     position: fixed;
-    inset: var(--umgebung-h, 0px) 0 0;
+    inset: var(--umgebung-h, 0px) auto 0 0;
     display: flex;
-    margin: auto;
-    width: min(400px, calc(100% - var(--s-3)));
-    height: fit-content;
-    max-height: calc(100dvh - var(--umgebung-h, 0px) - var(--s-3));
-    border: 1px solid var(--cw-line-strong);
-    border-radius: var(--r-xl);
+    width: min(320px, calc(100% - var(--s-6)));
+    height: auto;
+    border-right: 1px solid var(--cw-line-strong);
   }
   .app-seitenleiste[data-mobil-offen] .app-seitenleiste__mitte { flex: 0 1 auto; overscroll-behavior: contain; }
   .app-leiste-umschalter { display: none; }
   .app-leiste-hintergrund { display: block; position: fixed; inset: var(--umgebung-h, 0px) 0 0; z-index: 25; }
-  .app { --seitenrand: var(--s-2); }
+  .app { --seitenrand: var(--s-2); --kopf-h: var(--h-l); }
   .app-menueknopf { display: inline-flex; width: 44px; height: 44px; }
   .app-kopf { height: var(--h-l); gap: var(--s-1); }
   .app-kopfsuche, .app .app-zaehler { min-height: 44px; min-width: 44px; }
-  .app-seitenleiste :is(.cw-nav__eintrag, .cw-nav__gruppenkopf, .app-auswahl, .app-konto__knopf) { min-height: 44px; }
+  .app-seitenleiste :is(.cw-nav__eintrag, .cw-nav__gruppenkopf, .app-auswahl, .app-konto__knopf, .app-kontext__zurueck, .app-kontext__kopf) { min-height: 44px; }
   body:has(.app-seitenleiste[data-mobil-offen]) { overflow: hidden; }
   .app-kopf__text { display: none; }
   .app-pfad li:not(:last-child) { display: none; }
@@ -117,7 +128,13 @@ main:focus-visible { outline: none; }
 /* Seite: dicht, damit mehr Inhalt in den Blick passt */
 .app-seite { display: flex; flex-direction: column; gap: var(--s-1h); padding: var(--s-2) var(--s-3) var(--s-4); min-width: 0; }
 .app-seite .app-seite { padding: 0; }
-.app #inhalt > .app-seite { gap: var(--s-2); padding: 18px var(--seitenrand) 28px; }
+.app #inhalt > .app-seite { gap: var(--s-2); padding: var(--s-3) var(--seitenrand) var(--s-4); }
+/* Kontextkopf: bleibt unter der Kopfleiste stehen, über die volle Breite des Inhalts, mit Grund und Trennlinie. */
+.app #inhalt > .app-seite:has(> .cw-seitenkopf:first-child) { padding-top: 0; }
+.app #inhalt > .app-seite > .cw-seitenkopf { position: sticky; top: var(--fest-oben); z-index: 15; min-height: var(--kontextkopf-h); margin-inline: calc(-1 * var(--seitenrand)); margin-bottom: calc(-1 * var(--s-1)); padding: var(--s-1) var(--seitenrand); background: var(--cw-bg); border-bottom: 1px solid var(--cw-line); }
+@media (max-width: 807px) {
+  .app #inhalt > .app-seite > .cw-seitenkopf { position: static; }
+}
 .app #inhalt h2:is(.cw-karte__titel, .cw-t-untertitel, .app-karte__titel) {
   font: 650 18px/1.25 var(--font-display);
 }
@@ -319,7 +336,7 @@ body > .cw-ueberlagerung { inset-block-start: var(--umgebung-h, 0px); }
 .app-verlauf-liste { padding-left: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; font-size: var(--fs-klein); color: var(--cw-text-muted); }
 /* Tabellen bleiben einzeilig: Stapel, Aktionsgruppen und Listen in Zellen laufen nebeneinander statt untereinander. */
 .cw-tabelle .app-wert-stapel, .cw-tabelle .app-stufe { flex-direction: row; align-items: baseline; gap: var(--s-1); white-space: nowrap; }
-.cw-tabelle .app-kz-zelle { flex-direction: row; align-items: baseline; gap: var(--s-1); white-space: nowrap; }
+.cw-tabelle .app-kz-zelle { flex-direction: column; align-items: flex-end; gap: 0; white-space: nowrap; }
 .cw-tabelle .app-aktion-spalte { flex-direction: row; align-items: center; max-width: none; white-space: nowrap; }
 .cw-tabelle .app-aktionen { margin-bottom: 0; }
 .cw-tabelle .app-verlauf-liste, .cw-tabelle .app-liste-klein { display: flex; flex-direction: row; flex-wrap: nowrap; gap: var(--s-2); padding-left: 0; list-style: none; white-space: nowrap; }
@@ -441,14 +458,16 @@ body > .cw-ueberlagerung { inset-block-start: var(--umgebung-h, 0px); }
 .app-werkzeug { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-1); }
 .app-werkzeug .cw-feld { width: 148px; }
 .cw-seitenkopf__aktionen .app-werkzeug { justify-content: flex-end; }
-.cw-seitenkopf__aktionen .app-seitenstichtag { display: flex; flex-direction: row; align-items: center; gap: var(--s-1); width: auto; max-width: 100%; }
-.app-seitenstichtag .cw-feld__label { color: var(--cw-text-muted); }
-.app-seitenstichtag input { width: 9.25rem; max-width: 100%; }
-@media (max-width: 360px) {
-  .cw-seitenkopf__aktionen .app-seitenstichtag { flex-direction: column; align-items: flex-start; gap: 2px; }
-  .app-seitenstichtag input { width: 8.25rem; }
-  .cw-seitenkopf__zeitbezug, .cw-seitenkopf__zeitbezug .app-werkzeug { align-items: flex-end; }
-}
+/* Stichtag-Menü im Kopf: ein Auslöser mit Stichtag (und Wissensstand), die Felder in einer kleinen Fläche */
+.app-stichtagmenue__ausloeser { display: inline-flex; align-items: center; gap: var(--s-1); height: var(--h-s); max-width: 100%; padding: 0 var(--s-1); border: 1px solid var(--cw-line-control); border-radius: var(--r-m); background: var(--cw-surface); color: var(--cw-text); font: inherit; font-size: var(--fs-klein); white-space: nowrap; cursor: pointer; }
+.app-stichtagmenue__ausloeser:hover { border-color: var(--cw-accent); }
+.app-stichtagmenue__ausloeser:focus-visible { outline: 2px solid var(--cw-focus); outline-offset: 2px; }
+.app-stichtagmenue__ausloeser[data-aktiv] { background: var(--cw-selected); }
+.app-stichtagmenue__label { color: var(--cw-text-muted); }
+.app-stichtagmenue__wert { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.app-stichtagmenue__ausloeser svg { flex: none; color: var(--cw-text-muted); }
+.app-stichtagmenue .cw-popover__flaeche { width: min(360px, 90vw); gap: var(--s-1h); }
+.app-stichtagmenue .app-waehrungsleiste { padding-top: var(--s-1h); border-top: 1px solid var(--cw-line); }
 .app-meta-stand { color: var(--cw-text-subtle); }
 .app-snapshot { gap: var(--s-1); }
 .app-snapshot:empty { display: none; }
@@ -598,6 +617,11 @@ body > .cw-ueberlagerung { inset-block-start: var(--umgebung-h, 0px); }
 .app-runden-bereich .cw-tabs__tab { overflow-wrap: normal; }
 .app-rundendetail { display: flex; flex-direction: column; gap: var(--s-2); min-width: 0; }
 .app-rundendetail__kopf { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--s-2); }
+/* Blättern zwischen Runden: links im Kopf der Runde, ruhig wie ein Link; die Aktionen bleiben rechts. */
+.app-runden__blaettern { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2); margin-inline-end: auto; }
+.app-runden__blatt { display: inline-flex; align-items: center; gap: var(--s-0); min-height: var(--h-s); padding: 0 var(--s-0); border: 0; border-radius: var(--r-s); background: transparent; color: var(--cw-text-muted); font: inherit; font-size: var(--fs-klein); cursor: pointer; }
+.app-runden__blatt:hover { color: var(--cw-text); }
+.app-runden__blatt:focus-visible { outline: 2px solid var(--cw-focus); outline-offset: 1px; }
 .app-rundendetail__aktionen { margin-bottom: 0; align-items: center; }
 .app-rundendetail .cw-fakten { grid-template-columns: repeat(auto-fit, minmax(136px, 1fr)); }
 /* Transaktionen einer Runde: eingelassene Karte in der Runden-Karte; Tabelle einzeilig und waagerecht scrollbar, erste Spalte steht fest. */
@@ -621,19 +645,16 @@ body > .cw-ueberlagerung { inset-block-start: var(--umgebung-h, 0px); }
 .app-karte .app-formular > .app-formular__fuss, .app-karte .app-formular > p.app-leer-text { grid-column: 1 / -1; }
 .app-karte .app-formular > .cw-feld .cw-feld__label, .app-karte .app-formular > fieldset > .cw-feld .cw-feld__label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Gleiche Spaltenbreiten in allen Gruppen (feste Aufteilung): Valuta, Art, Instrument, Tranche, Betrag, Bemerkung, Zusammenhang, Felder, Aktion */
-.cw-tabelle.app-tx-tabelle { table-layout: fixed; width: 190ch; min-width: 100%; }
+.cw-tabelle.app-tx-tabelle { table-layout: fixed; width: 100%; }
+/* Transaktionen: feste Spalten, Bemerkung nimmt den Rest und bricht um; Aktionen im Menü „⋯“. Passt ab 1280 px ohne Scrollen. */
 .app-tx-tabelle th, .app-tx-tabelle td { overflow: hidden; text-overflow: ellipsis; }
-.app-tx-tabelle :is(th, td):nth-child(1) { width: 15ch; }
-.app-tx-tabelle :is(th, td):nth-child(2) { width: 26ch; }
-.app-tx-tabelle :is(th, td):nth-child(3) { width: 24ch; }
-.app-tx-tabelle :is(th, td):nth-child(4) { width: 9ch; }
+.app-tx-tabelle td.cw-tabelle__umbruch { max-width: none; }
+.app-tx-tabelle :is(th, td):nth-child(1) { width: 12ch; }
+.app-tx-tabelle :is(th, td):nth-child(2) { width: 16ch; }
+.app-tx-tabelle :is(th, td):nth-child(3) { width: 22ch; }
+.app-tx-tabelle :is(th, td):nth-child(4) { width: 8ch; }
 .app-tx-tabelle :is(th, td):nth-child(5) { width: 16ch; }
-.app-tx-tabelle :is(th, td):nth-child(6) { width: 44ch; }
-.app-tx-tabelle :is(th, td):nth-child(7) { width: 30ch; }
-.app-tx-tabelle :is(th, td):nth-child(8) { width: 12ch; }
-.app-tx-tabelle :is(th, td):nth-child(9) { width: 34ch; }
-.app-tx-tabelle :is(th, td).cw-tabelle__aktion { overflow: visible; }
-.app-tx-bemerkung { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.app-tx-tabelle :is(th, td).cw-tabelle__aktion { width: 48px; overflow: visible; }
 .app-tx-gruppe__kopf > * { min-width: 0; }
 .app-tx-gruppe__summe { flex: 0 1 auto; text-align: right; white-space: normal; overflow-wrap: anywhere; }
 /* Belegvorlagen: Felder auf dem Beleg (Tabelle) neben dem Katalog verfügbarer Felder */
@@ -653,3 +674,83 @@ body > .cw-ueberlagerung { inset-block-start: var(--umgebung-h, 0px); }
 .app-vorlage__eigen { flex: 1 1 18rem; min-width: 0; }
 .app-vorlage__texte { padding-top: var(--s-2); border-top: 1px solid var(--cw-line); }
 @media (max-width: 899px) { .app-vorlage__spalten { grid-template-columns: minmax(0, 1fr); } }
+
+/* Bereichskopf: Überschrift und Info-Symbol in einer Zeile */
+.app-bereichskopf__titel { display: flex; align-items: center; gap: var(--s-0); min-width: 0; }
+.app-bereichskopf__titel h2 { margin: 0; }
+
+/* Reiter und Sprungmarken einer Seite bleiben unter dem Kontextkopf stehen (gemeinsam etwa 88 px mit dem Kopf). */
+.app #inhalt .cw-tabs--fest > .cw-tabs__leiste, .app #inhalt .cw-sprungmarken--fest { position: sticky; z-index: 14; top: var(--fest-oben); margin-inline: calc(-1 * var(--seitenrand)); padding-inline: var(--seitenrand); background: var(--cw-bg); }
+.app #inhalt .app-seite:has(> .cw-seitenkopf) .cw-tabs--fest > .cw-tabs__leiste, .app #inhalt .app-seite:has(> .cw-seitenkopf) .cw-sprungmarken--fest { top: calc(var(--fest-oben) + var(--kontextkopf-h)); }
+.app #inhalt .app-seite:has(> .cw-seitenkopf) .cw-tabs--fest .cw-sprungmarken--fest { top: calc(var(--fest-oben) + var(--kontextkopf-h) + var(--h-hauptreiter)); z-index: 13; }
+.app #inhalt { --sprung-abstand: calc(var(--fest-oben) + var(--kontextkopf-h) + var(--h-hauptreiter) + var(--h-l)); }
+@media (max-width: 807px) {
+  .app #inhalt .cw-tabs--fest > .cw-tabs__leiste, .app #inhalt .cw-sprungmarken--fest { position: static; }
+}
+
+/* Lange Angaben in Tabellen (Verlauf, Begründung) brechen in ihrer Spalte um, statt die Tabelle breiter zu machen. */
+.cw-tabelle td.cw-tabelle__umbruch :is(.app-verlauf-liste, .app-liste-klein) { flex-direction: column; flex-wrap: wrap; gap: 2px; white-space: normal; }
+
+/* Reiter einer Seite: knapper Abstand zum Inhalt */
+.app #inhalt .cw-tabs--fest { gap: var(--s-1); }
+/* Die stehende Reiterleiste hat eine feste Höhe, damit Sprungmarken darunter ohne Lücke anschließen. */
+.app #inhalt .cw-tabs--fest > .cw-tabs__leiste { box-sizing: border-box; height: var(--reiter-h); max-width: none; align-items: flex-end; }
+.app { --reiter-h: 40px; }
+.app #inhalt .app-seite:has(> .cw-seitenkopf) .cw-tabs--fest .cw-sprungmarken--fest { top: calc(var(--fest-oben) + var(--kontextkopf-h) + var(--reiter-h)); }
+.app #inhalt { --sprung-abstand: calc(var(--fest-oben) + var(--kontextkopf-h) + var(--reiter-h) + var(--h-l)); }
+.app-dealflow__mit-detail, .app-crm__mit-detail { --detail-oben: calc(var(--fest-oben, 0px) + var(--kontextkopf-h, 0px) + var(--reiter-h, 40px) + var(--s-1)); }
+/* Bewertungen: Status mit Verlauf darunter, schmal umbrechend, damit die Tabelle bei 1280 px ohne Scrollen passt. */
+.cw-tabelle td.cw-tabelle__umbruch:has(> .app-status-verlauf) { max-width: 24ch; }
+.app-tx-zusammenhang { margin-top: var(--s-0); font-size: var(--fs-klein); color: var(--cw-text-muted); }
+/* Zusammenhang (Storno, storniert) bricht in der schmalen Art-Spalte um, statt abgeschnitten zu werden. */
+.cw-tabelle .app-tx-zusammenhang .app-zusammenhang { flex-wrap: wrap; white-space: normal; row-gap: 2px; }
+.app-status-verlauf { display: flex; flex-direction: column; align-items: flex-start; gap: var(--s-0); }
+.app-bewertungen-tabelle td.cw-tabelle__umbruch { max-width: 24ch; }
+/* Zweite Zeile einer Zelle (Rolle, Anteil nach Runde, gezahlt): klein und ruhig, damit zusammengefasste Spalten lesbar bleiben. */
+.app-zelle-zusatz { display: block; font-size: var(--fs-klein); color: var(--cw-text-muted); font-weight: 400; }
+/* Auswahl in einer Tabellenzelle (Klasse im Captable): schmal, lange Namen werden im Feld gekürzt. */
+.app-zellwahl { max-inline-size: 11rem; }
+.app-zellwahl .cw-feld__eingabe { inline-size: 100%; text-overflow: ellipsis; }
+/* Tabellen mit mehreren Namensspalten (Captable, Übertragungen): Freitext und Namen brechen früher um. */
+.app-tabelle-schmal td.cw-tabelle__umbruch { max-width: 22ch; }
+/* Abdeckung des Zeichnungskapitals durch LP-Zusagen (Hinweis mit Fortschrittsanzeige). */
+.app-zusagen-abdeckung__balken {
+  display: block;
+  inline-size: 100%;
+  max-inline-size: 28rem;
+  block-size: 0.5rem;
+  margin-block: var(--s-1) var(--s-0);
+  appearance: none;
+  border: 0;
+  border-radius: 999px;
+  background: var(--cw-line);
+  overflow: hidden;
+}
+.app-zusagen-abdeckung__balken::-webkit-progress-bar {
+  background: var(--cw-line);
+  border-radius: 999px;
+}
+.app-zusagen-abdeckung__balken::-webkit-progress-value {
+  background: var(--cw-accent);
+  border-radius: 999px;
+}
+.app-zusagen-abdeckung__balken::-moz-progress-bar {
+  background: var(--cw-accent);
+  border-radius: 999px;
+}
+.app-zusagen-abdeckung__aktion {
+  display: inline-block;
+  margin-block-start: var(--s-0);
+}
+
+/* Suchfeld mit Vorschlägen (Verknüpfungen und Wertfelder): Liste unter dem Feld. */
+.app-suchfeld { position: relative; }
+.app-suchfeld__liste { position: absolute; z-index: 30; inset-inline: 0; margin: var(--s-0) 0 0; padding: var(--s-0); max-height: 16rem; overflow-y: auto; list-style: none; background: var(--cw-raised); border: 1px solid var(--cw-line-strong); border-radius: var(--r-s); }
+.app-suchfeld__liste[hidden] { display: none; }
+.app-suchfeld__option { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--s-1); padding: var(--s-0) var(--s-1); border-radius: var(--r-s); color: var(--cw-text); cursor: pointer; }
+.app-suchfeld__option[data-aktiv] { background: var(--cw-selected); }
+.app-suchfeld__option:hover { background: var(--cw-hover); }
+.app-suchfeld__option[data-exakt] .app-suchfeld__name { font-weight: 600; }
+.app-suchfeld__option[data-aktion] { color: var(--cw-accent); }
+.app-suchfeld__info { color: var(--cw-text-muted); font-size: var(--fs-klein); }
+.app-suchfeld__leer { margin: var(--s-0) 0 0; color: var(--cw-text-muted); font-size: var(--fs-klein); }

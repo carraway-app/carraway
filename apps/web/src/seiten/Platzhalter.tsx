@@ -10,7 +10,7 @@ export function KeinFonds({ titel }: { titel?: string }) {
   return (
     <div className="app-seite">
       <Seitenkopf titel={titel ?? t.nav.portfolio} />
-      <Leer zeichen="F" titel={t.platzhalter.keinFondsTitel} beschreibung={ich?.globalVerwalter ? t.platzhalter.fondsAnlegen : t.platzhalter.keinFondsBeschreibung} aktion={ich?.globalVerwalter ? <Link to="/fonds" search={{}}>{t.nav.fonds}</Link> : null} />
+      <Leer titel={t.platzhalter.keinFondsTitel} beschreibung={ich?.globalVerwalter ? t.platzhalter.fondsAnlegen : t.platzhalter.keinFondsBeschreibung} aktion={ich?.globalVerwalter ? <Link to="/funds" search={{}}>{t.nav.fonds}</Link> : null} />
     </div>
   );
 }

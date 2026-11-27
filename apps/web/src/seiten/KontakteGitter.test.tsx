@@ -10,7 +10,7 @@ const zelle = (grid: HTMLElement, zeile: number, spalte: number) => grid.querySe
 describe("Tabelle der Datensätze: ein Scrollbereich mit klebenden Rändern", () => {
   it("legt Kopf, Zeilen, Auswahl, erste Spalte und Aktionsspalte in denselben Scrollbereich", async () => {
     spieleApi();
-    rendereApp("/kontakte");
+    rendereApp("/contacts");
     const grid = await screen.findByRole("grid", { name: "Unternehmen" });
     // Das Gitter selbst ist der Scrollbereich: Kopfzeile und Zeilen liegen darin, kein zweiter Scrollbereich dazwischen.
     expect(grid.classList.contains("app-gitter")).toBe(true);
@@ -35,7 +35,7 @@ describe("Tabelle der Datensätze: ein Scrollbereich mit klebenden Rändern", ()
 
   it("gibt den Schnellaktionen feste Plätze: fünf je Zeile, leere als unsichtbare Platzhalter ohne Fokus", async () => {
     spieleApi();
-    rendereApp("/kontakte");
+    rendereApp("/contacts");
     const grid = await screen.findByRole("grid", { name: "Unternehmen" });
     const zellen = Array.from(grid.querySelectorAll<HTMLElement>(".app-gitter__aktionen"));
     expect(zellen.length).toBeGreaterThan(1);
@@ -72,7 +72,7 @@ describe("Tabelle der Datensätze: ein Scrollbereich mit klebenden Rändern", ()
 
   it("bleibt per Tastatur bedienbar: Pfeile bewegen den Fokus, Spaltenköpfe sortieren", async () => {
     spieleApi();
-    rendereApp("/kontakte");
+    rendereApp("/contacts");
     const nutzer = userEvent.setup();
     const grid = await screen.findByRole("grid", { name: "Unternehmen" });
     zelle(grid, 0, 0).focus();
@@ -85,7 +85,7 @@ describe("Tabelle der Datensätze: ein Scrollbereich mit klebenden Rändern", ()
 
   it("setzt die Kantenmarken nur, solange unter den klebenden Rändern Inhalt liegt", async () => {
     spieleApi();
-    rendereApp("/kontakte");
+    rendereApp("/contacts");
     const grid = await screen.findByRole("grid", { name: "Unternehmen" });
     expect(grid.hasAttribute("data-kante-links")).toBe(false);
     expect(grid.hasAttribute("data-kante-rechts")).toBe(false);

@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { Auswahl, Button, Feld, Segment, Status, Tabelle, formatDatum, type StatusVariante, type TabelleSpalte } from "@carraway/ui";
+import { Auswahl, Button, Feld, Segment, Status, Tabelle, formatDatum, type StatusVariante, type TabelleSpalte, Leer } from "@carraway/ui";
+import { BeteiligungsWahl, mitBeteiligungsSuche } from "./BeteiligungsWahl";
 import { fondsUebersicht, berichtListe, type BerichtZeile } from "../api/abfragen";
 import { useBerichtAnlegen } from "../api/mutationen";
 import { feldCodeText, feldText } from "../i18n/fehler";
@@ -9,7 +10,8 @@ import { aufzaehlung, useSprache, useT } from "../i18n";
 import { feldpruefungTexte } from "../i18n/feldpruefung";
 import { anlegbareArten, FORMATE, SICHT_ARTEN, stufenNamen, type Berichtsart } from "../lib/berichte";
 import { useNamen } from "../lib/namen";
-import { alsDatetimeLocal, alsStand, formatZeitpunkt } from "../lib/zeit";
+import { formatZeitpunkt } from "../lib/zeit";
+import { datumDesStands, standAusDatum } from "../lib/wissensstand";
 import { Seitenpanel } from "@carraway/ui";
 import { FehlerHinweis } from "./FehlerHinweis";
 import { useFormular } from "./formular";
@@ -19,7 +21,7 @@ import { FONDS_SICHT, istWaehrungscode, sichtAnfrage, WaehrungssichtWahl, type S
 export const BERICHT_STATUS: Record<string, StatusVariante> = { entwurf: "entwurf", geprueft: "pruefung", freigegeben: "freigegeben" };
 const FELDER = ["art", "format", "fondsId", "beteiligungId", "stichtag", "sprache", "stand", "waehrungssicht", "vergleichswaehrung"];
 
-/** Berichte des Fonds mit Status und aktueller Stufe; „Bericht anlegen“ legt einen Entwurf an und öffnet ihn. */
+/** Berichte des Fonds mit Status und aktueller Stufe. Die Aktion „Bericht anlegen“ steht im Kopf der Seite, der Leerzustand wiederholt sie nicht. */
 export function BerichteListe({ fondsId }: { fondsId: string }) {
   const t = useT();
   const sprache = useSprache();
@@ -47,7 +49,7 @@ export function BerichteListe({ fondsId }: { fondsId: string }) {
       schluessel: "aktion",
       kopf: l.spalten.aktion,
       zelle: (z) => (
-        <Link to="/berichte/$id" params={{ id: z.id }} aria-label={l.oeffnen(aufzaehlung(t.bericht.art, z.art), formatDatum(z.stichtag, sprache))}>
+        <Link to="/reports/$id" params={{ id: z.id }} aria-label={l.oeffnen(aufzaehlung(t.bericht.art, z.art), formatDatum(z.stichtag, sprache))}>
           {l.oeffnenKurz}
         </Link>
       ),
@@ -59,7 +61,7 @@ export function BerichteListe({ fondsId }: { fondsId: string }) {
       <p className="app-leer-text">{l.beschreibung}</p>
       {isPending ? <Skelettzeilen anzahl={3} /> : null}
       {error ? <FehlerHinweis fehler={error} /> : null}
-      {data && data.length === 0 ? <p className="app-leer-text">{l.keine}</p> : null}
+      {data && data.length === 0 ? <Leer titel={l.keine} beschreibung={l.keineHilfe} /> : null}
       {data && data.length > 0 ? <Tabelle beschriftung={l.tabelle} spalten={spalten} zeilen={data} zeilenSchluessel={(z) => z.id} /> : null}
     </div>
   );
@@ -71,7 +73,7 @@ export function BerichtDialog({ fondsId, stichtag, stand, onSchliessen }: { fond
   const f = t.bericht.neu;
   const anlegen = useBerichtAnlegen();
   const navigate = useNavigate();
-  const { werte, feld } = useFormular({ art: "fondsbericht", stichtag: "", format: "pdf", beteiligungId: "", stand: "" });
+  const { werte, setWerte, feld } = useFormular({ art: "fondsbericht", stichtag: "", format: "pdf", beteiligungId: "", stand: "" });
   const [sprache, setSprache] = useState<"de" | "en">(uiSprache);
   const [standFehler, setStandFehler] = useState<string | undefined>();
   const [sicht, setSicht] = useState<SichtZustand>(FONDS_SICHT);
@@ -82,14 +84,15 @@ export function BerichtDialog({ fondsId, stichtag, stand, onSchliessen }: { fond
   const mitBeteiligung = art === "quartalsbericht";
   const auswahl = useQuery({ ...fondsUebersicht(fondsId, stichtag, stand), enabled: mitBeteiligung });
   const beteiligungen = auswahl.data?.beteiligungen ?? [];
-  const beteiligungId = beteiligungen.find((eintrag) => eintrag.id === werte.beteiligungId)?.id ?? beteiligungen[0]?.id;
+  // Bei wenigen Beteiligungen gilt die erste als vorgewählt; mit Suchfeld muss die Person eine wählen.
+  const beteiligungId = beteiligungen.find((eintrag) => eintrag.id === werte.beteiligungId)?.id ?? (mitBeteiligungsSuche(beteiligungen.length) ? undefined : beteiligungen[0]?.id);
   const fehler = (name: string) => feldText(t, anlegen.error, name);
 
   function absenden() {
     if (mitBeteiligung && !beteiligungId) return;
-    const stand = alsStand(werte.stand);
-    // Der Wissensstand ist ein Zeitpunkt, der schon da war: ein Wert in der Zukunft geht gar nicht erst an die API.
-    if (stand && new Date(stand).getTime() > Date.now()) {
+    // Wissensstand nur als Datum (Tagesende); heute heißt „jetzt“. Ein Tag in der Zukunft geht gar nicht erst an die API.
+    const stand = standAusDatum(werte.stand);
+    if (stand === "zukunft") {
       setStandFehler(feldCodeText(t, "knowledge_date_in_future"));
       return;
     }
@@ -111,7 +114,7 @@ export function BerichtDialog({ fondsId, stichtag, stand, onSchliessen }: { fond
         ...(stand ? { stand } : {}),
         ...(mitSicht ? sichtAnfrage(sicht) : {}),
       },
-      { onSuccess: (neu) => void navigate({ to: "/berichte/$id", params: { id: neu.id } }) },
+      { onSuccess: (neu) => void navigate({ to: "/reports/$id", params: { id: neu.id } }) },
     );
   }
 
@@ -142,13 +145,15 @@ export function BerichtDialog({ fondsId, stichtag, stand, onSchliessen }: { fond
               <Button variante="sekundaer" onClick={() => void auswahl.refetch()}>{t.gemeinsam.erneutVersuchen}</Button>
             </div>
           ) : beteiligungen.length > 0 ? (
-            <Auswahl label={f.beteiligung} {...feld("beteiligungId")} value={beteiligungId ?? ""} fehler={fehler("beteiligungId")}>
-              {beteiligungen.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.organisation.name}
-                </option>
-              ))}
-            </Auswahl>
+            <BeteiligungsWahl
+              label={f.beteiligung}
+              name="beteiligungId"
+              fondsId={fondsId}
+              beteiligungen={beteiligungen}
+              wert={beteiligungId ?? ""}
+              onWahl={(id) => setWerte((alt) => ({ ...alt, beteiligungId: id }))}
+              fehler={fehler("beteiligungId")}
+            />
           ) : (
             <p className="app-leer-text">{f.keineBeteiligung}</p>
           )
@@ -186,7 +191,7 @@ export function BerichtDialog({ fondsId, stichtag, stand, onSchliessen }: { fond
             fehler={sichtFehler && !istWaehrungscode(sicht.vergleich) ? sichtFehler : fehler("vergleichswaehrung")}
           />
         ) : null}
-        <Feld label={f.stand} type="datetime-local" max={alsDatetimeLocal(new Date().toISOString())} hilfe={f.standHilfe} {...feld("stand")} fehler={standFehler ?? fehler("stand")} />
+        <Feld label={f.stand} type="date" max={datumDesStands(new Date().toISOString())} hilfe={f.standHilfe} {...feld("stand")} fehler={standFehler ?? fehler("stand")} />
         <div>
           <Button type="submit" disabled={anlegen.isPending || (mitBeteiligung && (!beteiligungId || auswahl.isError))}>
             {f.anlegen}

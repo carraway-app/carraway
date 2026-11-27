@@ -1,5 +1,7 @@
+import { sourceActive } from "../rechte/sichtbarkeit";
+import { sourcesFor } from "../integrationen/records";
 import { kontaktJson, pruefeKontakt } from "../kontakte/http";
-import { and, asc, desc, eq, ilike, isNull, or } from "drizzle-orm";
+import { and, asc, desc, eq, ilike, isNull, or, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import { geaendertSeitBedingung, geaendertSeitEingabe } from "../geaendert";
@@ -54,6 +56,21 @@ export function personRouten(db: Db) {
         return kontaktJson(c, { daten: kandidaten }, 200);
       },
     )
+    /** Vorschläge für die Funktion: die erfassten Werte, häufigste zuerst, optional nach Textanfang oder -teil gefiltert; zusammengeführte und archivierte Personen zählen nicht. */
+    .get("/values", pruefeKontakt("query", z.object({ q: z.string().trim().max(100).optional(), limit: z.coerce.number().int().min(1).max(50).default(10) })), async (c) => {
+      const { q, limit } = c.req.valid("query");
+      const muster = q ? `%${q.replace(/[\\%_]/g, (zeichen) => `\\${zeichen}`)}%` : undefined;
+      const zeilen = await lese(db, (tx) =>
+        tx
+          .select({ wert: sql<string>`trim(${person.funktion})`, anzahl: sql<number>`count(*)::int` })
+          .from(person)
+          .where(and(isNull(person.zusammengefuehrtIn), isNull(person.archiviertAm), sql`nullif(trim(${person.funktion}), '') IS NOT NULL`, muster ? ilike(person.funktion, muster) : undefined))
+          .groupBy(sql`trim(${person.funktion})`)
+          .orderBy(sql`count(*) DESC`, sql`trim(${person.funktion})`)
+          .limit(limit),
+      );
+      return kontaktJson(c, { daten: zeilen }, 200);
+    })
     .get(
       "/",
       pruefeKontakt("query", z.object({ organisationId: z.uuid().optional(), suche: z.string().trim().min(1).max(200).optional(), geaendertSeit: geaendertSeitEingabe })),
@@ -110,8 +127,8 @@ export function personRouten(db: Db) {
           .innerJoin(organisation, eq(organisation.id, kontaktrolle.organisationId))
           .where(eq(kontaktrolle.personId, id))
           .orderBy(asc(organisation.name), asc(kontaktrolle.rolle), asc(kontaktrolle.id));
-        const [letzte] = await tx.select({ n: aktivitaet.datum }).from(aktivitaet).where(eq(aktivitaet.personId, id)).orderBy(desc(aktivitaet.datum)).limit(1);
-        return { ...zeile, organisation: org ?? null, rollen, letzteAktivitaet: letzte?.n ?? null, herkunft: await herkunftVon(tx, { personId: id }) };
+        const [letzte] = await tx.select({ n: aktivitaet.datum }).from(aktivitaet).where(and(eq(aktivitaet.personId, id), sourceActive("note", aktivitaet.id))).orderBy(desc(aktivitaet.datum)).limit(1);
+        return { ...zeile, providerSources: await sourcesFor(tx, "person", id), organisation: org ?? null, rollen, letzteAktivitaet: letzte?.n ?? null, herkunft: await herkunftVon(tx, { personId: id }) };
       });
       if (!ergebnis) return fehlerAntwort(c, 404, "person_not_found", "Person not found.");
       return kontaktJson(c, ergebnis, 200);

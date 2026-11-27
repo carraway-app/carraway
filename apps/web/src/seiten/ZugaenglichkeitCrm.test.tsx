@@ -1,7 +1,7 @@
 import { fireEvent, screen, within } from "@testing-library/react";
 import axe from "axe-core";
 import { describe, expect, it } from "vitest";
-import { ORG_A, crmDealAntworten, crmZeilenDaten, rendereApp, spieleApi } from "../test/hilfen";
+import { ORG_A, crmDealAntworten, crmZeilenDaten, rendereApp, spieleApi, dealflowAuswahl } from "../test/hilfen";
 
 /**
  * Zugänglichkeit der CRM-Seiten mit axe-core in jsdom: Tabelle (Gitter mit Spaltenköpfen, Griffen, Auswahl), Filter-Panel, Board mit Griffen,
@@ -19,7 +19,7 @@ describe("Zugänglichkeit der CRM-Seiten (axe)", () => {
     it(`Tabelle, Auswahl und Filter (${sprache})`, async () => {
       localStorage.setItem("carraway.sprache", sprache);
       spieleApi();
-      rendereApp("/kontakte");
+      rendereApp("/contacts");
       const grid = await screen.findByRole("grid");
       fireEvent.click(grid.querySelector<HTMLInputElement>('input[type="checkbox"][aria-label]:not([aria-label^="Alle"]):not([aria-label^="Select all"])')!);
       expect(await pruefe()).toEqual([]);
@@ -41,7 +41,7 @@ describe("Zugänglichkeit der CRM-Seiten (axe)", () => {
       localStorage.setItem("carraway.sprache", sprache);
       spieleApi();
       const deutsch = sprache === "de";
-      rendereApp("/dealflow?bereich=eingang");
+      rendereApp("/dealflow?section=inbox");
       fireEvent.click(await screen.findByRole("button", { name: deutsch ? /^Zuweisen:/ : /^Assign:/ }));
       const zuordnung = await screen.findByRole("dialog", { name: deutsch ? "Zuordnung bearbeiten" : "Edit assignment" });
       const investmentmanagement = within(zuordnung).getByRole("combobox", { name: deutsch ? "Investmentmanagement" : "Investment manager" });
@@ -51,6 +51,7 @@ describe("Zugänglichkeit der CRM-Seiten (axe)", () => {
       const nav = screen.getByRole("tablist", { name: deutsch ? "Dealflow-Ansichten" : "Deal flow views" });
       fireEvent.click(within(nav).getByRole("tab", { name: "Pipeline" }));
       await screen.findByRole("region", { name: deutsch ? "Deals nach Phase" : "Deals by stage" });
+      await dealflowAuswahl();
       fireEvent.click(await screen.findByRole("button", { name: deutsch ? "Kartenfelder" : "Card fields" }));
       const vorschau = await screen.findByRole("region", { name: deutsch ? "Kartenvorschau" : "Card preview" });
       await within(vorschau).findByText("Alpha, Wachstum");
@@ -64,7 +65,7 @@ describe("Zugänglichkeit der CRM-Seiten (axe)", () => {
         { ...crmZeilenDaten.deal[0]!, dealtyp: "erstinvestment" },
         { ...crmZeilenDaten.deal[1]!, status: "offen", dealtyp: "anschlussinvestment" },
       ]));
-      rendereApp("/dealflow?gruppe=dealtyp");
+      rendereApp("/dealflow?group=deal-type");
       fireEvent.click(await screen.findByRole("button", { name: deutsch ? /^Anschlussinvestment/ : /^Follow-on investment/ }));
       await screen.findByRole("region", { name: deutsch ? "Deals nach Phase · Anschlussinvestment" : "Deals by stage · Follow-on investment" });
       expect(await pruefe()).toEqual([]);
@@ -76,14 +77,14 @@ describe("Zugänglichkeit der CRM-Seiten (axe)", () => {
     it(`Datensatzseiten (${sprache})`, async () => {
       localStorage.setItem("carraway.sprache", sprache);
       spieleApi();
-      const { unmount } = rendereApp(`/organisationen/${ORG_A}`);
+      const { unmount } = rendereApp(`/organizations/${ORG_A}`);
       await screen.findByRole("heading", { level: 1 });
       await screen.findByText("Hamburg", { selector: "dd *, dd" });
       expect(await pruefe()).toEqual([]);
       unmount();
       const zwei = rendereApp("/deals/d1");
       await screen.findByRole("heading", { level: 1 });
-      await screen.findByRole("complementary", { name: sprache === "de" ? "Attribute" : "Attributes" });
+      await screen.findByRole("region", { name: sprache === "de" ? "Attribute" : "Attributes" });
       expect(await pruefe()).toEqual([]);
       zwei.unmount();
     });

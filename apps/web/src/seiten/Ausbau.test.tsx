@@ -13,7 +13,7 @@ describe("Rollen und Beziehungen", () => {
       "/api/v1/suche": { koerper: { q: "eva", organisationen: [], personen: [{ ...person, organisation: { id: ORG_A, name: "Alpha Energie" }, score: 1 }], deals: [] } },
       "POST /api/v1/kontaktrollen": { status: 201, koerper: { id: "r1" } },
     });
-    rendereApp(`/organisationen/${ORG_A}`);
+    rendereApp(`/organizations/${ORG_A}`);
     const nutzer = userEvent.setup();
     // Die Rolle gehört zur Zeile des Kontakts: Zeilenmenü, „Rolle hinzufügen“
     const tabelle = await screen.findByRole("region", { name: "Kontakte des Unternehmens" });
@@ -44,21 +44,21 @@ describe("Rollen und Beziehungen", () => {
       "DELETE /api/v1/organisationsbeziehungen/b1": { status: 204, koerper: null },
       "DELETE /api/v1/kontaktrollen/r1": { status: 204, koerper: null },
     });
-    const { router } = rendereApp(`/organisationen/${ORG_A}`);
+    const { router } = rendereApp(`/organizations/${ORG_A}`);
     // Rollen stehen als Etiketten in der Zeile des Kontakts, nicht in einer zweiten Liste
     const rollen = await screen.findByRole("region", { name: "Kontakte des Unternehmens" });
     expect(await within(rollen).findAllByRole("link", { name: "Eva Muster" })).toHaveLength(1);
-    expect(within(rollen).getByRole("link", { name: "Eva Muster" }).getAttribute("href")).toBe("/personen/p1");
+    expect(within(rollen).getByRole("link", { name: "Eva Muster" }).getAttribute("href")).toBe("/people/p1");
     const chip = within(rollen).getByText("Co-Investor");
     expect(chip.closest(".app-chip")?.getAttribute("title")).toBe("seit 01.03.2021 · unbefristet");
     expect(screen.queryByRole("region", { name: "Rollen" })).toBeNull();
     const nutzer = userEvent.setup();
     await nutzer.click(within(rollen).getByRole("button", { name: "Rolle entfernen: Co-Investor bei Eva Muster" }));
     await waitFor(() => expect(api.anfragen("DELETE", "/api/v1/kontaktrollen/r1")).toHaveLength(1));
-    await nutzer.click(screen.getByRole("button", { name: /^Beziehungen/ }));
+    await nutzer.click(await within(await screen.findByRole("navigation", { name: /^(Hauptnavigation|Main navigation)$/ })).findByRole("link", { name: /^Beziehungen/ }));
     expect(router.state.location.search).toEqual({ unter: "beziehungen" });
     const beziehungen = await screen.findByRole("region", { name: "Beziehungen" });
-    expect(within(beziehungen).getByRole("link", { name: "Beta Medizin" }).getAttribute("href")).toBe(`/organisationen/${ORG_B}`);
+    expect(within(beziehungen).getByRole("link", { name: "Beta Medizin" }).getAttribute("href")).toBe(`/organizations/${ORG_B}`);
     expect(within(beziehungen).getByText(/Co-Investor von/)).toBeTruthy();
     expect(within(beziehungen).getByText(/ist Berater dieser Organisation/)).toBeTruthy();
     expect(within(beziehungen).getByText("Investor in Beispielfonds I")).toBeTruthy();
@@ -68,7 +68,7 @@ describe("Rollen und Beziehungen", () => {
 
   it("legt eine Beziehung zu einem Fonds an", async () => {
     const api = spieleApi({ "POST /api/v1/organisationsbeziehungen": { status: 201, koerper: { id: "b9" } } });
-    rendereApp(`/organisationen/${ORG_A}?unter=beziehungen`);
+    rendereApp(`/organizations/${ORG_A}?subtab=relationships`);
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Beziehung hinzufügen" }));
     const dialog = await screen.findByRole("dialog", { name: "Beziehung hinzufügen" });
@@ -94,13 +94,13 @@ describe("Rollen und Beziehungen", () => {
         },
       },
     });
-    rendereApp("/personen/p1");
+    rendereApp("/people/p1");
     expect(await screen.findByRole("heading", { level: 1, name: "Eva Muster" })).toBeTruthy();
     const rollen = await screen.findByRole("region", { name: "Unternehmen des Kontakts" });
     expect(within(rollen).getByRole("link", { name: "Alpha Energie" })).toBeTruthy();
     expect(within(rollen).getByText("Gründung").closest(".app-chip")?.getAttribute("title")).toBe("seit 01.01.2020 · bis 31.12.2022");
     expect(screen.getAllByText(/10\.09\.2026/).length).toBeGreaterThanOrEqual(1);
-    await userEvent.setup().click(screen.getByRole("button", { name: /^Aktivitäten/ }));
+    await userEvent.setup().click(await within(await screen.findByRole("navigation", { name: /^(Hauptnavigation|Main navigation)$/ })).findByRole("link", { name: /^Aktivitäten/ }));
     expect(await screen.findByText("Erstes Gespräch")).toBeTruthy();
   });
 
@@ -109,7 +109,7 @@ describe("Rollen und Beziehungen", () => {
     const api = spieleApi({
       "POST /api/v1/personen": (a) => ((a.koerper as { dubletteBestaetigt?: boolean }).dubletteBestaetigt ? { status: 201, koerper: { id: "p10" } } : fehler(409, "possible_duplicate", { kandidaten: [kandidat] })),
     });
-    rendereApp(`/organisationen/${ORG_A}`);
+    rendereApp(`/organizations/${ORG_A}`);
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Neuer Kontakt" }));
     const dialog = await screen.findByRole("dialog", { name: "Person hinzufügen" });
@@ -117,7 +117,7 @@ describe("Rollen und Beziehungen", () => {
     await nutzer.type(within(dialog).getByLabelText("Nachname"), "Musterfrau");
     await nutzer.click(within(dialog).getByRole("button", { name: "Person anlegen" }));
     const hinweis = await within(dialog).findByRole("alert");
-    expect(within(hinweis).getByRole("link", { name: "Eva Musterfrau" }).getAttribute("href")).toBe("/personen/p9");
+    expect(within(hinweis).getByRole("link", { name: "Eva Musterfrau" }).getAttribute("href")).toBe("/people/p9");
     expect(within(hinweis).getByText(/Gleiche E-Mail-Adresse/)).toBeTruthy();
     await nutzer.click(within(hinweis).getByRole("button", { name: "Trotzdem neu anlegen" }));
     await waitFor(() => expect(api.anfragen("POST", "/api/v1/personen")).toHaveLength(2));
@@ -150,7 +150,7 @@ describe("Zusammenführen", () => {
       [`POST /api/v1/organisationen/${ORG_A}/zusammenfuehren/vorschau`]: { koerper: vorschau },
       [`POST /api/v1/organisationen/${ORG_A}/zusammenfuehren`]: { koerper: { organisation: { id: ORG_A }, quelleId: ORG_B, verschoben: {} } },
     });
-    const { router } = rendereApp(`/organisationen/${ORG_A}`);
+    const { router } = rendereApp(`/organizations/${ORG_A}`);
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Zusammenführen" }));
     const dialog = await screen.findByRole("dialog", { name: "Organisation zusammenführen" });
@@ -171,7 +171,37 @@ describe("Zusammenführen", () => {
     await waitFor(() => expect(api.anfragen("POST", `/api/v1/organisationen/${ORG_A}/zusammenfuehren`)).toHaveLength(1));
     expect(api.anfragen("POST", `/api/v1/organisationen/${ORG_A}/zusammenfuehren`)[0]?.koerper).toEqual({ quelleId: ORG_B, felder: { name: "quelle", ort: "quelle" } });
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    expect(router.state.location.pathname).toBe(`/organisationen/${ORG_A}`);
+    expect(router.state.location.pathname).toBe(`/organizations/${ORG_A}`);
+  });
+
+  it("findet das Gegenstück über das Suchfeld und lässt das eigene Unternehmen aus", async () => {
+    const api = spieleApi({
+      ...dubletten,
+      "/api/v1/suche": {
+        koerper: {
+          q: "alpha",
+          organisationen: [
+            { id: ORG_A, name: "Alpha Energie", art: "unternehmen", ort: null, score: 1 },
+            { id: ORG_B, name: "Alpha Energie GmbH", art: "unternehmen", ort: "Hamburg", score: 0.9 },
+          ],
+          personen: [],
+          deals: [],
+          beteiligungen: [],
+          dokumente: [],
+        },
+      },
+      [`POST /api/v1/organisationen/${ORG_A}/zusammenfuehren/vorschau`]: { koerper: vorschau },
+    });
+    rendereApp(`/organizations/${ORG_A}`);
+    const nutzer = userEvent.setup();
+    await nutzer.click(await screen.findByRole("button", { name: "Zusammenführen" }));
+    const dialog = within(await screen.findByRole("dialog", { name: "Organisation zusammenführen" }));
+    await nutzer.type(dialog.getByRole("combobox", { name: "Datensatz suchen" }), "alpha");
+    const optionen = await dialog.findAllByRole("option");
+    expect(optionen).toHaveLength(1);
+    await nutzer.click(optionen[0]!);
+    await waitFor(() => expect(api.anfragen("POST", `/api/v1/organisationen/${ORG_A}/zusammenfuehren/vorschau`)).toHaveLength(1));
+    expect(api.anfragen("POST", `/api/v1/organisationen/${ORG_A}/zusammenfuehren/vorschau`)[0]?.koerper).toEqual({ quelleId: ORG_B });
   });
 
   it("tauscht die Reihenfolge: dann bleibt der andere Datensatz, die Vorschau wird neu geholt", async () => {
@@ -182,7 +212,7 @@ describe("Zusammenführen", () => {
       [`POST /api/v1/organisationen/${ORG_B}/zusammenfuehren`]: { koerper: { organisation: { id: ORG_B }, quelleId: ORG_A, verschoben: {} } },
       [`/api/v1/organisationen/${ORG_B}`]: { koerper: { ...organisationDaten, id: ORG_B, name: "Alpha Energie GmbH" } },
     });
-    const { router } = rendereApp(`/organisationen/${ORG_A}`);
+    const { router } = rendereApp(`/organizations/${ORG_A}`);
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Zusammenführen" }));
     const dialog = await screen.findByRole("dialog", { name: "Organisation zusammenführen" });
@@ -191,7 +221,7 @@ describe("Zusammenführen", () => {
     await waitFor(() => expect(api.anfragen("POST", `/api/v1/organisationen/${ORG_B}/zusammenfuehren/vorschau`)).toHaveLength(1));
     expect(api.anfragen("POST", `/api/v1/organisationen/${ORG_B}/zusammenfuehren/vorschau`)[0]?.koerper).toEqual({ quelleId: ORG_A });
     await nutzer.click(await within(dialog).findByRole("button", { name: "Jetzt zusammenführen" }));
-    await waitFor(() => expect(router.state.location.pathname).toBe(`/organisationen/${ORG_B}`));
+    await waitFor(() => expect(router.state.location.pathname).toBe(`/organizations/${ORG_B}`));
     expect(api.anfragen("POST", `/api/v1/organisationen/${ORG_B}/zusammenfuehren`)[0]?.koerper).toMatchObject({ quelleId: ORG_A });
   });
 
@@ -200,7 +230,7 @@ describe("Zusammenführen", () => {
       ...dubletten,
       [`POST /api/v1/organisationen/${ORG_A}/zusammenfuehren/vorschau`]: { koerper: { ...vorschau, ueberschneidungen: [{ fondsId: FONDS_ID, instrument: "darlehen" }], darfAusfuehren: false } },
     });
-    rendereApp(`/organisationen/${ORG_A}`);
+    rendereApp(`/organizations/${ORG_A}`);
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Zusammenführen" }));
     const dialog = await screen.findByRole("dialog", { name: "Organisation zusammenführen" });
@@ -212,7 +242,7 @@ describe("Zusammenführen", () => {
 
   it("bietet das Zusammenführen nur mit Schreibrecht an, und auf Englisch vollständig", async () => {
     spieleApi({ "/api/v1/me": alsRolle("betrachter") });
-    rendereApp(`/organisationen/${ORG_A}`);
+    rendereApp(`/organizations/${ORG_A}`);
     await screen.findByRole("heading", { level: 1, name: "Alpha Energie" });
     expect(screen.queryByRole("button", { name: "Zusammenführen" })).toBeNull();
   });
@@ -220,7 +250,7 @@ describe("Zusammenführen", () => {
   it("zeigt ohne Rechte-Einschränkung auch auf Englisch Dialog und Vorschau", async () => {
     localStorage.setItem("carraway.sprache", "en");
     spieleApi({ ...dubletten, [`POST /api/v1/organisationen/${ORG_A}/zusammenfuehren/vorschau`]: { koerper: vorschau } });
-    rendereApp(`/organisationen/${ORG_A}`);
+    rendereApp(`/organizations/${ORG_A}`);
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: "Merge" }));
     const dialog = await screen.findByRole("dialog", { name: "Merge organisation" });
@@ -257,7 +287,7 @@ describe("Kontaktimport", () => {
         },
       },
     });
-    rendereApp("/kontakte/import");
+    rendereApp("/contacts/import");
     const nutzer = userEvent.setup({ applyAccept: false });
     await screen.findByRole("heading", { level: 1, name: "Kontaktimport" });
     // Vorlagen als Links, in beiden Sprachen und Formaten
@@ -290,7 +320,7 @@ describe("Kontaktimport", () => {
 
   it("lehnt andere Dateitypen ab und meldet unlesbare Dateien der API verständlich", async () => {
     spieleApi({ "POST /api/v1/kontaktimport/vorschau": fehler(400, "import_invalid", { grund: "zu_gross_entpackt" }) });
-    rendereApp("/kontakte/import");
+    rendereApp("/contacts/import");
     const nutzer = userEvent.setup({ applyAccept: false });
     const feld = await screen.findByLabelText("Datei (CSV oder Excel)");
     await nutzer.upload(feld, new File(["x"], "bild.png", { type: "image/png" }));
@@ -304,7 +334,7 @@ describe("Kontaktimport", () => {
   it("ist auf Englisch vollständig", async () => {
     localStorage.setItem("carraway.sprache", "en");
     spieleApi({ "POST /api/v1/kontaktimport/vorschau": { koerper: antwort } });
-    rendereApp("/kontakte/import");
+    rendereApp("/contacts/import");
     const nutzer = userEvent.setup({ applyAccept: false });
     await screen.findByRole("heading", { level: 1, name: "Contact import" });
     await nutzer.upload(screen.getByLabelText("File (CSV or Excel)"), new File([csv], "contacts.csv"));
@@ -323,10 +353,10 @@ describe("Wiedervorlagen", () => {
 
   it("zeigt in der Kopfzeile die Zahl der fälligen Wiedervorlagen mit eigenem Namen und führt zur Liste", async () => {
     const api = spieleApi({ "/api/v1/wiedervorlagen": (a) => ({ koerper: { daten: a.query.get("zustaendig") === "alle" ? [eintrag, { ...eintrag, id: "a2", titel: "Zweites Gespräch" }] : [eintrag] } }), ...namen });
-    const { router } = rendereApp("/kontakte?objekt=heute");
+    const { router } = rendereApp("/contacts?object=today");
     const nutzer = userEvent.setup();
     const zaehler = await screen.findByRole("link", { name: "Wiedervorlagen 2: meine fälligen, davon 1 überfällig" });
-    expect(zaehler.getAttribute("href")).toBe("/wiedervorlagen?zustaendig=ich");
+    expect(zaehler.getAttribute("href")).toBe("/follow-ups?assignee=me");
     // Die Kachel „Wiedervorlagen“ im Reiter „Heute“ bleibt eine eigene Region
     expect(screen.getByRole("heading", { name: /Wiedervorlagen/ })).toBeTruthy();
     await nutzer.click(zaehler);
@@ -352,7 +382,7 @@ describe("Wiedervorlagen", () => {
       "POST /api/v1/aktivitaeten/a1/zurueckstellen": { koerper: {} },
       ...namen,
     });
-    rendereApp("/wiedervorlagen?zustaendig=ich");
+    rendereApp("/follow-ups?assignee=me");
     const nutzer = userEvent.setup();
     await screen.findByText("Erstes Gespräch");
     await nutzer.click(screen.getByRole("button", { name: "Wiedervorlage „Erstes Gespräch“ zurückstellen" }));
@@ -370,7 +400,7 @@ describe("Wiedervorlagen", () => {
   it("ist auf Englisch vollständig und blendet Aktionen für Betrachter aus", async () => {
     localStorage.setItem("carraway.sprache", "en");
     spieleApi({ "/api/v1/me": alsRolle("betrachter"), "/api/v1/wiedervorlagen": { koerper: { daten: [eintrag] } }, ...namen });
-    rendereApp("/wiedervorlagen");
+    rendereApp("/follow-ups");
     expect(await screen.findByRole("heading", { level: 1, name: "Follow-ups" })).toBeTruthy();
     expect(await screen.findByText("Overdue")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Follow-ups 2: my due ones, 1 of them overdue" })).toBeTruthy();
@@ -382,7 +412,7 @@ describe("Wiedervorlagen", () => {
 describe("Auswertung: Trichter erweitert", () => {
   it("zeichnet das Quartalsdiagramm mit Tabelle, zeigt Verweildauer und Konversion und verlinkt die CSV-Ausfuhr", async () => {
     spieleApi();
-    rendereApp("/dealflow/auswertung?von=2026-01-01&fondsId=" + FONDS_ID);
+    rendereApp("/dealflow/analytics?from=2026-01-01&fundId=" + FONDS_ID);
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("tab", { name: "Verlauf je Quartal" }));
     const diagramm = await screen.findByRole("img", { name: "Diagramm: Eingänge, Abschlüsse und Absagen je Quartal" });
@@ -410,7 +440,7 @@ describe("Auswertung: Trichter erweitert", () => {
   it("ist auf Englisch vollständig", async () => {
     localStorage.setItem("carraway.sprache", "en");
     spieleApi();
-    rendereApp("/dealflow/auswertung");
+    rendereApp("/dealflow/analytics");
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("tab", { name: "Trend per quarter" }));
     expect(await screen.findByRole("img", { name: "Chart: deals entering, closed and rejected per quarter" })).toBeTruthy();
@@ -438,7 +468,7 @@ describe("Beschlussvorlagen", () => {
         return { koerper: { beschlussvorschlag: text, vorlageId: "v1", deal: {} } };
       },
     });
-    rendereApp(`/deals/${DEAL_ID}?tab=beschluss`);
+    rendereApp(`/deals/${DEAL_ID}?tab=decision`);
     const nutzer = userEvent.setup();
     const abschnitt = await screen.findByRole("region", { name: "Beschlussvorschlag" });
     expect(within(abschnitt).getByText("Noch kein Beschlussvorschlag.")).toBeTruthy();
@@ -461,7 +491,7 @@ describe("Beschlussvorlagen", () => {
       "POST /api/v1/resolution-templates": (a) => ((a.koerper as { text: string }).text.includes("{{gewinn}}") ? fehler(400, "placeholder_unknown", { unbekannt: ["gewinn"] }) : { status: 201, koerper: { id: "v2" } }),
       "DELETE /api/v1/resolution-templates/v1": { status: 204, koerper: null },
     });
-    rendereApp("/beschlussvorlagen");
+    rendereApp("/decision-proposals");
     const nutzer = userEvent.setup();
     expect(await screen.findByText("{{organisation}} erhält {{ticket}}.")).toBeTruthy();
     await nutzer.click(screen.getByRole("button", { name: "Neue Vorlage" }));
@@ -481,7 +511,7 @@ describe("Beschlussvorlagen", () => {
 
   it("zeigt Bearbeitern ohne Verwalterrolle die Vorlagen nur zum Lesen", async () => {
     spieleApi({ "/api/v1/me": alsRolle("bearbeiter"), "/api/v1/resolution-templates": { koerper: liste } });
-    rendereApp("/beschlussvorlagen");
+    rendereApp("/decision-proposals");
     expect(await screen.findByText("Vorlagen pflegen nur Verwalter dieses Fonds. Sie können sie hier lesen.")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Neue Vorlage" })).toBeNull();
     expect(screen.queryByRole("button", { name: /löschen/ })).toBeNull();
@@ -498,7 +528,7 @@ describe("Suche", () => {
 
   it("öffnet mit Strg+K, sucht serverseitig und öffnet das erste Ergebnis mit der Tastatur", async () => {
     const api = spieleApi({ "/api/v1/suche": { koerper: ergebnis } });
-    const { router } = rendereApp("/kontakte");
+    const { router } = rendereApp("/contacts");
     const nutzer = userEvent.setup();
     await screen.findByRole("heading", { level: 1, name: "Kontakte" });
     fireEvent.keyDown(document, { key: "k", ctrlKey: true });
@@ -519,13 +549,13 @@ describe("Suche", () => {
     expect(document.activeElement).toBe(feld);
     expect(erster).toBeTruthy();
     await nutzer.keyboard("{Enter}");
-    await waitFor(() => expect(router.state.location.pathname).toBe(`/organisationen/${ORG_A}`));
+    await waitFor(() => expect(router.state.location.pathname).toBe(`/organizations/${ORG_A}`));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
   it("öffnet auch mit Cmd+K und über den Knopf, schließt mit Escape und öffnet Personen und Deals", async () => {
     spieleApi({ "/api/v1/suche": { koerper: ergebnis } });
-    const { router } = rendereApp("/kontakte");
+    const { router } = rendereApp("/contacts");
     const nutzer = userEvent.setup();
     await screen.findByRole("heading", { level: 1, name: "Kontakte" });
     fireEvent.keyDown(document, { key: "k", metaKey: true });
@@ -546,7 +576,7 @@ describe("Suche", () => {
   it("fragt bei weniger als zwei Zeichen nicht und meldet fehlende Treffer; auf Englisch vollständig", async () => {
     localStorage.setItem("carraway.sprache", "en");
     const api = spieleApi({ "/api/v1/suche": { koerper: { q: "zz", organisationen: [], personen: [], deals: [] } } });
-    rendereApp("/kontakte");
+    rendereApp("/contacts");
     const nutzer = userEvent.setup();
     await screen.findByRole("heading", { level: 1, name: "Contacts" });
     fireEvent.keyDown(document, { key: "k", ctrlKey: true });

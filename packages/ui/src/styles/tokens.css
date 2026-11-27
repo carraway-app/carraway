@@ -30,8 +30,6 @@
   --p-jade: #7CCFC2;
   --p-hellgruen: #EEF3EE;
   --p-salbei-dunkel: #B9CFC4;
-  --p-gold: #C4A25A;
-  --p-gold-text: #806429;
   --p-gruen-300: #78D87A;
   --p-gruen-700: #27742A;
   --p-gelb-300: #E8C547;
@@ -65,7 +63,6 @@
   --r-l: 8px;
   --r-xl: 12px;
   --r-voll: 999px;
-  --r-initiale: 22%;
   --h-xs: 28px;
   --h-s: 32px;
   --h-m: 40px;
@@ -124,7 +121,6 @@
   --cw-text-disabled: var(--p-tinte-500);
   --cw-accent: var(--p-jade);
   --cw-accent-tint: rgba(124, 207, 194, 0.13);
-  --cw-highlight: var(--p-gold);
   --cw-focus: var(--p-jade);
   --cw-primary: var(--p-hellgruen);
   --cw-primary-hover: var(--p-papier-0);
@@ -184,7 +180,6 @@
   --cw-text-disabled: var(--p-stein-300);
   --cw-accent: var(--p-petrol-700);
   --cw-accent-tint: rgba(9, 109, 105, 0.13);
-  --cw-highlight: var(--p-gold-text);
   --cw-focus: var(--p-petrol-700);
   --cw-primary: var(--p-tinte-850);
   --cw-primary-hover: var(--p-wald-800);
@@ -245,7 +240,6 @@
     --cw-text-disabled: var(--p-stein-300);
     --cw-accent: var(--p-petrol-700);
     --cw-accent-tint: rgba(9, 109, 105, 0.13);
-    --cw-highlight: var(--p-gold-text);
     --cw-focus: var(--p-petrol-700);
     --cw-primary: var(--p-tinte-850);
     --cw-primary-hover: var(--p-wald-800);

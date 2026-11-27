@@ -3,9 +3,9 @@ import { fondsEnumVonApi } from "@carraway/api/fonds-vertrag";
 import { fondsFixtureAnApi, fondsFixturePfad, fondsFixtureVonApi } from "@carraway/api/__tests__/fonds-fixtures";
 import { portfolioFixtureAnApi, portfolioFixturePfad, portfolioFixtureVonApi } from "@carraway/api/__tests__/portfolio-fixtures";
 import { kontaktFixtureJson, kontaktFixtureUrl } from "@carraway/api/__tests__/kontakt-fixtures";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createMemoryHistory } from "@tanstack/react-router";
-import { vi } from "vitest";
+import { expect, vi } from "vitest";
 import type { Arbeitsdeal } from "../api/dealflow";
 import { istGruppe, type Gruppe } from "../api/crm";
 import type { BereichName } from "../api/abbildung";
@@ -16,6 +16,56 @@ import { erstelleQueryClient, erstelleRouter } from "../router";
 /** Erfundene Testdaten in der Form der API-Antworten. */
 const schritt = (zeichen: string, bezeichnung: string, wert: string) => ({ zeichen, bezeichnung, wert });
 const kennzahl = (wert: string | null, schritte: ReturnType<typeof schritt>[] = []) => ({ wert, schritte });
+
+/**
+ * Öffnet das Stichtag-Menü im Kopf (falls zu) und gibt das Datumsfeld zurück (`Stichtag` oder `Wissensstand`).
+ * `bereich` grenzt die Suche ein, zum Beispiel auf den Seitenkopf.
+ */
+export async function feldImStichtagMenue(name = "Stichtag", bereich: HTMLElement = document.body) {
+  const b = within(bereich);
+  const offen = b.queryByLabelText(name, { selector: "input" });
+  if (offen) return offen as HTMLInputElement;
+  fireEvent.click(await b.findByRole("button", { name: /^(Stichtag|As at|Reporting date)[^:]*:/ }));
+  return (await b.findByLabelText(name, { selector: "input" })) as HTMLInputElement;
+}
+
+/** Wechselt den Fonds über den Umschalter im Kopf der Seitenleiste (Fondskontext). */
+export async function waehleFonds(name: string) {
+  fireEvent.click(await screen.findByRole("button", { name: /, (Fonds auswählen|Select a fund)$/ }));
+  fireEvent.click(await screen.findByRole("menuitemradio", { name }));
+  // Warten, bis der Kontext den neuen Fonds zeigt (die Seite hat dann neu gezeichnet).
+  await screen.findByRole("button", { name: new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}( .*)?, `) });
+}
+
+/** Öffnet im Dealflow die Auswahl (Status, Fonds, Zuständige, Gruppierung, Kartenfelder), falls sie zu ist. */
+export async function dealflowAuswahl() {
+  if (screen.queryByRole("group", { name: /^(Auswahl|Selection)$/ })) return;
+  fireEvent.click(await screen.findByRole("button", { name: /^(Auswahl|Selection)/ }));
+  await screen.findByRole("group", { name: /^(Auswahl|Selection)$/ });
+}
+
+/** Öffnet das Menü „⋯“ im Kopf und wählt einen Eintrag. */
+export async function weitereAktion(name: string | RegExp) {
+  fireEvent.click(await screen.findByRole("button", { name: /^(Weitere Aktionen|More actions)$/ }));
+  fireEvent.click(await screen.findByRole("menuitem", { name }));
+}
+
+/**
+ * Zeilenaktion einer Tabelle: Aktionen je Zeile stehen im Menü „⋯“. Öffnet die Zeilenmenüs der Reihe nach, bis der Eintrag `name`
+ * erscheint, und liefert ihn (ohne zu klicken); `null`, wenn keine Zeile ihn hat.
+ */
+export async function zeilenAktion(name: string | RegExp, bereich: HTMLElement = document.body): Promise<HTMLElement | null> {
+  // Die Zeilenmenüs laden nach (lazy); erst warten, bis Zeilen ihren Knopf haben.
+  const knoepfe = () => within(bereich).queryAllByRole("button", { name: /^(Weitere Aktionen|More actions)$/ }).filter((k) => k.closest("td"));
+  await waitFor(() => expect(knoepfe().length).toBeGreaterThan(0));
+  for (const knopf of knoepfe()) {
+    fireEvent.click(knopf);
+    const eintrag = screen.queryByRole("menuitem", { name });
+    if (eintrag) return eintrag;
+    fireEvent.click(knopf);
+  }
+  return null;
+}
 
 export const FONDS_ID = "11111111-1111-4111-8111-111111111111";
 export const BET_ID = "b1";
@@ -919,10 +969,14 @@ export const mitarbeiterpoolDaten = {
       bezeichnung: "ESOP",
       regel: "wie_anteile" as "wie_anteile" | "anteilig",
       notiz: null,
+      erfassung: "einzeln" as "grob" | "einzeln",
+      vergeben: null as string | null,
+      basispreisMittel: null as string | null,
+      einzelSichtbar: true,
       stand: { stichtag: "2026-09-30", groesse: "50000", ausstehend: "30000", ausgeuebt: "0", verfallen: "0", rueckgekauft: "0", frei: "20000", vollVerwaessert: "50000" },
-      aenderungen: [{ id: "a1", datum: "2022-01-01", anzahl: "50000", beschluss: "Gesellschafterbeschluss", rundeId: null, basis: null }],
+      aenderungen: [{ id: "a1", datum: "2022-01-01", anzahl: "50000", beschluss: "Gesellschafterbeschluss", dokumentId: null as string | null, rundeId: null as string | null, basis: null as "pre_money" | "post_money" | null }],
       zuteilungen: [
-        { id: "z1", kategorie: "mitarbeitende" as const, bezeichnung: null, anzahl: "30000", basispreis: "1.0000", zugeteiltAm: "2022-02-01", vestingBeginn: null, cliffMonate: 12, vestingMonate: 48, beschleunigung: "0.0000", status: "zugeteilt" as const, statusAm: null, leaverRegel: null, austritte: [] as { id: string; art: "good_leaver" | "bad_leaver"; austrittAm: string; anzahl: string; gevestet: "bleiben" | "verfallen" | "rueckkauf"; rueckkaufpreis: string | null }[], betroffen: "0", gevestet: "30000", beimExit: "30000", verfallen: "0", rueckgekauft: "0", verbleibend: "30000", rueckkaufBetrag: "0.00" },
+        { id: "z1", kategorie: "mitarbeitende" as const, bezeichnung: null, anzahl: "30000", basispreis: "1.0000", zugeteiltAm: "2022-02-01", vestingBeginn: null, cliffMonate: 12, vestingMonate: 48, beschleunigung: "0.0000", status: "zugeteilt" as const, statusAm: null, leaverRegel: null, kennung: "M-001" as string | null, name: null as string | null, anonymisiertAm: null as string | null, taktMonate: 1, ausloeser: "einfach" as "einfach" | "doppelt", ausuebungsfristMonate: null as number | null, laufzeitBis: null as string | null, laufzeitAbgelaufen: false, austritte: [] as { id: string; art: "good_leaver" | "bad_leaver"; austrittAm: string; anzahl: string; gevestet: "bleiben" | "verfallen" | "rueckkauf"; rueckkaufpreis: string | null }[], betroffen: "0", gevestet: "30000", beimExit: "30000", verfallen: "0", rueckgekauft: "0", verbleibend: "30000", rueckkaufBetrag: "0.00" },
       ],
     },
   ],
@@ -946,7 +1000,7 @@ const wf = (id: string, halter: { art: string; id: string | null; name: string }
   gewandelt: false,
   gedeckelt: false,
   diesesFonds: false,
-  mitarbeiter: null as null | { poolId: string; pool: string; art: "esop" | "vsop"; regel: "wie_anteile" | "anteilig"; kategorie: string; anzahl: string; basispreis: string; imGeld: boolean },
+  mitarbeiter: null as null | { poolId: string; pool: string; art: "esop" | "vsop"; regel: "wie_anteile" | "anteilig"; kategorie: string | null; anzahl: string | null; basispreis: string | null; imGeld: boolean },
   ...extra,
 });
 const wfSchritte = [
@@ -1466,5 +1520,5 @@ export async function waehleAktion(nutzer: { click: (e: Element) => Promise<void
   await nutzer.click(await screen.findByRole("menuitem", { name }));
 }
 
-/** Die innerste Region dieses Namens: Das Inhaltsverzeichnis benennt den Bereich nach seinem Eintrag, und der Abschnitt darin trägt oft denselben Namen. */
+/** Die innerste Region dieses Namens: Der Bereich einer Detailseite trägt den Namen seines Eintrags, und der Abschnitt darin trägt oft denselben Namen. */
 export const letzteRegion = async (name: string | RegExp) => (await screen.findAllByRole("region", { name })).at(-1)!;

@@ -1,3 +1,4 @@
+import { einmaligeAntwort } from "../idempotenz";
 import { portfolioAnApi } from "../portfolio-vertrag";
 import { pruefePortfolio } from "../portfolio-pruefung";
 import { createHash, randomBytes } from "node:crypto";
@@ -17,6 +18,7 @@ import {
   kennzahlTyp,
   kennzahlWert,
   organisation,
+  providerSuggestion,
   type Db,
   type KennzahlDefinition,
 } from "@carraway/db";
@@ -162,7 +164,7 @@ async function ladeWertGesperrt(tx: Tx, id: string) {
 const istOffen = (w: { status: string; verworfenAm: Date | null }) => w.status !== "bestaetigt" && w.verworfenAm === null;
 
 /** Gibt Link-Token und Pfad der Formularseite einmalig aus; in der Datenbank steht nur der Hash. */
-export const linkAntwort = (token: string, ablauf: Date) => ({ token, pfad: `/extern/abfrage/${token}`, ablauf: ablauf.toISOString() });
+export const linkAntwort = (token: string, ablauf: Date) => ({ token, pfad: `/external/requests/${token}`, ablauf: ablauf.toISOString() });
 
 // Katalog, Werte und Anfragen unter /kennzahlen ---------------------------------------------------------------------------
 
@@ -287,6 +289,10 @@ export function kennzahlRouten(db: Db) {
         if (w.status === "bestaetigt") throw new Fachfehler(409, "metric_value_confirmed", "A confirmed value cannot be rejected.");
         if (w.verworfenAm !== null) throw new Fachfehler(409, "metric_value_rejected", "The value has already been rejected.");
         const [zeile] = await tx.update(kennzahlWert).set({ verworfenAm: new Date(), verworfenVon: protokoll.akteur }).where(eq(kennzahlWert.id, id)).returning();
+        if (w.quelle === "import") {
+          await tx.update(providerSuggestion).set({ status: "pending", reviewedAt: null, reviewedBy: null, metricValueId: null })
+            .where(and(eq(providerSuggestion.metricValueId, id), eq(providerSuggestion.current, true), eq(providerSuggestion.status, "accepted")));
+        }
         await protokoll("verwerfen", "kennzahl_wert", id, w, zeile);
         return zeile!;
       });
@@ -337,6 +343,7 @@ export function kennzahlRouten(db: Db) {
         await protokoll("neuer_link", "kennzahl_abfrage", id, ohneToken(a), ohneToken(zeile!));
         return zeile!;
       });
+      einmaligeAntwort(c);
       return c.json(portfolioAnApi({ abfrage: ohneToken(nachher), link: linkAntwort(token, ablauf) }), 200);
     })
     /**
@@ -359,6 +366,7 @@ export function kennzahlRouten(db: Db) {
         await protokoll("neuer_link", "kennzahl_abfrage", id, ohneToken(a), ohneToken(zeile!));
         return zeile!;
       });
+      einmaligeAntwort(c);
       return c.json(portfolioAnApi({ abfrage: ohneToken(nachher), link: linkAntwort(token, ablauf) }), 200);
     })
     /** Bestätigt alle eingereichten Werte der Anfrage. */
@@ -564,6 +572,7 @@ export function beteiligungKennzahlRouten(db: Db) {
         }
         return zeile!;
       });
+      einmaligeAntwort(c);
       return c.json(portfolioAnApi({ abfrage: ohneToken(ergebnis), link: linkAntwort(token, ablauf) }), 201);
     });
 }

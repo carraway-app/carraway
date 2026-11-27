@@ -1,9 +1,9 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
-import { BET_ID, bewertungZeile, FONDS_ID, fehler, fondsDaten, rendereApp, spieleApi, uebersichtDaten } from "../test/hilfen";
+import { BET_ID, bewertungZeile, FONDS_ID, fehler, feldImStichtagMenue, fondsDaten, rendereApp, spieleApi, uebersichtDaten } from "../test/hilfen";
 
-const url = `/fonds/${FONDS_ID}`;
+const url = `/funds/${FONDS_ID}`;
 const ohneGeschuetztesLeerzeichen = (text: string | null) => (text ?? "").replace(/\s/g, " ");
 
 describe("Portfolio", () => {
@@ -23,16 +23,16 @@ describe("Portfolio", () => {
     const tabelle = screen.getAllByRole("table")[0]!;
     const zeilen = within(tabelle).getAllByRole("row");
     expect(zeilen).toHaveLength(4); // Kopf plus drei Beteiligungen
-    expect(within(tabelle).getByRole("link", { name: "Alpha Energie" }).getAttribute("href")).toBe("/beteiligungen/b1");
+    expect(within(tabelle).getByRole("link", { name: "Alpha Energie" }).getAttribute("href")).toBe("/investments/b1");
     expect(ohneGeschuetztesLeerzeichen(zeilen[1]!.textContent)).toContain("2.000.000 €");
     expect(zeilen[1]!.textContent).toContain("Wandeldarlehen");
     expect(zeilen[1]!.textContent).toContain("2,00x");
     expect(zeilen[3]!.textContent).toContain("Insolvent");
 
-    expect(screen.getByLabelText<HTMLInputElement>("Stichtag").value).toBe("2026-09-30");
+    expect((await feldImStichtagMenue()).value).toBe("2026-09-30");
     expect(screen.getByRole("banner", { name: "Kopfzeile" }).textContent).not.toContain("30.09.2026");
     expect(screen.getByRole("heading", { level: 2, name: "3 Beteiligungen" })).toBeTruthy();
-    expect((screen.getByRole("combobox", { name: "Fonds" }) as HTMLSelectElement).value).toBe(FONDS_ID);
+    expect(await screen.findByText("Beispielfonds I", { selector: ".app-kontext__titel" })).toBeTruthy();
     // Fondsliste und Übersicht werden je einmal geholt, nicht mehrfach
     expect(fetch.mock.calls.filter(([u]) => String(u).includes("/overview"))).toHaveLength(1);
   });
@@ -90,7 +90,7 @@ describe("Portfolio", () => {
     expect(text).toContain("€25.8m");
     expect(text).toContain("1.11x");
     expect(text).toContain("2.3%");
-    expect(screen.getByLabelText<HTMLInputElement>("As at").value).toBe("2026-09-30");
+    expect((await feldImStichtagMenue("As at")).value).toBe("2026-09-30");
     expect(within(screen.getAllByRole("table")[0]!).getAllByRole("row")[1]!.textContent).toContain("Convertible loan");
   });
 
@@ -144,7 +144,7 @@ describe("Portfolio", () => {
       } },
       [`/api/v1/beteiligungen/${BET_ID}/bewertungen`]: { koerper: { daten: [bewertungZeile("w1", "2026-06-30", "12.34", "freigegeben")] } },
     });
-    rendereApp(`${url}?stichtag=${stichtag}&stand=${stand}`);
+    rendereApp(`${url}?asOf=${stichtag}&knowledgeDate=${stand}`);
     const nutzer = userEvent.setup();
     await nutzer.click(await screen.findByRole("button", { name: /^NAV /, description: "Herkunft von NAV anzeigen" }));
     const dialog = await screen.findByRole("dialog");
@@ -156,12 +156,12 @@ describe("Portfolio", () => {
     await nutzer.click(within(dialog).getByText(/Bankguthaben laut/, { selector: "summary span" }));
     expect(ohneGeschuetztesLeerzeichen(dialog.textContent)).toContain("12,34 €");
     expect(dialog.textContent).toContain("30.06.2026");
-    for (const [name, feld, wert] of [["Beispielwert", "bewertungId", "w1"], [/Bewertung.pdf/, "seite", "3"], ["1200 Bank", "laufId", "l1"]] as const) {
+    for (const [name, feld, wert] of [["Beispielwert", "valuationId", "w1"], [/Bewertung.pdf/, "page", "3"], ["1200 Bank", "runId", "l1"]] as const) {
       const href = within(dialog).getByRole("link", { name }).getAttribute("href")!;
       const link = new URL(href, "http://localhost");
       expect(link.searchParams.get(feld)).toBe(wert);
-      expect(link.searchParams.get("stichtag")).toBe(stichtag);
-      expect(link.searchParams.get("stand")).toBe(stand);
+      expect(link.searchParams.get("asOf")).toBe(stichtag);
+      expect(link.searchParams.get("knowledgeDate")).toBe(stand);
     }
     await nutzer.click(within(dialog).getByRole("link", { name: "Beispielwert" }));
     await screen.findByRole("heading", { name: "Bewertungen" });
@@ -201,7 +201,7 @@ describe("Portfolio", () => {
     const { router } = rendereApp(url);
     await screen.findByRole("heading", { level: 1 });
     const nutzer = userEvent.setup();
-    const feld = screen.getByLabelText("Stichtag");
+    const feld = await feldImStichtagMenue();
     await nutzer.clear(feld);
     await nutzer.type(feld, "2026-06-30");
     expect(router.state.location.search).toEqual({ stichtag: "2026-06-30" });
@@ -301,21 +301,24 @@ describe("Snapshot und Wissensstand", () => {
     const api = spieleApi();
     const { router } = rendereApp(url);
     await screen.findByRole("heading", { level: 1 });
-    // Der Wissensstand steht hinter einem kleinen Knopf in der Werkzeugleiste des Kopfs, die Erklärung in der Fläche.
+    // Der Wissensstand steht im Stichtag-Menü des Kopfs, nach dem Stichtag, mit Erklärung am Feld.
     expect(screen.queryByLabelText("Wissensstand", { selector: "input" })).toBeNull();
-    await userEvent.setup().click(screen.getByRole("button", { name: "Wissensstand" }));
-    expect(screen.getByText(/Zeigt den Stichtag so, wie er zu diesem Zeitpunkt bekannt war/)).toBeTruthy();
+    const feld = await feldImStichtagMenue("Wissensstand");
+    expect(screen.getByText(/nur was bis zum Ende dieses Tages eingetragen war/)).toBeTruthy();
+    const felder = screen.getAllByLabelText(/^(Stichtag|Wissensstand)$/, { selector: "input" });
+    expect(felder.map((f) => f.getAttribute("type"))).toEqual(["date", "date"]);
+    expect(felder.indexOf(feld)).toBe(1);
 
-    fireEvent.change(screen.getByLabelText("Wissensstand", { selector: "input" }), { target: { value: "2026-06-30T12:00" } });
+    fireEvent.change(feld, { target: { value: "2026-06-30" } });
 
-    // Die Eingabe ist Ortszeit; URL und API tragen denselben Zeitpunkt in UTC
-    const erwartet = new Date("2026-06-30T12:00").toISOString().replace(".000Z", "Z");
+    // Nur ein Datum: gemeint ist das Ende dieses Tages in Europe/Berlin, URL und API tragen den Zeitpunkt in UTC
+    const erwartet = "2026-06-30T21:59:59.999999Z";
     expect(router.state.location.search).toEqual({ stand: erwartet });
     await waitFor(() => expect(api.anfragen("GET", uebersichtUrl).some((a) => a.query.get("stand") === erwartet)).toBe(true));
     expect(await screen.findByText(/Live gerechnet mit dem Wissensstand/)).toBeTruthy();
     // Beteiligungen führen mit demselben Wissensstand weiter
     const link = screen.getByRole("link", { name: "Alpha Energie" });
-    expect(new URL(link.getAttribute("href")!, "http://x").searchParams.get("stand")).toBe(erwartet);
+    expect(new URL(link.getAttribute("href")!, "http://x").searchParams.get("knowledgeDate")).toBe(erwartet);
 
     await userEvent.setup().click(screen.getByRole("button", { name: "Aktueller Stand" }));
     expect(router.state.location.search).toEqual({});
@@ -323,7 +326,7 @@ describe("Snapshot und Wissensstand", () => {
 
   it("liest Wissensstand und Stichtag aus der URL, auch wenn das Plus im Versatz als Leerzeichen ankommt", async () => {
     const api = spieleApi();
-    rendereApp(`${url}?stichtag=2026-06-30&stand=2026-06-30T12:00:00 02:00`);
+    rendereApp(`${url}?asOf=2026-06-30&knowledgeDate=2026-06-30T12:00:00 02:00`);
     await screen.findByRole("heading", { level: 1 });
     const anfrage = api.anfragen("GET", uebersichtUrl)[0]!;
     expect(anfrage.query.get("stichtag")).toBe("2026-06-30");
@@ -333,7 +336,7 @@ describe("Snapshot und Wissensstand", () => {
 
   it("verwirft einen ungültigen Wissensstand in der URL", async () => {
     const api = spieleApi();
-    rendereApp(`${url}?stand=gestern`);
+    rendereApp(`${url}?knowledgeDate=gestern`);
     await screen.findByRole("heading", { level: 1 });
     expect(api.anfragen("GET", uebersichtUrl)[0]!.query.has("stand")).toBe(false);
   });

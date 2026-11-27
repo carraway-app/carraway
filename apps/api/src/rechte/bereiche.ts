@@ -5,7 +5,7 @@ import type { Methode } from "./tabelle";
  * Bereiche der Anwendung (Rechtemodell, docs/permissions-model.md). Eine Rolle bündelt Bereiche; jede Route mit Fondsrolle gehört zu genau
  * einem Bereich (oder zu `allgemein`). Personen ohne Gruppe haben alle Bereiche, Personen in Gruppen nur die Bereiche ihrer Rollen.
  */
-export const BEREICHE = ["portfolio", "finanzen", "kennzahlen", "berichte", "meldewesen", "dealflow", "kontakte", "dokumente", "daten", "fondsverwaltung"] as const;
+export const BEREICHE = ["portfolio", "finanzen", "kennzahlen", "berichte", "meldewesen", "dealflow", "kontakte", "dokumente", "daten", "fondsverwaltung", "einzelzuteilungen"] as const;
 export type Bereich = (typeof BEREICHE)[number];
 
 /**
@@ -67,6 +67,8 @@ const ZUORDNUNG: Zuordnung[] = [
   [null, /^\/investments\/:id\/metrics(\/|$)/, "kennzahlen"],
   [null, /^\/investments\/:id\/reports(\/|$)/, "berichte"],
   [null, /^\/investments(\/|$)/, "portfolio"],
+  // Einzelzuteilungen der Mitarbeiterbeteiligung (Beschäftigtendaten des Unternehmens) haben einen eigenen Bereich; der Pool selbst gehört zum Portfolio.
+  [null, /^\/organizations\/:id\/employee-pools\/:poolId\/grants(\/|$)/, "einzelzuteilungen"],
   // Organisationen: Kapitaltabelle und Runden sind Finanzdaten, Meldedaten gehören zum Meldewesen, der Rest ist Kontaktpflege.
   [null, /^\/organizations\/:id\/(share-classes|financing-rounds|round-transactions|share-transfers|employee-pools)(\/|$)/, "portfolio"],
   [null, /^\/organizations\/:id\/reporting-data$/, "meldewesen"],
