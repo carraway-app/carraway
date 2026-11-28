@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Button, Feld, Hinweis, Kennzahl, Segment, Status, Tabelle, formatBetrag, formatMultiple, type TabelleSpalte } from "@carraway/ui";
+import { Auswahl, Button, Feld, Hinweis, Kennzahl, Segment, Status, Tabelle, formatBetrag, formatMultiple, type TabelleSpalte } from "@carraway/ui";
 import { wasserfallKurve, type Kurve } from "../api/abfragen";
 import { heuteIso } from "../api/datum";
 import { useWasserfall } from "../api/mutationen";
@@ -41,6 +41,7 @@ export function ExitSzenario({ beteiligungId, postMoney }: { beteiligungId: stri
   const w = t.wasserfall;
   const sprache = useSprache();
   const rechnen = useWasserfall(beteiligungId);
+  const [zweiterAusloeser, setZweiterAusloeser] = useState(true);
   const [ansicht, setAnsicht] = useState<"position" | "investor">("position");
   const { werte, setWerte, feld, pruefeAlle } = useFormular(
     { exitwert: "", exitdatum: heuteIso(), kosten: "", treuhand: "" },
@@ -53,7 +54,7 @@ export function ExitSzenario({ beteiligungId, postMoney }: { beteiligungId: stri
   function absenden(wert: string = exitwert) {
     const k = betragOderNichts(kosten, sprache);
     const th = treuhand.trim() === "" ? undefined : prozentZuAnteil(treuhand);
-    rechnen.mutate({ exitwert: betragOderNichts(wert, sprache) ?? "", exitdatum, ...(k ? { kosten: k } : {}), ...(th ? { treuhandAnteil: th } : {}) });
+    rechnen.mutate({ exitwert: betragOderNichts(wert, sprache) ?? "", exitdatum, zweiterAusloeser, ...(k ? { kosten: k } : {}), ...(th ? { treuhandAnteil: th } : {}) });
   }
 
   function schnellwahl(faktor: string) {
@@ -66,7 +67,7 @@ export function ExitSzenario({ beteiligungId, postMoney }: { beteiligungId: stri
   // Bereich des Diagramms: das 5-Fache der letzten Post-Money-Bewertung, bei großem Szenario darüber, höchstens das 100-Fache (Grenze der API).
   const bereichBis =
     post === null || post <= 0 ? null : String(Math.min(Math.floor(post * 100), Math.round(Math.max(post * 5, ergebnis ? Number(ergebnis.eingabe.nettoErloes) * 1.25 : 0))));
-  const kurve = useQuery({ ...wasserfallKurve(beteiligungId, bereichBis ?? "1", PUNKTE, ergebnis?.eingabe.exitdatum ?? exitdatum), enabled: bereichBis !== null });
+  const kurve = useQuery({ ...wasserfallKurve(beteiligungId, bereichBis ?? "1", PUNKTE, ergebnis?.eingabe.exitdatum ?? exitdatum, ergebnis?.eingabe.zweiterAusloeser ?? zweiterAusloeser), enabled: bereichBis !== null });
 
   const inhaber = (z: Zeile) =>
     z.halter.art === "stamm"
@@ -185,6 +186,10 @@ export function ExitSzenario({ beteiligungId, postMoney }: { beteiligungId: stri
             <Feld label={w.exitdatum} type="date" {...feld("exitdatum", feldText(t, rechnen.error, "exitdatum"))} />
             <BetragFeld label={w.kosten} {...feld("kosten", feldText(t, rechnen.error, "kosten"))} />
             <BetragFeld label={w.treuhand} {...feld("treuhand", feldText(t, rechnen.error, "treuhandAnteil"))} />
+            <Auswahl label={w.zweiterAusloeser} hilfe={w.zweiterAusloeserHinweis} value={zweiterAusloeser ? "true" : "false"} onChange={(e) => setZweiterAusloeser(e.target.value === "true")}>
+              <option value="true">{w.zweiterAusloeserJa}</option>
+              <option value="false">{w.zweiterAusloeserNein}</option>
+            </Auswahl>
           </div>
           {post !== null ? (
             <div className="app-gruppe" role="group" aria-label={w.presets}>

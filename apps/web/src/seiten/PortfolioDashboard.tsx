@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { getRouteApi } from "@tanstack/react-router";
 import { Hinweis, Kennzahl, KennzahlenReihe, Leer, Segment, Seitenkopf, Tabelle, formatBetrag, formatDatum, formatMultiple, formatProzent, type TabelleSpalte } from "@carraway/ui";
 import { alsRechenschritte, portfolioDashboard, type ApiKennzahl, type Dashboard } from "../api/portfolio";
+import { BeteiligungAnlegen } from "../komponenten/BeteiligungAnlegen";
 import { FehlerHinweis } from "../komponenten/FehlerHinweis";
 import { HerkunftDialog } from "../komponenten/HerkunftDialog";
 import { Skelettzeilen } from "../komponenten/Skelett";
@@ -42,7 +43,7 @@ export function PortfolioDashboardSeite() {
     />
   );
   if (error) return <div className="app-seite"><FehlerHinweis fehler={error} /></div>;
-  if (!data) return <div className="app-seite"><Seitenkopf meta={d.etikett} titel={d.titel} zeitbezug={zeitbezug} /><Skelettzeilen anzahl={6} /></div>;
+  if (!data) return <div className="app-seite"><Seitenkopf meta={d.etikett} titel={d.titel} zeitbezug={zeitbezug} aktionen={<BeteiligungAnlegen />} /><Skelettzeilen anzahl={6} /></div>;
 
   const haus = data.homeCurrency;
   const betrag = (w: string | null) => (w === null ? t.gemeinsam.keinWert : formatBetrag(w, sprache, { waehrung: haus, kompakt: true }));
@@ -58,7 +59,7 @@ export function PortfolioDashboardSeite() {
 
   return (
     <div className="app-seite app-dashboard">
-      <Seitenkopf meta={data.managerName ? `${d.etikett} · ${data.managerName}` : d.etikett} titel={d.titel} zeitbezug={zeitbezug} />
+      <Seitenkopf meta={data.managerName ? `${d.etikett} · ${data.managerName}` : d.etikett} titel={d.titel} zeitbezug={zeitbezug} aktionen={<BeteiligungAnlegen />} />
       <p className="app-leer-text app-lesetext">{d.beschreibung(haus)}</p>
       {data.funds.length === 0 ? (
         <Leer titel={d.leer} beschreibung="" />

@@ -42,6 +42,14 @@ export const stammBereichDe = {
     },
   },
   portfolio: {
+    anlage: {
+      titel: "Beteiligung anlegen",
+      fonds: "Fonds",
+      unternehmen: "Beteiligungsunternehmen",
+      erstinvestment: "Erstinvestment",
+      speichern: "Speichern",
+      vorhanden: "Vorhandene Beteiligung öffnen",
+    },
     zeichnungskapital: "Zeichnungskapital",
     beteiligungenAnzahl: (n: number) => (n === 1 ? "1 Beteiligung" : `${n} Beteiligungen`),
     stichtag: "Stichtag",

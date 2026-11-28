@@ -3,7 +3,7 @@
 
 export interface ReferenzFall {
   name: string;
-  eingabe: { exitwert: string; exitdatum: string; treuhandAnteil?: string; klassen: { id: string; name: string; rang: number; praeferenzFaktor: string; partizipierend: boolean; capFaktor: string | null; verzinsung: string | null; umwandelbar: boolean }[]; inhaber: { id: string; name: string; klasseId: string | null; anteile: string; investiert: string; datum: string | null; mitarbeiter?: { basispreis: string; regel: "wie_anteile" | "anteilig" } }[] };
+  eingabe: { exitwert: string; exitdatum: string; treuhandAnteil?: string; klassen: { id: string; name: string; rang: number; praeferenzFaktor: string; partizipierend: boolean; capFaktor: string | null; verzinsung: string | null; umwandelbar: boolean }[]; inhaber: { id: string; name: string; klasseId: string | null; anteile: string; investiert: string; datum: string | null; mitarbeiter?: { basispreis: string; regel: "wie_anteile" | "anteilig" | "vor_verteilung"; obergrenzeJeEinheit?: string } }[] };
   gewandelt: string[];
   zeilen: { id: string; praeferenz: string; beteiligung: string; gesamt: string; treuhand: string; sofort: string; multiple: string | null; gedeckelt: boolean }[];
   nichtVerteilt: string;
@@ -250,6 +250,53 @@ export const REFERENZ_FAELLE: ReferenzFall[] = [
       {"id": "Gruender", "praeferenz": "0.00", "beteiligung": "2000000.00", "gesamt": "2000000.00", "treuhand": "0.00", "sofort": "2000000.00", "multiple": null, "gedeckelt": false},
       {"id": "FondsA", "praeferenz": "3000000.00", "beteiligung": "0.00", "gesamt": "3000000.00", "treuhand": "0.00", "sofort": "3000000.00", "multiple": "1.0000", "gedeckelt": false},
       {"id": "VSOP", "praeferenz": "0.00", "beteiligung": "0.00", "gesamt": "0.00", "treuhand": "0.00", "sofort": "0.00", "multiple": null, "gedeckelt": false},
+    ],
+    nichtVerteilt: "0.00",
+  },
+  {
+    name: "M7 Vorabzahlung kürzt den Erlös vor der Präferenz",
+    eingabe: {"exitwert": "900", "exitdatum": "2026-06-30", "treuhandAnteil": "0.1", "klassen": [{"id": "SerieA", "name": "SerieA", "rang": 1, "praeferenzFaktor": "1", "partizipierend": false, "capFaktor": null, "verzinsung": null, "umwandelbar": false}], "inhaber": [{"id": "Gruender", "name": "Gruender", "klasseId": null, "anteile": "60", "investiert": "0", "datum": null}, {"id": "FondsA", "name": "FondsA", "klasseId": "SerieA", "anteile": "20", "investiert": "850", "datum": null}, {"id": "VSOP", "name": "VSOP", "klasseId": null, "anteile": "20", "investiert": "0", "datum": null, "mitarbeiter": {"basispreis": "1", "regel": "vor_verteilung", "obergrenzeJeEinheit": "3"}}]},
+    gewandelt: [],
+    zeilen: [
+      {"id": "Gruender", "praeferenz": "0.00", "beteiligung": "0.00", "gesamt": "0.00", "treuhand": "0.00", "sofort": "0.00", "multiple": null, "gedeckelt": false},
+      {"id": "FondsA", "praeferenz": "840.00", "beteiligung": "0.00", "gesamt": "840.00", "treuhand": "84.00", "sofort": "756.00", "multiple": "0.9882", "gedeckelt": false},
+      {"id": "VSOP", "praeferenz": "0.00", "beteiligung": "60.00", "gesamt": "60.00", "treuhand": "6.00", "sofort": "54.00", "multiple": null, "gedeckelt": true},
+    ],
+    nichtVerteilt: "0.00",
+  },
+  {
+    name: "M8 Gemischte Ränge mit Obergrenzen und Basispreisen",
+    eingabe: {"exitwert": "1500", "exitdatum": "2026-06-30", "treuhandAnteil": "0.15", "klassen": [{"id": "SerieA", "name": "SerieA", "rang": 1, "praeferenzFaktor": "1", "partizipierend": true, "capFaktor": null, "verzinsung": null, "umwandelbar": true}], "inhaber": [{"id": "Gruender", "name": "Gruender", "klasseId": null, "anteile": "60", "investiert": "0", "datum": null}, {"id": "FondsA", "name": "FondsA", "klasseId": "SerieA", "anteile": "20", "investiert": "200", "datum": null}, {"id": "Vorab", "name": "Vorab", "klasseId": null, "anteile": "20", "investiert": "0", "datum": null, "mitarbeiter": {"basispreis": "1", "regel": "vor_verteilung", "obergrenzeJeEinheit": "2"}}, {"id": "Rest", "name": "Rest", "klasseId": null, "anteile": "7", "investiert": "0", "datum": null, "mitarbeiter": {"basispreis": "1", "regel": "wie_anteile", "obergrenzeJeEinheit": "3"}}, {"id": "Anteilig1", "name": "Anteilig1", "klasseId": null, "anteile": "6", "investiert": "0", "datum": null, "mitarbeiter": {"basispreis": "2", "regel": "anteilig", "obergrenzeJeEinheit": "4"}}, {"id": "Anteilig2", "name": "Anteilig2", "klasseId": null, "anteile": "8", "investiert": "0", "datum": null, "mitarbeiter": {"basispreis": "6", "regel": "anteilig"}}, {"id": "Anteilig3", "name": "Anteilig3", "klasseId": null, "anteile": "10", "investiert": "0", "datum": null, "mitarbeiter": {"basispreis": "15", "regel": "anteilig"}}]},
+    gewandelt: [],
+    zeilen: [
+      {"id": "Gruender", "praeferenz": "0.00", "beteiligung": "870.64", "gesamt": "870.64", "treuhand": "130.60", "sofort": "740.04", "multiple": null, "gedeckelt": false},
+      {"id": "FondsA", "praeferenz": "187.39", "beteiligung": "290.21", "gesamt": "477.60", "treuhand": "71.64", "sofort": "405.96", "multiple": "2.3880", "gedeckelt": false},
+      {"id": "Vorab", "praeferenz": "0.00", "beteiligung": "40.00", "gesamt": "40.00", "treuhand": "6.00", "sofort": "34.00", "multiple": null, "gedeckelt": true},
+      {"id": "Rest", "praeferenz": "0.00", "beteiligung": "19.68", "gesamt": "19.68", "treuhand": "2.95", "sofort": "16.73", "multiple": null, "gedeckelt": true},
+      {"id": "Anteilig1", "praeferenz": "0.00", "beteiligung": "24.00", "gesamt": "24.00", "treuhand": "3.60", "sofort": "20.40", "multiple": null, "gedeckelt": true},
+      {"id": "Anteilig2", "praeferenz": "0.00", "beteiligung": "68.08", "gesamt": "68.08", "treuhand": "10.21", "sofort": "57.87", "multiple": null, "gedeckelt": false},
+      {"id": "Anteilig3", "praeferenz": "0.00", "beteiligung": "0.00", "gesamt": "0.00", "treuhand": "0.00", "sofort": "0.00", "multiple": null, "gedeckelt": false},
+    ],
+    nichtVerteilt: "0.00",
+  },
+  {
+    name: "M9 Nur gedeckelte Einheiten im Restpool",
+    eingabe: {"exitwert": "10", "exitdatum": "2026-06-30", "klassen": [], "inhaber": [{"id": "VSOP1", "name": "VSOP1", "klasseId": null, "anteile": "2", "investiert": "0", "datum": null, "mitarbeiter": {"basispreis": "1", "regel": "wie_anteile", "obergrenzeJeEinheit": "0.5"}}, {"id": "VSOP2", "name": "VSOP2", "klasseId": null, "anteile": "4", "investiert": "0", "datum": null, "mitarbeiter": {"basispreis": "8", "regel": "wie_anteile", "obergrenzeJeEinheit": "0"}}]},
+    gewandelt: [],
+    zeilen: [
+      {"id": "VSOP1", "praeferenz": "0.00", "beteiligung": "1.00", "gesamt": "1.00", "treuhand": "0.00", "sofort": "1.00", "multiple": null, "gedeckelt": true},
+      {"id": "VSOP2", "praeferenz": "0.00", "beteiligung": "0.00", "gesamt": "0.00", "treuhand": "0.00", "sofort": "0.00", "multiple": null, "gedeckelt": true},
+    ],
+    nichtVerteilt: "9.00",
+  },
+  {
+    name: "M10 Vorabzahlung beeinflusst die Umwandlung",
+    eingabe: {"exitwert": "400", "exitdatum": "2026-06-30", "klassen": [{"id": "SerieA", "name": "SerieA", "rang": 1, "praeferenzFaktor": "1", "partizipierend": false, "capFaktor": null, "verzinsung": null, "umwandelbar": true}], "inhaber": [{"id": "Gruender", "name": "Gruender", "klasseId": null, "anteile": "60", "investiert": "0", "datum": null}, {"id": "FondsA", "name": "FondsA", "klasseId": "SerieA", "anteile": "20", "investiert": "90", "datum": null}, {"id": "VSOP", "name": "VSOP", "klasseId": null, "anteile": "20", "investiert": "0", "datum": null, "mitarbeiter": {"basispreis": "0", "regel": "vor_verteilung"}}]},
+    gewandelt: [],
+    zeilen: [
+      {"id": "Gruender", "praeferenz": "0.00", "beteiligung": "230.00", "gesamt": "230.00", "treuhand": "0.00", "sofort": "230.00", "multiple": null, "gedeckelt": false},
+      {"id": "FondsA", "praeferenz": "90.00", "beteiligung": "0.00", "gesamt": "90.00", "treuhand": "0.00", "sofort": "90.00", "multiple": "1.0000", "gedeckelt": false},
+      {"id": "VSOP", "praeferenz": "0.00", "beteiligung": "80.00", "gesamt": "80.00", "treuhand": "0.00", "sofort": "80.00", "multiple": null, "gedeckelt": false},
     ],
     nichtVerteilt: "0.00",
   },

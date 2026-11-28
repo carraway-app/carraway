@@ -1,6 +1,7 @@
 import { and, desc, eq, gt, isNull, lte } from "drizzle-orm";
 import { finanzierungsrunde, mitarbeiterpool, mitarbeiterzuteilung, optionsscheinAusuebung, instrument, beteiligung } from "@carraway/db";
 import { Decimal } from "@carraway/rechenkern";
+import { ausuebungenVon, ladeAusuebungen } from "./pool";
 import type { Tx } from "../zeitlimit";
 
 /**
@@ -17,11 +18,12 @@ export async function anteileVorRunde(tx: Tx, organisationId: string, datum: str
     .limit(1);
   if (!letzte?.anteileGesamtNach) return null;
   const ausgeuebt = await tx
-    .select({ anzahl: mitarbeiterzuteilung.anzahl, statusAm: mitarbeiterzuteilung.statusAm })
+    .select({ id: mitarbeiterzuteilung.id, anzahl: mitarbeiterzuteilung.anzahl, basispreis: mitarbeiterzuteilung.basispreis, status: mitarbeiterzuteilung.status, statusAm: mitarbeiterzuteilung.statusAm })
     .from(mitarbeiterzuteilung)
     .innerJoin(mitarbeiterpool, eq(mitarbeiterpool.id, mitarbeiterzuteilung.poolId))
-    .where(and(eq(mitarbeiterpool.organisationId, organisationId), eq(mitarbeiterpool.art, "esop"), eq(mitarbeiterzuteilung.status, "ausgeuebt")));
-  const danach = ausgeuebt.filter((z) => z.statusAm !== null && z.statusAm > letzte.datum && z.statusAm <= datum).reduce((s, z) => s.plus(z.anzahl), new Decimal(0));
+    .where(and(eq(mitarbeiterpool.organisationId, organisationId), eq(mitarbeiterpool.art, "esop")));
+  const ausuebungen = await ladeAusuebungen(tx, ausgeuebt.map((z) => z.id));
+  const danach = ausgeuebt.flatMap((z) => ausuebungenVon({ ...z, ausuebungen: ausuebungen.get(z.id) ?? [] })).filter((z) => z.datum > letzte.datum && z.datum <= datum).reduce((s, z) => s.plus(z.anzahl), new Decimal(0));
   const optionsscheine = await tx
     .select({ anzahl: optionsscheinAusuebung.anzahl })
     .from(optionsscheinAusuebung)

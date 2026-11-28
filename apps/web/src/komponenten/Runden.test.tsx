@@ -104,6 +104,16 @@ describe("Runden: Anteil und Summenzeile", () => {
   });
 });
 
+it("kennzeichnet die Prüfung einer Runde mit ausgeblendetem Unternehmensbestand als vorläufig", async () => {
+  const entwurf = runde("r1", "Seed", "2021-05-31", "entwurf", fondsOnly, "1000000.05");
+  spieleApi({
+    [RUNDEN]: { koerper: { daten: [{ ...entwurf, anteileGesamtNach: null, pruefung: { ...entwurf.pruefung, bestandAusgeblendet: true } }] } },
+  });
+  rendereApp(`/investments/${BET_ID}?tab=financing`);
+  expect(await screen.findByText(/Vorläufige Prüfung anhand der Eingaben/)).toBeTruthy();
+  expect(screen.queryByText(/Alle Prüfungen sind in Ordnung/)).toBeNull();
+});
+
 describe("Runden: Reiter", () => {
   it("zeigt Name, Datum und Volumen im Reiter und wechselt mit den Pfeiltasten", async () => {
     const alt = runde("r1", "Seed", "2021-05-31", "abgeschlossen", gemischt, "1500000.30");

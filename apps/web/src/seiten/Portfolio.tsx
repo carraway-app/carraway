@@ -3,6 +3,7 @@ import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { getRouteApi, Link } from "@tanstack/react-router";
 import { Button, Leer, Status, Tabelle, formatBetrag, formatMultiple, type Sortierrichtung, type StatusVariante, type TabelleSpalte } from "@carraway/ui";
 import { fondsListe, fondsUebersicht, type BeteiligungZeile as Zeile } from "../api/abfragen";
+import { BeteiligungAnlegen } from "../komponenten/BeteiligungAnlegen";
 import { FehlerHinweis } from "../komponenten/FehlerHinweis";
 import { aufzaehlung, useSprache, useT } from "../i18n";
 import { offeneForderungen } from "../lib/forderungen";
@@ -54,7 +55,7 @@ export function PortfolioSeite() {
 
   const [sortierung, setSortierung] = useState<{ schluessel: string; richtung: Sortierrichtung } | undefined>();
 
-  // Nach dem Übergang aus dem Dealflow: die neue Beteiligung ins Bild holen.
+  // Neue Beteiligung nach dem Anlegen ins Bild holen.
   useEffect(() => {
     if (hervorgehoben) document.querySelector("tr[aria-current='true']")?.scrollIntoView?.({ block: "center" });
   }, [hervorgehoben, u.beteiligungen]);
@@ -164,18 +165,21 @@ export function PortfolioSeite() {
       <section className="app-portfolio__bestand" aria-labelledby="portfolio-bestand">
         <div className="app-portfolio__tabellenkopf">
           <h2 id="portfolio-bestand" className="cw-t-untertitel">{t.portfolio.beteiligungenAnzahl(zeilen.length)}</h2>
-          {fondsWaehrung ? (
-            <Waehrungsleiste
-              sicht={sicht}
-              suche={suche}
-              waehrungen={{ fonds: fondsWaehrung, lokal: fondsWaehrung, vergleich: suche.vergleich ?? null }}
-              onAendern={aendereSicht}
-              luecken={!ws ? [] : sicht === "vergleich" ? ws.luecken.filter((l) => l.nach === ws.waehrungen.vergleich) : sicht === "haus" ? ws.hausLuecken : sicht === "lokal" ? ws.luecken.filter((l) => l.nach !== ws.waehrungen.vergleich) : []}
-              kurse={ws && sicht === "vergleich" ? ws.zeilen.flatMap((z) => z.bewertungKurse).filter((x, i, a) => x.nach === ws.waehrungen.vergleich && a.findIndex((y) => y.tag === x.tag && y.nach === x.nach && y.kurs === x.kurs) === i) : []}
-              tabellenWaehrung={sichtWaehrung}
-              mitStand={Boolean(stand)}
-            />
-          ) : null}
+          <div className="app-portfolio__aktionen">
+            {fondsWaehrung ? (
+              <Waehrungsleiste
+                sicht={sicht}
+                suche={suche}
+                waehrungen={{ fonds: fondsWaehrung, lokal: fondsWaehrung, vergleich: suche.vergleich ?? null }}
+                onAendern={aendereSicht}
+                luecken={!ws ? [] : sicht === "vergleich" ? ws.luecken.filter((l) => l.nach === ws.waehrungen.vergleich) : sicht === "haus" ? ws.hausLuecken : sicht === "lokal" ? ws.luecken.filter((l) => l.nach !== ws.waehrungen.vergleich) : []}
+                kurse={ws && sicht === "vergleich" ? ws.zeilen.flatMap((z) => z.bewertungKurse).filter((x, i, a) => x.nach === ws.waehrungen.vergleich && a.findIndex((y) => y.tag === x.tag && y.nach === x.nach && y.kurs === x.kurs) === i) : []}
+                tabellenWaehrung={sichtWaehrung}
+                mitStand={Boolean(stand)}
+              />
+            ) : null}
+            <BeteiligungAnlegen fondsId={fondsId} />
+          </div>
         </div>
         {sicht !== "fonds" && waehrung.isError ? (
           <div>

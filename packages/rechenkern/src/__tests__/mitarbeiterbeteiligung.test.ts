@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { aufteilung, Decimal, einheitenBeimExit, gevesteteEinheiten, poolStand, poolStandGrob, type Leaver, rundeVollVerwaessert, volleMonate, wasserfall, wasserfallKnicke, wasserfallKurve, type WasserfallEingabe } from "../index.js";
+import { aufteilung, Decimal, einheitenBeimExit, gevesteteEinheiten, poolStand, poolStandGrob, pruefeMitarbeiterzuteilung, type Vesting, type Leaver, rundeVollVerwaessert, volleMonate, wasserfall, wasserfallKnicke, wasserfallKurve, type WasserfallEingabe } from "../index.js";
 import { REFERENZ_FAELLE } from "./wasserfall.referenz.js";
 
 // Erwartungswerte aus referenz/referenz_mitarbeiterbeteiligung.py (exakte Brüche, Monate über einen Kalender-Zähler). Alle Zahlen erfunden.
@@ -149,6 +149,92 @@ describe("Vesting-Takt", () => {
     expect([1, 3, 6, 12].map((taktMonate) => gevesteteEinheiten({ ...plan, taktMonate }, "2026-10-14").toFixed(0))).toEqual(["32000", "30000", "30000", "24000"]);
     expect(gevesteteEinheiten({ ...plan, taktMonate: 12 }, "2025-01-15").toFixed(0)).toBe("12000");
     expect(() => gevesteteEinheiten({ ...plan, taktMonate: 2 }, "2025-01-15")).toThrow();
+  });
+});
+
+describe("Individuelle Vesting-Pläne und Teilausübungen", () => {
+  const plan: Vesting = {
+    anzahl: "17", beginn: "2024-01-31", cliffMonate: 12, vestingMonate: 0,
+    vestingStufen: [
+      { monate: 48, anteil: "0.4" }, { monate: 12, anteil: "0.1" },
+      { datum: "2026-03-01", anteil: "0.2" }, { monate: 36, anteil: "0.3" },
+    ],
+  };
+
+  it("rechnet nach Monaten und Meilensteinen kumulativ und gibt nach der letzten Stufe alle Einheiten frei", () => {
+    const stichtage = ["2025-01-30", "2025-01-31", "2026-02-28", "2026-03-01", "2027-01-31", "2028-01-31"];
+    expect(stichtage.map((tag) => gevesteteEinheiten(plan, tag).toFixed(0))).toEqual(["0", "1", "1", "5", "10", "17"]);
+    expect(gevesteteEinheiten({ ...plan, cliffMonate: 24 }, "2025-01-31").toFixed(0)).toBe("0");
+    expect(gevesteteEinheiten({ ...plan, cliffMonate: 24 }, "2026-01-31").toFixed(0)).toBe("1");
+    expect(() => pruefeMitarbeiterzuteilung({ ...plan, vestingStufen: [{ monate: 12, anteil: "0.9" }] })).toThrow(/zusammen 1/);
+    expect(() => pruefeMitarbeiterzuteilung({ ...plan, vestingStufen: [{ datum: "2024-01-30", anteil: "1" }] })).toThrow(/Vesting-Beginn/);
+  });
+
+  const historie: Vesting = {
+    anzahl: "21", zugeteiltAm: "2024-01-31", beginn: "2024-01-31", cliffMonate: 0, vestingMonate: 0,
+    vestingStufen: [{ monate: 12, anteil: "0.5" }, { monate: 24, anteil: "0.5" }],
+    leaverStufen: [{ art: "bad_leaver", mindestMonate: 18, anteil: "0.5" }],
+    austritte: [{ austrittAm: "2025-07-31", art: "bad_leaver", anzahl: "8", gevestet: "rueckkauf", rueckkaufpreis: "1.25" }],
+    ausuebungen: [{ datum: "2025-07-31", anzahl: "2", preis: "1.5" }, { datum: "2025-02-01", anzahl: "3", preis: "2" }],
+    beschleunigungAusloeser: "doppelt", beschleunigung: "0.5",
+  };
+
+  it("wendet die höchste erreichte Leaver-Stufe seit Zuteilung auf die bei Austritt gevesteten Einheiten an", () => {
+    const v: Vesting = {
+      ...historie, beginn: "2024-02-28", ausuebungen: [],
+      leaverStufen: [
+        { art: "bad_leaver", mindestMonate: 18, anteil: "0.75" },
+        { art: "bad_leaver", mindestMonate: 12, anteil: "0.25" },
+        { art: "good_leaver", mindestMonate: 18, anteil: "1" },
+      ],
+    };
+    const stand = aufteilung(v, "2025-07-31");
+    expect([stand.gevestet, stand.rueckgekauft, stand.rueckkaufBetrag].map(String)).toEqual(["9", "1", "1.25"]);
+  });
+
+  it("rechnet gestaffeltes Vesting, Rückkauf, Ausübungen und Double Trigger je Stichtag", () => {
+    pruefeMitarbeiterzuteilung(historie);
+    const stichtage = ["2025-01-31", "2025-02-01", "2025-07-30", "2025-07-31", "2026-01-31"];
+    const werte = stichtage.map((tag) => {
+      const a = aufteilung(historie, tag);
+      return [a.gevestet, a.ungevestet, a.verfallen, a.rueckgekauft, a.ausgeuebt, a.rueckkaufBetrag, a.ausuebungBetrag,
+        einheitenBeimExit(historie, tag, true), einheitenBeimExit(historie, tag, false)].map(String);
+    });
+    expect(werte).toEqual([
+      ["10", "11", "0", "0", "0", "0", "0", "15", "10"],
+      ["7", "11", "0", "0", "3", "0", "6", "12", "7"],
+      ["7", "11", "0", "0", "3", "0", "6", "12", "7"],
+      ["3", "7", "4", "2", "5", "2.5", "9", "6", "3"],
+      ["10", "0", "4", "2", "5", "2.5", "9", "10", "10"],
+    ]);
+    expect(einheitenBeimExit(historie, "2025-07-31").toFixed(0)).toBe("6");
+    expect(einheitenBeimExit({ ...historie, beschleunigungAusloeser: "einfach" }, "2025-07-31", false).toFixed(0)).toBe("6");
+  });
+
+  it("prüft jede Ausübung am jeweiligen Datum, auch die späteren Einträge nach einer Planänderung", () => {
+    const uebung = (datum: string, anzahl: number) => ({ datum, anzahl, preis: "0" });
+    expect(() => pruefeMitarbeiterzuteilung({ ...historie, ausuebungen: [uebung("2025-01-30", 1)] })).toThrow(/2025-01-30/);
+    expect(() => pruefeMitarbeiterzuteilung({ ...historie, ausuebungen: [uebung("2025-07-31", 5), uebung("2025-01-31", 4)] })).toThrow(/2025-07-31/);
+    expect(() => pruefeMitarbeiterzuteilung({ ...historie, austritte: [], vestingStufen: [{ monate: 24, anteil: "1" }] })).toThrow(/2025-02-01/);
+  });
+
+  it("erhält bereits ausgeübte Einheiten trotz späterem Verfall oder späterem Austritt", () => {
+    const storniert = aufteilung({ ...historie, status: "verfallen", statusAm: "2025-08-01" }, "2026-01-31");
+    expect([storniert.verbleibend, storniert.ausgeuebt, storniert.verfallen, storniert.rueckgekauft].map(String)).toEqual(["0", "5", "14", "2"]);
+    const kleinerPlan: Vesting = {
+      ...historie, anzahl: "3", leaverStufen: [],
+      austritte: [{ austrittAm: "2025-07-31", art: "bad_leaver", anzahl: "1", gevestet: "verfallen" }],
+      ausuebungen: [{ datum: "2025-01-31", anzahl: "1", preis: "0" }],
+    };
+    const nachAustritt = aufteilung(kleinerPlan, "2025-07-31");
+    expect([nachAustritt.gevestet, nachAustritt.ungevestet, nachAustritt.ausgeuebt, nachAustritt.verfallen].map(String)).toEqual(["0", "1", "1", "1"]);
+  });
+
+  it("bucht im Pool nur die erfassten Ausübungen aus und gibt Verfall und Rückkauf frei", () => {
+    const stand = poolStand([{ datum: "2024-01-01", anzahl: 30 }],
+      [{ ...historie, zugeteiltAm: "2024-01-31", status: "ausgeuebt" }], "2025-07-31");
+    expect([stand.ausstehend, stand.ausgeuebt, stand.verfallen, stand.rueckgekauft, stand.frei, stand.vollVerwaessert].map(String))
+      .toEqual(["10", "5", "4", "2", "15", "25"]);
   });
 });
 

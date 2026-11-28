@@ -29,6 +29,10 @@ import type { MitHerkunft, Rechenschritt } from "./herkunft.js";
  *   alle Rückflüsse im gleichen Verhältnis mindert): Zuerst wird ohne diese Einheiten verteilt (Betrag je Stammanteil p₀, verteilt D);
  *   dann gilt für den Faktor f: D × (1 − f) = Σ Einheiten × max(0, p₀ × f − Basispreis), jeder andere Rückfluss wird mit f malgenommen
  *   und die Einheit bekommt p₀ × f − Basispreis. Die Umwandlungsentscheidung sieht die geminderten Rückflüsse.
+ *   Regel `vor_verteilung`: Nettoerlös ÷ (reale Anteile aller Klassen + Einheiten mit dieser Regel) ergibt den Preis vor Verteilung.
+ *   Die Auszahlung oberhalb des Basispreises wird vom Nettoerlös vor allen Präferenzen abgezogen und von f nicht gemindert.
+ *   Eine Obergrenze je Einheit begrenzt den ungerundeten Auszahlungsbetrag in jeder Regel. Bei `wie_anteile` und `anteilig` geht der
+ *   dadurch frei bleibende Betrag an die übrigen Berechtigten. Bei `vor_verteilung` bleibt er im Erlös für die nachrangige Verteilung.
  * - **Optionsscheine:** Nicht ausgeübte Optionsscheine eines Fonds laufen über denselben Weg wie die Mitarbeiterbeteiligung (Regel `wie_anteile`,
  *   Ausübungspreis als Basispreis, `art: "optionsschein"` nur für die Bezeichnung der Schritte): je Anteil max(0, p − Ausübungspreis).
  * - **Umwandlung** wird je Klasse entschieden (nicht je Zeile): Eine umwandelbare Klasse wandelt nur, wenn ihr Rückfluss dadurch
@@ -73,9 +77,10 @@ export interface Inhaberzeile {
   datum?: Datum | null;
   /**
    * Mitarbeiterbeteiligung: `anteile` sind die zum Exit gevesteten oder beschleunigten Einheiten, `basispreis` ist der Ausübungs- oder
-   * Basispreis je Einheit, `regel` sagt, wer die Auszahlung trägt (Standard `wie_anteile`). Nur ohne Klasse.
+   * Basispreis je Einheit, `regel` sagt, wer die Auszahlung trägt (Standard `wie_anteile`). `obergrenzeJeEinheit` begrenzt
+   * die Auszahlung je Einheit in Geld (vor Cent-Rundung), `null` bedeutet keine Obergrenze. Nur ohne Klasse.
    */
-  mitarbeiter?: { basispreis: Decimal.Value; regel?: MitarbeiterRegel; art?: StrikeArt } | null;
+  mitarbeiter?: { basispreis: Decimal.Value; regel?: MitarbeiterRegel; art?: StrikeArt; obergrenzeJeEinheit?: Decimal.Value | null } | null;
 }
 
 /**
@@ -84,8 +89,11 @@ export interface Inhaberzeile {
  */
 export type StrikeArt = "mitarbeiter" | "optionsschein";
 
-/** `wie_anteile`: die Einheiten teilen den Rest wie Stammanteile; `anteilig`: die Auszahlung mindert alle Rückflüsse im gleichen Verhältnis. */
-export type MitarbeiterRegel = "wie_anteile" | "anteilig";
+/**
+ * `wie_anteile`: die Einheiten teilen den Rest wie Stammanteile; `anteilig`: die Auszahlung mindert alle nachrangigen Rückflüsse
+ * im gleichen Verhältnis; `vor_verteilung`: die Auszahlung wird vor den Präferenzen vom Erlös abgezogen.
+ */
+export type MitarbeiterRegel = "wie_anteile" | "anteilig" | "vor_verteilung";
 
 export interface WasserfallEingabe {
   /** Erlös nach Kosten, ≥ 0. */
@@ -117,7 +125,7 @@ export interface WasserfallZeile {
   gedeckelt: boolean;
   /** Basispreis einer Zeile der Mitarbeiterbeteiligung, sonst `null`. */
   basispreis: Decimal | null;
-  /** Nur Mitarbeiterbeteiligung: Basispreis unter dem Betrag je Stammanteil (die Einheiten bekommen etwas); sonst `null`. */
+  /** Nur Mitarbeiterbeteiligung: positiver ungerundeter Auszahlungsbetrag; sonst `null`. */
   imGeld: boolean | null;
 }
 
@@ -144,7 +152,7 @@ export interface WasserfallErgebnis {
   klassen: WasserfallKlasse[];
   /** IDs der Klassen, die in Stammanteile wandeln. */
   gewandelt: string[];
-  /** Rest nach den Präferenzen, der an den Pool geht (vor Cap-Umverteilung). */
+  /** Rest nach der Vorabzahlung und den Präferenzen, der an den Pool geht (vor Cap-Umverteilung). */
   restNachPraeferenzen: Decimal;
   /** Betrag je Anteil für die Zeilen ohne Cap-Begrenzung (nach einer anteiligen Minderung); `null`, wenn niemand im Pool ist. */
   preisJeAnteil: Decimal | null;
@@ -177,8 +185,9 @@ interface ZeileIntern {
   strike: Decimal;
   /** Mitarbeiterbeteiligung? */
   mitarbeiter: boolean;
-  /** Mitarbeiterbeteiligung mit Regel `anteilig` (nicht im Pool, sondern aus allen Rückflüssen). */
-  anteilig: boolean;
+  regel: MitarbeiterRegel | null;
+  /** Betragsobergrenze für alle Einheiten dieser Zeile. */
+  obergrenze: Decimal | null;
 }
 
 interface Kontext {
@@ -189,6 +198,9 @@ interface Kontext {
   wandelbar: KlasseIntern[];
   /** Rangstufen aufsteigend. */
   raenge: number[];
+  vorVerteilung: ZeileIntern[];
+  anteileVorVerteilung: Decimal;
+  realeAnteile: Decimal;
 }
 
 const ZERO = new Decimal(0);
@@ -231,8 +243,11 @@ function bereite(eingabe: Pick<WasserfallEingabe, "exitdatum" | "klassen" | "inh
     const investiert = nichtNegativ(h.investiert, `Investition von ${h.name}`);
     const m = h.mitarbeiter ?? null;
     if (m && klasse) throw new Error(`Wasserfall: Mitarbeiterbeteiligung ${h.name} darf keine Klasse haben`);
-    if (m && m.regel !== undefined && m.regel !== "wie_anteile" && m.regel !== "anteilig") throw new Error(`Wasserfall: Regel von ${h.name} ist unbekannt`);
+    if (m && m.regel !== undefined && m.regel !== "wie_anteile" && m.regel !== "anteilig" && m.regel !== "vor_verteilung") throw new Error(`Wasserfall: Regel von ${h.name} ist unbekannt`);
     const strike = m ? nichtNegativ(m.basispreis, `Basispreis von ${h.name}`) : ZERO;
+    const anteile = nichtNegativ(h.anteile, `Anteile von ${h.name}`);
+    const obergrenze = m?.obergrenzeJeEinheit == null ? null
+      : nichtNegativ(m.obergrenzeJeEinheit, `Obergrenze je Einheit von ${h.name}`).times(anteile);
     let anspruch = ZERO;
     let zins = ZERO;
     if (klasse) {
@@ -241,11 +256,14 @@ function bereite(eingabe: Pick<WasserfallEingabe, "exitdatum" | "klassen" | "inh
       zins = basis.times(klasse.verzinsung).times(tage).div(365);
       anspruch = basis.plus(zins);
     }
-    return { index, def: h, anteile: nichtNegativ(h.anteile, `Anteile von ${h.name}`), investiert, klasse, anspruch, zins, strike, mitarbeiter: m !== null, anteilig: m?.regel === "anteilig" };
+    return { index, def: h, anteile, investiert, klasse, anspruch, zins, strike, mitarbeiter: m !== null, regel: m ? (m.regel ?? "wie_anteile") : null, obergrenze };
   });
   const wandelbar = klassen.filter((k) => k.def.umwandelbar && zeilen.some((z) => z.klasse === k));
   const raenge = [...new Set(klassen.map((k) => k.rang))].sort((a, b) => a - b);
-  return { exitdatum: eingabe.exitdatum, klassen, zeilen, wandelbar, raenge };
+  const vorVerteilung = zeilen.filter((z) => z.regel === "vor_verteilung" && z.anteile.greaterThan(0));
+  const realeAnteile = zeilen.reduce((s, z) => z.mitarbeiter ? s : s.plus(z.anteile), ZERO);
+  const anteileVorVerteilung = vorVerteilung.reduce((s, z) => s.plus(z.anteile), realeAnteile);
+  return { exitdatum: eingabe.exitdatum, klassen, zeilen, wandelbar, raenge, vorVerteilung, anteileVorVerteilung, realeAnteile };
 }
 
 // Verteilung bei gegebener Umwandlungsentscheidung ----------------------------------------------------------------------------
@@ -261,6 +279,7 @@ interface Zustand {
   beteiligung: Decimal[];
   gedeckelt: boolean[];
   stufen: Rangstufe[];
+  vorab: Decimal;
   rest: Decimal;
   preis: Decimal | null;
   poolAnteile: Decimal;
@@ -279,26 +298,29 @@ interface PoolZeile {
 
 /**
  * Kleinstes p mit Σ min(raum, anteile × max(0, p − strike)) = rest. Knickstellen sind die Basispreise und Basispreis + raum ÷ anteile; auf dem
- * Abschnitt, in dem die Summe den Rest erreicht, ist sie linear. `preis` = `null`, wenn die Summe den Rest nie erreicht (alle am Cap).
+ * Abschnitt, in dem die Summe den Rest erreicht, ist sie linear. `offeneAnteile` ergänzt die Summe um p × offeneAnteile.
+ * `preis` = `null`, wenn die Summe den Rest nie erreicht (alle am Cap).
  */
-function loesePreis(pool: readonly PoolZeile[], rest: Decimal): { preis: Decimal | null; gedeckelt: Set<PoolZeile>; nichtVerteilt: Decimal } {
+function loesePreis(pool: readonly PoolZeile[], rest: Decimal, offeneAnteile = ZERO): { preis: Decimal | null; gedeckelt: Set<PoolZeile>; nichtVerteilt: Decimal } {
   const deckel = (p: PoolZeile) => (p.raum === null ? null : p.z.strike.plus(p.raum.div(p.z.anteile)));
   const stellen = [...new Map([ZERO, ...pool.map((p) => p.z.strike), ...pool.map(deckel).filter((x): x is Decimal => x !== null)].map((d) => [d.toString(), d])).values()].sort((a, b) => a.cmp(b));
   const summeBei = (preis: Decimal) => pool.reduce((s, p) => {
     const roh = p.z.anteile.times(Decimal.max(ZERO, preis.minus(p.z.strike)));
     return s.plus(p.raum === null ? roh : Decimal.min(p.raum, roh));
-  }, ZERO);
+  }, preis.times(offeneAnteile));
   // Erster Abschnitt (vorige Stelle, Stelle], in dem die Summe den Rest erreicht; ab der letzten Stelle steigt sie nur mit den Zeilen ohne Cap.
-  let unten = stellen[0] as Decimal;
-  for (const stelle of stellen.slice(1)) {
-    if (summeBei(stelle).greaterThanOrEqualTo(rest)) break;
-    unten = stelle;
+  let links = 0;
+  let rechts = stellen.length;
+  while (rechts - links > 1) {
+    const mitte = Math.floor((links + rechts) / 2);
+    if (summeBei(stellen[mitte]!).greaterThanOrEqualTo(rest)) rechts = mitte;
+    else links = mitte;
   }
-  if (rest.isZero()) unten = ZERO;
+  const unten = stellen[links]!;
   // Auf dem Abschnitt ab `unten`: am Cap sind die Zeilen, deren Deckelstelle ≤ unten liegt, aktiv die übrigen mit Basispreis ≤ unten.
   const gedeckelt = new Set(pool.filter((p) => { const d = deckel(p); return d !== null && d.lessThanOrEqualTo(unten) && !rest.isZero(); }));
   const aktiv = pool.filter((p) => !gedeckelt.has(p) && p.z.strike.lessThanOrEqualTo(unten));
-  const anteile = aktiv.reduce((s, p) => s.plus(p.z.anteile), ZERO);
+  const anteile = aktiv.reduce((s, p) => s.plus(p.z.anteile), offeneAnteile);
   const amCap = [...gedeckelt].reduce((s, p) => s.plus(p.raum as Decimal), ZERO);
   if (anteile.isZero()) {
     if (rest.isZero()) return { preis: ZERO, gedeckelt, nichtVerteilt: ZERO };
@@ -308,14 +330,40 @@ function loesePreis(pool: readonly PoolZeile[], rest: Decimal): { preis: Decimal
   return { preis, gedeckelt, nichtVerteilt: ZERO };
 }
 
+function auszahlung(z: ZeileIntern, preis: Decimal): Decimal {
+  return z.anteile.times(Decimal.max(ZERO, preis.minus(z.strike)));
+}
+
+/** Nettoerlös der nachrangigen Verteilung, optional mit den Zahlungen je Zeile. */
+function nachVorabzahlung(ctx: Kontext, erloes: Decimal, erfasse?: (z: ZeileIntern, betrag: Decimal, gedeckelt: boolean) => void): Decimal {
+  if (ctx.vorVerteilung.length === 0) return erloes;
+  let rest = erloes.times(ctx.realeAnteile).div(ctx.anteileVorVerteilung);
+  for (const z of ctx.vorVerteilung) {
+    const anteilig = erloes.times(z.anteile).div(ctx.anteileVorVerteilung);
+    const roh = Decimal.max(ZERO, anteilig.minus(z.strike.times(z.anteile)));
+    const betrag = z.obergrenze === null ? roh : Decimal.min(roh, z.obergrenze);
+    erfasse?.(z, betrag, betrag.lessThan(roh));
+    // Der nicht beanspruchte Anteil bleibt im Erlös. So bleibt auch bei mehreren Empfängern ohne Rest exakt null.
+    rest = rest.plus(anteilig.minus(betrag));
+  }
+  return rest;
+}
+
 function auswerten(ctx: Kontext, erloes: Decimal, gewandelt: ReadonlySet<string>): Zustand {
   const n = ctx.zeilen.length;
   const praeferenz = Array.from({ length: n }, () => ZERO);
   const beteiligung = Array.from({ length: n }, () => ZERO);
   const gedeckelt = Array.from({ length: n }, () => false);
 
+  const imGeld = Array.from({ length: n }, () => false);
+  const erloesNachVorab = nachVorabzahlung(ctx, erloes, (z, betrag, gedeckeltVorab) => {
+    beteiligung[z.index] = betrag;
+    gedeckelt[z.index] = gedeckeltVorab;
+    imGeld[z.index] = betrag.greaterThan(0);
+  });
+
   // Präferenzen nach Rangstufen
-  let rest = erloes;
+  let rest = erloesNachVorab;
   const stufen: Rangstufe[] = [];
   for (const rang of ctx.raenge) {
     const gruppe = ctx.zeilen.filter((z) => z.klasse && z.klasse.rang === rang && !gewandelt.has(z.klasse.def.id));
@@ -331,15 +379,14 @@ function auswerten(ctx: Kontext, erloes: Decimal, gewandelt: ReadonlySet<string>
   // Pool: Stammanteile, umgewandelte und partizipierende Klassen und Mitarbeiterbeteiligung (`wie_anteile`), jeweils mit Anteilen; Spielraum = Cap − Präferenz
   const pool: PoolZeile[] = [];
   for (const z of ctx.zeilen) {
-    if (z.anteile.isZero() || z.anteilig) continue;
-    if (!z.klasse || gewandelt.has(z.klasse.def.id)) pool.push({ z, raum: null });
+    if (z.anteile.isZero() || z.regel === "anteilig" || z.regel === "vor_verteilung") continue;
+    if (!z.klasse || gewandelt.has(z.klasse.def.id)) pool.push({ z, raum: z.obergrenze });
     else if (z.klasse.def.partizipierend) {
       const raum = z.klasse.cap === null ? null : Decimal.max(ZERO, z.klasse.cap.times(z.investiert).minus(praeferenz[z.index] as Decimal));
       pool.push({ z, raum });
     }
   }
   const anteileImPool = pool.reduce((s, p) => s.plus(p.z.anteile), ZERO);
-  const imGeld = Array.from({ length: n }, () => false);
   let preis: Decimal | null = null;
   let nichtVerteilt = restNachPraeferenzen;
   if (pool.length > 0) {
@@ -350,42 +397,39 @@ function auswerten(ctx: Kontext, erloes: Decimal, gewandelt: ReadonlySet<string>
       if (l.gedeckelt.has(p)) {
         beteiligung[p.z.index] = p.raum as Decimal;
         gedeckelt[p.z.index] = true;
-      } else if (preis !== null && preis.greaterThan(p.z.strike)) beteiligung[p.z.index] = p.z.anteile.times(preis.minus(p.z.strike));
-      if (p.z.mitarbeiter) imGeld[p.z.index] = preis !== null && preis.greaterThan(p.z.strike);
+      } else if (preis !== null) beteiligung[p.z.index] = auszahlung(p.z, preis);
+      if (p.z.mitarbeiter) imGeld[p.z.index] = (beteiligung[p.z.index] as Decimal).greaterThan(0);
     }
   }
 
-  // Mitarbeiterbeteiligung mit Regel `anteilig`: Faktor f aus D × (1 − f) = Σ Einheiten × max(0, p₀ × f − Basispreis), im Geld nach Basispreis aufsteigend
+  // Mit p = p₀ × f entspricht die anteilige Minderung derselben Preisgleichung, mit D ÷ p₀ zusätzlichen offenen Anteilen.
   let faktor: Decimal | null = null;
-  const anteilig = ctx.zeilen.filter((z) => z.anteilig && z.anteile.greaterThan(0)).sort((a, b) => a.strike.cmp(b.strike) || a.index - b.index);
-  const verteilt = erloes.minus(nichtVerteilt);
-  if (anteilig.length > 0 && preis !== null && verteilt.greaterThan(0)) {
-    let f = new Decimal(1);
-    let summeAnteile = ZERO;
-    let summeStrike = ZERO;
-    let k = 0;
-    while (k < anteilig.length && (anteilig[k] as ZeileIntern).strike.lessThan(preis.times(f))) {
-      const z = anteilig[k] as ZeileIntern;
-      summeAnteile = summeAnteile.plus(z.anteile);
-      summeStrike = summeStrike.plus(z.anteile.times(z.strike));
-      f = verteilt.plus(summeStrike).div(verteilt.plus(preis.times(summeAnteile)));
-      k++;
-    }
-    if (k > 0) {
+  const anteilig = ctx.zeilen.filter((z) => z.regel === "anteilig" && z.anteile.greaterThan(0));
+  const verteilt = erloesNachVorab.minus(nichtVerteilt);
+  if (anteilig.length > 0 && preis !== null && preis.greaterThan(0) && verteilt.greaterThan(0)) {
+    const poolAnteilig = anteilig.map((z) => ({ z, raum: z.obergrenze }));
+    const l = loesePreis(poolAnteilig, verteilt, verteilt.div(preis));
+    // Die zusätzlichen offenen Anteile garantieren einen eindeutigen Preis.
+    const gemindert = l.preis as Decimal;
+    if (anteilig.some((z) => !z.obergrenze?.isZero() && gemindert.greaterThan(z.strike))) {
+      const f = gemindert.div(preis);
       faktor = f;
       for (const z of ctx.zeilen) {
-        if (z.anteilig) continue;
+        if (z.regel === "anteilig" || z.regel === "vor_verteilung") continue;
         praeferenz[z.index] = (praeferenz[z.index] as Decimal).times(f);
         beteiligung[z.index] = (beteiligung[z.index] as Decimal).times(f);
       }
-      for (const z of anteilig.slice(0, k)) {
-        beteiligung[z.index] = z.anteile.times(preis.times(f).minus(z.strike));
-        imGeld[z.index] = true;
-      }
-      preis = preis.times(f);
+      preis = gemindert;
+    }
+    for (const p of poolAnteilig) {
+      const roh = auszahlung(p.z, preis);
+      const betrag = p.raum === null ? roh : Decimal.min(roh, p.raum);
+      beteiligung[p.z.index] = betrag;
+      gedeckelt[p.z.index] = betrag.lessThan(roh);
+      imGeld[p.z.index] = betrag.greaterThan(0);
     }
   }
-  return { praeferenz, beteiligung, gedeckelt, stufen, rest: restNachPraeferenzen, preis, poolAnteile: anteileImPool, nichtVerteilt, faktor, imGeld };
+  return { praeferenz, beteiligung, gedeckelt, stufen, vorab: erloes.minus(erloesNachVorab), rest: restNachPraeferenzen, preis, poolAnteile: anteileImPool, nichtVerteilt, faktor, imGeld };
 }
 
 function klassenRueckfluss(ctx: Kontext, z: Zustand, klasse: KlasseIntern): Decimal {
@@ -566,6 +610,11 @@ function baueSchritte(ctx: Kontext, erloes: Decimal, s: Decimal, gewandelt: Read
   }
   if (ctx.wandelbar.length > 0) schritte.push({ zeichen: "", bezeichnung: "Umwandlungsprüfung: Durchgänge", wert: String(durchgaenge) });
 
+  if (ctx.vorVerteilung.length > 0) {
+    schritte.push({ zeichen: "", bezeichnung: "Betrag je Einheit vor der Verteilung", wert: text(erloes.div(ctx.anteileVorVerteilung)) });
+    schritte.push({ zeichen: "−", bezeichnung: "Mitarbeiterbeteiligung vor der Verteilung", wert: text(z.vorab) });
+  }
+
   // Ansprüche und Zahlungen je Rangstufe
   for (const stufe of z.stufen) {
     for (const k of ctx.klassen.filter((x) => x.rang === stufe.rang && !gewandelt.has(x.def.id))) {
@@ -590,16 +639,19 @@ function baueSchritte(ctx: Kontext, erloes: Decimal, s: Decimal, gewandelt: Read
     if (g.liste.length === 0) continue;
     const imGeld = g.liste.filter((x) => z.imGeld[x.index]);
     schritte.push({ zeichen: "", bezeichnung: g.einheiten, wert: text(g.liste.reduce((a, x) => a.plus(x.anteile), ZERO)) });
-    schritte.push({ zeichen: "", bezeichnung: "davon im Geld (Basispreis unter dem Betrag je Anteil)", wert: text(imGeld.reduce((a, x) => a.plus(x.anteile), ZERO)) });
-    const basis = imGeld.filter((x) => !x.anteilig).reduce((a, x) => a.plus(x.anteile.times(x.strike)), ZERO);
+    schritte.push({ zeichen: "", bezeichnung: "davon im Geld", wert: text(imGeld.reduce((a, x) => a.plus(x.anteile), ZERO)) });
+    const basis = imGeld.filter((x) => x.regel === "wie_anteile").reduce((a, x) => a.plus(x.anteile.times(x.strike)), ZERO);
     if (basis.greaterThan(0)) schritte.push({ zeichen: "+", bezeichnung: g.basis, wert: text(basis) });
   }
-  if (z.faktor !== null) schritte.push({ zeichen: "×", bezeichnung: "Minderung aller Rückflüsse durch die Mitarbeiterbeteiligung (Faktor)", wert: text(z.faktor) });
+  if (z.faktor !== null) schritte.push({ zeichen: "×", bezeichnung: "Minderung der nachrangigen Rückflüsse durch die Mitarbeiterbeteiligung (Faktor)", wert: text(z.faktor) });
   if (z.preis !== null) schritte.push({ zeichen: "÷", bezeichnung: "Betrag je Anteil", wert: text(z.preis) });
   for (const x of zeilen) {
     if (!x.gedeckelt) continue;
     const zeile = ctx.zeilen[ctx.zeilen.findIndex((y) => y.def.id === x.id)] as ZeileIntern;
-    schritte.push({ zeichen: "", bezeichnung: `Deckelung ${x.name} (${zeile.klasse?.def.name ?? ""}): Gesamtrückfluss auf Cap begrenzt`, wert: text(x.gesamt) });
+    const bezeichnung = zeile.klasse
+      ? `Deckelung ${x.name} (${zeile.klasse.def.name}): Gesamtrückfluss auf Cap begrenzt`
+      : `Obergrenze der Auszahlung für ${x.name}`;
+    schritte.push({ zeichen: "", bezeichnung, wert: text(x.gesamt) });
   }
   if (z.nichtVerteilt.greaterThan(0)) schritte.push({ zeichen: "", bezeichnung: "Nicht verteilt (niemand anspruchsberechtigt)", wert: text(z.nichtVerteilt) });
   const summe = zeilen.reduce((a, x) => a.plus(x.gesamt), ZERO);
@@ -708,7 +760,7 @@ function ereignisse(ctx: Kontext, von: Regime, nach: Regime): Knick["ereignisse"
  * Exitwerte im Bereich (0, bis], an denen sich die Verteilung ändert (für Diagramme): Präferenz einer Rangstufe voll bedient, Beginn der
  * Beteiligung, Umwandlung einer Klasse, Cap erreicht, Mitarbeiterbeteiligung kommt ins Geld. Die Rückflüsse sind dazwischen linear in Exitwert
  * (außer mit Mitarbeiterbeteiligung der Regel `anteilig`: deren Faktor ist ein Bruch im Exitwert, die Kurve dazwischen gekrümmt). Gesucht wird auf einem Raster
- * (gleichmäßig plus die Summen der Ansprüche je Rangstufe) und dann durch Halbieren auf eine halbe Cent-Breite eingegrenzt; der Wert
+ * (gleichmäßig plus die Schwellen der Vorabzahlungen und die Summen der Ansprüche je Rangstufe) und dann durch Halbieren auf eine halbe Cent-Breite eingegrenzt; der Wert
  * ist der erste Exitwert des neuen Verlaufs, auf Cent. Zwei Wechsel innerhalb eines Rasterschritts, die sich aufheben, bleiben unentdeckt.
  */
 export function wasserfallKnicke(eingabe: Omit<WasserfallEingabe, "exitwert">, bis: Decimal.Value, raster = 200): Knick[] {
@@ -721,11 +773,33 @@ export function wasserfallKnicke(eingabe: Omit<WasserfallEingabe, "exitwert">, b
   };
   punkte.set("0", ZERO);
   for (let i = 1; i <= raster; i++) merke(ende.times(i).div(raster));
-  // Summen der Ansprüche je Rangstufe (ohne Umwandlung) sind sichere Kandidaten für Wechsel
+  // Die Vorabzahlung ist zwischen ihren Basispreis- und Cap-Schwellen linear.
+  const vorabSchwellen = [ZERO, ende];
+  for (const zeile of ctx.vorVerteilung) {
+    const basis = zeile.strike.times(ctx.anteileVorVerteilung);
+    const cap = zeile.obergrenze === null ? null : basis.plus(zeile.obergrenze.times(ctx.anteileVorVerteilung).div(zeile.anteile));
+    for (const schwelle of [basis, cap]) {
+      if (schwelle !== null && schwelle.greaterThan(0) && schwelle.lessThan(ende)) {
+        vorabSchwellen.push(schwelle);
+        merke(schwelle);
+      }
+    }
+  }
+  const vorabAbschnitte = vorabSchwellen.sort((a, b) => a.cmp(b)).map((brutto) => ({ brutto, netto: nachVorabzahlung(ctx, brutto) }));
+  // Summen der Ansprüche je Rangstufe (ohne Umwandlung) im Nettoerlös nach Vorabzahlung suchen.
   let summe = ZERO;
   for (const rang of ctx.raenge) {
     summe = summe.plus(ctx.zeilen.filter((z) => z.klasse?.rang === rang).reduce((a, z) => a.plus(z.anspruch), ZERO));
-    merke(summe);
+    if (ctx.vorVerteilung.length === 0) {
+      merke(summe);
+      continue;
+    }
+    const oben = vorabAbschnitte.findIndex((p) => p.netto.greaterThanOrEqualTo(summe));
+    if (oben > 0) {
+      const von = vorabAbschnitte[oben - 1]!;
+      const bisAbschnitt = vorabAbschnitte[oben]!;
+      merke(von.brutto.plus(summe.minus(von.netto).times(bisAbschnitt.brutto.minus(von.brutto)).div(bisAbschnitt.netto.minus(von.netto))));
+    }
   }
   const sortiert = [...punkte.values()].sort((a, b) => a.cmp(b));
   const knicke: Knick[] = [];

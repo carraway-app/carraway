@@ -3,7 +3,7 @@ import { apiSchluessel, benutzer, investorBenutzer } from "@carraway/db";
 import { fuerBereich, rollenAusScopes, sichtbareFonds, type Akteur, type SchluesselScope } from "../anmeldung/akteur";
 import { liste } from "../import/sql";
 import { ladeRechte } from "../rechte/aufloesung";
-import { FEED_TABELLEN, feedSichtbar } from "../routen/aenderungen";
+import { FEED_TABELLEN, feedSichtbar, feedStaende } from "../routen/aenderungen";
 import type { Tx } from "../zeitlimit";
 
 /**
@@ -51,7 +51,7 @@ export async function ladeSichtbareEreignisse(tx: Tx, ids: readonly string[], fo
   const ergebnis: Ereignis[] = [];
   for (let i = 0; i < ids.length; i += STUECK) {
     const { rows } = await tx.execute<{ id: string; am: string; akteur: string; akteur_name: string | null; aktion: string; tabelle: string; datensatz_id: string; fonds_id: string | null; vorher: unknown; nachher: unknown }>(sql`
-      SELECT a.id, to_char(a.am AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS am, a.akteur, a.akteur_name, a.aktion, a.tabelle, a.datensatz_id, a.fonds_id, a.vorher, a.nachher
+      SELECT a.id, to_char(a.am AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS am, a.akteur, a.akteur_name, a.aktion, a.tabelle, a.datensatz_id, a.fonds_id, ${feedStaende(fonds)}
       FROM aenderung a
       WHERE a.id = ANY(${liste([...ids.slice(i, i + STUECK)], "uuid")})
         AND a.aktion <> 'gelesen'

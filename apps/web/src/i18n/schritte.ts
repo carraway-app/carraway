@@ -114,6 +114,10 @@ const englisch: Record<string, string> = {
   "Rest nach Präferenzen": "Remainder after preferences",
   "Anteile im Pool (Stammanteile, Umwandlung, Beteiligung)": "Shares in the pool (common, conversion, participation)",
   "Betrag je Anteil": "Amount per share",
+  "Betrag je Einheit vor der Verteilung": "Amount per unit before distribution",
+  "Mitarbeiterbeteiligung vor der Verteilung": "Employee equity payout before distribution",
+  "davon im Geld": "of which in the money",
+  "Minderung der nachrangigen Rückflüsse durch die Mitarbeiterbeteiligung (Faktor)": "Reduction of junior proceeds by employee equity (factor)",
   "Mitarbeiterbeteiligung: gevestete Einheiten": "Employee participation: vested units",
   "davon im Geld (Basispreis unter dem Betrag je Anteil)": "of which in the money (strike below the amount per share)",
   "Basispreise der Einheiten im Geld (bleiben den übrigen Anteilen)": "Strike prices of the units in the money (stay with the other shares)",
@@ -165,6 +169,7 @@ const muster: { re: RegExp; text: (treffer: string[], sprache: Sprache) => strin
   { re: /^Anspruch (.+) \(Rang (\d+)\)$/, text: ([k, rang], sprache) => (sprache === "en" ? `Claim ${k} (rank ${rang})` : `Anspruch ${k} (Rang ${rang})`) },
   { re: /^davon Verzinsung (.+)$/, text: ([k], sprache) => (sprache === "en" ? `of which interest ${k}` : `davon Verzinsung ${k}`) },
   { re: /^Rang (\d+): gezahlte Präferenzen$/, text: ([rang], sprache) => (sprache === "en" ? `Rank ${rang}: preferences paid` : `Rang ${rang}: gezahlte Präferenzen`) },
+  { re: /^Obergrenze der Auszahlung für (.+)$/, text: ([name], sprache) => sprache === "en" ? `Payout cap for ${name}` : `Obergrenze der Auszahlung für ${name}` },
   {
     re: /^Deckelung (.+) \((.*)\): Gesamtrückfluss auf Cap begrenzt$/,
     text: ([name, klasse], sprache) => (sprache === "en" ? `Cap applied to ${name} (${klasse}): total proceeds limited to the cap` : `Deckelung ${name} (${klasse}): Gesamtrückfluss auf Cap begrenzt`),

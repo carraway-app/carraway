@@ -1,4 +1,4 @@
-import { useId, useState, type ComponentProps, type ReactNode } from "react";
+import { useId, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Auswahl, Button, Dialog, Feld, Hinweis, Karte, Kennwerte, Segment, Seitenpanel, Status, Tabelle, formatDatum, type MenueEintrag, type TabelleSpalte } from "@carraway/ui";
 import { finanzierungsrunden, mitarbeiterpools, type Mitarbeiterpool, type Mitarbeiterzuteilung } from "../api/abfragen";
@@ -22,7 +22,9 @@ import { feldText } from "../i18n/fehler";
 import { aufzaehlung, useSprache, useT } from "../i18n";
 import { anteilZuProzent, formatAnzahl, formatPreis, prozentZuAnteil } from "../lib/zahl";
 import { FehlerHinweis } from "./FehlerHinweis";
-import { betragOderNichts, textOderNichts, useFormular } from "./formular";
+import { betragOderNichts, textOderNichts, useFormular, useZeilenpruefung } from "./formular";
+import { MitarbeiterAusuebungen } from "./MitarbeiterAusuebungen";
+import { LeaverStufenFelder, VestingStufenFelder, type LeaverZeile, type VestingZeile } from "./MitarbeiterStufen";
 import { Skelettzeilen } from "./Skelett";
 
 type Aenderung = Mitarbeiterpool["aenderungen"][number];
@@ -119,8 +121,11 @@ function PoolKarte({ organisationId, pool, darfSchreiben, onDialog }: { organisa
       ),
     },
     { schluessel: "basispreis", kopf: m.spalten.basispreis, zahl: true, zelle: (z) => formatPreis(z.basispreis, sprache) },
-    { schluessel: "vesting", kopf: m.spalten.vesting, zelle: (z) => m.vesting(z.cliffMonate, z.vestingMonate, z.taktMonate) },
+    { schluessel: "vesting", kopf: m.spalten.vesting, zelle: (z) => z.vestingStufen?.length ? m.stufenPlan : m.vesting(z.cliffMonate, z.vestingMonate, z.taktMonate) },
     { schluessel: "gevestet", kopf: m.spalten.gevestet, zahl: true, zelle: (z) => formatAnzahl(z.gevestet, sprache) },
+    ...(pool.art === "esop"
+      ? [{ schluessel: "ausgeuebt", kopf: m.kennwerte.ausgeuebt, zahl: true, zelle: (z: Mitarbeiterzuteilung) => formatAnzahl(z.ausgeuebt, sprache) }]
+      : []),
     { schluessel: "beimExit", kopf: m.spalten.beimExit, zahl: true, zelle: (z) => formatAnzahl(z.beimExit, sprache) },
     { schluessel: "verfallen", kopf: m.spalten.verfallen, zahl: true, zelle: (z) => formatAnzahl(String(Number(z.verfallen) + Number(z.rueckgekauft)), sprache) },
     { schluessel: "status", kopf: m.spalten.status, zelle: (z) => <ZuteilungsStatus zuteilung={z} stichtag={pool.stand.stichtag} /> },
@@ -181,7 +186,13 @@ function PoolKarte({ organisationId, pool, darfSchreiben, onDialog }: { organisa
         ) : undefined
       }
     >
-      <p className="app-instrument__meta">{[aufzaehlung(m.regel, pool.regel), m.stand(formatDatum(pool.stand.stichtag, sprache))].join(" · ")}</p>
+      <p className="app-instrument__meta">
+        {[
+          aufzaehlung(m.regel, pool.regel),
+          ...(pool.obergrenzeJeEinheit !== null ? [m.obergrenzeAnzeige(formatPreis(pool.obergrenzeJeEinheit, sprache))] : []),
+          m.stand(formatDatum(pool.stand.stichtag, sprache)),
+        ].join(" · ")}
+      </p>
       <Kennwerte
         gruppen={[
           {
@@ -332,7 +343,7 @@ function PoolDialog({ organisationId, onSchliessen }: { organisationId: string; 
   const sprache = useSprache();
   const formularId = useId();
   const anlegen = usePoolAnlegen(organisationId);
-  const { werte, feld, setWerte } = useFormular({ art: "esop", bezeichnung: "", regel: "wie_anteile", erfassung: "grob", vergeben: "", basispreisMittel: "", groesse: "", datum: heuteIso(), beschluss: "", dokumentId: "", rundeId: "", basis: "pre_money" });
+  const { werte, feld, setWerte } = useFormular({ art: "esop", bezeichnung: "", regel: "wie_anteile", obergrenzeJeEinheit: "", erfassung: "grob", vergeben: "", basispreisMittel: "", groesse: "", datum: heuteIso(), beschluss: "", dokumentId: "", rundeId: "", basis: "pre_money" });
   const fehler = (name: string) => feldText(t, anlegen.error, name);
   const setze = (name: keyof typeof werte, wert: string) => setWerte((alt) => ({ ...alt, [name]: wert, ...(name === "art" && wert === "esop" ? { regel: "wie_anteile" } : {}) }));
   function absenden() {
@@ -343,7 +354,8 @@ function PoolDialog({ organisationId, onSchliessen }: { organisationId: string; 
       {
         art: werte.art as "esop" | "vsop",
         bezeichnung: werte.bezeichnung.trim(),
-        regel: werte.regel as "wie_anteile" | "anteilig",
+        regel: werte.regel as PoolRegel,
+        ...(werte.art === "vsop" ? { obergrenzeJeEinheit: betragOderNichts(werte.obergrenzeJeEinheit, sprache) ?? null } : {}),
         erfassung: werte.erfassung as "grob" | "einzeln",
         groesse: werte.groesse.trim(),
         datum: werte.datum,
@@ -367,7 +379,7 @@ function PoolDialog({ organisationId, onSchliessen }: { organisationId: string; 
           absenden();
         }}
       >
-        <FehlerHinweis fehler={anlegen.error} bekannt={["art", "bezeichnung", "regel", "erfassung", "vergeben", "basispreisMittel", "groesse", "datum", "beschluss", "dokumentId", "rundeId", "basis"]} />
+        <FehlerHinweis fehler={anlegen.error} bekannt={["art", "bezeichnung", "regel", "obergrenzeJeEinheit", "erfassung", "vergeben", "basispreisMittel", "groesse", "datum", "beschluss", "dokumentId", "rundeId", "basis"]} />
         <ErfassungWahl wert={werte.erfassung} setze={(wert) => setze("erfassung", wert)} />
         <div className="cw-formularraster">
           <Auswahl label={f.art} value={werte.art} onChange={(e) => setze("art", e.target.value)}>
@@ -375,12 +387,7 @@ function PoolDialog({ organisationId, onSchliessen }: { organisationId: string; 
             <option value="vsop">{t.mitarbeiter.art.vsop}</option>
           </Auswahl>
           <Feld label={f.bezeichnung} {...feld("bezeichnung")} fehler={fehler("bezeichnung")} />
-          {werte.art === "vsop" ? (
-            <Auswahl label={f.regel} hilfe={f.regelHilfe} value={werte.regel} onChange={(e) => setze("regel", e.target.value)}>
-              <option value="wie_anteile">{t.mitarbeiter.regel.wie_anteile}</option>
-              <option value="anteilig">{t.mitarbeiter.regel.anteilig}</option>
-            </Auswahl>
-          ) : null}
+          {werte.art === "vsop" ? <VsopFelder regel={werte.regel} setzeRegel={(wert) => setze("regel", wert)} obergrenze={feld("obergrenzeJeEinheit")} fehler={fehler} /> : null}
           <Feld label={f.groesse} zahl inputMode="numeric" {...feld("groesse")} fehler={fehler("groesse")} />
           <SchaetzungFelder feld={feld} fehler={fehler} />
           <Feld label={f.datum} type="date" {...feld("datum")} fehler={fehler("datum")} />
@@ -389,6 +396,20 @@ function PoolDialog({ organisationId, onSchliessen }: { organisationId: string; 
         </div>
       </form>
     </Dialog>
+  );
+}
+
+type PoolRegel = "wie_anteile" | "anteilig" | "vor_verteilung";
+
+function VsopFelder({ regel, setzeRegel, obergrenze, fehler }: { regel: string; setzeRegel: (wert: string) => void; obergrenze: FeldBindung; fehler: (name: string) => ReactNode }) {
+  const m = useT().mitarbeiter;
+  return (
+    <>
+      <Auswahl label={m.form.regel} hilfe={m.form.regelHilfe} value={regel} onChange={(e) => setzeRegel(e.target.value)} fehler={fehler("regel")}>
+        {Object.entries(m.regel).map(([wert, label]) => <option key={wert} value={wert}>{label}</option>)}
+      </Auswahl>
+      <Feld label={m.obergrenzeJeEinheit} zahl inputMode="decimal" {...obergrenze} fehler={fehler("obergrenzeJeEinheit")} />
+    </>
   );
 }
 
@@ -423,18 +444,28 @@ function SchaetzungFelder({ feld, fehler }: { feld: (name: "vergeben" | "basispr
   );
 }
 
-/** Erfassung (grob oder einzeln) und Schätzung eines Pools ändern; zurück zu grob nur ohne Zuteilungen (die API prüft es). */
+/** Erfassung, Schätzung und Auszahlungsregeln eines Pools ändern. */
 function SchaetzungDialog({ organisationId, pool, onSchliessen }: { organisationId: string; pool: Mitarbeiterpool; onSchliessen: () => void }) {
   const t = useT();
   const f = t.mitarbeiter.form;
   const sprache = useSprache();
   const formularId = useId();
   const aendern = usePoolAendern(organisationId);
-  const { werte, feld, setWerte } = useFormular({ erfassung: pool.erfassung as string, vergeben: pool.vergeben ?? "", basispreisMittel: pool.basispreisMittel ? pool.basispreisMittel.replace(/\.?0+$/, "") : "" });
+  const { werte, feld, setWerte } = useFormular({
+    erfassung: pool.erfassung as string,
+    vergeben: pool.vergeben ?? "",
+    basispreisMittel: pool.basispreisMittel ?? "",
+    regel: pool.regel as string,
+    obergrenzeJeEinheit: pool.obergrenzeJeEinheit ?? "",
+  });
   const fehler = (name: string) => feldText(t, aendern.error, name);
   function absenden() {
     aendern.mutate(
-      { poolId: pool.id, erfassung: werte.erfassung as "grob" | "einzeln", vergeben: textOderNichts(werte.vergeben) ?? null, basispreisMittel: betragOderNichts(werte.basispreisMittel, sprache) ?? null },
+      {
+        poolId: pool.id, erfassung: werte.erfassung as "grob" | "einzeln", vergeben: textOderNichts(werte.vergeben) ?? null,
+        basispreisMittel: betragOderNichts(werte.basispreisMittel, sprache) ?? null,
+        ...(pool.art === "vsop" ? { regel: werte.regel as PoolRegel, obergrenzeJeEinheit: betragOderNichts(werte.obergrenzeJeEinheit, sprache) ?? null } : {}),
+      },
       { onSuccess: onSchliessen },
     );
   }
@@ -450,9 +481,10 @@ function SchaetzungDialog({ organisationId, pool, onSchliessen }: { organisation
           absenden();
         }}
       >
-        <FehlerHinweis fehler={aendern.error} bekannt={["erfassung", "vergeben", "basispreisMittel"]} />
+        <FehlerHinweis fehler={aendern.error} bekannt={["erfassung", "vergeben", "basispreisMittel", "regel", "obergrenzeJeEinheit"]} />
         <ErfassungWahl wert={werte.erfassung} setze={(wert) => setWerte((alt) => ({ ...alt, erfassung: wert }))} />
         <div className="cw-formularraster">
+          {pool.art === "vsop" ? <VsopFelder regel={werte.regel} setzeRegel={(regel) => setWerte((alt) => ({ ...alt, regel }))} obergrenze={feld("obergrenzeJeEinheit")} fehler={fehler} /> : null}
           <SchaetzungFelder feld={feld} fehler={fehler} />
         </div>
       </form>
@@ -636,11 +668,22 @@ function ZuteilungDialog({ organisationId, pool, zuteilung, onSchliessen }: { or
     laufzeitBis: zuteilung?.laufzeitBis ?? "",
     leaver: zuteilung?.leaverRegel ?? "",
   });
+  const [vestingStufen, setVestingStufen] = useState<VestingZeile[]>(() => (zuteilung?.vestingStufen ?? []).map((s, id) => ({
+    id,
+    ...("datum" in s ? { art: "datum" as const, datum: s.datum, monate: "" } : { art: "monate" as const, datum: "", monate: String(s.monate) }),
+    prozent: anteilZuProzent(s.anteil),
+  })));
+  const [leaverStufen, setLeaverStufen] = useState<LeaverZeile[]>(() => (zuteilung?.leaverStufen ?? []).map((s, id) => ({
+    id, art: s.art, monate: String(s.mindestMonate), prozent: anteilZuProzent(s.anteil),
+  })));
+  const naechsteZeile = useRef(Math.max(vestingStufen.length, leaverStufen.length));
+  const stufenPruefung = useZeilenpruefung();
   const fehler = (name: string) => feldText(t, mutation.error, name);
   const titel = zuteilung ? f.titelZuteilungAendern : f.titelZuteilung;
   const mitDatum = werte.status === "verfallen" || werte.status === "ausgeuebt";
   const auswahl = (name: "kategorie" | "status" | "takt" | "ausloeser") => ({ value: werte[name], onChange: (e: { target: { value: string } }) => setWerte((alt) => ({ ...alt, [name]: e.target.value })) });
   function absenden() {
+    if (!stufenPruefung.pruefeAlle()) return;
     const koerper = {
       kategorie: werte.kategorie as "gruender" | "fuehrung" | "mitarbeitende" | "beirat" | "sonstige",
       // Nach dem Anonymisieren bleiben Kennung und Name leer (die API lehnt neue Werte ab).
@@ -660,6 +703,13 @@ function ZuteilungDialog({ organisationId, pool, zuteilung, onSchliessen }: { or
       ausuebungsfristMonate: werte.ausuebungsfrist.trim() === "" ? null : Number(werte.ausuebungsfrist),
       laufzeitBis: werte.laufzeitBis || null,
       leaverRegel: textOderNichts(werte.leaver) ?? null,
+      vestingStufen: vestingStufen.length ? vestingStufen.map((s) => {
+        const anteil = prozentZuAnteil(s.prozent);
+        return s.art === "datum" ? { datum: s.datum, anteil } : { monate: Number(s.monate), anteil };
+      }) : null,
+      leaverStufen: leaverStufen.length ? leaverStufen.map((s) => ({
+        art: s.art, mindestMonate: Number(s.monate), anteil: prozentZuAnteil(s.prozent),
+      })) : null,
     };
     if (zuteilung) aendern.mutate({ poolId: pool.id, zuteilungId: zuteilung.id, ...koerper }, { onSuccess: onSchliessen });
     else anlegen.mutate({ poolId: pool.id, ...koerper }, { onSuccess: onSchliessen });
@@ -678,7 +728,7 @@ function ZuteilungDialog({ organisationId, pool, zuteilung, onSchliessen }: { or
       >
         <FehlerHinweis
           fehler={mutation.error}
-          bekannt={["kategorie", "kennung", "name", "bezeichnung", "anzahl", "basispreis", "zugeteiltAm", "vestingBeginn", "cliffMonate", "vestingMonate", "taktMonate", "beschleunigung", "ausloeser", "status", "statusAm", "ausuebungsfristMonate", "laufzeitBis", "leaverRegel"]}
+          bekannt={["kategorie", "kennung", "name", "bezeichnung", "anzahl", "basispreis", "zugeteiltAm", "vestingBeginn", "cliffMonate", "vestingMonate", "taktMonate", "beschleunigung", "ausloeser", "status", "statusAm", "ausuebungsfristMonate", "laufzeitBis", "leaverRegel", "vestingStufen", "leaverStufen"]}
         />
         <div className="cw-formularraster">
           {anonym ? null : (
@@ -700,14 +750,18 @@ function ZuteilungDialog({ organisationId, pool, zuteilung, onSchliessen }: { or
           <Feld label={f.zugeteiltAm} type="date" {...feld("zugeteiltAm")} fehler={fehler("zugeteiltAm")} />
           <Feld label={f.vestingBeginn} type="date" {...feld("vestingBeginn")} fehler={fehler("vestingBeginn")} />
           <Feld label={f.cliff} zahl inputMode="numeric" {...feld("cliff")} fehler={fehler("cliffMonate")} />
-          <Feld label={f.dauer} zahl inputMode="numeric" {...feld("dauer")} fehler={fehler("vestingMonate")} />
-          <Auswahl label={f.takt} {...auswahl("takt")} fehler={fehler("taktMonate")}>
-            {TAKTE.map((takt) => (
-              <option key={takt} value={takt}>
-                {aufzaehlung(m.takt, takt)}
-              </option>
-            ))}
-          </Auswahl>
+          {vestingStufen.length === 0 ? (
+            <>
+              <Feld label={f.dauer} zahl inputMode="numeric" {...feld("dauer")} fehler={fehler("vestingMonate")} />
+              <Auswahl label={f.takt} {...auswahl("takt")} fehler={fehler("taktMonate")}>
+                {TAKTE.map((takt) => (
+                  <option key={takt} value={takt}>
+                    {aufzaehlung(m.takt, takt)}
+                  </option>
+                ))}
+              </Auswahl>
+            </>
+          ) : null}
           <Feld label={f.beschleunigung} hilfe={f.beschleunigungHilfe} zahl inputMode="decimal" {...feld("beschleunigung")} fehler={fehler("beschleunigung")} />
           <Auswahl label={f.ausloeser} hilfe={f.ausloeserHilfe} {...auswahl("ausloeser")}>
             {Object.entries(m.ausloeser).map(([wert, label]) => (
@@ -716,8 +770,8 @@ function ZuteilungDialog({ organisationId, pool, zuteilung, onSchliessen }: { or
               </option>
             ))}
           </Auswahl>
-          <Auswahl label={f.status} {...auswahl("status")}>
-            {Object.entries(m.status).map(([wert, label]) => (
+          <Auswahl label={f.status} {...auswahl("status")} fehler={fehler("status")}>
+            {Object.entries(m.status).filter(([wert]) => wert !== "ausgeuebt" || !zuteilung?.ausuebungen.length).map(([wert, label]) => (
               <option key={wert} value={wert}>
                 {label}
               </option>
@@ -728,6 +782,10 @@ function ZuteilungDialog({ organisationId, pool, zuteilung, onSchliessen }: { or
           <Feld label={f.laufzeitBis} hilfe={f.laufzeitBisHilfe} type="date" {...feld("laufzeitBis")} fehler={fehler("laufzeitBis")} />
           <Feld label={f.leaver} {...feld("leaver")} fehler={fehler("leaverRegel")} />
         </div>
+        <VestingStufenFelder zeilen={vestingStufen} setzen={setVestingStufen} pruefe={stufenPruefung.pruefe}
+          neu={() => ({ id: naechsteZeile.current++, art: "monate", monate: "", datum: "", prozent: "" })} fehler={fehler("vestingStufen")} />
+        <LeaverStufenFelder zeilen={leaverStufen} setzen={setLeaverStufen} pruefe={stufenPruefung.pruefe}
+          neu={() => ({ id: naechsteZeile.current++, art: "bad_leaver", monate: "", prozent: "" })} fehler={fehler("leaverStufen")} />
         <div className="app-knoepfe">
           <Button variante="sekundaer" onClick={onSchliessen}>
             {f.abbrechen}
@@ -738,6 +796,9 @@ function ZuteilungDialog({ organisationId, pool, zuteilung, onSchliessen }: { or
         </div>
       </form>
       {zuteilung ? <AustritteAbschnitt organisationId={organisationId} pool={pool} zuteilung={zuteilung} /> : <p className="app-leer-text">{f.austritteSpaeter}</p>}
+      {pool.art === "esop" ? (
+        zuteilung ? <MitarbeiterAusuebungen organisationId={organisationId} poolId={pool.id} zuteilung={zuteilung} /> : <p className="app-leer-text">{m.ausuebungen.spaeter}</p>
+      ) : null}
     </Seitenpanel>
   );
 }

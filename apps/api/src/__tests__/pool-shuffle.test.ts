@@ -1,6 +1,7 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import * as s from "@carraway/db";
 import { sql } from "drizzle-orm";
+import { ladeSichtbareEreignisse } from "../ereignisse/quelle";
 import { erstelleTestApp, legePersonAn, person } from "./hilfen-auth";
 import { leeren, oeffneTestdb, vehikelVon } from "./hilfen";
 import { aufrufe, grundbestand, ID, json, protokollZeilen } from "./hilfen-instrumente";
@@ -16,12 +17,13 @@ const R2 = "00000000-0000-4000-8000-0000000000e2";
 const bearbeiter = person("ps-bearbeiter", { rollen: { [ID.fonds]: "bearbeiter" } });
 const betrachter = person("ps-betrachter", { rollen: { [ID.fonds]: "betrachter" } });
 const fremd = person("ps-fremd", { rollen: { [ID.anderer]: "bearbeiter" } });
+const fremdBetrachter = person("ps-fremd-betrachter", { rollen: { [ID.anderer]: "betrachter" } });
 const beide = person("ps-beide", { rollen: { [ID.fonds]: "bearbeiter", [ID.anderer]: "bearbeiter" } });
 
 /** Unternehmen A: nach der Serie A 1.250.000 ausgegebene Anteile; ESOP mit 100.000 Einheiten (60.000 zugeteilt). */
 beforeEach(async () => {
   await grundbestand(db);
-  for (const p of [bearbeiter, betrachter, fremd, beide]) await legePersonAn(db, p);
+  for (const p of [bearbeiter, betrachter, fremd, fremdBetrachter, beide]) await legePersonAn(db, p);
   await db.execute(sql`DELETE FROM nutzergruppe`);
   await db.execute(sql`DELETE FROM rechterolle`);
   await db.insert(s.finanzierungsrunde).values([
@@ -100,6 +102,61 @@ describe("Vorschlag zum Option Pool Shuffle", () => {
   it("verrät Pool und Anteile nur mit Leserecht an den Runden", async () => {
     await esop();
     expect((await post(vorschlagPfad, eingabe, fremd)).status).toBe(403);
+  });
+});
+
+describe("Leserechte für den Unternehmensbestand im Entwurf", () => {
+  it("zeigt eine eigene Runde nach der Fondsrolle und schützt Bestandswerte in Antworten und Änderungsfeed", async () => {
+    await esop();
+    const gespeichert = await post(rundenPfad, serieB(undefined, ID.anderer), fremd);
+    expect(gespeichert.status).toBe(201);
+    const entwurf = await json(gespeichert);
+    const pfad = `/finanzierungsrunden/${entwurf.id}`;
+    const erwartung = { id: entwurf.id, anteileGesamtNach: null, pruefung: { bestandAusgeblendet: true } };
+    const pruefeEntwurf = (r: typeof entwurf) => {
+      expect(r).toMatchObject(erwartung);
+      expect(r.pruefung).not.toHaveProperty("poolAnteile");
+    };
+    pruefeEntwurf(entwurf);
+    pruefeEntwurf(await json(await get(pfad, fremdBetrachter)));
+    expect((await patch(pfad, { bezeichnung: "Lesende Rolle" }, fremdBetrachter)).status).toBe(403);
+    pruefeEntwurf(await json(await patch(pfad, { bezeichnung: "Serie B Entwurf" }, fremd)));
+    const liste = await json(await get(rundenPfad, fremd));
+    expect(liste.daten).toHaveLength(1);
+    pruefeEntwurf(liste.daten[0]);
+    const vorschau = await json(await post(`${rundenPfad}/vorschau`, serieB(undefined, ID.anderer), fremd));
+    expect(vorschau).toMatchObject({ anteileGesamtNach: "1666667", pruefung: { bestandAusgeblendet: true } });
+    expect(vorschau.pruefung).not.toHaveProperty("poolAnteile");
+    expect((await get(pools, fremd)).status).toBe(403);
+    expect((await post(vorschlagPfad, eingabe, fremd)).status).toBe(403);
+
+    const mitBestand = await json(await get(pfad, betrachter));
+    expect(mitBestand).toMatchObject({ anteileGesamtNach: "1566667", pruefung: { poolAnteile: "100000" } });
+    const feedPfad = "/changes?table=finanzierungsrunde";
+    const feed = await json(await get(feedPfad, fremd));
+    expect(feed.data).toContainEqual(expect.objectContaining({ table: "finanzierungsrunde", recordId: entwurf.id, after: expect.objectContaining({ bezeichnung: "Serie B Entwurf" }) }));
+    for (const e of feed.data) {
+      if (e.before) expect(e.before).not.toHaveProperty("anteileGesamtNach");
+      expect(e.after).not.toHaveProperty("anteileGesamtNach");
+    }
+    const ereignisse = await db.transaction((tx) => ladeSichtbareEreignisse(tx, feed.data.map((e: { id: string }) => e.id), [ID.anderer]));
+    expect(ereignisse).toHaveLength(feed.data.length);
+    for (const e of ereignisse) expect(e.after).not.toHaveProperty("anteileGesamtNach");
+    const halterFeed = await json(await get(feedPfad, betrachter));
+    expect(halterFeed.data).toContainEqual(expect.objectContaining({ recordId: entwurf.id, after: expect.objectContaining({ anteileGesamtNach: "1566667" }) }));
+  });
+
+  it("prüft den Abschluss vollständig und liefert geschützte Abweichungen nur mit Bestandsleserecht", async () => {
+    await esop();
+    const entwurf = await json(await post(rundenPfad, { ...serieB(undefined, ID.anderer), anteileGesamtNach: "200000" }, fremd));
+    const pfad = `/finanzierungsrunden/${entwurf.id}/abschliessen`;
+    const eingeschraenkt = await post(pfad, {}, fremd);
+    expect(eingeschraenkt.status).toBe(409);
+    expect((await json(eingeschraenkt)).error).toMatchObject({ code: "round_inconsistent_restricted", abweichungen: [] });
+    const voll = await post(pfad, {}, beide);
+    expect(voll.status).toBe(409);
+    expect((await json(voll)).error).toMatchObject({ code: "round_inconsistent", abweichungen: [expect.objectContaining({ code: "ANTEILE_PREIS_ABWEICHEND", werte: expect.objectContaining({ poolAnteile: "100000" }) })] });
+    expect((await json(await get(`/finanzierungsrunden/${entwurf.id}`, fremd))).status).toBe("entwurf");
   });
 });
 

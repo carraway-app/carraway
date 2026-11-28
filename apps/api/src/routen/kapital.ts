@@ -189,6 +189,7 @@ const wasserfallEingabe = z.object({
   exitdatum: z.iso.date(),
   kosten: betragNullEingabe.optional(),
   treuhandAnteil: treuhandEingabe.optional(),
+  zweiterAusloeser: z.boolean().optional(),
 });
 const kurveAbfrage = z.object({
   bis: z.string().regex(/^\d{1,16}(\.\d{1,2})?$/, "Expected an amount greater than zero with at most two decimal places").optional(),
@@ -197,6 +198,7 @@ const kurveAbfrage = z.object({
     .regex(/^\d{1,3}$/, "Expected an integer from 2 to 200")
     .optional(),
   exitdatum: z.iso.date().optional(),
+  zweiterAusloeser: z.enum(["true", "false"]).optional(),
 });
 
 const geld = (d: Decimal) => d.toFixed(2);
@@ -463,7 +465,7 @@ export function beteiligungKapitalRouten(db: Db) {
       if (netto.isNegative()) ungueltig([{ feld: "kosten", code: "costs_exceed_exit_value", meldung: "The costs exceed the exit value" }]);
       const { kapital, ergebnis, verdeckt } = await lese(db, async (tx) => {
         const b = await ladeBeteiligungKurz(tx, id);
-        const k = await ladeKapital(tx, b, e.exitdatum);
+        const k = await ladeKapital(tx, b, e.exitdatum, e.zweiterAusloeser ?? true);
         verlangeAnteile(k);
         const akteur = aktuellerAkteur(c);
         const v = verdeckteZeilen(k, sichtbarFuer(akteur));
@@ -494,7 +496,7 @@ export function beteiligungKapitalRouten(db: Db) {
       return c.json(
         portfolioAnApi({
           beteiligungId: id,
-          eingabe: { exitwert: geld(new Decimal(e.exitwert)), kosten: geld(kosten), nettoErloes: geld(netto), exitdatum: e.exitdatum, treuhandAnteil: new Decimal(e.treuhandAnteil ?? 0).toFixed(4) },
+          eingabe: { exitwert: geld(new Decimal(e.exitwert)), kosten: geld(kosten), nettoErloes: geld(netto), exitdatum: e.exitdatum, treuhandAnteil: new Decimal(e.treuhandAnteil ?? 0).toFixed(4), zweiterAusloeser: e.zweiterAusloeser ?? true },
           zeilen: fasseWasserfallZusammen(wert.zeilen.map((z) => {
             const q = nachId.get(z.id)!;
             return {
@@ -561,7 +563,7 @@ export function beteiligungKapitalRouten(db: Db) {
       if (punkteZahl < 2 || punkteZahl > MAX_KURVENPUNKTE) ungueltig([{ feld: "punkte", code: punkteZahl < 2 ? "too_small" : "too_big", meldung: `The number of points must be between 2 and ${MAX_KURVENPUNKTE}` }]);
       const ergebnisKapital = await lese(db, async (tx) => {
         const b = await ladeBeteiligungKurz(tx, id);
-        const k = await ladeKapital(tx, b, exitdatum);
+        const k = await ladeKapital(tx, b, exitdatum, q.zweiterAusloeser !== "false");
         verlangeAnteile(k);
         if (!k.letzteRunde) throw new Fachfehler(409, "waterfall_no_shares", "The fund holds no shares in this company from financing rounds.");
         const akteur = aktuellerAkteur(c);

@@ -7,11 +7,15 @@ Exakte Brüche, Monate über einen Kalender-Zähler statt über Differenzen. All
   Volle Monate  Ab `von` wird Monat für Monat weitergezählt; ein Monat ist voll, wenn `bis` den gleichen Tag des Folgemonats erreicht
                 (gibt es den Tag nicht, das Monatsende).
   Vesting       vor dem Cliff 0, danach abgerundet(Anzahl × min(1, M ÷ Dauer)) mit M = volle Monate abgerundet auf ein Vielfaches
-                des Takts (1, 3, 6 oder 12 Monate, Standard 1); Dauer 0 = alles.
-  Exit          gevestet + abgerundet(ungevestet × Beschleunigung).
+                des Takts (1, 3, 6 oder 12 Monate, Standard 1); Dauer 0 = alles. Ein Stufenplan ersetzt Takt und Dauer.
+                Ab dem Cliff wird die Summe der erreichten Bruchteile einmal auf ganze Einheiten abgerundet.
+  Exit          gevestet + abgerundet(ungevestet × Beschleunigung); bei Double Trigger nur mit zweitem Auslöser.
   Austritte     je Austritt i ab A_i: gB_i = gevestet(B_i, A_i) friert ein, B_i − gB_i verfällt; gB_i bleibt, verfällt oder wird
                 zurückgekauft (Betrag = gB_i × Preis, ohne Preis der Basispreis); Σ B_i ≤ Anzahl. Die übrigen Anzahl − Σ B_i (Austritte bis
-                zum Stichtag) vesten weiter (eine Abrundung).
+                zum Stichtag) vesten weiter (eine Abrundung). Die späteste erreichte Leaver-Stufe je Austrittsart bestimmt,
+                welcher Bruch der bei Austritt verfügbaren gevesteten Einheiten bleibt.
+  Ausübungen    Entnahme aus den verfügbaren gevesteten Einheiten, nach Austritten desselben Tages. Zuerst aus den bei
+                Austritten behaltenen Einheiten; bereits ausgeübte Einheiten bleiben ausgeübt.
   Pool          Größe = Σ Änderungen bis Stichtag; ausstehend = Zuteilungen bis Stichtag ohne verfallen/ausgeübt (ab deren Datum);
                 frei = max(0, Größe − ausstehend − ausgeübt).
   Grob          ausstehend = min(vergeben, max(0, Größe)), frei = max(0, Größe − ausstehend).
@@ -37,14 +41,22 @@ def volle_monate(von, bis):
     return n
 
 
-def gevestet(anzahl, beginn, cliff, dauer, stichtag, takt=1):
+def gevestet(anzahl, beginn, cliff, dauer, stichtag, takt=1, vesting_stufen=()):
     if date.fromisoformat(stichtag) < date.fromisoformat(beginn):
         return 0
-    if dauer == 0:
+    if dauer == 0 and not vesting_stufen:
         return anzahl
     m = volle_monate(beginn, stichtag)
     if m < cliff:
         return 0
+    if vesting_stufen:
+        start = date.fromisoformat(beginn)
+        bis = date.fromisoformat(stichtag)
+        erreicht = sum(
+            F(anteil) for faelligkeit, anteil in vesting_stufen
+            if (plus_monate(start, faelligkeit) if isinstance(faelligkeit, int) else date.fromisoformat(faelligkeit)) <= bis
+        )
+        return floor(anzahl * erreicht)
     stufen = (m // takt) * takt
     return floor(F(anzahl) * min(F(1), F(stufen, dauer)))
 
@@ -71,6 +83,58 @@ def aufteilung(anzahl, beginn, cliff, dauer, stichtag, austritte=(), basispreis=
             verf, rk = verf + b - gb, rk + gb
             betrag += gb * F(preis if preis is not None else basispreis)
     return g, uebrige - gu, verf, rk, betrag
+
+
+def mit_ereignissen(anzahl, zuteilung, beginn, cliff, dauer, stichtag, *,
+                    vesting_stufen=(), leaver_stufen=(), austritte=(), ausuebungen=(), basispreis=0):
+    """Ermittelt den Bestand zum Stichtag, mit exakten Bruchteilen und eingefrorenen Beständen je Austritt.
+
+    Austritte enthalten Datum, Art, Anzahl, Regel und optionalen Preis. Ausübungen enthalten Datum, Anzahl und Preis.
+    """
+    aktiv = anzahl
+    aktiv_ausgeuebt = 0
+    eingefroren = []
+    rueckkauf, ausuebungspreis, ausgeuebt, rueckgekauft = F(0), F(0), 0, 0
+    termine = {x[0] for x in (*austritte, *ausuebungen) if x[0] <= stichtag}
+
+    def vestet(einheiten, datum):
+        return gevestet(einheiten, beginn, cliff, dauer, datum, vesting_stufen=vesting_stufen)
+
+    for datum in sorted(termine):
+        tagesaustritte = sorted((a for a in austritte if a[0] == datum),
+                               key=lambda a: (a[1], a[3], a[2], F(a[4] if a[4] is not None else basispreis)))
+        for _, art, betroffen, regel, preis in tagesaustritte:
+            aktiv -= betroffen
+            zuvor_aktiv = aktiv_ausgeuebt
+            aktiv_ausgeuebt = min(aktiv_ausgeuebt, vestet(aktiv, datum))
+            noch_gevestet = max(0, vestet(betroffen, datum) - zuvor_aktiv + aktiv_ausgeuebt)
+            schwellen = [(m, F(bruch)) for art_stufe, m, bruch in leaver_stufen
+                         if art_stufe == art and plus_monate(date.fromisoformat(zuteilung), m) <= date.fromisoformat(datum)]
+            bruch = max(schwellen)[1] if schwellen else int(regel == "bleiben")
+            eingefroren.append(floor(noch_gevestet * bruch))
+            if regel == "rueckkauf":
+                gekauft = noch_gevestet - eingefroren[-1]
+                rueckgekauft += gekauft
+                rueckkauf += gekauft * F(preis if preis is not None else basispreis)
+        entnahme = sum(einheiten for tag, einheiten, _ in ausuebungen if tag == datum)
+        ausgeuebt += entnahme
+        ausuebungspreis += sum(einheiten * F(preis) for tag, einheiten, preis in ausuebungen if tag == datum)
+        for i, bestand in enumerate(eingefroren):
+            verwendet = min(bestand, entnahme)
+            eingefroren[i] -= verwendet
+            entnahme -= verwendet
+        aktiv_ausgeuebt += entnahme
+        assert aktiv_ausgeuebt <= vestet(aktiv, datum), f"zu wenige gevestete Einheiten am {datum}"
+    unverfallen = vestet(aktiv, stichtag)
+    g = unverfallen - aktiv_ausgeuebt + sum(eingefroren)
+    u = aktiv - unverfallen
+    v = anzahl - g - u - ausgeuebt - rueckgekauft
+    return g, u, v, rueckgekauft, ausgeuebt, rueckkauf, ausuebungspreis
+
+
+def szenario_exit(aufteilung, beschleunigung, *, doppelt=False, zweiter_ausloeser=True):
+    g, u, *_ = aufteilung
+    return g + (floor(u * F(beschleunigung)) if not doppelt or zweiter_ausloeser else 0)
 
 
 def pool_grob(groesse, vergeben):
@@ -116,6 +180,17 @@ if __name__ == "__main__":
     for takt in [1, 3, 6, 12]:
         print("takt", takt, gevestet(48000, "2024-01-15", 12, 48, "2026-10-14", takt))
     print("takt 12 am Cliff", gevestet(48000, "2024-01-15", 12, 48, "2025-01-15", 12))
+    stufen = [(12, "0.1"), ("2026-03-01", "0.2"), (36, "0.3"), (48, "0.4")]
+    for st in ["2025-01-30", "2025-01-31", "2026-02-28", "2026-03-01", "2027-01-31", "2028-01-31"]:
+        print("stufen", st, gevestet(17, "2024-01-31", 12, 0, st, vesting_stufen=stufen))
+    historie = dict(vesting_stufen=[(12, "0.5"), (24, "0.5")],
+                    leaver_stufen=[("bad_leaver", 18, "0.5")],
+                    austritte=[("2025-07-31", "bad_leaver", 8, "rueckkauf", "1.25")],
+                    ausuebungen=[("2025-07-31", 2, "1.5"), ("2025-02-01", 3, "2")])
+    for st in ["2025-01-31", "2025-02-01", "2025-07-30", "2025-07-31", "2026-01-31"]:
+        bestand = mit_ereignissen(21, "2024-01-31", "2024-01-31", 0, 0, st, **historie)
+        print("historie", st, bestand, "exit doppelt", szenario_exit(bestand, "0.5", doppelt=True),
+              szenario_exit(bestand, "0.5", doppelt=True, zweiter_ausloeser=False))
     print("grob", pool_grob(100000, 60000), pool_grob(50000, 60000), pool_grob(-10, 5))
     # Runde: 9 Mio Pre-Money, 3 Mio Volumen, 1 Mio Anteile, 50.000 Pool, Aufstockung im Pre-Money um 100.000
     preis, neu, voll, anteil = runde("9000000", "3000000", "1000000", "50000", "100000")

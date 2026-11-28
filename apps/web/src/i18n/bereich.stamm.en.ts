@@ -43,6 +43,14 @@ export const stammBereichEn: typeof stammBereichDe = {
     },
   },
   portfolio: {
+    anlage: {
+      titel: "Add investment",
+      fonds: "Fund",
+      unternehmen: "Portfolio company",
+      erstinvestment: "Initial investment date",
+      speichern: "Save",
+      vorhanden: "Open existing investment",
+    },
     zeichnungskapital: "Committed capital",
     beteiligungenAnzahl: (n) => (n === 1 ? "1 holding" : `${n} holdings`),
     stichtag: "As at",

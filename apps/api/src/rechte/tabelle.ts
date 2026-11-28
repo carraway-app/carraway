@@ -244,6 +244,8 @@ const ROH: Regel[] = [
   regel("GET", "/funds/:id/capital-accounts", "betrachter", [pfad("fonds")]),
 
   // Beteiligungen -------------------------------------------------------------------------------------------------------
+  regel("GET", "/funds/:id/investment-companies", "bearbeiter", [pfad("fonds")]),
+  regel("POST", "/funds/:id/investments", "bearbeiter", [pfad("fonds")]),
   regel("GET", "/investments/:id", "betrachter", [pfad("beteiligung")]),
   regel("GET", "/investments/:id/reports/quarterly-report", "betrachter", [pfad("beteiligung")]),
   regel("GET", "/investments/:id/instrument-data", "betrachter", [pfad("beteiligung")]),
@@ -382,7 +384,7 @@ const ROH: Regel[] = [
   regel("GET", "/organizations/:id/share-classes", "betrachter", [pfad("organisationHalter")]),
   regel("POST", "/organizations/:id/share-classes", "bearbeiter", [pfad("organisationHalter")]),
   regel("PATCH", "/organizations/:id/share-classes/:classId", "bearbeiter", [pfad("organisationHalter")]),
-  // Mitarbeiterbeteiligung eines Unternehmens (Pools, Änderungen, Zuteilungen): Pool sichtbar = Runden sichtbar (Entscheidung 486), Zuteilungen
+  // Mitarbeiterbeteiligung eines Unternehmens (Pools, Änderungen, Zuteilungen): Pool sichtbar mit Leserecht am Unternehmensbestand, Zuteilungen
   // im eigenen Bereich `einzelzuteilungen` (Entscheidung 522). Die Tabelle
   // verlangt die Mindestrolle irgendwo; die Handler prüfen wie bei den Runden (lesen: `verlangeRundenLeserecht`, schreiben: `verlangeRundenrecht` bearbeiter).
   regel("GET", "/organizations/:id/employee-pools", "betrachter"),
@@ -398,6 +400,9 @@ const ROH: Regel[] = [
   regel("POST", "/organizations/:id/employee-pools/:poolId/grants/:grantId/departures", "bearbeiter"),
   regel("PATCH", "/organizations/:id/employee-pools/:poolId/grants/:grantId/departures/:departureId", "bearbeiter"),
   regel("DELETE", "/organizations/:id/employee-pools/:poolId/grants/:grantId/departures/:departureId", "bearbeiter"),
+  regel("POST", "/organizations/:id/employee-pools/:poolId/grants/:grantId/exercises", "bearbeiter"),
+  regel("PATCH", "/organizations/:id/employee-pools/:poolId/grants/:grantId/exercises/:exerciseId", "bearbeiter"),
+  regel("DELETE", "/organizations/:id/employee-pools/:poolId/grants/:grantId/exercises/:exerciseId", "bearbeiter"),
   regel("PATCH", "/round-positions/:id", "bearbeiter", [pfad("rundenpositionHalter")]),
   // Finanzierungsrunden von Hand (Etappe 4b): Die Tabelle verlangt die Mindestrolle irgendwo, die Handler prüfen genauer (Rolle an einem Fonds,
   // der das Unternehmen hält oder in einer Runde eine Position hat, beim Anlegen auch an einem einsteigenden Fonds; Positionen eines Fonds

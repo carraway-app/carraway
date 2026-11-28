@@ -131,13 +131,17 @@ export function RundenDubletten({ dubletten }: { dubletten: RundenDublette[] | u
 }
 
 /** Die Prüfung der API als Liste; die Sätze stehen in den Texten, gerechnet wird nichts. */
-function Pruefung({ abweichungen, ok = true }: { abweichungen: PruefMeldung[]; ok?: boolean }) {
+function Pruefung({ abweichungen, ok = true, vorlaeufig }: { abweichungen: PruefMeldung[]; ok?: boolean; vorlaeufig?: boolean | undefined }) {
   const t = useT();
   const sprache = useSprache();
   const f = t.finanzierungsrunden;
-  if (abweichungen.length === 0) return ok ? <Hinweis variante="info">{f.pruefungOk}</Hinweis> : null;
+  if (abweichungen.length === 0) {
+    if (!ok && !vorlaeufig) return null;
+    return <Hinweis variante="info">{vorlaeufig ? f.pruefungVorlaeufig : f.pruefungOk}</Hinweis>;
+  }
   return (
     <Hinweis variante={abweichungen.some((a) => a.schwere === "fehler") ? "fehler" : "info"} titel={f.pruefung}>
+      {vorlaeufig ? <p>{f.pruefungVorlaeufig}</p> : null}
       <ul className="app-liste">
         {abweichungen.map((a, i) => {
           const werte = formatiereWerte(a.werte, sprache);
@@ -547,7 +551,7 @@ function RundeDetail({
         ]}
       />
       <Tabelle dicht beschriftung={f.tabelle(`${r.bezeichnung}, ${formatDatum(r.datum, sprache)}`)} spalten={spalten} zeilen={r.positionen} zeilenSchluessel={(p) => p.id} ausgewaehlt={(p) => p.investor.art === "fonds" && p.investor.id === fondsId} fusszeile={fusszeile} aktionen={schreiben ? positionAktionen : undefined} />
-      {entwurf ? <Pruefung abweichungen={r.pruefung.abweichungen} /> : null}
+      {entwurf ? <Pruefung abweichungen={r.pruefung.abweichungen} vorlaeufig={r.pruefung.bestandAusgeblendet} /> : null}
       <FehlerHinweis fehler={transaktionenFehler} />
       {transaktionen ? <TransaktionenKarte zeilen={transaktionen.zeilen} runden={transaktionen.runden} beschriftung={r.bezeichnung} beschreibung={f.transaktionen.beschreibungRunde} leer={f.transaktionen.keine} lesend={lesend} /> : null}
     </article>
@@ -1029,7 +1033,7 @@ function NeueRundeDialog({ organisationId, fondsId, onAngelegt, onSchliessen }: 
               {vorschau.data ? (
                 <>
                   <p className="app-leer-text">{f.abgeleitet(formatBetragCent(vorschau.data.postMoney, sprache), formatAnzahl(vorschau.data.anteileGesamtNach, sprache))}</p>
-                  <Pruefung abweichungen={vorschau.data.pruefung.abweichungen} ok={eintraege.length > 0} />
+                  <Pruefung abweichungen={vorschau.data.pruefung.abweichungen} ok={eintraege.length > 0} vorlaeufig={vorschau.data.pruefung.bestandAusgeblendet} />
                   <RundenDubletten dubletten={vorschau.data.dubletten} />
                 </>
               ) : null}

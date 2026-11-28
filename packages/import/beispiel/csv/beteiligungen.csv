@@ -1,15 +1,16 @@
-beteiligung_schluessel;fonds_kurzname;organisation_schluessel;instrument;erstinvestment;status
-BET-0001;BF I;ORG-0006;darlehen;2022-11-02;insolvent
-BET-0002;BF I;ORG-0007;darlehen;2022-12-25;exit
-BET-0003;BF I;ORG-0008;wandeldarlehen;2022-03-10;aktiv
-BET-0004;BF I;ORG-0009;offene_beteiligung;2020-01-06;aktiv
-BET-0005;BF II;ORG-0010;offene_beteiligung;2024-09-25;aktiv
-BET-0006;BF II;ORG-0011;offene_beteiligung;2024-08-28;insolvent
-BET-0007;BF II;ORG-0012;darlehen;2025-04-09;aktiv
-BET-0008;BF II;ORG-0013;offene_beteiligung;2022-09-28;exit
-BET-0009;BF II;ORG-0014;offene_beteiligung;2024-04-27;aktiv
-BET-0010;BF Seed;ORG-0015;wandeldarlehen;2026-05-12;aktiv
-BET-0011;BF Seed;ORG-0016;offene_beteiligung;2025-06-16;aktiv
-BET-0012;BF II;ORG-0008;offene_beteiligung;2023-01-04;aktiv
-BET-0013;BF II;ORG-0009;offene_beteiligung;2022-10-07;aktiv
-BET-0014;BF Seed;ORG-0014;offene_beteiligung;2025-04-26;aktiv
+beteiligung_schluessel;fonds_kurzname;organisation_schluessel;instrument;bezeichnung;erstinvestment;optionsschein_anzahl;ausuebungspreis;ausgabe_am;laufzeit_bis;status
+BET-0001;BF I;ORG-0006;darlehen;Darlehen 2022;2022-11-02;;;;;insolvent
+BET-0002;BF I;ORG-0007;darlehen;Darlehen 2022;2022-12-25;;;;;exit
+BET-0003;BF I;ORG-0008;wandeldarlehen;Wandeldarlehen 2022;2022-03-10;;;;;aktiv
+BET-0004;BF I;ORG-0008;offene_beteiligung;Serie-A-Runde-Anteile;2022-03-10;;;;;aktiv
+BET-0005;BF I;ORG-0009;offene_beteiligung;Seed-Runde-Anteile;2020-01-06;;;;;aktiv
+BET-0006;BF II;ORG-0010;offene_beteiligung;Seed-Runde-Anteile;2024-09-25;;;;;aktiv
+BET-0007;BF II;ORG-0011;offene_beteiligung;Seed-Runde-Anteile;2024-08-28;;;;;insolvent
+BET-0008;BF II;ORG-0012;gesellschafterdarlehen;Gesellschafterdarlehen 2025;2025-04-09;;;;;aktiv
+BET-0009;BF II;ORG-0013;offene_beteiligung;Seed-Runde-Anteile;2022-09-28;;;;;exit
+BET-0010;BF II;ORG-0014;offene_beteiligung;Seed-Runde-Anteile;2024-04-27;;;;;aktiv
+BET-0011;BF Seed;ORG-0015;wandeldarlehen;Wandeldarlehen 2026;2026-05-12;;;;;aktiv
+BET-0012;BF Seed;ORG-0016;offene_beteiligung;Seed-Runde-Anteile;2025-06-16;;;;;aktiv
+BET-0013;BF II;ORG-0008;offene_beteiligung;Serie-B-Runde-Anteile;2023-01-04;;;;;aktiv
+BET-0014;BF II;ORG-0009;offene_beteiligung;Seed-Runde-Anteile;2022-10-07;;;;;aktiv
+BET-0015;BF Seed;ORG-0014;offene_beteiligung;Seed-Runde-Anteile;2025-04-26;;;;;aktiv

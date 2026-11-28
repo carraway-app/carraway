@@ -39,6 +39,8 @@ export type Rundenpruefung = {
   anteileVergeben: string;
   abweichungen: Abweichung[];
   schliessbar: boolean;
+  /** Die Prüfung umfasst nur Angaben, die die Person im Entwurf sehen darf. */
+  bestandAusgeblendet?: true;
   /**
    * Basis, auf der Anteile × Preis das Post-Money ergeben: `voll_verwaessert` (ausgegebene Anteile plus Pool der Mitarbeiterbeteiligung),
    * `unverwaessert` (nur ausgegebene Anteile); `null` ohne Pool (dann gibt es keinen Unterschied) oder wenn keine Basis passt.
@@ -52,7 +54,7 @@ export interface RundenWerte {
   preMoney: string;
   postMoney: string;
   preisJeAnteil: string;
-  anteileGesamtNach: string;
+  anteileGesamtNach: string | null;
 }
 
 export interface PositionWerte {
@@ -81,33 +83,35 @@ export function pruefeRunde(w: RundenWerte, positionen: readonly PositionWerte[]
   if (!post.equals(erwartetPost)) {
     abweichungen.push({ code: "POST_MONEY_ABWEICHEND", schwere: "fehler", werte: { postMoney: post.toFixed(2), erwartet: erwartetPost.toFixed(2), volumen: volumen.toFixed(2) } });
   }
-  const gesamt = new Decimal(w.anteileGesamtNach);
   const toleranz = (anteile: Decimal) => preis.plus(anteile.times(PREISRUNDUNG));
-  const passt = (anteile: Decimal) => !anteile.times(preis).minus(post).abs().greaterThan(toleranz(anteile));
-  const pool = poolAnteile ? new Decimal(poolAnteile) : new Decimal(0);
   let preisBasis: Rundenpruefung["preisBasis"] = null;
-  if (pool.greaterThan(0)) {
-    const voll = gesamt.plus(pool);
-    if (passt(voll)) preisBasis = "voll_verwaessert";
-    else if (passt(gesamt)) {
-      preisBasis = "unverwaessert";
-      abweichungen.push({ code: "PREIS_UNVERWAESSERT", schwere: "hinweis", werte: { poolAnteile: pool.toFixed(0), anteileGesamtNach: gesamt.toFixed(0), erwartet: Decimal.max(0, erwartetAnteile.minus(pool)).toFixed(0) } });
-    } else {
+  const pool = poolAnteile && w.anteileGesamtNach !== null ? new Decimal(poolAnteile) : new Decimal(0);
+  if (w.anteileGesamtNach !== null) {
+    const gesamt = new Decimal(w.anteileGesamtNach);
+    const passt = (anteile: Decimal) => !anteile.times(preis).minus(post).abs().greaterThan(toleranz(anteile));
+    if (pool.greaterThan(0)) {
+      const voll = gesamt.plus(pool);
+      if (passt(voll)) preisBasis = "voll_verwaessert";
+      else if (passt(gesamt)) {
+        preisBasis = "unverwaessert";
+        abweichungen.push({ code: "PREIS_UNVERWAESSERT", schwere: "hinweis", werte: { poolAnteile: pool.toFixed(0), anteileGesamtNach: gesamt.toFixed(0), erwartet: Decimal.max(0, erwartetAnteile.minus(pool)).toFixed(0) } });
+      } else {
+        abweichungen.push({
+          code: "ANTEILE_PREIS_ABWEICHEND",
+          schwere: "fehler",
+          werte: { anteileGesamtNach: gesamt.toFixed(0), preisJeAnteil: preis.toFixed(4), postMoney: post.toFixed(2), erwartet: Decimal.max(0, erwartetAnteile.minus(pool)).toFixed(0), poolAnteile: pool.toFixed(0) },
+        });
+      }
+    } else if (!passt(gesamt)) {
       abweichungen.push({
         code: "ANTEILE_PREIS_ABWEICHEND",
         schwere: "fehler",
-        werte: { anteileGesamtNach: gesamt.toFixed(0), preisJeAnteil: preis.toFixed(4), postMoney: post.toFixed(2), erwartet: Decimal.max(0, erwartetAnteile.minus(pool)).toFixed(0), poolAnteile: pool.toFixed(0) },
+        werte: { anteileGesamtNach: gesamt.toFixed(0), preisJeAnteil: preis.toFixed(4), postMoney: post.toFixed(2), erwartet: erwartetAnteile.toFixed(0) },
       });
     }
-  } else if (!passt(gesamt)) {
-    abweichungen.push({
-      code: "ANTEILE_PREIS_ABWEICHEND",
-      schwere: "fehler",
-      werte: { anteileGesamtNach: gesamt.toFixed(0), preisJeAnteil: preis.toFixed(4), postMoney: post.toFixed(2), erwartet: erwartetAnteile.toFixed(0) },
-    });
-  }
-  if (anteileVergeben.greaterThan(gesamt)) {
-    abweichungen.push({ code: "ANTEILE_UEBER_GESAMT", schwere: "fehler", werte: { anteileVergeben: anteileVergeben.toFixed(0), anteileGesamtNach: gesamt.toFixed(0) } });
+    if (anteileVergeben.greaterThan(gesamt)) {
+      abweichungen.push({ code: "ANTEILE_UEBER_GESAMT", schwere: "fehler", werte: { anteileVergeben: anteileVergeben.toFixed(0), anteileGesamtNach: gesamt.toFixed(0) } });
+    }
   }
   for (const p of positionen) {
     const anteile = new Decimal(p.anteile);
@@ -127,6 +131,7 @@ export function pruefeRunde(w: RundenWerte, positionen: readonly PositionWerte[]
     anteileVergeben: anteileVergeben.toFixed(0),
     abweichungen,
     schliessbar: abweichungen.every((a) => a.schwere !== "fehler"),
+    ...(w.anteileGesamtNach === null ? { bestandAusgeblendet: true as const } : {}),
     ...(pool.greaterThan(0) ? { preisBasis, poolAnteile: pool.toFixed(0) } : {}),
   };
 }
@@ -160,18 +165,16 @@ export async function verlangeRundenrecht(tx: Tx, akteur: Akteur, organisationId
   if (![...fonds].some((f) => hatRolle(akteur, f, mindest))) throw keineBerechtigung();
 }
 
-/**
- * Leserecht an den Runden eines Unternehmens (wie die Liste der Runden): Rechtsgrundlage am Unternehmen (`verwandteFonds`) oder eine Position
- * eines eigenen Fonds in irgendeiner Runde des Unternehmens. Dasselbe Recht gilt für den Pool der Mitarbeiterbeteiligung (Entscheidung 486).
- */
+/** Gemeinsamer Bestand ist für Fonds mit Beteiligung oder abgeschlossener Rundenposition lesbar. */
+export async function darfUnternehmensbestandLesen(tx: Tx, akteur: Akteur, organisationId: string): Promise<boolean> {
+  if (akteur.globalVerwalter) return true;
+  const fonds = await verwandteFonds(tx, organisationId);
+  return [...fonds].some((f) => hatRolle(akteur, f, "betrachter"));
+}
+
+/** Prüft gemeinsame Runden- und Bestandsdaten. Für einen einzelnen Entwurf gilt verlangeRundenrecht mit Runden-ID. */
 export async function verlangeRundenLeserecht(tx: Tx, akteur: Akteur, organisationId: string): Promise<void> {
-  if (akteur.globalVerwalter) return;
-  const grundlage = await verwandteFonds(tx, organisationId);
-  if ([...grundlage].some((f) => hatRolle(akteur, f, "betrachter"))) return;
-  const { rows } = await tx.execute<{ fonds_id: string }>(sql`
-    SELECT DISTINCT p.fonds_id FROM rundenposition p JOIN finanzierungsrunde r ON r.id = p.runde_id
-    WHERE r.organisation_id = ${organisationId} AND p.fonds_id IS NOT NULL`);
-  if (!rows.some((r) => hatRolle(akteur, r.fonds_id, "betrachter"))) throw keineBerechtigung();
+  if (!(await darfUnternehmensbestandLesen(tx, akteur, organisationId))) throw keineBerechtigung();
 }
 
 /** Jeder Fonds mit einer Position der Runde verlangt die Rolle `mindest`: Wer die Runde ändert, löscht, schließt oder öffnet, betrifft alle. */
@@ -275,13 +278,10 @@ export async function findeRundenDubletten(tx: Tx, akteur: Akteur, organisationI
     .orderBy(desc(finanzierungsrunde.datum), asc(finanzierungsrunde.id));
   if (zeilen.length === 0) return [];
   let sichtbar = zeilen;
-  if (!akteur.globalVerwalter) {
-    const grundlage = await verwandteFonds(tx, organisationId);
-    if (![...grundlage].some((f) => hatRolle(akteur, f, "betrachter"))) {
-      const { rows } = await tx.execute<{ runde_id: string; fonds_id: string }>(sql`SELECT runde_id, fonds_id FROM rundenposition WHERE fonds_id IS NOT NULL AND runde_id IN (${sql.join(zeilen.map((z) => sql`${z.id}`), sql`, `)})`);
-      const erlaubt = new Set(rows.filter((r) => hatRolle(akteur, r.fonds_id, "betrachter")).map((r) => r.runde_id));
-      sichtbar = zeilen.filter((z) => erlaubt.has(z.id));
-    }
+  if (!(await darfUnternehmensbestandLesen(tx, akteur, organisationId))) {
+    const { rows } = await tx.execute<{ runde_id: string; fonds_id: string }>(sql`SELECT runde_id, fonds_id FROM rundenposition WHERE fonds_id IS NOT NULL AND runde_id IN (${sql.join(zeilen.map((z) => sql`${z.id}`), sql`, `)})`);
+    const erlaubt = new Set(rows.filter((r) => hatRolle(akteur, r.fonds_id, "betrachter")).map((r) => r.runde_id));
+    sichtbar = zeilen.filter((z) => erlaubt.has(z.id));
   }
   return sichtbar.map((z) => ({ id: z.id, bezeichnung: z.bezeichnung, datum: z.datum, gleichesDatum: z.datum === w.datum, gleicherPreis: z.preisJeAnteil !== null && new Decimal(z.preisJeAnteil).equals(w.preisJeAnteil) }));
 }
@@ -415,16 +415,17 @@ export function rundenWerte(r: RundeZeile): RundenWerte {
 
 /**
  * Runden einer Organisation mit Positionen, Zahlungsstand, Buchungen und Prüfung; neueste zuerst. `nurId` lädt genau eine. Die Prüfung
- * rechnet mit dem Pool der Mitarbeiterbeteiligung (Pool sichtbar = Runden sichtbar, Entscheidung 486).
+ * rechnet mit dem Pool, wenn der Unternehmensbestand sichtbar ist. Andernfalls entfällt auch die gespeicherte Anteilszahl, die
+ * aus dem Pool abgeleitet sein kann. Das gilt ebenso für bereits gespeicherte Entwürfe.
  */
-export async function ladeRundenAntwort(tx: Tx, organisationId: string, nurId?: string): Promise<RundenAntwort[]> {
+export async function ladeRundenAntwort(tx: Tx, organisationId: string, bestandSichtbar: boolean, nurId?: string): Promise<RundenAntwort[]> {
   const runden = await tx
     .select()
     .from(finanzierungsrunde)
-    .where(nurId ? eq(finanzierungsrunde.id, nurId) : eq(finanzierungsrunde.organisationId, organisationId))
+    .where(and(eq(finanzierungsrunde.organisationId, organisationId), nurId ? eq(finanzierungsrunde.id, nurId) : undefined))
     .orderBy(sql`${finanzierungsrunde.datum} DESC`, sql`${finanzierungsrunde.erstelltAm} DESC`, sql`${finanzierungsrunde.id} DESC`);
   if (runden.length === 0) return [];
-  const poolBestand = await ladePoolBestand(tx, runden[0]!.organisationId);
+  const poolBestand = bestandSichtbar ? await ladePoolBestand(tx, organisationId) : null;
   const rundeIds = runden.map((r) => r.id);
   const positionen = await tx
     .select({ p: rundenposition, fondsName: fonds.name, organisationId: organisation.id, organisationName: organisation.name, vehikelName: vehikel.name, klasseName: anteilsklasse.name, instrumentBeteiligungId: instrument.beteiligungId })
@@ -482,6 +483,7 @@ export async function ladeRundenAntwort(tx: Tx, organisationId: string, nurId?: 
         };
       })
       .sort((a, b) => reihenfolge[a.rolle] - reihenfolge[b.rolle] || new Decimal(b.betrag).cmp(a.betrag) || a.id.localeCompare(b.id));
+    const sichtbareAnteilszahl = bestandSichtbar && r.anteileGesamtNach !== null ? new Decimal(r.anteileGesamtNach).toFixed(0) : null;
     return {
       id: r.id,
       organisationId: r.organisationId,
@@ -491,7 +493,7 @@ export async function ladeRundenAntwort(tx: Tx, organisationId: string, nurId?: 
       preMoney: r.preMoney,
       postMoney: r.postMoney,
       preisJeAnteil: r.preisJeAnteil,
-      anteileGesamtNach: r.anteileGesamtNach === null ? null : new Decimal(r.anteileGesamtNach).toFixed(0),
+      anteileGesamtNach: sichtbareAnteilszahl,
       status: r.status,
       abgeschlossenAm: r.abgeschlossenAm?.toISOString() ?? null,
       abgeschlossenVon: r.abgeschlossenVon,
@@ -499,7 +501,7 @@ export async function ladeRundenAntwort(tx: Tx, organisationId: string, nurId?: 
       wiedergeoeffnetVon: r.wiedergeoeffnetVon,
       wiedereroeffnungGrund: r.wiedereroeffnungGrund,
       positionen: eigene,
-      pruefung: r.art === "bruecke" ? KEINE_PRUEFUNG : pruefeRunde(rundenWerte(r), eigene, poolBeiRunde(poolBestand, r.datum, r.id)),
+      pruefung: r.art === "bruecke" ? KEINE_PRUEFUNG : pruefeRunde({ ...rundenWerte(r), anteileGesamtNach: sichtbareAnteilszahl }, eigene, poolBestand ? poolBeiRunde(poolBestand, r.datum, r.id) : null),
     };
   });
 }

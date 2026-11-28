@@ -146,6 +146,131 @@ describe("Captable", () => {
     expect(api.anfragen("POST", pfad)[0]!.koerper).toMatchObject({ anzahl: "-5000" });
   });
 
+  it("speichert datums- und monatsbasierte Vesting-Stufen sowie Leaver-Stufen und kann sie wieder leeren", async () => {
+    const pool = mitarbeiterpoolDaten.daten[0]!;
+    const grant = pool.zuteilungen[0]!;
+    const poolPfad = `/api/v1/organisationen/${ORG_A}/mitarbeiterpools`;
+    const pfad = `${poolPfad}/esop/zuteilungen/z1`;
+    let aktuell = { ...grant, vestingStufen: null as unknown, leaverStufen: null as unknown };
+    const api = spieleApi({
+      [poolPfad]: () => ({ koerper: { daten: [{ ...pool, zuteilungen: [aktuell] }] } }),
+      [`PATCH ${pfad}`]: ({ koerper }) => {
+        const { vestingStufen, leaverStufen } = koerper as typeof aktuell;
+        aktuell = { ...aktuell, vestingStufen, leaverStufen };
+        return { koerper: aktuell };
+      },
+    });
+    rendereApp(kapitalUrl);
+    const nutzer = userEvent.setup();
+    await letzteRegion("Mitarbeiterbeteiligung");
+    const oeffnen = async () => {
+      await nutzer.click((await zeilenAktion("Zuteilung ändern: M-001"))!);
+      return within(await screen.findByRole("dialog", { name: "Zuteilung ändern" }));
+    };
+    let dialog = await oeffnen();
+    await nutzer.click(dialog.getByRole("button", { name: "Vesting-Stufe hinzufügen" }));
+    await nutzer.type(within(dialog.getByRole("group", { name: "Vesting-Stufe 1" })).getByRole("textbox", { name: "Monate seit Vesting-Beginn" }), "12");
+    await nutzer.type(within(dialog.getByRole("group", { name: "Vesting-Stufe 1" })).getByLabelText("Vesting-Anteil (%)"), "25,5");
+    await nutzer.click(dialog.getByRole("button", { name: "Vesting-Stufe hinzufügen" }));
+    const meilenstein = within(dialog.getByRole("group", { name: "Vesting-Stufe 2" }));
+    await nutzer.selectOptions(meilenstein.getByLabelText("Zeitpunkt"), "datum");
+    fireEvent.change(meilenstein.getByLabelText("Meilensteindatum"), { target: { value: "2025-01-01" } });
+    await nutzer.type(meilenstein.getByLabelText("Vesting-Anteil (%)"), "74,5");
+    await nutzer.click(dialog.getByRole("button", { name: "Leaver-Stufe hinzufügen" }));
+    const leaver = within(dialog.getByRole("group", { name: "Leaver-Stufe 1" }));
+    await nutzer.type(leaver.getByLabelText("Mindestmonate seit Zuteilung"), "24");
+    await nutzer.type(leaver.getByLabelText("Verbleibende gevestete Einheiten (%)"), "50");
+    await nutzer.click(dialog.getByRole("button", { name: "Speichern" }));
+    await waitFor(() => expect(api.anfragen("PATCH", pfad)).toHaveLength(1));
+    expect(api.anfragen("PATCH", pfad)[0]?.koerper).toMatchObject({
+      vestingStufen: [{ monate: 12, anteil: "0.255" }, { datum: "2025-01-01", anteil: "0.745" }],
+      leaverStufen: [{ art: "bad_leaver", mindestMonate: 24, anteil: "0.5" }],
+    });
+
+    await screen.findByText("Vesting nach Stufen");
+    dialog = await oeffnen();
+    await nutzer.click(dialog.getByRole("button", { name: "Vesting-Stufe 2 entfernen" }));
+    await nutzer.click(dialog.getByRole("button", { name: "Vesting-Stufe 1 entfernen" }));
+    await nutzer.click(dialog.getByRole("button", { name: "Leaver-Stufe 1 entfernen" }));
+    await nutzer.click(dialog.getByRole("button", { name: "Speichern" }));
+    await waitFor(() => expect(api.anfragen("PATCH", pfad)).toHaveLength(2));
+    expect(api.anfragen("PATCH", pfad)[1]?.koerper).toMatchObject({ vestingStufen: null, leaverStufen: null });
+  });
+
+  it("erfasst, ändert und entfernt eine datierte ESOP-Ausübung", async () => {
+    const pool = mitarbeiterpoolDaten.daten[0]!;
+    const grant = pool.zuteilungen[0]!;
+    const poolPfad = `/api/v1/organisationen/${ORG_A}/mitarbeiterpools`;
+    const pfad = `${poolPfad}/esop/zuteilungen/z1/exercises`;
+    let ausuebungen = grant.ausuebungen;
+    const api = spieleApi({
+      [poolPfad]: () => ({ koerper: { daten: [{ ...pool, zuteilungen: [{ ...grant, ausuebungen }] }] } }),
+      [`POST ${pfad}`]: ({ koerper }) => {
+        ausuebungen = [{ ...(koerper as (typeof ausuebungen)[number]), id: "aus1" }];
+        return { status: 201, koerper: { ...grant, ausuebungen } };
+      },
+      [`PATCH ${pfad}/aus1`]: ({ koerper }) => {
+        ausuebungen = [{ ...ausuebungen[0]!, ...(koerper as (typeof ausuebungen)[number]) }];
+        return { koerper: { ...grant, ausuebungen } };
+      },
+      [`DELETE ${pfad}/aus1`]: () => {
+        ausuebungen = [];
+        return { status: 204, koerper: null };
+      },
+    });
+    rendereApp(kapitalUrl);
+    const nutzer = userEvent.setup();
+    await letzteRegion("Mitarbeiterbeteiligung");
+    await nutzer.click((await zeilenAktion("Zuteilung ändern: M-001"))!);
+    const dialog = within(await screen.findByRole("dialog", { name: "Zuteilung ändern" }));
+    await nutzer.click(dialog.getByRole("button", { name: "Ausübung erfassen" }));
+    const formular = within(dialog.getByRole("form", { name: "Ausübung erfassen" }));
+    fireEvent.change(formular.getByLabelText("Ausübungsdatum"), { target: { value: "2025-06-30" } });
+    await nutzer.type(formular.getByLabelText("Einheiten"), "2000");
+    const preis = formular.getByLabelText("Ausübungspreis je Einheit in Euro");
+    await nutzer.clear(preis);
+    await nutzer.type(preis, "1,75");
+    await nutzer.click(formular.getByRole("button", { name: "Ausübung speichern" }));
+    await nutzer.click(await dialog.findByRole("button", { name: "Ausübung vom 30.06.2025 ändern" }));
+    expect(api.anfragen("POST", pfad)[0]?.koerper).toEqual({ datum: "2025-06-30", anzahl: "2000", preis: "1.75" });
+    const aendern = within(dialog.getByRole("form", { name: "Ausübung vom 30.06.2025 ändern" }));
+    const anzahl = aendern.getByLabelText("Einheiten");
+    await nutzer.clear(anzahl);
+    await nutzer.type(anzahl, "2200");
+    await nutzer.click(aendern.getByRole("button", { name: "Ausübung speichern" }));
+    await waitFor(() => expect(api.anfragen("PATCH", `${pfad}/aus1`)[0]?.koerper).toMatchObject({ anzahl: "2200" }));
+    await nutzer.click(dialog.getByRole("button", { name: "Ausübung vom 30.06.2025 entfernen" }));
+    expect(await dialog.findByText("Noch keine Ausübungen.")).toBeTruthy();
+    expect(api.anfragen("DELETE", `${pfad}/aus1`)).toHaveLength(1);
+  });
+
+  it("ändert Auszahlung und Obergrenze eines VSOP-Pools", async () => {
+    const pool = { ...mitarbeiterpoolDaten.daten[0]!, art: "vsop", bezeichnung: "VSOP", obergrenzeJeEinheit: "2.5000" };
+    const pfad = `/api/v1/organisationen/${ORG_A}/mitarbeiterpools`;
+    const api = spieleApi({
+      [pfad]: { koerper: { daten: [pool] } },
+      [`PATCH ${pfad}/esop`]: { koerper: pool },
+    });
+    rendereApp(kapitalUrl);
+    const nutzer = userEvent.setup();
+    const abschnitt = within(await letzteRegion("Mitarbeiterbeteiligung"));
+    await nutzer.click(await abschnitt.findByRole("button", { name: "Pool-Einstellungen ändern: VSOP" }));
+    let dialog = within(await screen.findByRole("dialog", { name: "Pool-Einstellungen" }));
+    await nutzer.selectOptions(dialog.getByLabelText("Auszahlung beim Exit"), "vor_verteilung");
+    const capLabel = "Maximale Auszahlung je Einheit in Euro (optional)";
+    expect((dialog.getByLabelText(capLabel) as HTMLInputElement).value).toBe("2.5000");
+    await nutzer.click(dialog.getByRole("button", { name: "Speichern" }));
+    await waitFor(() => expect(api.anfragen("PATCH", `${pfad}/esop`)[0]?.koerper)
+      .toMatchObject({ regel: "vor_verteilung", obergrenzeJeEinheit: "2.5000" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Pool-Einstellungen" })).toBeNull());
+    await nutzer.click(abschnitt.getByRole("button", { name: "Pool-Einstellungen ändern: VSOP" }));
+    dialog = within(await screen.findByRole("dialog", { name: "Pool-Einstellungen" }));
+    await nutzer.clear(dialog.getByLabelText(capLabel));
+    await nutzer.click(dialog.getByRole("button", { name: "Speichern" }));
+    await waitFor(() => expect(api.anfragen("PATCH", `${pfad}/esop`)[1]?.koerper).toMatchObject({ obergrenzeJeEinheit: null }));
+  });
+
   it("erfasst einen Austritt an einer bestehenden Zuteilung mit Teilverfall und Rückkauf; die Vorgabe folgt der Art", async () => {
     const pfad = `/api/v1/organisationen/${ORG_A}/mitarbeiterpools/esop/zuteilungen/z1/austritte`;
     const api = spieleApi({ [`POST ${pfad}`]: { status: 201, koerper: mitarbeiterpoolDaten.daten[0]!.zuteilungen[0] } });

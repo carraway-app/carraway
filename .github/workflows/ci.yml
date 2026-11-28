@@ -24,7 +24,7 @@ jobs:
   ci:
     name: lint, typecheck, build, test
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     permissions:
       contents: read
     services:
@@ -80,3 +80,25 @@ jobs:
         env:
           SKIP_PERF: "1"
         run: pnpm test
+
+      - name: Build the release image
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/release/')
+        run: docker build --tag carraway:release-candidate .
+
+      - name: Install Chromium for release checks
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/release/')
+        run: pnpm exec playwright-core install chromium --with-deps --only-shell --no-progress
+
+      - name: Check the release image in the browser
+        id: browser
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/release/')
+        timeout-minutes: 8
+        run: bash scripts/abnahme/kern-image.sh carraway:release-candidate "$RUNNER_TEMP/browser-abnahme-kern"
+
+      - name: Upload browser check results
+        if: always() && steps.browser.conclusion != 'skipped' && steps.browser.conclusion != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: browser-abnahme-kern
+          path: ${{ runner.temp }}/browser-abnahme-kern/
+          retention-days: 14

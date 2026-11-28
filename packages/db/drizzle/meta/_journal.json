@@ -708,6 +708,13 @@
       "when": 1795813229434,
       "tag": "0100_idempotenz_einmalige_antworten",
       "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "7",
+      "when": 1795824985388,
+      "tag": "0101_mitarbeiterbeteiligung_erweitern",
+      "breakpoints": true
     }
   ]
 }

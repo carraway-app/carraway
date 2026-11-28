@@ -1,3 +1,5 @@
+import { portfolioAnApi } from "../portfolio-vertrag";
+import { pruefePortfolio } from "../portfolio-pruefung";
 import { pruefeFonds } from "../fonds-pruefung";
 import { fondsAnApi } from "../fonds-vertrag";
 import { Hono } from "hono";
@@ -21,6 +23,7 @@ import { Decimal } from "@carraway/rechenkern";
 import { heute, ladeFonds, mindestensEins, MINDESTENS_EIN_FELD, schreibe, textEingabe } from "../schreiben";
 import { hatPostgresCode } from "../szenarien/konstanten";
 import { lese } from "../zeitlimit";
+import { beteiligungEingabe, legeBeteiligungDirektAn, sucheBeteiligungsunternehmen } from "../portfolio/beteiligung-anlegen";
 import { periodensperreRouten } from "./periodensperre";
 import { pruefeNeuesZeichnungskapital } from "./investoren";
 import { rollenRouten } from "./benutzer";
@@ -31,6 +34,7 @@ import { fondsJournalRouten } from "./journal";
 /** Abfrage der Fondsliste; nicht im Routentyp deklariert (bestehende Aufrufer rufen ohne sie auf), aber in der OpenAPI-Beschreibung. */
 export const fondsListenAbfrage = z.object({ changedSince: geaendertSeitEingabe });
 const idSchema = z.object({ id: z.uuid() });
+const unternehmenAbfrage = z.object({ q: z.string().trim().min(2).max(200) });
 const stichtagSchema = z.object({ stichtag: z.iso.date().optional() });
 /** Wissensstand als Zeitstempel mit Zeitzone, z. B. `2026-11-20T10:00:00Z`. */
 const uebersichtAbfrage = z.object({ stichtag: z.iso.date().optional(), stand: z.iso.datetime({ offset: true }).optional() });
@@ -200,6 +204,24 @@ export function fondsRouten(db: Db) {
         return { fondsId: id, ...(await ladeZinsansicht(tx, { fondsId: id }, tag, stand)) };
       });
       return c.json(fondsAnApi(ergebnis), 200);
+    })
+    .get("/:id/investment-companies", pruefePortfolio("param", idSchema, { query: unternehmenAbfrage }), pruefePortfolio("query", unternehmenAbfrage), async (c) => {
+      const { id } = c.req.valid("param");
+      const { q } = c.req.valid("query");
+      const treffer = await lese(db, async (tx) => {
+        await ladeFonds(tx, id);
+        return sucheBeteiligungsunternehmen(tx, id, q);
+      });
+      return c.json(portfolioAnApi(treffer), 200);
+    })
+    .post("/:id/investments", pruefePortfolio("param", idSchema), pruefePortfolio("json", beteiligungEingabe), async (c) => {
+      const { id } = c.req.valid("param");
+      const eingabe = c.req.valid("json");
+      const neu = await schreibe(db, c, async (tx, protokoll) => {
+        await ladeFonds(tx, id);
+        return legeBeteiligungDirektAn(tx, protokoll, id, eingabe);
+      });
+      return c.json(portfolioAnApi(neu), 201);
     })
     .route("/", fondsJournalRouten(db))
     .route("/:id", fondsBewertungRouten(db))

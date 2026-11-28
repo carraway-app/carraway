@@ -77,6 +77,7 @@ export const EXPORT_TABELLEN: readonly Tabelle[] = [
   // Namen von Begünstigten bleiben im Unternehmen: der Export trägt nur die Kennung (Pseudonym).
   { name: "mitarbeiterzuteilung", ordnung: ["id"], ohne: ["name"] },
   { name: "zuteilung_austritt", ordnung: ["id"] },
+  { name: "zuteilung_ausuebung", ordnung: ["id"] },
   { name: "runde_buchung", ordnung: ["vorgang_id"] },
   { name: "vorgang_runde", ordnung: ["vorgang_id"] },
   { name: "darlehen_kondition", ordnung: ["id"] },

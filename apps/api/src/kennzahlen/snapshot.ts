@@ -81,6 +81,12 @@ export async function ladeSnapshot(tx: Abfrage, fondsId: string, stichtag: strin
       ) AS t
     ) e
     WHERE s.fonds_id = ${fondsId} AND s.stichtag = ${stichtag}::date AND s.daten ? 'portfoliowert'
+      -- Neue Beteiligungsstammdaten gehören sofort in die Liste, auch ohne Buchung und bei bestehendem Snapshot.
+      AND NOT EXISTS (
+        SELECT 1 FROM beteiligung b
+        LEFT JOIN jsonb_to_recordset(s.daten->'beteiligungen') AS gespeichert(id uuid) ON gespeichert.id = b.id
+        WHERE b.fonds_id = s.fonds_id AND b.erstinvestment <= s.stichtag AND gespeichert.id IS NULL
+      )
       AND NOT EXISTS (SELECT 1 FROM saldenlauf l WHERE l.fonds_id = s.fonds_id AND l.zeitraum_bis = s.stichtag
         AND greatest(l.uebernommen_am, l.ersetzt_am) > coalesce(s.stand_bis, '-infinity'::timestamptz))`);
   const zeile = rows[0];

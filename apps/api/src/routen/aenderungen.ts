@@ -29,15 +29,29 @@ export const FEED_TABELLEN = EXPORT_TABELLEN.map((t) => t.name).filter((n) => !N
  */
 const OHNE_FONDS = ["organisation", "vehikel", "person", "kontaktrolle", "organisationsbeziehung", "deal", "deal_phasenwechsel", "beschluss", "aktivitaet", "kennzahl_definition", "foerderprogramm", "melde_definition", "organisation_meldedaten"];
 
-/**
- * Sichtbarkeit von Runden im Feed wie in den Handlern (`verwandteFonds`): Fonds mit Beteiligung am Unternehmen, Fonds mit einer Position in
- * einer abgeschlossenen Runde des Unternehmens oder mit einer Position in genau dieser Runde (Entwurf).
- */
-function rundeSichtbar(fonds: string[] | "alle", rundeId: ReturnType<typeof sql>, organisationId: ReturnType<typeof sql>) {
-  const f = liste(fonds === "alle" ? [] : fonds, "uuid");
+const organisationDerRunde = sql`coalesce(a.nachher->>'organisationId', a.vorher->>'organisationId')::uuid`;
+
+/** Dieselbe Beziehung zum Unternehmen wie bei den Runden im Portfolio. */
+function unternehmenSichtbar(fonds: string[], organisationId: ReturnType<typeof sql>) {
+  const f = liste(fonds, "uuid");
   return sql`(EXISTS (SELECT 1 FROM beteiligung sb WHERE sb.fonds_id = ANY(${f}) AND sb.organisation_id = ${organisationId})
-    OR EXISTS (SELECT 1 FROM rundenposition sp WHERE sp.runde_id = ${rundeId} AND sp.fonds_id = ANY(${f}))
-    OR EXISTS (SELECT 1 FROM rundenposition sp2 JOIN finanzierungsrunde sr ON sr.id = sp2.runde_id WHERE sr.organisation_id = ${organisationId} AND sr.status = 'abgeschlossen' AND sp2.fonds_id = ANY(${f})))`;
+    OR EXISTS (SELECT 1 FROM rundenposition sp JOIN finanzierungsrunde sr ON sr.id = sp.runde_id
+      WHERE sr.organisation_id = ${organisationId} AND sr.status = 'abgeschlossen' AND sp.fonds_id = ANY(${f})))`;
+}
+
+/** Die eigene Position gewährt Zugriff auf die Runde, einschließlich ihres Entwurfs. */
+function rundeSichtbar(fonds: string[], rundeId: ReturnType<typeof sql>, organisationId: ReturnType<typeof sql>) {
+  return sql`(${unternehmenSichtbar(fonds, organisationId)}
+    OR EXISTS (SELECT 1 FROM rundenposition sp WHERE sp.runde_id = ${rundeId} AND sp.fonds_id = ANY(${liste(fonds, "uuid")})))`;
+}
+
+/** Gespeicherte Anteilszahlen können aus dem Pool abgeleitet sein. Das gilt auch für ältere Änderungen. */
+export function feedStaende(fonds: string[] | "alle") {
+  if (fonds === "alle") return sql`a.vorher, a.nachher`;
+  const schuetzen = sql`a.tabelle = 'finanzierungsrunde' AND NOT ${unternehmenSichtbar(fonds, organisationDerRunde)}`;
+  return sql`
+    CASE WHEN ${schuetzen} THEN a.vorher - 'anteileGesamtNach' - 'anteile_gesamt_nach' ELSE a.vorher END AS vorher,
+    CASE WHEN ${schuetzen} THEN a.nachher - 'anteileGesamtNach' - 'anteile_gesamt_nach' ELSE a.nachher END AS nachher`;
 }
 
 /**
@@ -61,7 +75,7 @@ export function feedSichtbar(fonds: string[] | "alle") {
                           ELSE coalesce(a.nachher->>'beteiligungId', a.vorher->>'beteiligungId')::uuid END
           AND z.fonds_id = ANY(${ids}) AND (z.zielfonds_id IS NULL OR z.zielfonds_id = ANY(${ids})))
     ELSE a.fonds_id = ANY(${ids}) END OR (a.fonds_id IS NULL AND a.tabelle = ANY(${liste(OHNE_FONDS, "text")}) AND aenderung_fonds_aus_staenden(a.vorher, a.nachher) IS NULL AND ${aktivitaetSichtbar})
-            OR (a.tabelle = 'finanzierungsrunde' AND ${rundeSichtbar(fonds, sql`a.datensatz_id`, sql`coalesce(a.nachher->>'organisationId', a.vorher->>'organisationId')::uuid`)})
+            OR (a.tabelle = 'finanzierungsrunde' AND ${rundeSichtbar(fonds, sql`a.datensatz_id`, organisationDerRunde)})
             OR (a.tabelle = 'rundenposition_zahlung' AND EXISTS (SELECT 1 FROM rundenposition zp JOIN finanzierungsrunde zr ON zr.id = zp.runde_id
               WHERE zp.id::text = coalesce(a.nachher->>'positionId', a.vorher->>'positionId') AND ${rundeSichtbar(fonds, sql`zr.id`, sql`zr.organisation_id`)}))
             OR (a.tabelle = 'anteilsklasse' AND EXISTS (SELECT 1 FROM beteiligung b WHERE b.fonds_id = ANY(${liste(fonds, "uuid")}) AND b.organisation_id::text = coalesce(a.nachher->>'organisationId', a.nachher->>'organisation_id', a.vorher->>'organisationId', a.vorher->>'organisation_id'))))`;
@@ -97,7 +111,7 @@ export function aenderungenRouten(db: Db) {
     const position = cursor ? dekodiere(cursor) : null;
     const zeilen = await lese(db, async (tx) => {
       const { rows } = await tx.execute<{ id: string; am: string; akteur: string; akteur_name: string | null; aktion: string; tabelle: string; datensatz_id: string; fonds_id: string | null; vorher: unknown; nachher: unknown }>(sql`
-        SELECT a.id, to_char(a.am AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS am, a.akteur, a.akteur_name, a.aktion, a.tabelle, a.datensatz_id, a.fonds_id, a.vorher, a.nachher
+        SELECT a.id, to_char(a.am AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS am, a.akteur, a.akteur_name, a.aktion, a.tabelle, a.datensatz_id, a.fonds_id, ${feedStaende(fonds)}
         FROM aenderung a
         WHERE a.aktion <> 'gelesen'
           AND a.tabelle = ANY(${liste(tabelle ? [tabelle] : FEED_TABELLEN, "text")})

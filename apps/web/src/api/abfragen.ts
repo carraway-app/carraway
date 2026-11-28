@@ -71,8 +71,8 @@ const ladeMitarbeiterpools = async (organisationId: string, stichtag?: string) =
   (await auspackenPortfolio(api.api.v1.organizations[":id"]["employee-pools"].$get, { param: { id: organisationId }, query: stichtag ? { stichtag } : {} })).daten;
 const ladeAnteilsklassen = async (organisationId: string) => (await auspackenPortfolio(api.api.v1.organizations[":id"]["share-classes"].$get, { param: { id: organisationId } })).daten;
 const ladeUebertragungen = async (organisationId: string) => (await auspacken(api.api.v1.organizations[":id"]["share-transfers"].$get({ param: { id: organisationId } }))).data;
-const ladeKurve = (id: string, bis: string, punkte: number, exitdatum: string) =>
-  auspackenPortfolio(api.api.v1.investments[":id"].waterfall.curve.$get, { param: { id }, query: { bis, punkte: String(punkte), exitdatum } });
+const ladeKurve = (id: string, bis: string, punkte: number, exitdatum: string, zweiterAusloeser = true) =>
+  auspackenPortfolio(api.api.v1.investments[":id"].waterfall.curve.$get, { param: { id }, query: { bis, punkte: String(punkte), exitdatum, zweiterAusloeser: zweiterAusloeser ? "true" : "false" } });
 
 const ladeVehikelAuswahl = async (suche: string) => (await ausFonds(api.api.v1.vehicles.$get, { query: suche ? { suche } : {} })).daten;
 const ladeVehikelDesInvestors = async (organisationId: string) => (await ausFonds(api.api.v1.organizations[":id"].vehicles.$get, { param: { id: organisationId } })).daten;
@@ -268,8 +268,8 @@ export const uebertragungen = (organisationId: string) =>
 export const anteilsklassen = (organisationId: string) =>
   queryOptions({ queryKey: [...schluessel.organisationen, "anteilsklassen", organisationId], queryFn: () => ladeAnteilsklassen(organisationId) });
 /** Rückfluss des Fonds über einen Bereich von Exitwerten (reine Berechnung; ändert sich mit den Klassen, daher unter `beteiligungen`). */
-export const wasserfallKurve = (id: string, bis: string, punkte: number, exitdatum: string) =>
-  queryOptions({ queryKey: [...schluessel.beteiligungen, "kurve", id, bis, punkte, exitdatum], queryFn: () => ladeKurve(id, bis, punkte, exitdatum), placeholderData: keepPreviousData });
+export const wasserfallKurve = (id: string, bis: string, punkte: number, exitdatum: string, zweiterAusloeser = true) =>
+  queryOptions({ queryKey: [...schluessel.beteiligungen, "kurve", id, bis, punkte, exitdatum, zweiterAusloeser], queryFn: () => ladeKurve(id, bis, punkte, exitdatum, zweiterAusloeser), placeholderData: keepPreviousData });
 
 /** Alle Runden des Unternehmens, Entwürfe eingeschlossen (unter `beteiligungen`, damit Buchungen aus einem Abschluss die Abfrage entwerten). */
 /** Auswahlliste der Vehikel mit Investor (Runden- und Positionsdialoge); gesucht in Vehikel- und Investornamen. */

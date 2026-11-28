@@ -2,7 +2,7 @@ import { and, asc, desc, eq, inArray, isNull, lte } from "drizzle-orm";
 import { anteilsklasse, anteilsuebertragung, beteiligung, finanzierungsrunde, fonds, instrument, mitarbeiterpool, mitarbeiterzuteilung, optionsscheinAusuebung, organisation, poolAenderung, rundenposition, vehikel } from "@carraway/db";
 import { aufCent, aufteilung, Decimal, einheitenBeimExit, optionsscheinStand, vergleiche, wendeUebertragungenAn, type Anteilsklasse as KernKlasse, type Inhaberzeile, type Rechenschritt } from "@carraway/rechenkern";
 import { Fachfehler } from "../fehler";
-import { kernZuteilung, ladeAustritte, mitAustritten, standDesPools } from "./pool";
+import { ausuebungenVon, kernZuteilung, mitZuteilungsereignissen, standDesPools } from "./pool";
 import type { Tx } from "../zeitlimit";
 
 /**
@@ -80,7 +80,7 @@ export interface OptionsscheinZeile {
 export interface MitarbeiterZeile {
   id: string;
   zuteilungId: string | null;
-  pool: { id: string; bezeichnung: string; art: "esop" | "vsop"; regel: "wie_anteile" | "anteilig" };
+  pool: { id: string; bezeichnung: string; art: "esop" | "vsop"; regel: typeof mitarbeiterpool.$inferSelect.regel; obergrenzeJeEinheit: string | null };
   kategorie: string;
   bezeichnung: string | null;
   anzahl: string;
@@ -111,7 +111,7 @@ export interface Kapital {
 }
 
 /** Lädt Runden und Positionen des Unternehmens der Beteiligung bis `stichtag` (einschließlich). */
-export async function ladeKapital(tx: Tx, b: { fondsId: string; organisationId: string }, stichtag: string): Promise<Kapital> {
+export async function ladeKapital(tx: Tx, b: { fondsId: string; organisationId: string }, stichtag: string, zweiterAusloeser = true): Promise<Kapital> {
   const [org] = await tx.select({ id: organisation.id, name: organisation.name }).from(organisation).where(eq(organisation.id, b.organisationId));
   if (!org) throw new Fachfehler(404, "organization_not_found", "Organization not found.");
   const runden = await tx
@@ -158,7 +158,7 @@ export async function ladeKapital(tx: Tx, b: { fondsId: string; organisationId: 
   if (letzte && rest.greaterThan(0)) {
     zeilen.unshift({ id: STAMM_ID, halter: { art: "stamm", id: null, name: "", vehikel: null }, klasseId: null, runde: null, anteile: rest.toFixed(0), investiert: "0.00", diesesFonds: false, ausgegeben: true });
   }
-  const mp = await ladeMitarbeiterbeteiligung(tx, b.organisationId, stichtag, letzte?.datum ?? null);
+  const mp = await ladeMitarbeiterbeteiligung(tx, b.organisationId, stichtag, letzte?.datum ?? null, zweiterAusloeser);
   zeilen.push(...mp.ausgegeben, ...os.ausgeuebt);
   const gesamt = rundenGesamt.plus(mp.ausgegeben.reduce((s, z) => s.plus(z.anteile), new Decimal(0))).plus(os.nachRunde);
   const uebertragen = await wendeUebertragungenAnKapital(tx, b, stichtag, zeilen);
@@ -286,13 +286,13 @@ async function wendeUebertragungenAnKapital(tx: Tx, b: { fondsId: string; organi
  * Pools, Änderungen und Zuteilungen der Mitarbeiterbeteiligung eines Unternehmens zum Stichtag: ausgeübte ESOP-Optionen nach der letzten
  * Runde als ausgegebene Zeile je Pool, Pool zugeteilt und frei je Pool (voll verwässert), Zuteilungen mit den Einheiten zum Stichtag.
  */
-async function ladeMitarbeiterbeteiligung(tx: Tx, organisationId: string, stichtag: string, letzteRunde: string | null): Promise<{ ausgegeben: KapitalZeile[]; pool: KapitalZeile[]; mitarbeiter: MitarbeiterZeile[] }> {
+async function ladeMitarbeiterbeteiligung(tx: Tx, organisationId: string, stichtag: string, letzteRunde: string | null, zweiterAusloeser: boolean): Promise<{ ausgegeben: KapitalZeile[]; pool: KapitalZeile[]; mitarbeiter: MitarbeiterZeile[] }> {
   const pools = await tx.select().from(mitarbeiterpool).where(eq(mitarbeiterpool.organisationId, organisationId)).orderBy(asc(mitarbeiterpool.erstelltAm), asc(mitarbeiterpool.id));
   if (pools.length === 0) return { ausgegeben: [], pool: [], mitarbeiter: [] };
   const ids = pools.map((p) => p.id);
   const aenderungen = await tx.select().from(poolAenderung).where(inArray(poolAenderung.poolId, ids));
   const zeilen = await tx.select().from(mitarbeiterzuteilung).where(inArray(mitarbeiterzuteilung.poolId, ids)).orderBy(asc(mitarbeiterzuteilung.zugeteiltAm), asc(mitarbeiterzuteilung.erstelltAm), asc(mitarbeiterzuteilung.id));
-  const zuteilungen = mitAustritten(zeilen, await ladeAustritte(tx, zeilen.map((z) => z.id)));
+  const zuteilungen = await mitZuteilungsereignissen(tx, zeilen);
   const ausgegeben: KapitalZeile[] = [];
   const pool: KapitalZeile[] = [];
   const mitarbeiter: MitarbeiterZeile[] = [];
@@ -302,10 +302,10 @@ async function ladeMitarbeiterbeteiligung(tx: Tx, organisationId: string, sticht
     const stand = standDesPools(p, aenderungen.filter((a) => a.poolId === p.id), eigene, stichtag);
     // Ausgeübte ESOP-Optionen nach der letzten Runde: ausgegebene Stammanteile, bis eine spätere Runde sie in ihrer Gesamtzahl enthält.
     if (p.art === "esop" && letzteRunde) {
-      const nach = eigene.filter((z) => z.status === "ausgeuebt" && z.statusAm && vergleiche(z.statusAm, stichtag) <= 0 && vergleiche(z.statusAm, letzteRunde) > 0);
+      const nach = eigene.flatMap(ausuebungenVon).filter((a) => vergleiche(a.datum, stichtag) <= 0 && vergleiche(a.datum, letzteRunde) > 0);
       const anteile = nach.reduce((s, z) => s.plus(z.anzahl), new Decimal(0));
       if (anteile.greaterThan(0)) {
-        const investiert = nach.reduce((s, z) => s.plus(new Decimal(z.anzahl).times(z.basispreis)), new Decimal(0));
+        const investiert = nach.reduce((s, z) => s.plus(new Decimal(z.anzahl).times(z.preis)), new Decimal(0));
         ausgegeben.push({ id: `ausgeuebt:${p.id}`, halter: { art: "ausgeuebt", id: p.id, name: p.bezeichnung, vehikel: null }, ...nullZeile, investiert: investiert.toFixed(2), anteile: anteile.toFixed(0), ausgegeben: true });
       }
     }
@@ -314,21 +314,20 @@ async function ladeMitarbeiterbeteiligung(tx: Tx, organisationId: string, sticht
     // Grobe Erfassung (Näherung): die vergebenen Einheiten nehmen voll am Exit teil, mit dem mittleren Basispreis.
     if (p.erfassung === "grob") {
       if (stand.ausstehend.greaterThan(0)) {
-        mitarbeiter.push({ id: `pool:${p.id}:grob`, zuteilungId: null, pool: { id: p.id, bezeichnung: p.bezeichnung, art: p.art, regel: p.regel }, kategorie: "sonstige", bezeichnung: null, anzahl: stand.ausstehend.toFixed(0), basispreis: new Decimal(p.basispreisMittel ?? 0).toFixed(4), einheiten: stand.ausstehend.toFixed(0) });
+        mitarbeiter.push({ id: `pool:${p.id}:grob`, zuteilungId: null, pool: { id: p.id, bezeichnung: p.bezeichnung, art: p.art, regel: p.regel, obergrenzeJeEinheit: p.obergrenzeJeEinheit }, kategorie: "sonstige", bezeichnung: null, anzahl: stand.ausstehend.toFixed(0), basispreis: new Decimal(p.basispreisMittel ?? 0).toFixed(4), einheiten: stand.ausstehend.toFixed(0) });
       }
       continue;
     }
     for (const z of eigene) {
       if (vergleiche(z.zugeteiltAm, stichtag) > 0) continue;
       const kern = kernZuteilung(z);
-      const einheiten = einheitenBeimExit(kern, stichtag);
-      if ((z.status === "verfallen" || z.status === "ausgeuebt") && z.statusAm && vergleiche(z.statusAm, stichtag) <= 0) continue;
+      const einheiten = einheitenBeimExit(kern, stichtag, zweiterAusloeser);
       // Nach einem Austritt ganz verfallen oder zurückgekauft: wie eine verfallene Zuteilung ohne Zeile.
       if (aufteilung(kern, stichtag).verbleibend.isZero()) continue;
       mitarbeiter.push({
         id: `zuteilung:${z.id}`,
         zuteilungId: z.id,
-        pool: { id: p.id, bezeichnung: p.bezeichnung, art: p.art, regel: p.regel },
+        pool: { id: p.id, bezeichnung: p.bezeichnung, art: p.art, regel: p.regel, obergrenzeJeEinheit: p.obergrenzeJeEinheit },
         kategorie: z.kategorie,
         bezeichnung: z.bezeichnung,
         anzahl: new Decimal(z.anzahl).toFixed(0),
@@ -370,7 +369,7 @@ export function kernEingabe(k: Kapital, anonym: ReadonlySet<string> = new Set())
     })),
     inhaber: [
       ...k.zeilen.filter((z) => z.ausgegeben).map((z) => ({ id: z.id, name: name(z.id, haltername(z.halter)), klasseId: z.klasseId, anteile: z.anteile, investiert: z.investiert, datum: z.runde?.datum ?? z.datum ?? null })),
-      ...k.mitarbeiter.map((m) => ({ id: m.id, name: anonym.has(m.id) ? m.pool.bezeichnung : (m.bezeichnung ?? m.pool.bezeichnung), klasseId: null, anteile: m.einheiten, investiert: "0", datum: null, mitarbeiter: { basispreis: m.basispreis, regel: m.pool.regel } })),
+      ...k.mitarbeiter.map((m) => ({ id: m.id, name: anonym.has(m.id) ? m.pool.bezeichnung : (m.bezeichnung ?? m.pool.bezeichnung), klasseId: null, anteile: m.einheiten, investiert: "0", datum: null, mitarbeiter: { basispreis: m.basispreis, regel: m.pool.regel, obergrenzeJeEinheit: m.pool.obergrenzeJeEinheit } })),
       // Nicht ausgeübte Optionsscheine: wie eine Option mit dem Ausübungspreis als Basispreis (ohne Klasse, Regel `wie_anteile`).
       ...k.optionsscheine.map((o) => ({ id: o.id, name: name(o.id, o.name), klasseId: null, anteile: o.anteile, investiert: "0", datum: null, mitarbeiter: { basispreis: o.ausuebungspreis, regel: "wie_anteile" as const, art: "optionsschein" as const } })),
     ],

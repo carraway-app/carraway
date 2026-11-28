@@ -1,7 +1,7 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
-import { BET_ID, bewertungZeile, FONDS_ID, fehler, feldImStichtagMenue, fondsDaten, rendereApp, spieleApi, uebersichtDaten } from "../test/hilfen";
+import { alsRolle, BET_ID, bewertungZeile, FONDS_ID, fehler, feldImStichtagMenue, fondsDaten, ORG_A, rendereApp, spieleApi, uebersichtDaten } from "../test/hilfen";
 
 const url = `/funds/${FONDS_ID}`;
 const ohneGeschuetztesLeerzeichen = (text: string | null) => (text ?? "").replace(/\s/g, " ");
@@ -35,6 +35,54 @@ describe("Portfolio", () => {
     expect(await screen.findByText("Beispielfonds I", { selector: ".app-kontext__titel" })).toBeTruthy();
     // Fondsliste und Übersicht werden je einmal geholt, nicht mehrfach
     expect(fetch.mock.calls.filter(([u]) => String(u).includes("/overview"))).toHaveLength(1);
+  });
+
+  it("legt mit Portfolio-Rechten eine Beteiligung an und springt zum wirksamen Stichtag", async () => {
+    const pfad = `/api/v1/funds/${FONDS_ID}`;
+    const datum = "2026-10-07";
+    const api = spieleApi({
+      "/api/v1/me": alsRolle("bearbeiter", { bereiche: ["portfolio"], bereicheJeFonds: { [FONDS_ID]: { portfolio: "bearbeiter" } } }),
+      [`${pfad}/investment-companies`]: ({ query }) => {
+        expect(query.get("q")).toBe("Alpha");
+        return { koerper: [{ id: ORG_A, name: "Alpha Energie", city: "Hamburg", investmentId: null }] };
+      },
+      [`POST ${pfad}/investments`]: { status: 201, koerper: { id: BET_ID, fundId: FONDS_ID, initialInvestment: datum } },
+    });
+    const app = rendereApp(url);
+    const nutzer = userEvent.setup();
+    await nutzer.click(await screen.findByRole("button", { name: "Beteiligung anlegen" }));
+    const dialog = within(screen.getByRole("dialog", { name: "Beteiligung anlegen" }));
+    expect((dialog.getByRole("combobox", { name: "Fonds" }) as HTMLSelectElement).value).toBe(FONDS_ID);
+    const firma = dialog.getByRole("combobox", { name: "Beteiligungsunternehmen" });
+    await nutzer.type(firma, "Alpha");
+    await dialog.findByRole("option", { name: /Alpha Energie/ });
+    await nutzer.keyboard("{Enter}");
+    fireEvent.change(dialog.getByLabelText("Erstinvestment"), { target: { value: datum } });
+    await nutzer.click(dialog.getByRole("button", { name: "Speichern" }));
+    await waitFor(() => expect(app.router.state.location.search).toMatchObject({ hervorgehoben: BET_ID, stichtag: datum }));
+    expect(api.anfragen("POST", `${pfad}/investments`)[0]?.koerper).toEqual({ organizationId: ORG_A, instrument: "direct_equity", initialInvestment: datum });
+    expect(api.aufrufe.some((x) => x.pfad.startsWith("/api/v1/deals"))).toBe(false);
+  });
+
+  it("verweist bei der Auswahl eines bereits gehaltenen Unternehmens auf die Beteiligung", async () => {
+    spieleApi({
+      [`/api/v1/funds/${FONDS_ID}/investment-companies`]: { koerper: [{ id: ORG_A, name: "Alpha Energie", city: null, investmentId: BET_ID }] },
+    });
+    rendereApp(url);
+    const nutzer = userEvent.setup();
+    await nutzer.click(await screen.findByRole("button", { name: "Beteiligung anlegen" }));
+    const dialog = within(screen.getByRole("dialog", { name: "Beteiligung anlegen" }));
+    await nutzer.type(dialog.getByRole("combobox", { name: "Beteiligungsunternehmen" }), "Alpha");
+    await nutzer.click(await dialog.findByRole("option", { name: /Alpha Energie/ }));
+    expect(dialog.getByRole("link", { name: "Vorhandene Beteiligung öffnen" }).getAttribute("href")).toBe(`/investments/${BET_ID}`);
+    expect((dialog.getByRole("button", { name: "Speichern" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("bietet die Anlage mit reinen Leserechten nicht an", async () => {
+    spieleApi({ "/api/v1/me": alsRolle("betrachter") });
+    rendereApp(url);
+    await screen.findByRole("heading", { name: "3 Beteiligungen" });
+    expect(screen.queryByRole("button", { name: "Beteiligung anlegen" })).toBeNull();
   });
 
   it("zeigt den Portfoliowert auch bei fehlenden Bilanzsalden", async () => {

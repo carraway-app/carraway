@@ -57,6 +57,75 @@ async function poolMitZuteilungen() {
   return { poolId: p.id as string, z1: (await json(z1)).id as string };
 }
 
+describe("Vertragsszenarien", () => {
+  it("rechnet Stufen, Leaver-Schwelle und den zweiten Auslöser bis zum Exitdatum", async () => {
+    const p = await json(await post(pfad, esop, bearbeiterHalter));
+    const zuteilungen = `${pfad}/${p.id}/zuteilungen`;
+    const grant = {
+      kategorie: "mitarbeitende", anzahl: "1000", zugeteiltAm: "2025-03-01", cliffMonate: 0,
+      vestingStufen: [{ monate: 6, anteil: "0.4" }, { datum: "2027-03-01", anteil: "0.6" }],
+      leaverStufen: [{ art: "bad_leaver", mindestMonate: 6, anteil: "0.5" }],
+      beschleunigung: "1", ausloeser: "doppelt",
+    };
+    const falsch = await post(zuteilungen, { ...grant, vestingStufen: [{ monate: 1, anteil: "0.5" }] }, bearbeiterHalter);
+    expect(falsch.status).toBe(400);
+    expect((await json(falsch)).error.fields[0].code).toBe("invalid_vesting_schedule");
+    const neu = await post(zuteilungen, grant, bearbeiterHalter);
+    expect(neu.status).toBe(201);
+    const z = await json(neu);
+    const austritt = await post(`${zuteilungen}/${z.id}/austritte`, { art: "bad_leaver", austrittAm: "2025-09-10", anzahl: "500" }, bearbeiterHalter);
+    expect(austritt.status).toBe(201);
+    const stand = await json(await get(`${pfad}?stichtag=2026-01-01`, betrachterHalter));
+    expect(stand.daten[0].zuteilungen[0]).toMatchObject({ gevestet: "300", beimExit: "600", verfallen: "400" });
+    const eingabe = { exitdatum: "2026-01-01", exitwert: "12500000" };
+    const mit = await json(await post(`/beteiligungen/${ID.eigen}/wasserfall`, eingabe, betrachterHalter));
+    const ohne = await json(await post(`/beteiligungen/${ID.eigen}/wasserfall`, { ...eingabe, zweiterAusloeser: false }, betrachterHalter));
+    const anteile = (w: typeof mit) => w.zeilen.find((x: { id: string }) => x.id === `zuteilung:${z.id}`)?.anteile;
+    expect(anteile(mit)).toBe("600");
+    expect(anteile(ohne)).toBe("300");
+    const kurve = `/beteiligungen/${ID.eigen}/wasserfall/kurve?exitdatum=2026-01-01&bis=10000000`;
+    expect(await json(await get(`${kurve}&zweiterAusloeser=false`, betrachterHalter)))
+      .not.toEqual(await json(await get(kurve, betrachterHalter)));
+  });
+
+  it("führt Teil-Ausübungen als ausgegebene Anteile und schützt die Historie vor unvereinbaren Änderungen", async () => {
+    const p = await json(await post(pfad, esop, bearbeiterHalter));
+    const antwort = await post(`${pfad}/${p.id}/zuteilungen`, {
+      kategorie: "mitarbeitende", anzahl: "1000", zugeteiltAm: "2025-03-01", cliffMonate: 0, vestingMonate: 12,
+    }, bearbeiterHalter);
+    expect(antwort.status).toBe(201);
+    const z = await json(antwort);
+    const pfadZuteilung = `/api/v1/organizations/${ID.orgA}/employee-pools/${p.id}/grants/${z.id}`;
+    const ausuebungen = `${pfadZuteilung}/exercises`;
+    const daten = { date: "2025-10-01", count: "400", price: "2.50" };
+    expect((await post(ausuebungen, daten, betrachterHalter)).status).toBe(403);
+    const eintrag = await post(ausuebungen, daten, bearbeiterHalter);
+    expect(eintrag.status).toBe(201);
+    const a = await json(eintrag);
+    expect(a).toMatchObject({ exercised: "400", exercises: [{ date: "2025-10-01", count: "400", price: "2.5000" }] });
+    const id = a.exercises[0].id as string;
+    expect((await post(ausuebungen, { ...daten, count: "800" }, bearbeiterHalter)).status).toBe(400);
+    expect((await patch(pfadZuteilung, { vestingMonths: 48 }, bearbeiterHalter)).status).toBe(400);
+    expect((await patch(`${ausuebungen}/${id}`, { count: "350" }, bearbeiterHalter)).status).toBe(200);
+    const stand = await json(await get(`${pfad}?stichtag=2025-11-01`, betrachterHalter));
+    expect(stand.daten[0].stand).toMatchObject({ ausgeuebt: "350", ausstehend: "650", vollVerwaessert: "99650" });
+    const kapital = await json(await get(`/beteiligungen/${ID.eigen}/kapitaltabelle?stichtag=2025-11-01`, betrachterHalter));
+    expect(kapital.anteileGesamt).toBe("1250350");
+    expect(kapital.zeilen).toContainEqual(expect.objectContaining({ id: `ausgeuebt:${p.id}`, anteile: "350", investiert: "875.00" }));
+    expect((await entferne(`${ausuebungen}/${id}`, undefined, bearbeiterHalter)).status).toBe(200);
+    expect((await protokollZeilen(db, "zuteilung_ausuebung")).map((e) => e.aktion)).toEqual(["anlegen", "aendern", "loeschen"]);
+  });
+
+  it("wendet eine Obergrenze bei der VSOP-Vorabzahlung auch in grober Erfassung an", async () => {
+    const antwort = await post(pfad, { ...esop, art: "vsop", regel: "vor_verteilung", vergeben: "100", obergrenzeJeEinheit: "1.50" }, bearbeiterHalter);
+    expect(antwort.status).toBe(201);
+    const p = await json(antwort);
+    expect(p).toMatchObject({ regel: "vor_verteilung", obergrenzeJeEinheit: "1.5000" });
+    const w = await json(await post(`/beteiligungen/${ID.eigen}/wasserfall`, { exitwert: "12500000", exitdatum: "2026-01-01" }, betrachterHalter));
+    expect(w.zeilen).toContainEqual(expect.objectContaining({ id: `pool:${p.id}:grob`, gesamt: "150.00" }));
+  });
+});
+
 describe("Pools und Zuteilungen", () => {
   it("legt einen Pool an, teilt nach Kategorie zu (ohne Namen), zeigt Stand und Vesting und protokolliert", async () => {
     const antwort = await post(pfad, esop, bearbeiterHalter);

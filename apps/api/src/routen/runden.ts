@@ -25,9 +25,9 @@ import {
   verlangeBearbeiterAm,
   verlangeEntwurf,
   verlangeRolleAnAllenPositionen,
+  darfUnternehmensbestandLesen,
   verlangeRundenLeserecht,
   verlangeRundenrecht,
-  verwandteFonds,
   type PositionZeile,
   type RundeZeile,
 } from "../kapital/runden";
@@ -265,11 +265,10 @@ export function organisationRundenRouten(db: Db) {
       const akteur = aktuellerAkteur(c);
       const daten = await lese(db, async (tx) => {
         await ladeOrganisation(tx, id);
-        const alle = await ladeRundenAntwort(tx, id);
-        if (akteur.globalVerwalter) return alle;
-        // Rechtsgrundlage am Unternehmen: alle Runden; sonst nur Runden, in denen ein Fonds der Person eine Position hat.
-        const grundlage = await verwandteFonds(tx, id);
-        if ([...grundlage].some((f) => hatRolle(akteur, f, "betrachter"))) return alle;
+        const bestandSichtbar = await darfUnternehmensbestandLesen(tx, akteur, id);
+        const alle = await ladeRundenAntwort(tx, id, bestandSichtbar);
+        if (bestandSichtbar) return alle;
+        // Ohne Unternehmensbezug bleiben Runden mit Position eines zugänglichen Fonds sichtbar.
         const eigene = alle.filter((r) => r.positionen.some((p) => p.investor.art === "fonds" && hatRolle(akteur, p.investor.id, "betrachter")));
         if (eigene.length === 0) throw new Fachfehler(403, "forbidden", "You do not have permission for this.");
         return eigene;
@@ -299,22 +298,17 @@ export function organisationRundenRouten(db: Db) {
       const eigenkapital = { ...e, preMoney: e.preMoney!, preisJeAnteil: e.preisJeAnteil! };
       const volumen = e.positionen.reduce((s, p) => s.plus(p.betrag), new Decimal(0));
       const { id } = c.req.valid("param");
-      // Den Pool der Mitarbeiterbeteiligung bezieht die Vorschau nur mit Leserecht an den bestehenden Runden ein, und zwar nur über Fonds, die
-      // schon mit dem Unternehmen verbunden sind (Fonds aus dem Körper zählen nicht). Ohne dieses Recht rechnet sie wie ohne Pool: Ein
-      // einsteigender Fonds kann eine neue Runde weiter vorab prüfen, erfährt aber nichts über den Bestand.
-      const pool = await lese(db, async (tx) => {
-        const darfLesen = await verlangeRundenLeserecht(tx, aktuellerAkteur(c), id).then(
-          () => true,
-          (fehler: unknown) => {
-            if (fehler instanceof Fachfehler && fehler.status === 403) return false;
-            throw fehler;
-          },
-        );
-        return darfLesen ? poolBeiRunde(await ladePoolBestand(tx, id), e.datum, null) : null;
+      const { pool, bestandSichtbar } = await lese(db, async (tx) => {
+        const bestandSichtbar = await darfUnternehmensbestandLesen(tx, aktuellerAkteur(c), id);
+        const pool = bestandSichtbar ? poolBeiRunde(await ladePoolBestand(tx, id), e.datum, null) : null;
+        return { pool, bestandSichtbar };
       });
       const mitAufstockung = poolMitAufstockung(pool, e.poolAufstockung);
       const w = wirksam(eigenkapital, volumen, mitAufstockung);
-      const pruefung = pruefeRunde({ preMoney: eigenkapital.preMoney, postMoney: w.postMoney, preisJeAnteil: eigenkapital.preisJeAnteil, anteileGesamtNach: w.anteileGesamtNach }, e.positionen, mitAufstockung);
+      const pruefung = {
+        ...pruefeRunde({ preMoney: eigenkapital.preMoney, postMoney: w.postMoney, preisJeAnteil: eigenkapital.preisJeAnteil, anteileGesamtNach: w.anteileGesamtNach }, e.positionen, mitAufstockung),
+        ...(bestandSichtbar ? {} : { bestandAusgeblendet: true as const }),
+      };
       const dubletten = await lese(db, (tx) => findeRundenDubletten(tx, aktuellerAkteur(c), id, eigenkapital));
       return c.json(portfolioAnApi({ postMoney: w.postMoney, anteileGesamtNach: w.anteileGesamtNach, pruefung, dubletten }), 200);
     })
@@ -372,7 +366,8 @@ export function organisationRundenRouten(db: Db) {
         }
         const { runde, dubletten } = await legeRundenentwurfAn(tx, protokoll, akteur, id, e);
         if (e.poolAufstockung) await legeAufstockungAn(tx, protokoll, id, runde, e.poolAufstockung);
-        return { ...(await ladeRundenAntwort(tx, runde.organisationId, runde.id))[0]!, dubletten };
+        const bestandSichtbar = await darfUnternehmensbestandLesen(tx, akteur, id);
+        return { ...(await ladeRundenAntwort(tx, id, bestandSichtbar, runde.id))[0]!, dubletten };
       });
       return c.json(portfolioAnApi(antwort), 201);
     });
@@ -388,7 +383,10 @@ export function rundenRouten(db: Db) {
     if (alleFonds) await verlangeRolleAnAllenPositionen(tx, akteur, id, mindest === "verwalter" ? "verwalter" : "bearbeiter");
     return runde;
   };
-  const antwortVon = async (tx: Tx, runde: RundeZeile) => (await ladeRundenAntwort(tx, runde.organisationId, runde.id))[0]!;
+  const antwortVon = async (tx: Tx, akteur: ReturnType<typeof aktuellerAkteur>, runde: RundeZeile) => {
+    const bestandSichtbar = await darfUnternehmensbestandLesen(tx, akteur, runde.organisationId);
+    return (await ladeRundenAntwort(tx, runde.organisationId, bestandSichtbar, runde.id))[0]!;
+  };
 
   return new Hono()
     .get("/:id", pruefePortfolio("param", idParam), async (c) => {
@@ -398,7 +396,7 @@ export function rundenRouten(db: Db) {
         const [runde] = await tx.select().from(finanzierungsrunde).where(eq(finanzierungsrunde.id, id));
         if (!runde) throw new Fachfehler(404, "round_not_found", "Financing round not found.");
         await verlangeRundenrecht(tx, akteur, runde.organisationId, "betrachter", [], id);
-        return antwortVon(tx, runde);
+        return antwortVon(tx, akteur, runde);
       });
       return c.json(portfolioAnApi(antwort), 200);
     })
@@ -443,11 +441,11 @@ export function rundenRouten(db: Db) {
           );
           werte = { bezeichnung: zusammen.bezeichnung, datum: zusammen.datum, preMoney: zusammen.preMoney, preisJeAnteil: zusammen.preisJeAnteil, postMoney: w.postMoney, anteileGesamtNach: w.anteileGesamtNach };
         }
-        if (Object.keys(werte).length === 0) return antwortVon(tx, vorher);
+        if (Object.keys(werte).length === 0) return antwortVon(tx, akteur, vorher);
         if (werte.datum !== undefined && werte.datum !== vorher.datum) await ziehePoolAenderungenMit(tx, protokoll, akteur, vorher, werte.datum);
         const [nachher] = await tx.update(finanzierungsrunde).set(werte).where(eq(finanzierungsrunde.id, id)).returning();
         await protokoll("aendern", "finanzierungsrunde", id, vorher, nachher);
-        return antwortVon(tx, nachher!);
+        return antwortVon(tx, akteur, nachher!);
       });
       return c.json(portfolioAnApi(antwort), 200);
     })
@@ -511,7 +509,7 @@ export function rundenRouten(db: Db) {
           .values({ rundeId: id, fondsId: e.fondsId ?? null, vehikelId: v?.id ?? null, betrag: e.betrag, anteile: e.anteile, rolle: e.rolle, anteilsklasseId: e.anteilsklasseId ?? null })
           .returning();
         await protokoll("anlegen", "rundenposition", zeile!.id, null, zeile);
-        return antwortVon(tx, runde);
+        return antwortVon(tx, akteur, runde);
       });
       return c.json(portfolioAnApi(antwort), 201);
     })
@@ -539,7 +537,7 @@ export function rundenRouten(db: Db) {
         }
         const [nachher] = await tx.update(rundenposition).set(nurGesetzte(e)).where(eq(rundenposition.id, positionId)).returning();
         await protokoll("aendern", "rundenposition", positionId, vorher, nachher);
-        return antwortVon(tx, runde);
+        return antwortVon(tx, akteur, runde);
       });
       return c.json(portfolioAnApi(antwort), 200);
     })
@@ -555,7 +553,7 @@ export function rundenRouten(db: Db) {
         if (await positionVerwendet(tx, positionId)) throw new Fachfehler(409, "round_position_posted", "This position has bookings, payments or an instrument; it cannot be removed.");
         await tx.delete(rundenposition).where(eq(rundenposition.id, positionId));
         await protokoll("loeschen", "rundenposition", positionId, vorher, null);
-        return antwortVon(tx, runde);
+        return antwortVon(tx, akteur, runde);
       });
       return c.json(portfolioAnApi(antwort), 200);
     })
@@ -576,6 +574,10 @@ export function rundenRouten(db: Db) {
         const positionen = await positionenVon(tx, id);
         const pruefung = pruefeRunde(rundenWerte(vorher), positionen, poolBeiRunde(await ladePoolBestand(tx, vorher.organisationId), vorher.datum, id));
         if (!pruefung.schliessbar) {
+          if (!(await darfUnternehmensbestandLesen(tx, akteur, vorher.organisationId))) {
+            const sichtbarePruefung = pruefeRunde({ ...rundenWerte(vorher), anteileGesamtNach: null }, positionen);
+            throw new Fachfehler(409, "round_inconsistent_restricted", "The round cannot be closed. The company data requires review.", { abweichungen: sichtbarePruefung.abweichungen });
+          }
           throw new Fachfehler(409, "round_inconsistent", "The round is not consistent and cannot be closed.", { abweichungen: pruefung.abweichungen });
         }
         const buchungen = await bucheFondsBuchungen(tx, protokoll, akteur, vorher, positionen, e.fondsBuchungen);
@@ -585,7 +587,7 @@ export function rundenRouten(db: Db) {
           .where(eq(finanzierungsrunde.id, id))
           .returning();
         await protokoll("abschliessen", "finanzierungsrunde", id, vorher, { ...nachher, vorgangIds: buchungen.flatMap((b) => b.vorgangIds) });
-        return { runde: await antwortVon(tx, nachher!), buchungen };
+        return { runde: await antwortVon(tx, akteur, nachher!), buchungen };
       });
       return c.json(portfolioAnApi(ergebnis), 200);
     })
@@ -606,7 +608,7 @@ export function rundenRouten(db: Db) {
           .where(eq(finanzierungsrunde.id, id))
           .returning();
         await protokoll("wiedereroeffnen", "finanzierungsrunde", id, vorher, { ...nachher, grund });
-        return antwortVon(tx, nachher!);
+        return antwortVon(tx, akteur, nachher!);
       });
       return c.json(portfolioAnApi(antwort), 200);
     });

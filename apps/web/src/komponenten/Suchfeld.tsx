@@ -34,6 +34,7 @@ interface ComboboxProps {
   hilfe?: ReactNode;
   fehler?: ReactNode;
   required?: boolean;
+  disabled?: boolean;
   name?: string;
   onVerlassen?: () => void;
 }
@@ -42,7 +43,7 @@ interface ComboboxProps {
  * Eingabefeld mit Vorschlagsliste nach dem ARIA-Combobox-Muster: `aria-expanded`, `aria-controls`, `aria-activedescendant`; Pfeiltasten
  * bewegen die Markierung, Enter wählt, Escape schließt die Liste. Der Fokus bleibt im Feld. Passwortmanager bieten hier nichts an.
  */
-function Combobox({ label, text, onText, optionen, laedt, leerText, hilfe, fehler, required, name, onVerlassen }: ComboboxProps) {
+export function Combobox({ label, text, onText, optionen, laedt, leerText, hilfe, fehler, required, disabled, name, onVerlassen }: ComboboxProps) {
   const t = useT();
   const basis = useId();
   const [offen, setOffen] = useState(false);
@@ -79,6 +80,7 @@ function Combobox({ label, text, onText, optionen, laedt, leerText, hilfe, fehle
         label={label}
         name={name}
         required={required}
+        disabled={disabled}
         hilfe={hilfe}
         fehler={fehler}
         value={text}

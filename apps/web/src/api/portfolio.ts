@@ -2,6 +2,7 @@ import { queryOptions } from "@tanstack/react-query";
 import type { InferRequestType } from "hono/client";
 import type { HerkunftProps } from "@carraway/ui";
 import { api, auspacken } from "./client";
+import { auspackenPortfolio, type PortfolioEingabe } from "./abbildung-portfolio";
 import { useApiMutation } from "./mutationen";
 
 /**
@@ -58,3 +59,21 @@ export const useZielfondsStorno = (fondsId: string, id: string) =>
 
 export const useZielfondsMeldung = (fondsId: string, id: string) =>
   useApiMutation({ aufruf: (json: NeueZielfondsMeldung) => auspacken(api.api.v1.funds[":id"]["target-funds"][":targetFundId"]["nav-reports"].$post({ param: { id: fondsId, targetFundId: id }, json })), invalidiert: gueltig });
+
+type BeteiligungAnlageRoute = (typeof api.api.v1.funds)[":id"]["investments"]["$post"];
+export type NeueBeteiligung = PortfolioEingabe<BeteiligungAnlageRoute>["json"];
+
+const ladeUnternehmen = (fondsId: string, q: string) =>
+  auspackenPortfolio(api.api.v1.funds[":id"]["investment-companies"].$get, { param: { id: fondsId }, query: { q } });
+
+export type Beteiligungsunternehmen = Awaited<ReturnType<typeof ladeUnternehmen>>[number];
+
+export const beteiligungsunternehmen = (fondsId: string, q: string) =>
+  queryOptions({ queryKey: [...wurzel, "beteiligungsunternehmen", fondsId, q], queryFn: () => ladeUnternehmen(fondsId, q) });
+
+export const useBeteiligungAnlegen = () =>
+  useApiMutation({
+    aufruf: ({ fondsId, ...json }: NeueBeteiligung & { fondsId: string }) =>
+      auspackenPortfolio(api.api.v1.funds[":id"].investments.$post, { param: { id: fondsId }, json }),
+    invalidiert: () => [...gueltig(), ["organisationen"], ["beteiligungen"]],
+  });

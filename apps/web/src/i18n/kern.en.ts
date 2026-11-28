@@ -120,6 +120,13 @@ export const kernEn: Kern = {
     beschlussBetrag: (betrag) => `The approved amount is ${betrag}.`,
   },
   feldfehler: {
+    cap_vsop_only: "A payout cap is only available for VSOP.",
+    rule_vsop_only: "Choose a payout rule for this type of pool.",
+    invalid_vesting_schedule: "Positive shares must add up to 100%. Milestones must fall on or after vesting starts.",
+    invalid_leaver_tiers: "Use each minimum duration only once per leaver type.",
+    invalid_grant_timeline: "Enough vested units must be available on each exercise date.",
+    grant_has_exercises: "Record individual exercises or set the status for the whole grant.",
+    exercise_esop_only: "Partial exercises are available for ESOP options.",
     too_small: "Please enter a value.",
     invalid_type: "Please enter a value.",
     too_big: "The value is too long or too large.",

@@ -73,7 +73,7 @@ export function zuteilungAusZeile(w: Record<string, string>) {
 
 function zuteilungKernAusZeile(w: Record<string, string>): ZuteilungKern {
   const z = zuteilungAusZeile(w);
-  return { anzahl: z.anzahl, zugeteiltAm: z.zugeteiltAm, vestingBeginn: z.vestingBeginn, cliffMonate: z.cliffMonate, vestingMonate: z.vestingMonate, taktMonate: z.taktMonate, beschleunigung: z.beschleunigung, basispreis: z.basispreis, status: z.status, statusAm: z.statusAm, austritte: [] };
+  return { anzahl: z.anzahl, zugeteiltAm: z.zugeteiltAm, vestingBeginn: z.vestingBeginn, cliffMonate: z.cliffMonate, vestingMonate: z.vestingMonate, taktMonate: z.taktMonate, beschleunigung: z.beschleunigung, basispreis: z.basispreis, status: z.status, statusAm: z.statusAm, ausloeser: z.ausloeser, vestingStufen: null, leaverStufen: null, austritte: [], ausuebungen: [] };
 }
 
 /**

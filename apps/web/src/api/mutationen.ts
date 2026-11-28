@@ -563,6 +563,10 @@ type Austritte = Pools[":poolId"]["grants"][":grantId"]["departures"];
 export type NeuerAustritt = PortfolioEingabe<Austritte["$post"]>["json"];
 export type AustrittAenderung = PortfolioEingabe<Austritte[":departureId"]["$patch"]>["json"];
 type AustrittZiel = { poolId: string; zuteilungId: string };
+type MitarbeiterAusuebungen = Pools[":poolId"]["grants"][":grantId"]["exercises"];
+type NeueMitarbeiterAusuebung = PortfolioEingabe<MitarbeiterAusuebungen["$post"]>["json"];
+type MitarbeiterAusuebungAenderung = PortfolioEingabe<MitarbeiterAusuebungen[":exerciseId"]["$patch"]>["json"];
+type MitarbeiterAusuebungZiel = AustrittZiel & { ausuebungId: string };
 
 export const usePoolAnlegen = (organisationId: string) =>
   useApiMutation({
@@ -647,6 +651,27 @@ export const useAustrittEntfernen = (organisationId: string) =>
   useApiMutation({
     aufruf: ({ poolId, zuteilungId, austrittId }: AustrittZiel & { austrittId: string }) =>
       auspackenPortfolio(api.api.v1.organizations[":id"]["employee-pools"][":poolId"].grants[":grantId"].departures[":departureId"].$delete, { param: { id: organisationId, poolId, zuteilungId, austrittId } }),
+    invalidiert: () => kapitalGeaendert,
+  });
+
+export const useMitarbeiterAusuebungAnlegen = (organisationId: string) =>
+  useApiMutation({
+    aufruf: ({ poolId, zuteilungId, ...json }: AustrittZiel & NeueMitarbeiterAusuebung) =>
+      auspackenPortfolio(api.api.v1.organizations[":id"]["employee-pools"][":poolId"].grants[":grantId"].exercises.$post, { param: { id: organisationId, poolId, zuteilungId }, json }),
+    invalidiert: () => kapitalGeaendert,
+  });
+
+export const useMitarbeiterAusuebungAendern = (organisationId: string) =>
+  useApiMutation({
+    aufruf: ({ poolId, zuteilungId, ausuebungId, ...json }: MitarbeiterAusuebungZiel & MitarbeiterAusuebungAenderung) =>
+      auspackenPortfolio(api.api.v1.organizations[":id"]["employee-pools"][":poolId"].grants[":grantId"].exercises[":exerciseId"].$patch, { param: { id: organisationId, poolId, zuteilungId, ausuebungId }, json }),
+    invalidiert: () => kapitalGeaendert,
+  });
+
+export const useMitarbeiterAusuebungEntfernen = (organisationId: string) =>
+  useApiMutation({
+    aufruf: ({ poolId, zuteilungId, ausuebungId }: MitarbeiterAusuebungZiel) =>
+      auspackenPortfolio(api.api.v1.organizations[":id"]["employee-pools"][":poolId"].grants[":grantId"].exercises[":exerciseId"].$delete, { param: { id: organisationId, poolId, zuteilungId, ausuebungId } }),
     invalidiert: () => kapitalGeaendert,
   });
 

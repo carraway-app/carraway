@@ -129,6 +129,13 @@ export const kernDe = {
     beschlussBetrag: (betrag: string) => `Beschlossen sind ${betrag}.`,
   },
   feldfehler: {
+    cap_vsop_only: "Eine VSOP-Obergrenze ist nur für virtuelle Beteiligungen verfügbar.",
+    rule_vsop_only: "Wähle die Auszahlungsregel für diesen VSOP-Pool.",
+    invalid_vesting_schedule: "Die positiven Anteile müssen zusammen 100 % ergeben. Meilensteine liegen am oder nach dem Vesting-Beginn.",
+    invalid_leaver_tiers: "Je Austrittsart darf jede Mindestdauer nur einmal vorkommen.",
+    invalid_grant_timeline: "Zu jedem Ausübungsdatum müssen genügend gevestete Einheiten verfügbar sein.",
+    grant_has_exercises: "Erfasse einzelne Ausübungen oder setze den Status für die gesamte Zuteilung.",
+    exercise_esop_only: "Teilausübungen sind für ESOP-Optionen möglich.",
     too_small: "Bitte eine Angabe machen.",
     invalid_type: "Bitte eine Angabe machen.",
     too_big: "Die Angabe ist zu lang oder zu groß.",

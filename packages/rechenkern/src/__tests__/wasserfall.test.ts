@@ -187,3 +187,42 @@ describe("Rundung und Eingaben", () => {
     expect(() => wasserfall({ ...basis, exitdatum: "morgen" })).toThrow();
   });
 });
+
+describe("VSOP vor der Verteilung und mit Obergrenze", () => {
+  const { exitwert: _ignoriert, ...eingabe } = REFERENZ_FAELLE.find((f) => f.name.startsWith("M7"))!.eingabe;
+
+  it("findet Basispreis, Obergrenze und die verschobene Präferenzschwelle", () => {
+    const knicke = wasserfallKnicke(eingabe, "1500", 2);
+    for (const [art, exitwert] of [["im_geld", "100"], ["deckel", "400"], ["praeferenz_voll", "910"], ["beteiligung_beginn", "910"]] as const) {
+      const treffer = knicke.find((k) => k.ereignisse.some((e) => e.art === art));
+      expect(treffer?.exitwert.minus(exitwert).abs().lessThanOrEqualTo("0.01"), art).toBe(true);
+    }
+  });
+
+  it("weist bei vollständig ausgeschöpftem Erlös keinen Rest aus", () => {
+    const { wert } = wasserfall({
+      exitwert: "0.05", exitdatum: eingabe.exitdatum, klassen: [],
+      inhaber: ["A", "B", "C"].map((id) => ({
+        id, name: id, klasseId: null, anteile: "1", investiert: "0", mitarbeiter: { basispreis: "0", regel: "vor_verteilung" },
+      })),
+    });
+    expect(wert.nichtVerteilt.isZero()).toBe(true);
+    expect(wert.restNachPraeferenzen.isZero()).toBe(true);
+    expect(wert.zeilen.map((z) => z.gesamt.toFixed(2))).toEqual(["0.02", "0.02", "0.01"]);
+  });
+
+  it("erkennt gedeckelte Auszahlungen auch bei einem vollständig gedeckelten Pool", () => {
+    const fall = REFERENZ_FAELLE.find((f) => f.name.startsWith("M9"))!;
+    const { wert } = wasserfall(fall.eingabe);
+    expect(wert.preisJeAnteil).toBeNull();
+    expect(wert.zeilen.map((z) => z.imGeld)).toEqual([true, false]);
+  });
+
+  it("weist eine negative Obergrenze je Einheit zurück", () => {
+    const mitarbeiter = { basispreis: "0", regel: "vor_verteilung", obergrenzeJeEinheit: "-1" } as const;
+    expect(() => wasserfall({
+      ...eingabe, exitwert: "900",
+      inhaber: [{ id: "VSOP", name: "VSOP", klasseId: null, anteile: "20", investiert: "0", mitarbeiter }],
+    })).toThrow(/Obergrenze je Einheit/);
+  });
+});

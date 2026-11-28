@@ -24,9 +24,12 @@ Die Regeln sind dieselben wie in `src/wasserfall.ts`, der Aufbau der Rechnung is
   Mitarbeiter Zeilen mit Basispreis (ESOP/VSOP, ohne Klasse) bekommen je Einheit max(0, p − Basispreis), p = Betrag je Stammanteil.
             Regel „wie_anteile“: sie teilen den Rest mit den Poolzeilen. Die Referenz probiert ALLE Mengen von Zeilen „im Geld“ durch
             (Basispreis < p), rechnet je Menge p wie oben mit Basispreisen und verlangt genau eine widerspruchsfreie Menge.
-            Regel „anteilig“: erst ohne diese Zeilen verteilen (p0, verteilt D), dann je Menge M „im Geld“ f = (D + Σ_M n·K) ÷
-            (D + p0 · Σ_M n); widerspruchsfrei, wenn K < p0·f genau für M gilt. Alle übrigen Rückflüsse × f, die Zeile bekommt
-            n · (p0·f − K).
+            Regel „vor_verteilung“: Preis = Nettoerlös ÷ (reale Anteile aller Klassen + vorab berechtigte Einheiten).
+            Die Zahlungen werden vor allen Präferenzen abgezogen. Eine Betragsobergrenze je Einheit begrenzt die Auszahlung
+            oberhalb des Basispreises in jeder Regel.
+            Regel „anteilig“: erst ohne diese Zeilen verteilen (p0, nach Vorabzahlung verteilt D), dann jede Kombination aus
+            „aus dem Geld“, „im Geld“ und „am Cap“ durchprobieren. Für die Zahlung C der Zeilen am Cap und Menge M der übrigen
+            Zeilen im Geld gilt f = (D − C + Σ_M n·K) ÷ (D + p0 · Σ_M n). Die nachrangigen Rückflüsse werden mit f malgenommen.
   Rundung   Alle Beträge sind bis dahin exakt. Die Teile (Präferenz und Beteiligung je Zeile, in dieser Reihenfolge, Zeilen in
             Eingabereihenfolge) werden auf Cent nach der Methode des größten Rests gerundet: abgerundete Cent plus je ein Cent an die
             größten Reste (Gleichstand: kleinerer Index), die Summe ist der auf Cent gerundete (halb auf) Gesamtbetrag der Teile.
@@ -34,7 +37,7 @@ Die Regeln sind dieselben wie in `src/wasserfall.ts`, der Aufbau der Rechnung is
             gerundet (halb auf) die Summe der Teile; Sofort = Gesamt − Treuhand. Multiple = Gesamt ÷ investiert, vier Stellen halb auf.
 """
 from fractions import Fraction as F
-from itertools import combinations
+from itertools import combinations, product
 from datetime import date
 from math import floor
 
@@ -70,12 +73,29 @@ def anspruch(fall, h):
     return basis * (1 + zins * F(t, 365))
 
 
+def obergrenze(h):
+    deckel = h.get("obergrenze")
+    return None if deckel is None else F(h["anteile"]) * F(deckel)
+
+
 def verteile(fall, gewandelt):
     """Zerlegung des Erlöses bei gegebener Menge gewandelter Klassen: (pref, beteiligung, nicht_verteilt, gedeckelt)."""
     E = F(fall["E"])
     pref = {h["id"]: F(0) for h in fall["inhaber"]}
     teil = {h["id"]: F(0) for h in fall["inhaber"]}
     gedeckelt = set()
+
+    # Vorabzahlung anhand des Nettoerlöses je realem Anteil und vorab berechtigter Einheit
+    vorab = [h for h in fall["inhaber"] if h.get("regel") == "vor_verteilung" and F(h["anteile"]) > 0]
+    if vorab:
+        anteile = sum(F(h["anteile"]) for h in fall["inhaber"] if "basispreis" not in h) + sum(F(h["anteile"]) for h in vorab)
+        for h in vorab:
+            roh = F(h["anteile"]) * max(F(0), E / anteile - F(h["basispreis"]))
+            cap = obergrenze(h)
+            teil[h["id"]] = roh if cap is None else min(roh, cap)
+            if teil[h["id"]] < roh:
+                gedeckelt.add(h["id"])
+        E -= sum(teil.values())
 
     # Präferenzen nach Rangstufen
     stufen = {}
@@ -96,10 +116,10 @@ def verteile(fall, gewandelt):
     for h in fall["inhaber"]:
         s = F(h["anteile"])
         k = klasse_von(fall, h["klasse"])
-        if h.get("regel") == "anteilig":
+        if h.get("regel") in ("anteilig", "vor_verteilung"):
             continue
         if k is None or k["id"] in gewandelt:
-            pool.append((h["id"], s, None, F(h.get("basispreis") or 0)))
+            pool.append((h["id"], s, obergrenze(h), F(h.get("basispreis") or 0)))
         elif k["partizipierend"]:
             if k.get("cap") is None:
                 pool.append((h["id"], s, None, F(0)))
@@ -109,11 +129,10 @@ def verteile(fall, gewandelt):
     pool = [p for p in pool if p[1] > 0]
     nicht_verteilt = F(0)
     preis = None
-    im_geld = set()
     if not pool:
         nicht_verteilt = rest
     else:
-        preis, im_geld, nicht_verteilt = preis_mit_basispreisen(pool, rest)
+        preis, _, nicht_verteilt = preis_mit_basispreisen(pool, rest)
         for pid, s, spiel, basis in pool:
             roh = s * max(F(0), preis - basis) if preis is not None else None
             if spiel is not None and (roh is None or roh > spiel):
@@ -125,25 +144,28 @@ def verteile(fall, gewandelt):
     anteilig = [h for h in fall["inhaber"] if h.get("regel") == "anteilig" and F(h["anteile"]) > 0]
     D = E - nicht_verteilt
     if anteilig and preis is not None and D > 0:
+        daten = [(h["id"], F(h["anteile"]), F(h["basispreis"]), obergrenze(h)) for h in anteilig]
         treffer = []
-        for n in range(len(anteilig) + 1):
-            for menge in combinations(anteilig, n):
-                ids = {h["id"] for h in menge}
-                f = (D + sum(F(h["anteile"]) * F(h["basispreis"]) for h in menge)) / (D + preis * sum(F(h["anteile"]) for h in menge))
-                if all((F(h["basispreis"]) < preis * f) == (h["id"] in ids) for h in anteilig):
-                    treffer.append((ids, f))
+        moeglich = [(0, 1, 2) if cap is not None else (0, 1) for _, _, _, cap in daten]
+        for zustaende in product(*moeglich):
+            aktiv = [d for d, z in zip(daten, zustaende) if z == 1]
+            gedeckelt_summe = sum(cap for (_, _, _, cap), z in zip(daten, zustaende) if z == 2)
+            f = (D - gedeckelt_summe + sum(n * basis for _, n, basis, _ in aktiv)) / (D + preis * sum(n for _, n, _, _ in aktiv))
+            roh = [n * (preis * f - basis) for _, n, basis, _ in daten]
+            if all(z == (0 if r <= 0 else 2 if cap is not None and r > cap else 1)
+                   for (_, _, _, cap), z, r in zip(daten, zustaende, roh)):
+                treffer.append((f, roh))
         assert len(treffer) == 1, (fall["name"], treffer)
-        ids, f = treffer[0]
-        if ids:
-            for h in fall["inhaber"]:
-                if h.get("regel") == "anteilig":
-                    continue
-                pref[h["id"]] *= f
-                teil[h["id"]] *= f
-            for h in anteilig:
-                if h["id"] in ids:
-                    teil[h["id"]] = F(h["anteile"]) * (preis * f - F(h["basispreis"]))
-                    im_geld.add(h["id"])
+        f, roh = treffer[0]
+        for h in fall["inhaber"]:
+            if h.get("regel") in ("anteilig", "vor_verteilung"):
+                continue
+            pref[h["id"]] *= f
+            teil[h["id"]] *= f
+        for (id, _, _, cap), r in zip(daten, roh):
+            teil[id] = max(F(0), r if cap is None else min(r, cap))
+            if teil[id] < r:
+                gedeckelt.add(id)
     return pref, teil, nicht_verteilt, gedeckelt
 
 
@@ -267,9 +289,12 @@ def h(id, klasse, anteile, investiert="0", datum=None):
     return dict(id=id, name=id, klasse=klasse, anteile=anteile, investiert=investiert, datum=datum)
 
 
-def m(id, anteile, basispreis, regel="wie_anteile"):
+def m(id, anteile, basispreis, regel="wie_anteile", obergrenze=None):
     """Mitarbeiterbeteiligung: gevestete Einheiten, Basis- oder Ausübungspreis, Regel."""
-    return dict(id=id, name=id, klasse=None, anteile=anteile, investiert="0", datum=None, basispreis=basispreis, regel=regel)
+    zeile = dict(id=id, name=id, klasse=None, anteile=anteile, investiert="0", datum=None, basispreis=basispreis, regel=regel)
+    if obergrenze is not None:
+        zeile["obergrenze"] = obergrenze
+    return zeile
 
 
 FAELLE = [
@@ -344,6 +369,20 @@ FAELLE = [
     # M6: VSOP anteilig aus dem Geld
     dict(name="M6 VSOP anteilig aus dem Geld", E="5000000", exitdatum="2026-06-30", klassen=[k("SerieA", 1)],
          inhaber=[h("Gruender", None, "7000000"), h("FondsA", "SerieA", "3000000", "3000000", "2024-03-01"), m("VSOP", "1000000", "1", "anteilig")]),
+    dict(name="M7 Vorabzahlung kürzt den Erlös vor der Präferenz", E="900", exitdatum="2026-06-30", treuhand="0.1",
+         klassen=[k("SerieA", 1, umw=False)],
+         inhaber=[h("Gruender", None, "60"), h("FondsA", "SerieA", "20", "850"), m("VSOP", "20", "1", "vor_verteilung", "3")]),
+    dict(name="M8 Gemischte Ränge mit Obergrenzen und Basispreisen", E="1500", exitdatum="2026-06-30", treuhand="0.15",
+         klassen=[k("SerieA", 1, part=True)],
+         inhaber=[h("Gruender", None, "60"), h("FondsA", "SerieA", "20", "200"),
+                  m("Vorab", "20", "1", "vor_verteilung", "2"), m("Rest", "7", "1", "wie_anteile", "3"),
+                  m("Anteilig1", "6", "2", "anteilig", "4"), m("Anteilig2", "8", "6", "anteilig"),
+                  m("Anteilig3", "10", "15", "anteilig")]),
+    dict(name="M9 Nur gedeckelte Einheiten im Restpool", E="10", exitdatum="2026-06-30", klassen=[],
+         inhaber=[m("VSOP1", "2", "1", "wie_anteile", "0.5"), m("VSOP2", "4", "8", "wie_anteile", "0")]),
+    dict(name="M10 Vorabzahlung beeinflusst die Umwandlung", E="400", exitdatum="2026-06-30",
+         klassen=[k("SerieA", 1)],
+         inhaber=[h("Gruender", None, "60"), h("FondsA", "SerieA", "20", "90"), m("VSOP", "20", "0", "vor_verteilung")]),
 ]
 
 # Knickpunkte in geschlossener Form (von Hand hergeleitet, unabhängig vom Code):

@@ -780,7 +780,7 @@ export const rundenposition = pgTable(
 /** `esop`: Optionen auf echte Anteile; `vsop`: virtuelle Anteile mit Auszahlung in Geld. */
 export const mitarbeiterProgrammArt = pgEnum("mitarbeiter_programm_art", ["esop", "vsop"]);
 /** Wer die Auszahlung beim Exit trägt: `wie_anteile` (teilt den Rest wie Stammanteile), `anteilig` (mindert alle Rückflüsse im gleichen Verhältnis, nur VSOP). */
-export const mitarbeiterRegel = pgEnum("mitarbeiter_regel", ["wie_anteile", "anteilig"]);
+export const mitarbeiterRegel = pgEnum("mitarbeiter_regel", ["wie_anteile", "anteilig", "vor_verteilung"]);
 /** Schaffung oder Aufstockung eines Pools im Pre-Money (vor dem Preis der Runde) oder im Post-Money einer Runde. */
 export const poolBasis = pgEnum("pool_basis", ["pre_money", "post_money"]);
 /** Kategorie einer Zuteilung; Zuteilungen brauchen keinen Personennamen. */
@@ -807,6 +807,7 @@ export const mitarbeiterpool = pgTable(
     art: mitarbeiterProgrammArt("art").notNull(),
     bezeichnung: text("bezeichnung").notNull(),
     regel: mitarbeiterRegel("regel").notNull().default("wie_anteile"),
+    obergrenzeJeEinheit: numeric("obergrenze_je_einheit", { precision: 18, scale: 4 }),
     notiz: text("notiz"),
     erfassung: poolErfassung("erfassung").notNull().default("grob"),
     vergeben: numeric("vergeben", { precision: 18, scale: 0 }),
@@ -815,6 +816,7 @@ export const mitarbeiterpool = pgTable(
   },
   (t) => [
     uniqueIndex("mitarbeiterpool_organisation_bezeichnung_uq").on(t.organisationId, t.bezeichnung),
+    check("mitarbeiterpool_obergrenze_vsop", sql`${t.obergrenzeJeEinheit} IS NULL OR (${t.art} = 'vsop' AND ${t.obergrenzeJeEinheit} >= 0)`),
     check("mitarbeiterpool_regel_nur_vsop", sql`${t.art} = 'vsop' OR ${t.regel} = 'wie_anteile'`),
     check("mitarbeiterpool_vergeben", sql`${t.vergeben} IS NULL OR ${t.vergeben} >= 0`),
     check("mitarbeiterpool_basispreis_mittel", sql`${t.basispreisMittel} IS NULL OR ${t.basispreisMittel} >= 0`),
@@ -846,9 +848,8 @@ export const poolAenderung = pgTable(
 /**
  * Zuteilung aus einem Pool, je Person oder Vertrag oder zusammengefasst nach Kategorie. Personenbezug datensparsam: `kennung` (Pseudonym,
  * Personalnummer) als Standard, `name` optional; beides sieht nur, wer den Bereich Einzelzuteilungen hat, der Name steht nie im
- * Änderungsprotokoll oder Export. Anonymisieren leert beides (`anonymisiertAm`). Vesting linear in Stufen von `taktMonate` ab
- * `vestingBeginn` (leer: Zuteilungsdatum) mit Cliff; `beschleunigung` ist der Bruch der ungevesteten Einheiten, der beim Exit vestet
- * (`ausloeser` ist eine Angabe). `verfallen` und `ausgeuebt` gelten ab `statusAm`; `laufzeitBis` (Laufzeitende) und
+ * Änderungsprotokoll oder Export. Anonymisieren leert beides (`anonymisiertAm`). Vesting ist linear oder folgt einem Stufenplan.
+ * `beschleunigung` ist der Bruch der ungevesteten Einheiten, der beim Exit und gegebenenfalls einem zweiten Auslöser vestet. `verfallen` und `ausgeuebt` gelten ab `statusAm`; `laufzeitBis` (Laufzeitende) und
  * `ausuebungsfristMonate` (Frist nach Austritt) sind Angaben. Austritte (Leaver) stehen in `zuteilung_austritt`; `leaverRegel` ist eine Notiz.
  */
 export const mitarbeiterzuteilung = pgTable(
@@ -872,6 +873,8 @@ export const mitarbeiterzuteilung = pgTable(
     name: text("name"),
     anonymisiertAm: timestamp("anonymisiert_am", { withTimezone: true }),
     taktMonate: integer("vesting_takt_monate").notNull().default(1),
+    vestingStufen: jsonb("vesting_stufen").$type<(({ monate: number; datum?: never } | { datum: string; monate?: never }) & { anteil: string })[]>(),
+    leaverStufen: jsonb("leaver_stufen").$type<{ art: "good_leaver" | "bad_leaver"; mindestMonate: number; anteil: string }[]>(),
     ausloeser: beschleunigungAusloeser("beschleunigung_ausloeser").notNull().default("einfach"),
     ausuebungsfristMonate: integer("ausuebungsfrist_monate"),
     laufzeitBis: date("laufzeit_bis"),
@@ -914,6 +917,24 @@ export const zuteilungAustritt = pgTable(
     index("zuteilung_austritt_zuteilung_idx").on(t.zuteilungId),
     check("zuteilung_austritt_anzahl", sql`${t.anzahl} > 0`),
     check("zuteilung_austritt_rueckkaufpreis", sql`${t.rueckkaufpreis} IS NULL OR (${t.gevestet} = 'rueckkauf' AND ${t.rueckkaufpreis} >= 0)`),
+  ],
+);
+
+/** Datiert erfasste Ausübungen einer ESOP-Zuteilung. */
+export const zuteilungAusuebung = pgTable(
+  "zuteilung_ausuebung",
+  {
+    id: id(),
+    zuteilungId: uuid("zuteilung_id").notNull().references(() => mitarbeiterzuteilung.id, { onDelete: "cascade" }),
+    datum: date("datum").notNull(),
+    anzahl: numeric("anzahl", { precision: 18, scale: 0 }).notNull(),
+    preis: numeric("preis", { precision: 18, scale: 4 }).notNull(),
+    erstelltAm: erstelltAm(),
+  },
+  (t) => [
+    index("zuteilung_ausuebung_zuteilung_datum_idx").on(t.zuteilungId, t.datum),
+    check("zuteilung_ausuebung_anzahl", sql`${t.anzahl} > 0`),
+    check("zuteilung_ausuebung_preis", sql`${t.preis} >= 0`),
   ],
 );
 

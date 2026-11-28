@@ -57,11 +57,13 @@ describe("Runde anlegen, ändern, prüfen", () => {
     const antwort = await anlegen(koerper, organisationId, bearbeiterF1);
     expect(antwort.status).toBe(201);
     const r = await json(antwort);
-    expect(r).toMatchObject({ status: "entwurf", bezeichnung: "Serie A", preMoney: "8000000.00", postMoney: "10000000.00", preisJeAnteil: "10.0000", anteileGesamtNach: "1000000", organisationId });
+    expect(r).toMatchObject({ status: "entwurf", bezeichnung: "Serie A", preMoney: "8000000.00", postMoney: "10000000.00", preisJeAnteil: "10.0000", anteileGesamtNach: null, organisationId });
     expect(r.positionen).toHaveLength(2);
     expect(r.positionen[0]).toMatchObject({ investor: { art: "fonds", id: F1, name: "Testfonds Eins" }, betrag: "1500000.00", rolle: "lead", gezahlt: null, offen: null });
     expect(r.positionen[1]).toMatchObject({ investor: { art: "organisation", id: ORG_CO }, gezahlt: "0.00", offen: "500000.00" });
-    expect(r.pruefung).toMatchObject({ volumen: "2000000.00", postMoneyErwartet: "10000000.00", anteileErwartet: "1000000", anteileVergeben: "200000", schliessbar: true, abweichungen: [] });
+    expect(r.pruefung).toMatchObject({ volumen: "2000000.00", postMoneyErwartet: "10000000.00", anteileErwartet: "1000000", anteileVergeben: "200000", schliessbar: true, bestandAusgeblendet: true, abweichungen: [] });
+    const voll = await json(await get(`/finanzierungsrunden/${r.id}`));
+    expect(voll.anteileGesamtNach).toBe("1000000");
     expect(await protokollZeilen(db, "finanzierungsrunde", "anlegen")).toHaveLength(1);
     expect(await protokollZeilen(db, "rundenposition", "anlegen")).toHaveLength(2);
   });

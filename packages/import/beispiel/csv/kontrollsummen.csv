@@ -1,13 +1,13 @@
-fonds_kurzname;groesse;betrag;stichtag
-BF I;zeichnungskapital;60000000,00;
-BF I;zusagen;7990000,00;
-BF I;auszahlungen;7990000,00;
-BF I;rueckfluesse;9376500,00;
-BF II;zeichnungskapital;90000000,00;
-BF II;zusagen;10640000,00;
-BF II;auszahlungen;9938000,00;
-BF II;rueckfluesse;4826600,00;
-BF Seed;zeichnungskapital;25000000,00;
-BF Seed;zusagen;3280000,00;
-BF Seed;auszahlungen;3058000,00;
-BF Seed;rueckfluesse;0,00;
+fonds_kurzname;groesse;betrag;stichtag;beteiligung_schluessel
+BF I;zeichnungskapital;60000000,00;;
+BF I;zusagen;10165410,50;;
+BF I;auszahlungen;10165410,50;;
+BF I;rueckfluesse;652600,00;;
+BF II;zeichnungskapital;90000000,00;;
+BF II;zusagen;10640000,00;;
+BF II;auszahlungen;9938000,00;;
+BF II;rueckfluesse;4826600,00;;
+BF Seed;zeichnungskapital;25000000,00;;
+BF Seed;zusagen;3280000,00;;
+BF Seed;auszahlungen;3058000,00;;
+BF Seed;rueckfluesse;0,00;;
