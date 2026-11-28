@@ -2,7 +2,7 @@
 name: ${COMPOSE_PROJECT_NAME:-carraway}
 
 x-carraway: &carraway
-  image: ${CARRAWAY_IMAGE:-ghcr.io/carraway-app/carraway:0.4.0}
+  image: ${CARRAWAY_IMAGE:-ghcr.io/carraway-app/carraway:0.4.1}
   read_only: true
   tmpfs:
     - /tmp

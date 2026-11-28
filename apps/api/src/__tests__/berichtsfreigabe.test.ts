@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { chmod, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { setTimeout as warte } from "node:timers/promises";
 import ExcelJS from "exceljs";
 import { eq, sql } from "drizzle-orm";
 import { extractText, getDocumentProxy } from "unpdf";
@@ -555,6 +556,25 @@ describe.each(["de", "en"] as const)("Listen, Gremienvorlage und Quartalsbericht
 });
 
 describe("Gleichzeitigkeit", () => {
+  it("wartet bei einer Berichtsänderung länger als das allgemeine Schreib-Sperrlimit", async () => {
+    const b = await anlegen({ art: "lp_bericht", fondsId, sprache: "en" });
+    const { antwort } = await db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT id FROM bericht WHERE id = ${b.id} FOR UPDATE`);
+      const { rows } = await tx.execute<{ pid: number }>(sql`SELECT pg_backend_pid() AS pid`);
+      const antwort = put(`/reports/${b.id}/sections/foreword`, { textEn: "Neues Vorwort." }, "autor");
+      // Die Wartezeit beginnt erst, wenn Postgres die konkurrierende Anfrage als blockiert meldet.
+      await expect.poll(async () => {
+        const { rows: wartende } = await db.execute<{ blockiert: boolean }>(sql`
+          SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE ${rows[0]!.pid} = ANY(pg_blocking_pids(pid))) AS blockiert
+        `);
+        return wartende[0]?.blockiert;
+      }).toBe(true);
+      await warte(2200);
+      return { antwort };
+    });
+    expect((await antwort).status).toBe(200);
+  });
+
   it("zwei gleichzeitige Freigaben der letzten Stufe: eine gewinnt, die andere sieht den freigegebenen Bericht", async () => {
     const b = await anlegen({ art: "exitliste", fondsId });
     await stufe(b.id, "Investmentmanager", "a1");

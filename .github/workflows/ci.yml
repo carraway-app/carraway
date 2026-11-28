@@ -4,7 +4,7 @@ name: CI
 # Diese Datei stammt aus scripts/oss/oeffentlich/ des privaten Repos und wird beim Export ersetzt.
 on:
   push:
-    branches: [main]
+    branches: [main, "release/**"]
   pull_request:
 
 permissions: {}

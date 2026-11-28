@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, lt } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, lt, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import { FREITEXT_SCHLUESSEL, pruefeKonfiguration } from "@carraway/berichte";
@@ -18,7 +18,7 @@ import { pruefeZusagenVollstaendig } from "../instrumente/zusagen";
 import { standardStichtag } from "../kennzahlen/fonds";
 import { verlangeAnderenAkteur } from "../instrumente/bewertung";
 import { geaendertSeitBedingung, geaendertSeitEingabe } from "../geaendert";
-import { heute, idParam, optionalerText, protokolliereLesen, schreibe, textEingabe } from "../schreiben";
+import { heute, idParam, optionalerText, protokolliereLesen, schreibe, SCHREIB_LOCK_TIMEOUT_MS, textEingabe } from "../schreiben";
 import { fondsSichtbar } from "../rechte/sichtbarkeit";
 import { lese, type Tx } from "../zeitlimit";
 import { berichtPruefung } from "../berichte-pruefung";
@@ -71,7 +71,11 @@ const abschnittEingabe = z
 const jetzt = () => new Date(Date.now() + 1);
 
 async function sperreBericht(tx: Tx, id: string): Promise<Bericht> {
+  // Die letzte Freigabe hält die Zeile auch beim Erzeugen und Speichern der Datei.
+  // Für diese Abfrage begrenzt das bestehende statement_timeout die Wartezeit.
+  await tx.execute(sql`SET LOCAL lock_timeout = 0`);
   const [b] = await tx.select().from(bericht).where(eq(bericht.id, id)).for("update");
+  await tx.execute(sql.raw(`SET LOCAL lock_timeout = ${SCHREIB_LOCK_TIMEOUT_MS}`));
   if (!b) throw new Fachfehler(404, "report_not_found", "Report not found.");
   return b;
 }
